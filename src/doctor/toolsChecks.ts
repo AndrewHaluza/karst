@@ -102,7 +102,9 @@ function checkDependency(dep: RequiredDependency, probes: ToolsProbes): DoctorCh
       status: 'fail',
       title,
       detail: renderMissingDependency(dep),
-      fix: { tier: 'consented', summary: `Install ${dep.label}`, command: dep.install },
+      // `dep.install` is prose (where to install from), not a command, so the
+      // page reads it as a step — never a <pre> with a Copy button (DR-2).
+      fix: { tier: 'report', summary: `Install ${dep.label}`, nextStep: dep.install },
     };
   }
   if (state === 'not-ready') {

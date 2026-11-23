@@ -206,6 +206,22 @@ describe('the fix confirmation (DR-3, UI-R33)', () => {
     expect(h.posts).toEqual([{ type: 'fix-cancelled' }]);
   });
 
+  it('hands the button back when the confirmation itself fails', async () => {
+    const h = harness();
+    h.setReports(autoReport());
+    const flow = createDoctorFlow({
+      ...h.deps,
+      confirm: async () => {
+        throw new Error('the modal could not be shown');
+      },
+    });
+    await flow.start();
+    await flow.handleMessage({ type: 'fix' });
+    // A rejected modal is a cancel: the page must not stay disabled and aria-busy.
+    expect(h.posts).toEqual([{ type: 'fix-cancelled' }]);
+    expect(h.runs.filter((r) => r.fix)).toHaveLength(0);
+  });
+
   it('opens the modal again after a cancel', async () => {
     const h = harness();
     h.setReports(autoReport(), autoReport(), autoReport());

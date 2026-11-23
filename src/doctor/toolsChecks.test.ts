@@ -43,7 +43,7 @@ describe('checkTools', () => {
     expect(checkById(checks, 'tools.git').fix).toBeUndefined();
   });
 
-  it('fails a missing tool with the install guidance as a consented fix', () => {
+  it('fails a missing tool with the install guidance as a report fix', () => {
     const checks = checkTools(
       probesFor({ probe: (binary) => binary !== 'npm' }),
     );
@@ -53,10 +53,12 @@ describe('checkTools', () => {
     expect(npm.area).toBe('tools');
     expect(npm.title).toBe('Npm');
     expect(npm.detail).toBe(renderMissingDependency(NPM_DEPENDENCY));
+    // The install text is a sentence, so it is a step the user reads, never a
+    // command the page offers to copy (DR-2).
     expect(npm.fix).toEqual({
-      tier: 'consented',
+      tier: 'report',
       summary: 'Install npm',
-      command: NPM_DEPENDENCY.install,
+      nextStep: NPM_DEPENDENCY.install,
     });
   });
 

@@ -55,7 +55,9 @@ body{max-width:var(--k-content-max);margin:0 auto;padding:var(--k-space-7);backg
 .doc-fix-step{margin:var(--k-space-1) 0 0;color:var(--k-text-dim);overflow-wrap:anywhere}
 .doc-cmd-row{display:flex;align-items:flex-start;gap:var(--k-space-3);margin-top:var(--k-space-2);min-width:0}
 .k-code{font-family:var(--k-font-mono);font-size:var(--k-text-xs);background:var(--k-surface-sunken);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-2) var(--k-space-4);margin:0;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0;flex:1}
-.doc-copy{flex:none}
+/* The Copy label slot is pinned (UI-R18): "Copied" is the visible terminal
+   state and must not move the row's neighbours while it shows. */
+.doc-copy{flex:none;min-width:56px}
 .doc-passed{margin-top:var(--k-space-7);border-top:var(--k-border-w) solid var(--k-border);padding-top:var(--k-space-5)}
 .doc-passed>summary{cursor:pointer;color:var(--k-text-dim);font-size:var(--k-text-sm);min-height:var(--k-control-h-sm);display:flex;align-items:center}
 .doc-passed>summary:hover{color:var(--k-text)}
@@ -192,6 +194,7 @@ const fix = document.getElementById('fix');
 const rerun = document.getElementById('rerun');
 const status = document.getElementById('fix-status');
 const copyStatus = document.getElementById('copy-status');
+let lastCopy = null;
 if (rerun) {
   rerun.addEventListener('click', () => {
     rerun.disabled = true;
@@ -224,13 +227,31 @@ window.addEventListener('message', (e) => {
     }
     if (status) status.textContent = '';
   }
-  if (e.data && e.data.type === 'copy-done' && copyStatus) {
-    copyStatus.textContent = '';
-    copyStatus.textContent = 'Copied to clipboard';
+  if (e.data && e.data.type === 'copy-done') {
+    const copied = lastCopy;
+    lastCopy = null;
+    if (copied) {
+      copied.textContent = 'Copied';
+      clearTimeout(copied.copyTimer);
+      copied.copyTimer = setTimeout(() => {
+        copied.textContent = 'Copy';
+      }, 2000);
+    }
+    if (copyStatus) {
+      // Clear now, write on the next task: a same-tick clear-and-set is one
+      // mutation, so a second Copy click would announce nothing.
+      copyStatus.textContent = '';
+      setTimeout(() => {
+        copyStatus.textContent = 'Copied to clipboard';
+      }, 0);
+    }
   }
 });
 for (const button of document.querySelectorAll('.doc-copy')) {
-  button.addEventListener('click', () => v.postMessage({ type: 'copy', text: button.dataset.copy || '' }));
+  button.addEventListener('click', () => {
+    lastCopy = button;
+    v.postMessage({ type: 'copy', text: button.dataset.copy || '' });
+  });
 }`;
 
 const RERUN_SCRIPT = `const v = acquireVsCodeApi();

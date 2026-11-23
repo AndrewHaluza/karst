@@ -302,10 +302,18 @@ describe('the fix action and its busy state (DR-5)', () => {
     expect(html).toContain("rerun.removeAttribute('aria-busy')");
   });
 
-  it('confirms a copy in a polite live region (UI-R27)', () => {
+  it('confirms a copy visibly on the button and re-announces it (UI-R27)', () => {
     expect(html).toContain('<span id="copy-status" class="doc-sr" role="status"></span>');
     expect(html).toContain("e.data.type === 'copy-done'");
+    expect(html).toContain("copied.textContent = 'Copied'");
     expect(html).toContain("copyStatus.textContent = 'Copied to clipboard'");
+    // The clear and the write are separate tasks, so a repeated Copy re-announces.
+    expect(html).toMatch(/copyStatus\.textContent = '';\s*setTimeout\(/u);
+  });
+
+  it('pins the Copy label slot so the visible Copied state moves nothing (UI-R18)', () => {
+    const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+    expect(css).toContain('.doc-copy{flex:none;min-width:56px}');
   });
 
   it('forwards Copy clicks as a copy message', () => {

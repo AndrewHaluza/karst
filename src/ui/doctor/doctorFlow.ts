@@ -89,7 +89,9 @@ export function createDoctorFlow(deps: DoctorFlowDeps): DoctorFlow {
       const items = targets.map((c) => c.fix!.summary);
       const actionLabel = `Apply ${plural(targets.length, 'fix', 'fixes')}`;
       const ids = targets.map((c) => c.id);
-      const confirmed = await deps.confirm(title, items, actionLabel);
+      // A modal that cannot be shown counts as a cancel: the page must get its
+      // button back rather than keep it disabled and aria-busy forever.
+      const confirmed = await deps.confirm(title, items, actionLabel).catch(() => false);
       // The tab closed while the modal was open: nothing to confirm to, nothing to run.
       if (closed()) return;
       if (!confirmed) {
