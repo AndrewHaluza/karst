@@ -44,9 +44,8 @@ export function withGateSlot(deps: GateSlotDeps, ticketId: number, run: GateProc
     const limit = deps.limit();
     if (limit === 0) return run(command, args, cwd, options);
     const projectId = deps.projectIdOf(ticketId);
-    // A host sleep is not a dead window (T1326): the stale cutoff is stretched by the sleep it holds.
     const staleWallMs = deps.staleMs ?? STALE_GATE_SLOT_MS;
-    const staleMs = (deps.awakeWindowMs ?? defaultSleepLedger.awakeWindowMs)(staleWallMs, Date.now());
+    const awakeWindowMs = deps.awakeWindowMs ?? defaultSleepLedger.awakeWindowMs;
     let slot: number | null = null;
     let noted = false;
     const waitStart = Date.now();
@@ -58,7 +57,8 @@ export function withGateSlot(deps: GateSlotDeps, ticketId: number, run: GateProc
     };
     for (;;) {
       if (options?.signal?.aborted) return withWait({ kind: 'aborted', output: '' });
-      reapStaleGateSlots(deps.store, staleMs, projectId);
+      // A host sleep is not a dead window (T1326): read the stretched cutoff on each poll, so a sleep during the wait counts.
+      reapStaleGateSlots(deps.store, awakeWindowMs(staleWallMs, Date.now()), projectId);
       slot = acquireGateSlot(deps.store, { ticketId, projectId, owner: deps.owner, limit });
       if (slot !== null) {
         waitedMs = Date.now() - waitStart;

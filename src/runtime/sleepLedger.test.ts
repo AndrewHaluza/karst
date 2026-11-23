@@ -225,6 +225,19 @@ describe('the default ledger', () => {
     expect(defaultSleepLedger.awakeWindowMs(5 * MIN, now)).toBe(5 * MIN);
   });
 
+  it('reads zero sleep for a long time after load, until it is started', () => {
+    const clock = { ms: 0 };
+    const ledger = createSleepLedger({ now: () => clock.ms, started: false });
+    clock.ms += HOUR;
+    expect(ledger.awakeElapsedMs(0, clock.ms)).toBe(HOUR);
+    ledger.tick();
+    clock.ms += 10 * MIN;
+    expect(ledger.awakeElapsedMs(0, clock.ms)).toBe(HOUR + 10 * MIN);
+    ledger.start();
+    clock.ms += 10 * MIN;
+    expect(ledger.awakeElapsedMs(clock.ms - 10 * MIN, clock.ms)).toBe(0);
+  });
+
   it('starts an unref interval and disposes', () => {
     const handle = { unref: vi.fn() };
     const set = vi.spyOn(globalThis, 'setInterval').mockImplementation((() => handle) as unknown as typeof setInterval);

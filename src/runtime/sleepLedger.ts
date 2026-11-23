@@ -49,12 +49,16 @@ export interface SleepLedgerOptions {
   maxEntries?: number;
   /** Where a reported wake run goes (one event per run). */
   report?: SleepReporter;
+  /** False = a ledger that is not started yet: it reads zero sleep until `start()`. Default true. */
+  started?: boolean;
 }
 
 export interface SleepLedger {
   readonly tickMs: number;
   /** Record the gap since the last tick as a sleep, then mark this tick. */
   tick(): void;
+  /** Begin to count: mark the clock now, so the time before the start is not an open gap. */
+  start(): void;
   /** Wall time since `sinceMs`, minus the sleep inside it; never below 0. */
   awakeElapsedMs(sinceMs: number, nowMs: number): number;
   /** The wall length that holds `windowMs` of awake time before `nowMs`. */
@@ -74,11 +78,13 @@ export function createSleepLedger(options: SleepLedgerOptions): SleepLedger {
   const maxEntries = options.maxEntries ?? SLEEP_MAX_ENTRIES;
   const sleeps: SleepInterval[] = [];
   let lastTick = now();
+  let active = options.started ?? true;
   let report = options.report;
   let run: SleepRun | undefined;
 
   /** The open gap, when the ledger has not ticked since it started. */
   const openGapMs = (nowMs: number): number => {
+    if (!active) return 0;
     const gap = nowMs - lastTick;
     return gap > gapMs ? gap : 0;
   };
@@ -155,12 +161,17 @@ export function createSleepLedger(options: SleepLedgerOptions): SleepLedger {
     tickMs,
     tick(): void {
       const at = now();
+      if (!active) return;
       if (at - lastTick > gapMs) recordSleep(lastTick, at);
       // A backward clock step records nothing and never moves the marked tick
       // backwards: the timeline stays monotonic, so no false sleep appears when
       // the clock catches up.
       lastTick = Math.max(lastTick, at);
       maybeReport(at);
+    },
+    start(): void {
+      lastTick = now();
+      active = true;
     },
     awakeElapsedMs,
     awakeWindowMs,
@@ -171,7 +182,7 @@ export function createSleepLedger(options: SleepLedgerOptions): SleepLedger {
 }
 
 /** The one process-wide ledger every stall window reads; a no-op until started. */
-export const defaultSleepLedger = createSleepLedger({ now: () => Date.now() });
+export const defaultSleepLedger = createSleepLedger({ now: () => Date.now(), started: false });
 
 export interface SleepLedgerHandle {
   dispose(): void;
@@ -207,6 +218,7 @@ export function startSleepLedger(
   defaultSleepLedger.setReporter(
     notify === undefined ? undefined : (event) => notify.record?.('info', sleepEventMessage(event)),
   );
+  defaultSleepLedger.start();
   const timer = setInterval(() => defaultSleepLedger.tick(), tickMs);
   timer.unref?.();
   let disposed = false;

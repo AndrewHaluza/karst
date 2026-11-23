@@ -187,6 +187,30 @@ describe('withGateSlot', () => {
     await a;
   });
 
+  it('reads the awake window again on each poll, so a sleep during the wait counts', async () => {
+    store.db
+      .prepare(
+        `INSERT INTO gate_slots (ticket_id, project_id, owner, claimed_at, touched_at)
+         VALUES (9, 1, 'other', strftime('%Y-%m-%d %H:%M:%f', 'now'), strftime('%Y-%m-%d %H:%M:%f', 'now'))`,
+      )
+      .run();
+    const g = gate();
+    let slept = false;
+    const a = withGateSlot(deps(1, { staleMs: 60_000, awakeWindowMs: (windowMs) => (slept ? windowMs + 2 * 3600_000 : windowMs) }), 1, g.run)('npm', [], '/wt');
+    await tick();
+    expect(g.started()).toBe(0);
+    // The host sleeps while the gate waits: the holder looks 3 minutes old, but it is not stale.
+    slept = true;
+    store.db.prepare("UPDATE gate_slots SET touched_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-3 minutes')").run();
+    await tick();
+    expect(g.started()).toBe(0);
+    store.db.prepare('DELETE FROM gate_slots').run();
+    await tick();
+    expect(g.started()).toBe(1);
+    g.release();
+    await a;
+  });
+
   it('reaps the same slot once the awake window has passed', async () => {
     // A foreign slot last refreshed 3 minutes ago, in SQLite's own timestamp form.
     store.db
