@@ -438,6 +438,22 @@ describe('sidebar planning tree keyboard', () => {
     expect(h.posted.slice(afterSession)).toEqual([]);
   });
 
+  it('Enter and ArrowDown on a tool inside a row are left to the control, not the tree', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
+    const tool = session(h, 89).querySelector<HTMLElement>('button');
+    expect(tool).not.toBeNull();
+    tool!.focus();
+    const before = h.posted.length;
+    await h.key(tool!, 'Enter');
+    await h.key(tool!, 'ArrowDown');
+    expect(h.posted.slice(before).filter((m) => (m as { type: string }).type === 'plan-open')).toEqual([]);
+    expect(h.document.activeElement).toBe(tool);
+    await h.key(tool!, 'ArrowLeft');
+    expect(h.document.activeElement).toBe(session(h, 89));
+  });
+
   it('Shift+F10 opens a context menu listing every action of the item', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });

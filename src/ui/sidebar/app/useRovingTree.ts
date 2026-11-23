@@ -30,6 +30,9 @@ export interface RovingTree {
   readonly onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
 }
 
+/** A control that owns its keys (Enter, Space, arrows): the tree must not take them. */
+const CONTROL = 'button, a[href], input, select, textarea, [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]';
+
 /** The first control inside an item: the row tools a Right Arrow reaches on a leaf. */
 const firstTool = (item: HTMLElement): HTMLElement | null => item.querySelector<HTMLElement>('button');
 
@@ -47,6 +50,16 @@ export function useRovingTree({ nodes, focus, setFocus, onMenu, onPrimary, onExp
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     const item = (e.target as HTMLElement).closest<HTMLElement>('[role="treeitem"]');
     if (!item || !tree.current?.contains(item)) return;
+    const control = (e.target as HTMLElement).closest<HTMLElement>(CONTROL);
+    if (control && control !== item && item.contains(control)) {
+      // A tool inside the row keeps Enter, Space and the arrows. Left returns to the row, the menu keys still work.
+      if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') onMenu(item);
+      else if (e.key === 'ArrowLeft' && control.tagName === 'BUTTON') focusItem(item);
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     const items = itemsOf(tree.current);
     const at = items.indexOf(item);
     const level = item.getAttribute('aria-level');
