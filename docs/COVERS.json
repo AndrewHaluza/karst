@@ -823,6 +823,9 @@
   "src/resolver/blockedPorts.ts#isBlockedPort": [
     "arch:PORTS"
   ],
+  "src/runtime/awakeDeadline.ts#startAwakeDeadline": [
+    "arch:SLEEP-CLOCK"
+  ],
   "src/runtime/branchName.ts#renderBranchName": [
     "arch:RENDERERS"
   ],
@@ -909,6 +912,15 @@
   ],
   "src/runtime/serviceLaunch.ts#serviceLaunch": [
     "arch:CONTAINER"
+  ],
+  "src/runtime/sleepLedger.ts#createSleepLedger": [
+    "arch:SLEEP-CLOCK"
+  ],
+  "src/runtime/sleepLedger.ts#defaultSleepLedger": [
+    "arch:SLEEP-CLOCK"
+  ],
+  "src/runtime/sleepLedger.ts#startSleepLedger": [
+    "arch:SLEEP-CLOCK"
   ],
   "src/runtime/slug.ts#worktreeSlug": [
     "arch:ENTRIES"
