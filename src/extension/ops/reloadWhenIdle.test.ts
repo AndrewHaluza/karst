@@ -96,6 +96,22 @@ describe('reloadWhenIdle', () => {
     expect(onCancelled).not.toHaveBeenCalled();
   });
 
+  it('treats a Canceled rejection by name alone as a reloaded host and logs it', async () => {
+    const onCancelled = vi.fn();
+    const log = vi.fn();
+    const { d, drain } = deps([0], {
+      onCancelled,
+      log,
+      reload: async () => {
+        throw Object.assign(new Error('closing'), { name: 'Canceled' });
+      },
+    });
+    expect(await reloadWhenIdle(d)).toBe('reloaded');
+    expect(drain.isDraining()).toBe(true);
+    expect(onCancelled).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('reload when idle: reload command canceled — the host is closing');
+  });
+
   it('a real reload failure still clears the drain and re-drives the held tickets', async () => {
     const onCancelled = vi.fn();
     const { d, drain } = deps([1, 0], {
