@@ -106,9 +106,8 @@ goes through a named read helper next to the full-row reads (`graphRunById`,
 `latestGraphRunForTicket`, `nodeRunsForGraphRun`,
 `countNodeRunsForRevisionNode`, `countOtherNodeRunsInStatuses`,
 `countNodeRunsInStatusesExcludingOutcome`, `nodeRunsInStatusesForRevision`,
-`maxLaunchFailStreakInStatuses`, `nodeRunLaunchFailStreakForGraphRun`,
-`drainingRevisionNodeRunsInStatuses`, `nextVisitNumber`,
-`plannerRunCompileAttempt`, `submittedPlannerRunForGraphRun`, … — and call sites narrow with
+`maxLaunchFailStreakInStatuses`, `drainingRevisionNodeRunsInStatuses`,
+`nextVisitNumber`, `plannerRunCompileAttempt`, … — and call sites narrow with
 `Pick<GraphRunRow, …>` / `Pick<NodeRunRow, …>` / `Pick<PlannerRunRow, …>` rather
 than declaring their own drifting row interfaces. A new column or status is
 therefore added to the store module and the schema, never to a repo-wide grep.
@@ -121,7 +120,7 @@ The agent identity snapshot is part of the same boundary: `approach_graph_runs.a
 
 The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
 
-The claim evidence of a `blocked` node finds its candidates through `blockedNodeRunsWithoutCategory`: status `blocked`, outcome `blocked` and a NULL failure category. The host reads the clone of a node run through `workspacesForNode`.
+The claim evidence of a `blocked` node reads `blockedNodeRunsWithoutCategory`. The host reads a clone through `workspacesForNode`.
 
 A compiled bootstrap plan runs at once: plan acceptance moves the run `planning → running` and the coordinator tick starts it, with no human confirm gate (T1174). The status `awaiting-confirmation` is legacy. It stays in the CHECK on `approach_graph_runs.status`, and the v127 migration moves any such row to `running`. The manifest key `limits.confirmGeneratedGraph` is retired: the loader drops it in memory with one deprecation warning and never rewrites the file on load. An explicit, consented setup manifest proposal does write it: the host write removes the key, and the proposal counts as a change when the write removes a key (`manifestRemovedKeys`), even when the loaded manifest is the same. A setup `change` proposal never writes `.karst/` (`setup/karstGuard.ts`).
 
