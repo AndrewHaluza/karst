@@ -141,21 +141,3 @@ export const HOST_RERUN_INTERRUPTED_REASON = 'the round was interrupted during t
  * (`host_rerun_at` stays set: the one re-run per round stays used). An existing reason stays.
  */
 export const INTERRUPT_KEEPS_RERUN_ENDED_SQL = `end_reason = COALESCE(end_reason, CASE WHEN host_rerun_at IS NOT NULL THEN '${HOST_RERUN_INTERRUPTED_REASON}' END)`;
-
-/**
- * True when the host re-run of the ticket's active round for `sourceStage` already ran or
- * is already requested: the same condition under which `claimHostRerunRequest` refuses.
- * False when there is no active round (a re-run is still free).
- */
-export function hostRerunSpent(store: Store, ticketId: number, sourceStage: string): boolean {
-  const row = store.db
-    .prepare(
-      `SELECT 1 AS hit FROM recovery_rounds WHERE ticket_id = ? AND source_stage = ?
-         AND status NOT IN ('passed','failed','exhausted','interrupted','refused','reset')
-         AND (host_rerun_at IS NOT NULL OR host_rerun_requested_at IS NOT NULL)
-         AND id = (SELECT MAX(id) FROM recovery_rounds WHERE ticket_id = ? AND source_stage = ?
-           AND status NOT IN ('passed','failed','exhausted','interrupted','refused','reset'))`,
-    )
-    .get(ticketId, sourceStage, ticketId, sourceStage);
-  return row !== undefined;
-}
