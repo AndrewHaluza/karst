@@ -844,6 +844,26 @@ describe('agyConversationWatch', () => {
       db.close();
     });
 
+    it('returns null once a later non-error step exists: the session went on after the error', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      insertPayloadStep(dbPath, 2, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload(QUOTA_STEP_TEXT));
+      insertPayloadStep(dbPath, 3, 15, pbString(1, 'continuing after the user typed'));
+      const db = openAgyConversationDb(dbPath);
+      expect(db.providerErrorStep()).toBeNull();
+      db.close();
+    });
+
+    it('still returns a provider error that only later error steps follow', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      insertPayloadStep(dbPath, 2, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload('quota exceeded (older)'));
+      insertPayloadStep(dbPath, 3, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload(QUOTA_STEP_TEXT));
+      const db = openAgyConversationDb(dbPath);
+      expect(db.providerErrorStep()?.idx).toBe(3);
+      db.close();
+    });
+
     it('ignores agent prose: only step_type 17 rows are read, whatever their text says', () => {
       dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
       const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);

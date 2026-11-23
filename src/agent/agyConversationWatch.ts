@@ -202,10 +202,13 @@ export function openAgyConversationDb(dbPath: string): AgyConversationDb {
   let providerErrorStmt: Database.Statement | null = null;
   try {
     providerErrorStmt = db.prepare(
-      `SELECT idx, step_payload AS payload FROM steps WHERE step_type = ${AGY_STEP_TYPE_PROVIDER_ERROR} ORDER BY idx DESC LIMIT 1`,
+      `SELECT e.idx AS idx, e.step_payload AS payload FROM steps e WHERE e.step_type = ${AGY_STEP_TYPE_PROVIDER_ERROR} AND NOT EXISTS (SELECT 1 FROM steps s WHERE s.idx > e.idx AND s.step_type != ${AGY_STEP_TYPE_PROVIDER_ERROR}) ORDER BY e.idx DESC LIMIT 1`,
     );
   } catch {
-    // Foreign schema (or no step_payload column): no provider-error signal
+    // Foreign schema (or no step_payload column): no provider-error signal.
+    // Only an error with no later non-error step is live: a step after it
+    // means the session went on (the user typed), so a window reload must
+    // not park on that old error again.
   }
   return {
     workspaceBlob(): Buffer | null {
