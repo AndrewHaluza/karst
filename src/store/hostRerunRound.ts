@@ -141,3 +141,34 @@ export const HOST_RERUN_INTERRUPTED_REASON = 'the round was interrupted during t
  * (`host_rerun_at` stays set: the one re-run per round stays used). An existing reason stays.
  */
 export const INTERRUPT_KEEPS_RERUN_ENDED_SQL = `end_reason = COALESCE(end_reason, CASE WHEN host_rerun_at IS NOT NULL OR no_change_rerun_at IS NOT NULL THEN '${HOST_RERUN_INTERRUPTED_REASON}' END)`;
+
+/** One parked fix round of a project, as the extension warns about it (`@arch:AC-66`). */
+export interface HostParkCandidate {
+  roundId: number;
+  ticketId: number;
+  /** The round's own end reason; the store reads the column, `RecoveryRound` has no field for it. */
+  endReason: string | null;
+}
+
+/**
+ * The parked fix rounds of one project, as `parkedFixRound` reads one ticket: the ticket is not
+ * archived and is at fix, its fix row is `failed` with no `blocked_kind`, and its LATEST round is
+ * `interrupted` with a uat or review source. The caller keeps the end reasons that are a host park.
+ */
+export function hostParkCandidates(store: Store, projectId: number): HostParkCandidate[] {
+  const rows = store.db
+    .prepare(
+      `SELECT r.id AS round_id, t.id AS ticket_id, r.end_reason AS end_reason
+         FROM tickets t
+         JOIN stages s ON s.ticket_id = t.id AND s.stage_key = 'fix'
+         JOIN recovery_rounds r ON r.id = (SELECT MAX(id) FROM recovery_rounds WHERE ticket_id = t.id)
+        WHERE t.project_id = ? AND t.archived_at IS NULL
+          AND t.stage_current = 'fix'
+          AND s.status = 'failed' AND s.blocked_kind IS NULL
+          AND r.status = 'interrupted'
+          AND r.source_stage IN ('uat','review')
+        ORDER BY r.id`,
+    )
+    .all(projectId) as { round_id: number; ticket_id: number; end_reason: string | null }[];
+  return rows.map((r) => ({ roundId: r.round_id, ticketId: r.ticket_id, endReason: r.end_reason }));
+}

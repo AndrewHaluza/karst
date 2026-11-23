@@ -61,6 +61,16 @@ export interface HostRerunDeps {
 export const HOST_RERUN_WAY_OUT =
   'a code change from this session cannot fix this failure — stop the session; the user fixes the environment and clicks Retry gate, or clicks Accept and continue';
 
+/** Leading text of the park verdict when this round already used its one host re-run. */
+export const PARK_NO_NEW_COMMIT_ALREADY_RERAN = 'no new commit, and the host already re-ran the failed gates';
+
+/** Leading text of the park verdict when the host re-run of a no-new-commit round still failed. */
+export const PARK_NO_NEW_COMMIT_RERUN_FAILED = 'no new commit, and the host re-run did not close the round';
+
+/** Leading text of the park verdict when the host re-run of a no-change round still failed. */
+export const PARK_NO_CHANGE_RERUN_FAILED =
+  'the agent found no change to make, and the re-run of the failed gates did not close the round';
+
 export interface RerunFailure {
   gateName: string;
   summary: string;
@@ -180,7 +190,7 @@ export async function hostRerunFailedGates(
   const claimed = round.noChangeReason !== null ? claimNoChangeRerun(store, round.id, now()) : claimHostRerun(store, round.id, now());
   if (!claimed) {
     if (!park) return { kind: 'already-used' };
-    parkRound(store, ticketId, round.id, `no new commit, and the host already re-ran the failed gates — ${HOST_RERUN_WAY_OUT}`, now());
+    parkRound(store, ticketId, round.id, `${PARK_NO_NEW_COMMIT_ALREADY_RERAN} — ${HOST_RERUN_WAY_OUT}`, now());
     return { kind: 'already-used' };
   }
 
@@ -197,9 +207,7 @@ export async function hostRerunFailedGates(
     return { kind: 'failed', failures };
   }
   const detail = describeFailures(failures);
-  const lead = round.noChangeReason !== null
-    ? 'the agent found no change to make, and the re-run of the failed gates did not close the round'
-    : 'no new commit, and the host re-run did not close the round';
+  const lead = round.noChangeReason !== null ? PARK_NO_CHANGE_RERUN_FAILED : PARK_NO_NEW_COMMIT_RERUN_FAILED;
   parkRound(store, ticketId, round.id, `${lead} — ${detail}. ${HOST_RERUN_WAY_OUT}`, now());
   return { kind: 'failed', failures };
 }

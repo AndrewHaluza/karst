@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { logMatchText, logNewLinesText, markerAdvancedText, markerFailedText, plural, reasonText, ticketLabel } from './notifyText.js';
+import { fixParkStoppedText, logMatchText, logNewLinesText, markerAdvancedText, markerFailedText, plural, reasonText, ticketLabel } from './notifyText.js';
 
 describe('ticketLabel', () => {
   it('joins the ref and the quoted title', () => {
@@ -92,5 +92,15 @@ describe('markerAdvancedText', () => {
 describe('markerFailedText', () => {
   it('names the ticket and the reason', () => {
     expect(markerFailedText('T1', 'x')).toBe('T1: Karst could not mark the implementation as done (x).');
+  });
+});
+
+describe('fixParkStoppedText', () => {
+  it('names the ticket, says the gate failed again and gives the two exits', () => {
+    const t = fixParkStoppedText('T1 "x"');
+    expect(t).toBe(
+      'T1 "x": the fix round stopped. The gate failed again with no change; open the ticket and choose Retry gate or Accept and continue.',
+    );
+    expect(t.split('.').filter((s) => s.trim().length > 0)).toHaveLength(2);
   });
 });

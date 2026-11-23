@@ -11,6 +11,7 @@ import { ticketsWithRequestedNoChangeRerun } from '../store/fixNoChangeRounds.js
 import { NO_CHANGE_RERUN_REQUESTED_REPLY } from '../model/noChange.js';
 import type { GitRunner } from '../integrations/git.js';
 import { applyNoChangeMarker } from './fixNoChange.js';
+import { HOST_RERUN_WAY_OUT } from './fixHostRerun.js';
 
 const AT = '2026-01-01T00:00:00Z';
 const WT = '/wt/web';
@@ -86,7 +87,12 @@ describe('applyNoChangeMarker', () => {
     const out = await applyNoChangeMarker(store, ticketId, 'again', gitAt('aaa'), { viaBridge: false, now: () => AT });
     expect(out.kind).toBe('refused');
     expect(getStage(store, ticketId, 'fix')?.status).toBe('failed');
-    expect(getStage(store, ticketId, 'fix')?.verdict).toContain('second no-change verdict on the same head');
+    expect(getStage(store, ticketId, 'fix')?.verdict).toBe(
+      `second no-change verdict on the same head (no change: again) — ${HOST_RERUN_WAY_OUT}`,
+    );
+    expect(store.db.prepare('SELECT end_reason FROM recovery_rounds WHERE id = ?').get(r2)).toEqual({
+      end_reason: `second no-change verdict on the same head (no change: again) — ${HOST_RERUN_WAY_OUT}`,
+    });
     expect(roundById(store, r2)?.status).toBe('interrupted');
     expect(roundById(store, r2)?.noChangeReason).toBe('again');
   });
