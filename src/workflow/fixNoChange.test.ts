@@ -83,11 +83,11 @@ describe('applyNoChangeMarker', () => {
     expect(roundById(store, r2)?.noChangeReason).toBe('again');
   });
 
-  it('a second no-change in the same round is refused and changes nothing', async () => {
+  it('a repeat no-change in the same round keeps the first reason and repeats the decision', async () => {
     const roundId = openFixing('blocking-review-findings', 'review');
     await applyNoChangeMarker(store, ticketId, 'first', gitAt('aaa'), { viaBridge: false });
     const out = await applyNoChangeMarker(store, ticketId, 'second', gitAt('aaa'), { viaBridge: false });
-    expect(out.kind).toBe('refused');
+    expect(out.kind).toBe('proceed');
     expect(roundById(store, roundId)?.noChangeReason).toBe('first');
     expect(roundById(store, roundId)?.status).toBe('fixing');
   });

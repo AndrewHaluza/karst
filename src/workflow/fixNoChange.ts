@@ -50,8 +50,10 @@ export async function applyNoChangeMarker(
   const round = activeFixRound(store, ticketId);
   if (round === null) return { kind: 'not-applicable' };
   if (await fixRoundHasNewCommit(store, ticketId, git)) return { kind: 'not-applicable' };
-  if (round.noChangeReason !== null) return { kind: 'refused', message: ALREADY_RECORDED };
-  const prev = previousNoChangeRound(store, ticketId, round.sourceStage, round.id);
+  // A repeat in the same round (a retry after a probe refusal or a lost bridge reply) keeps the first
+  // reason and repeats the decision. The re-run claim stays single.
+  const repeat = round.noChangeReason !== null;
+  const prev = repeat ? null : previousNoChangeRound(store, ticketId, round.sourceStage, round.id);
   if (prev !== null && sameHeads(listFixRoundHeads(store, prev.id), listFixRoundHeads(store, round.id))) {
     const verdict = NO_CHANGE_SAME_HEAD_VERDICT(reason);
     store.db.transaction(() => {
@@ -61,7 +63,7 @@ export async function applyNoChangeMarker(
     })();
     return { kind: 'refused', message: verdict };
   }
-  if (!recordNoChangeReason(store, round.id, reason, now())) return { kind: 'refused', message: ALREADY_RECORDED };
+  if (!repeat && !recordNoChangeReason(store, round.id, reason, now())) return { kind: 'refused', message: ALREADY_RECORDED };
   const gateRound = round.triggerKind === 'gate-failure' && failedGatesOf(listGateRuns(store, ticketId), round.sourceStage).length > 0;
   if (!gateRound) return { kind: 'proceed' };
   return options.viaBridge ? { kind: 'rerun-via-bridge' } : { kind: 'rerun-requested', message: NO_CHANGE_RERUN_REQUESTED_REPLY };
