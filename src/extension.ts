@@ -1265,6 +1265,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onGateOutput: (id, stage, gateName, chunk) => { if (stage === 'uat' || stage === 'review' || stage === 'ship') gateConsole.append(id, stage, gateName, chunk); },
     onGateSpawned: (id, gateName, pid, cwd) => gateRuns.spawned({ ticketId: id, gateName, pid, cwd }, () => resourceMonitor?.registerPid({ pid, kind: 'gate', ticketId: id, label: gateName })),
     redrive: (id) => maybeDrive(id, 'host-rerun-passed'),
+    onNextRound: (id) => maybeDrive(id, 'fix-continued'),
     debug: (m) => logger.debug(m),
   });
   let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;

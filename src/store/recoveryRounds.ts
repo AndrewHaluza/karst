@@ -79,6 +79,8 @@ export {
   type ConfirmFixLaunchResult,
   confirmFixLaunch,
   completeFixExecution,
+  type ContinueFixRoundInput,
+  continueFixRound,
   interruptFixExecution,
   interruptActiveFixExecution,
   exhaustRecoveryRound,

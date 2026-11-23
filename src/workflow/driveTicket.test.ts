@@ -25,7 +25,7 @@ import type { UatDeps } from './stages/uat.js';
 import type { ReviewDeps } from './stages/review.js';
 import { runProcess } from './gates/run.js';
 import type { AgentAdapter } from '../agent/adapter.js';
-import { openRecoveryRound, listRecoveryRounds } from '../store/recoveryRounds.js';
+import { openRecoveryRound, listRecoveryRounds, continueFixRound } from '../store/recoveryRounds.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import { insertOpenPark, claimUsageLimitPark } from '../store/usageLimitParks.js';
 import { spinTicket } from '../runtime/spin.js';
@@ -1171,4 +1171,78 @@ describe('driveTicket', () => {
         });
       });
     });
+});
+
+describe('a continued fix round and the host lifecycle (T1330)', () => {
+  let store: Store;
+  let id: number;
+  let workDir: string;
+  let artifactDir: string;
+
+  function deps(over: Partial<DriveTicketDeps> = {}): DriveTicketDeps {
+    return {
+      store,
+      manifest: () => undefined,
+      artifactDirFor: () => artifactDir,
+      worktreeFor: () => workDir,
+      onProgress: () => {},
+      shouldContinue: () => true,
+      resumeFix: vi.fn(),
+      log: () => {},
+      ...over,
+    };
+  }
+
+  /** A round the host continued: round 1 failed, round 2 pending, the ticket at fix. */
+  function continuedRound(): { round1: number; round2: number } {
+    const round1 = openRecoveryRound(store, {
+      ticketId: id,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    transition(store, id, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    const round2 = continueFixRound(store, {
+      roundId: round1.id,
+      endReason: 'gates still fail: unit (web)',
+      at: '2026-08-01T11:00:00.000Z',
+    });
+    return { round1: round1.id, round2: round2!.id };
+  }
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' }); // -> impl
+    transition(store, id, 'impl', { kind: 'passed' }); // -> uat
+    workDir = mkdtempSync(join(tmpdir(), 'karst-continue-'));
+    artifactDir = mkdtempSync(join(tmpdir(), 'karst-continue-art-'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+
+  it('keeps the pending round while the ticket is paused', async () => {
+    const { round2 } = continuedRound();
+    pauseTicket(store, id);
+    expect(await driveTicket(deps(), id)).toEqual({ stage: 'fix', status: 'paused' });
+    expect(listRecoveryRounds(store, id).find((r) => r.id === round2)?.status).toBe('pending');
+  });
+
+  it('holds the pending round while the host drains, and resumes it after the drain', async () => {
+    const { round2 } = continuedRound();
+    const holdForDrain = vi.fn();
+    const outcome = await driveTicket(deps({ isDraining: () => true, holdForDrain }), id);
+    expect(outcome.stage).toBe('fix');
+    expect(holdForDrain).toHaveBeenCalledWith(id);
+    expect(listRecoveryRounds(store, id).find((r) => r.id === round2)?.status).toBe('pending');
+  });
 });

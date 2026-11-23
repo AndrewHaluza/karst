@@ -75,6 +75,8 @@ export interface GateRerunDeps {
   readonly git?: GitRunner;
   /** Re-drive the source stage after a passing re-run; without it the fix watchdog finds the stage ~5 min later. */
   readonly redrive?: (ticketId: number) => void;
+  /** Drive the ticket when the host opened the next fix round after a still-failing gate (T1330). */
+  readonly onNextRound?: (ticketId: number) => void;
   /** The manifest, for the baseline-review check of the gate pass record (@arch:BASELINE-REVIEW). */
   readonly manifest?: () => Manifest | undefined;
   /** Test seam for the working-tree fingerprint. */
@@ -352,6 +354,7 @@ function rerunDepsOf(deps: GateRerunDeps): HostRerunDeps {
       }
       deps.redrive?.(ticketId);
     },
+    ...(deps.onNextRound ? { onNextRound: deps.onNextRound } : {}),
   };
 }
 

@@ -17,6 +17,7 @@ const host = (over: Partial<GateRerunHost> = {}): GateRerunHost => ({
   onGateOutput: vi.fn(),
   onGateSpawned: vi.fn(),
   redrive: vi.fn(),
+  onNextRound: vi.fn(),
   debug: vi.fn(),
   ...over,
 });
@@ -50,6 +51,11 @@ describe('bindGateRerunDeps', () => {
     const deps = bindGateRerunDeps(h);
     expect(deps.onGateOutput).toBe(h.onGateOutput);
     expect(deps.onGateSpawned).toBe(h.onGateSpawned);
+  });
+
+  it('forwards the next-round drive binding', () => {
+    const onNextRound = vi.fn();
+    expect(bindGateRerunDeps(host({ onNextRound })).onNextRound).toBe(onNextRound);
   });
 
   const withManifest = () =>

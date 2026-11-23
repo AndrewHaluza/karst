@@ -4,7 +4,7 @@ import { nowIso } from '../model/time.js';
 import { noChangeEndReason, NO_CHANGE_RERUN_REQUESTED_REPLY } from '../model/noChange.js';
 import { activeFixRound } from '../store/recoveryRounds.js';
 import { listGateRuns } from '../store/gateRuns.js';
-import { listFixRoundHeads, type FixRoundHead } from '../store/fixRoundHeads.js';
+import { listFixRoundHeads, sameHeads } from '../store/fixRoundHeads.js';
 import { previousNoChangeRound, recordNoChangeReason, requestNoChangeRerun } from '../store/fixNoChangeRounds.js';
 import { parkRoundOutOfFixing } from '../store/hostRerunRound.js';
 import { parkFixStage } from '../store/recoveryRoundsWrite.js';
@@ -28,19 +28,12 @@ export const NO_CHANGE_SAME_HEAD_PREFIX = 'second no-change verdict on the same 
 export const NO_CHANGE_SAME_HEAD_VERDICT = (reason: string): string =>
   `${NO_CHANGE_SAME_HEAD_PREFIX} (${noChangeEndReason(reason)}) — ${HOST_RERUN_WAY_OUT}`;
 
-/** Equal as sets of `path:sha`. Two empty sets are NOT equal: no snapshot is no evidence. */
-function sameHeads(a: readonly FixRoundHead[], b: readonly FixRoundHead[]): boolean {
-  if (a.length === 0 || a.length !== b.length) return false;
-  const key = (h: FixRoundHead): string => `${h.worktreePath}\u0000${h.headSha}`;
-  const set = new Set(a.map(key));
-  return b.every((h) => set.has(key(h)));
-}
-
 /**
  * Decide a `stage fix pass --no-change <reason>` marker (@arch:AC-66). A new commit makes the
- * flag moot. Otherwise the reason is stored once. A gate-failure round asks for the host re-run
- * of its failed gates. A review or tester round takes the normal marker. A second no-change on
- * the same head parks the fix stage.
+ * flag moot. Otherwise the reason is stored once. A gate-failure round asks the host to check the
+ * failed gates; the extension then decides between the next fix round and a park (T1330), so a
+ * no-change does NOT park here. A review or tester round takes the normal marker, and a second
+ * no-change on the same head parks that round.
  */
 export async function applyNoChangeMarker(
   store: Store,
@@ -59,7 +52,10 @@ export async function applyNoChangeMarker(
   if (round.triggerKind === 'gate-failure' && failedGatesOf(listGateRuns(store, ticketId), round.sourceStage).length === 0) return { kind: 'not-applicable' };
   const repeat = round.noChangeReason !== null;
   const prev = repeat ? null : previousNoChangeRound(store, ticketId, round.sourceStage, round.id);
-  if (prev !== null && sameHeads(listFixRoundHeads(store, prev.id), listFixRoundHeads(store, round.id))) {
+  // Only a review or tester round keeps the same-head park: a gate-failure round lets the host
+  // decide from the gates (T1330), so a repeated no-change on one head opens the next round until
+  // the budget or the head loop limit parks it.
+  if (round.triggerKind !== 'gate-failure' && prev !== null && sameHeads(listFixRoundHeads(store, prev.id), listFixRoundHeads(store, round.id))) {
     const verdict = NO_CHANGE_SAME_HEAD_VERDICT(reason);
     store.db.transaction(() => {
       recordNoChangeReason(store, round.id, reason, now());

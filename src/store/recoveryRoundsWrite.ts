@@ -234,6 +234,51 @@ function openRound(
   return created;
 }
 
+export interface ContinueFixRoundInput {
+  roundId: number;
+  /** Stored as the closed round's `end_reason`; the caller builds it (`FIX_CONTINUED_PREFIX`). */
+  endReason: string;
+  at: string;
+}
+
+/**
+ * Close a round because the source stage still fails after its no-change or no-commit marker, and
+ * open the NEXT round of the same episode, atomically (T1330). The round is `failed` with the
+ * reason, its fix process run (if one is attached) is interrupted, and the new round reuses the
+ * source, trigger and committed budget so it counts against `max_rounds`. The fix stage row and
+ * the ticket are left where they are: the driver resumes the new pending round. Returns the new
+ * round, or null when the source round is not `pending`/`fixing` (or the budget refuses it).
+ */
+export function continueFixRound(store: Store, input: ContinueFixRoundInput): RecoveryRound | null {
+  let next: RecoveryRound | null = null;
+  const apply = store.db.transaction(() => {
+    const round = roundById(store, input.roundId);
+    if (round === undefined || (round.status !== 'pending' && round.status !== 'fixing')) return;
+    if (round.fixProcessRunId !== null) {
+      finishProcessRun(store, round.fixProcessRunId, 'interrupted', input.at, 'fix-continued', null, input.endReason);
+    }
+    store.db
+      .prepare(
+        `UPDATE recovery_rounds SET status = 'failed', end_reason = ?, ended_at = ?
+          WHERE id = ? AND status IN ('pending','fixing')`,
+      )
+      .run(input.endReason, input.at, round.id);
+    next = openRecoveryRoundWithinBudget(store, {
+      ticketId: round.ticketId,
+      sourceStage: round.sourceStage,
+      sourceProcessId: round.sourceProcessId,
+      sourceStageRunId: round.sourceStageRunId,
+      sourceProcessRunId: round.sourceProcessRunId,
+      triggerKind: round.triggerKind,
+      triggerDetail: round.triggerDetail,
+      maxRounds: round.maxRounds,
+      startedAt: input.at,
+    });
+  });
+  apply();
+  return next;
+}
+
 /**
  * Complete an active round's revalidation from a PASSED verdict.
  *

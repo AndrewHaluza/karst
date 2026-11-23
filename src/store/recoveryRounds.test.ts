@@ -16,6 +16,7 @@ import {
   completeRevalidation,
   attachRevalidationStageRun,
   exhaustRecoveryRound,
+  continueFixRound,
   latestInterruptedRound,
   reopenInterruptedRound,
   reconcileStrandedFixRounds,
@@ -34,6 +35,7 @@ import {
   type RecoveryRound,
 } from './recoveryRounds.js';
 import { getTicket } from './tickets.js';
+import { setStage } from './stages.js';
 import { recordNoChangeReason } from './fixNoChangeRounds.js';
 import { upsertProject } from './projects.js';
 import { listProcessRuns, openProcessRun } from './processRuns.js';
@@ -1569,5 +1571,83 @@ describe('completeFixExecution no-change end reason', () => {
       status: 'revalidating',
       end_reason: 'no change: finding needs a real sbx run',
     });
+  });
+});
+
+describe('continueFixRound (T1330: a still-failing gate opens the next round)', () => {
+  const AT = '2026-09-01T10:00:00.000Z';
+  const LATER = '2026-09-01T11:00:00.000Z';
+  let store: Store;
+  let ticketId: number;
+
+  const open = (over: Partial<Parameters<typeof openRecoveryRound>[1]> = {}) =>
+    openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: AT,
+      ...over,
+    });
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-1330', title: 't' }).id;
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    transition(store, ticketId, 'uat', { kind: 'failed', reason: 'exit 1' }); // -> fix
+    setStage(store, ticketId, 'fix', { status: 'running', startedAt: AT });
+  });
+  afterEach(() => store.close());
+
+  it('closes the round failed with the reason and opens the next round of the same episode', () => {
+    const r1 = open();
+    const next = continueFixRound(store, { roundId: r1.id, endReason: 'gates still fail: unit (web)', at: LATER });
+    expect(next).toMatchObject({
+      round: 2,
+      status: 'pending',
+      episode: r1.episode,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+    });
+    expect(
+      store.db.prepare('SELECT status, end_reason, ended_at FROM recovery_rounds WHERE id = ?').get(r1.id),
+    ).toEqual({ status: 'failed', end_reason: 'gates still fail: unit (web)', ended_at: LATER });
+    const ticket = getTicket(store, ticketId);
+    expect(ticket.stageCurrent).toBe('fix');
+    expect(ticket.stages.find((s) => s.stageKey === 'fix')).toMatchObject({ status: 'running', verdict: null });
+  });
+
+  it('interrupts the attached fix process run and marks it fix-continued', () => {
+    const r1 = open();
+    const run = beginLiveFixExecution(store, { ticketId, roundId: r1.id, startedAt: AT });
+    continueFixRound(store, { roundId: r1.id, endReason: 'gates still fail: lint', at: LATER });
+    expect(
+      store.db.prepare('SELECT status, ended_at, result_kind, failure_detail FROM process_runs WHERE id = ?').get(run.id),
+    ).toEqual({
+      status: 'interrupted',
+      ended_at: LATER,
+      result_kind: 'fix-continued',
+      failure_detail: 'gates still fail: lint',
+    });
+  });
+
+  it('returns null and writes nothing when the round is not pending or fixing', () => {
+    const r1 = open();
+    store.db.prepare("UPDATE recovery_rounds SET status = 'passed' WHERE id = ?").run(r1.id);
+    expect(continueFixRound(store, { roundId: r1.id, endReason: 'gates still fail: x', at: LATER })).toBeNull();
+    expect(listRecoveryRounds(store, ticketId)).toHaveLength(1);
+  });
+
+  it('returns null and writes nothing for an unknown round', () => {
+    open();
+    expect(continueFixRound(store, { roundId: 9999, endReason: 'x', at: LATER })).toBeNull();
   });
 });

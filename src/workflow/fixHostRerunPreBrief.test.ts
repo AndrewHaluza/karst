@@ -113,10 +113,10 @@ describe('pre-brief host re-run', () => {
     expect(activeFixRound(store, ticketId)).not.toBeNull();
   });
 
-  it('the agent no-change marker then finds the re-run used', async () => {
+  it('a bare no-commit marker after the re-run opens the next round, and runs no gate', async () => {
     open([{ name: 'visual', summary: SIGNED }]);
     await preBriefHostRerun(store, ticketId, deps(1));
-    expect((await hostRerunFailedGates(store, ticketId, deps(0))).kind).toBe('already-used');
+    expect(await hostRerunFailedGates(store, ticketId, deps(0))).toEqual({ kind: 'next-round', round: 2, maxRounds: 3, failures: [{ gateName: 'visual', summary: SIGNED }] });
     expect(ran).toHaveLength(1);
   });
 
