@@ -72,6 +72,7 @@ describe('graphPreserveSeams', () => {
     await seams.preserveReplanRequesters(graphRunId);
     const named = logs.flatMap((l) => /the work of node run (\d+) was not preserved/.exec(l)?.[1] ?? []);
     expect(named).toEqual(['1', '4']);
+    expect(logs.every((l) => l.startsWith('[graph] replan request: '))).toBe(true);
   });
 
   it('resolves the graph run of a node run, and reports a node run that is gone', async () => {
@@ -93,7 +94,34 @@ describe('graphPreserveSeams', () => {
 
   it('fails without a store, so the provider keeps the clone', async () => {
     const seams = graphPreserveSeams(() => undefined, () => tempDir(), failingGit);
-    expect((await seams.preserveWork({ graphRunId: 1, nodeRunId: 1 })).kind).toBe('failed');
+    expect(await seams.preserveWork({ graphRunId: 1, nodeRunId: 1 })).toEqual({
+      kind: 'failed',
+      reason: 'the graph store is not open',
+    });
+  });
+
+  it('preserves nothing, and never reaches the work step, without a store', async () => {
+    const seams = graphPreserveSeams(() => undefined, () => tempDir(), failingGit);
+    expect(await seams.preserveNode(1)).toEqual({ kind: 'nothing' });
+  });
+
+  it('does nothing without a store for the replan requesters and the clone lookup', async () => {
+    const seams = graphPreserveSeams(() => undefined, () => tempDir(), failingGit);
+    await expect(seams.preserveReplanRequesters(1)).resolves.toBeUndefined();
+    expect(seams.workspaceCwdOf(1, 'api')).toBeUndefined();
+  });
+
+  it('restores a preserved patch through the injected git runner', async () => {
+    const root = tempDir();
+    mkdirSync(join(root, 'preserved', '7'), { recursive: true });
+    const patch = join(root, 'preserved', '7', 'api.patch');
+    writeFileSync(patch, 'diff');
+    const okGit: GitRunner = async () => ({ stdout: '', stderr: '', exitCode: 0 });
+    const seams = graphPreserveSeams(() => undefined, () => root, okGit);
+    expect(await seams.restoreWork({ graphRunId: 1, nodeRunId: 7, repoName: 'api', cwd: root })).toEqual({
+      kind: 'restored',
+      patchPath: patch,
+    });
   });
 
   it('lists the preserved work with a path relative to the artifact root', () => {
