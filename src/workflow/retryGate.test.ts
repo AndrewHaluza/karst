@@ -4,6 +4,7 @@ import { createTicket, getTicket } from '../store/tickets.js';
 import { getStage, setStage } from '../store/stages.js';
 import { parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { ticketsToSweep } from './driverController.js';
+import { openRecoveryRound } from '../store/recoveryRounds.js';
 import { retryGateState, retryGateStage } from './retryGate.js';
 
 /**
@@ -73,5 +74,47 @@ describe('retryGateState / retryGateStage', () => {
       ok: false,
       reason: 'stage is in-flight',
     });
+  });
+});
+
+describe('retryGateState / retryGateStage on a parked fix round', () => {
+  let store: Store;
+  let ticketId: number;
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicket(store, { key: 'RG-F', title: 't' }).id;
+  });
+  afterEach(() => store.close());
+
+  const park = (status = 'interrupted'): void => {
+    const id = openRecoveryRound(store, {
+      ticketId, sourceStage: 'uat', sourceProcessId: 'gates', triggerKind: 'gate-failure',
+      triggerDetail: 'x', maxRounds: 3, startedAt: '2026-01-01T00:00:00Z',
+    } as never).id;
+    store.db.prepare('UPDATE recovery_rounds SET status = ? WHERE id = ?').run(status, id);
+    setStage(store, ticketId, 'fix', { status: 'failed', verdict: 'parked' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(ticketId);
+  };
+
+  it('is available in the fix stage when the round is parked, for the source stage', () => {
+    park();
+    expect(retryGateState(store, ticketId)).toEqual({ available: true, stage: 'uat', fromFix: true });
+  });
+
+  it('stays not-gate-stage for an exhausted round', () => {
+    park('exhausted');
+    expect(retryGateState(store, ticketId)).toEqual({ available: false, reason: 'not-gate-stage' });
+  });
+
+  it('retryGateStage from a parked fix returns the ticket to the source stage', () => {
+    park();
+    expect(retryGateStage(store, ticketId, 'uat')).toEqual({ ok: true });
+    expect(getTicket(store, ticketId).stageCurrent).toBe('uat');
+  });
+
+  it('retryGateStage refuses a stage that is not the round source', () => {
+    park();
+    expect(retryGateStage(store, ticketId, 'review')).toMatchObject({ ok: false });
+    expect(getTicket(store, ticketId).stageCurrent).toBe('fix');
   });
 });
