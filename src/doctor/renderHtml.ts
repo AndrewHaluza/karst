@@ -70,12 +70,21 @@ body{max-width:var(--k-content-max);margin:0 auto;padding:var(--k-space-7);backg
 /**
  * One self-contained document. The design system ships by marker injection
  * (UI-R03, @ui:DS-INJECTION): `/*KARST_DS_CSS*\/` sits at the top of the page's
- * own style block, and `/*KARST_PALETTE*\/` keeps the trailing style block so the
- * palette still wins the cascade. `host.ts` calls
- * `injectPalette(injectDesignSystem(html))`.
+ * own style block, `/*KARST_DS_JS*\/` is the first statement of the head script,
+ * and `/*KARST_PALETTE*\/` keeps the trailing style block so the palette still
+ * wins the cascade. `host.ts` calls `injectPalette(injectDesignSystem(html))`.
+ *
+ * All three markers live in the HEAD, before the body. Injection runs on the
+ * finished document and `String.replace` rewrites the FIRST occurrence, so a
+ * marker spelled inside a check's text (an escaped detail or a `data-copy`
+ * command) would otherwise be where the runtime lands — host JS inside a text
+ * node, or inside a quoted attribute where its quotes close the attribute.
+ * With the markers ahead of every dynamic string, injection can only reach the
+ * static head, and a marker in the text stays literal.
  */
 function documentShell(nonce: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${cspMetaTag(nonce)}<title>Karst Doctor</title><style>/*KARST_DS_CSS*/\n${PAGE_CSS}</style><style>/*KARST_PALETTE*/</style></head><body>${body}</body></html>`;
+  const scriptNonce = escapeHtml(nonce);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">${cspMetaTag(nonce)}<title>Karst Doctor</title><style>/*KARST_DS_CSS*/\n${PAGE_CSS}</style><style>/*KARST_PALETTE*/</style><script nonce="${scriptNonce}">/*KARST_DS_JS*/</script></head><body>${body}</body></html>`;
 }
 
 function statusGlyph(status: DoctorStatus): string {
@@ -124,7 +133,9 @@ function clock(checkedAt: Date | string | undefined): string {
 function subtitle(r: DoctorReport, checkedAt: Date | string | undefined): string {
   const { ok, warn, fail, skipped } = r.summary;
   let summary: string;
-  if (fail === 0 && warn === 0 && skipped === 0) {
+  // `ok > 0` is load-bearing: without it an empty run reads "All 0 checks
+  // passed" and "No checks ran" is unreachable.
+  if (ok > 0 && fail === 0 && warn === 0 && skipped === 0) {
     summary = `All ${plural(ok, 'check passed', 'checks passed')}`;
   } else {
     const parts: string[] = [];
@@ -180,6 +191,7 @@ const RUN_SCRIPT = `const v = acquireVsCodeApi();
 const fix = document.getElementById('fix');
 const rerun = document.getElementById('rerun');
 const status = document.getElementById('fix-status');
+const copyStatus = document.getElementById('copy-status');
 if (rerun) {
   rerun.addEventListener('click', () => {
     rerun.disabled = true;
@@ -204,7 +216,17 @@ window.addEventListener('message', (e) => {
       if (fix.dataset.label) fix.textContent = fix.dataset.label;
       fix.focus();
     }
+    // A rerun clicked while the confirmation was open was dropped by the
+    // busy guard, so its button is still disabled: hand it back too.
+    if (rerun) {
+      rerun.disabled = false;
+      rerun.removeAttribute('aria-busy');
+    }
     if (status) status.textContent = '';
+  }
+  if (e.data && e.data.type === 'copy-done' && copyStatus) {
+    copyStatus.textContent = '';
+    copyStatus.textContent = 'Copied to clipboard';
   }
 });
 for (const button of document.querySelectorAll('.doc-copy')) {
@@ -235,7 +257,7 @@ export function renderDoctorHtml(r: DoctorReport, nonce: string, opts?: DoctorPa
       ? `<button type="button" id="fix" class="k-btn k-btn--primary" data-label="Fix safe issues (${autoCount})">Fix safe issues (${autoCount})</button>`
       : '';
   const focus = r.fixRequested || opts?.focusTitle === true;
-  const body = `<main><header class="k-pagehead"><div class="k-pagehead-main"><div><h1 class="k-pagehead-title" tabindex="-1">Karst Doctor</h1><p class="k-pagehead-sub">${escapeHtml(subtitle(r, opts?.checkedAt))}</p></div></div><div class="k-pagehead-actions"><button type="button" id="rerun" class="k-btn k-btn--secondary">Run again</button>${fixButton}<span id="fix-status" class="doc-sr" role="status"></span></div></header>${problemSections(problems)}${passedDetails(okChecks)}${appliedSection(r)}</main><script nonce="${escapeHtml(nonce)}">${RUN_SCRIPT}${focus ? "\ndocument.querySelector('.k-pagehead-title')?.focus();" : ''}</script>`;
+  const body = `<main><header class="k-pagehead"><div class="k-pagehead-main"><div><h1 class="k-pagehead-title" tabindex="-1">Karst Doctor</h1><p class="k-pagehead-sub">${escapeHtml(subtitle(r, opts?.checkedAt))}</p></div></div><div class="k-pagehead-actions"><button type="button" id="rerun" class="k-btn k-btn--secondary">Run again</button>${fixButton}<span id="fix-status" class="doc-sr" role="status"></span></div></header>${problemSections(problems)}${passedDetails(okChecks)}${appliedSection(r)}<span id="copy-status" class="doc-sr" role="status"></span></main><script nonce="${escapeHtml(nonce)}">${RUN_SCRIPT}${focus ? "\ndocument.querySelector('.k-pagehead-title')?.focus();" : ''}</script>`;
   return documentShell(nonce, body);
 }
 

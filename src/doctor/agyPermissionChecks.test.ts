@@ -109,16 +109,19 @@ describe('checkAgyPermissions', () => {
     expect(globCheck?.detail).toContain(settingsPath);
 
     expect(globCheck?.fix).toMatchObject({
-      tier: 'consented',
+      tier: 'report',
       summary: 'Replace glob rules in agy permissions.allow with plain directory paths',
     });
     const fix = globCheck?.fix;
-    expect(fix?.tier === 'consented' && fix.command).toContain(
+    expect(fix?.tier === 'report' && fix.nextStep).toContain(
       '"read_file(/Users/nd/Work/projects/karst/**)" with "read_file(/Users/nd/Work/projects/karst)"',
     );
-    expect(fix?.tier === 'consented' && fix.command).toContain(
+    expect(fix?.tier === 'report' && fix.nextStep).toContain(
       '"write_file(/Users/nd/Work/projects/karst/*)" with "write_file(/Users/nd/Work/projects/karst)"',
     );
+    // Prose belongs in nextStep: the page would otherwise offer a Copy button
+    // for a sentence and the user would paste it into a shell (DR-2).
+    expect(fix?.tier === 'report' && fix.nextStep).toContain(settingsPath);
   });
 
   it('companion checkAgySandboxGlobs returns empty when allow has no globs', () => {

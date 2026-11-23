@@ -1,8 +1,9 @@
 /**
  * Manifest checks for `karst doctor`. Pure: every fact about the machine comes
- * in through `ManifestProbes`, and every check returns plain data. Fixes are
- * all `tier: 'consented'` — editing karst.yml, git branches and foreign
- * processes belong to the user, so doctor only ever shows the exact command.
+ * in through `ManifestProbes`, and every check returns plain data. A fix is
+ * `consented` only when it is an exact command; anything the user reads and
+ * acts on (editing karst.yml, the typed setup tools) is a `report` with a
+ * `nextStep`, so the page never offers a Copy button for a sentence (DR-2).
  */
 
 import { resolveTarget, unitsOf } from '../manifest/runnable.js';
@@ -38,6 +39,15 @@ function consented(summary: string, command: string): DoctorFix {
   return { tier: 'consented', summary, command };
 }
 
+/**
+ * A prose instruction is `report`, never `consented`: the page renders a
+ * consented fix in a `<pre>` with a Copy button (DR-2), so a sentence there is
+ * a line the user pastes into a shell. Only an exact command is consented.
+ */
+function prose(summary: string, nextStep: string): DoctorFix {
+  return { tier: 'report', summary, nextStep };
+}
+
 /** Disabled repositories are drafts; doctor does not judge them. */
 function enabledRepos(m: Manifest): EnabledRepo[] {
   return Object.entries(m.repositories).filter(([, repo]) => repo.enabled !== false);
@@ -49,7 +59,7 @@ function checkValid(p: ManifestProbes): DoctorCheck {
       'manifest.valid',
       'fail',
       `karst.yml does not load: ${p.manifestError}`,
-      consented('Fix karst.yml so it validates', 'Fix karst.yml to match the error above (use the typed setup tools)'),
+      prose('Fix karst.yml so it validates', 'Fix karst.yml to match the error above (use the typed setup tools)'),
     );
   }
   if (p.manifest === undefined) {
@@ -57,7 +67,7 @@ function checkValid(p: ManifestProbes): DoctorCheck {
       'manifest.valid',
       'warn',
       'no manifest: karst.yml was not found for this project',
-      consented('Create karst.yml', 'Create karst.yml (use the typed setup tools)'),
+      prose('Create karst.yml', 'Create karst.yml (use the typed setup tools)'),
     );
   }
   return check('manifest.valid', 'ok', 'karst.yml loads and validates');
@@ -65,7 +75,7 @@ function checkValid(p: ManifestProbes): DoctorCheck {
 
 function checkRepoPath(name: string, repo: RepositoryDef, p: ManifestProbes): DoctorCheck {
   const id = `manifest.repo-path.${name}`;
-  const fix = consented('Fix repoPath for this repository', 'Fix repoPath in karst.yml (use the typed setup tools)');
+  const fix = prose('Fix repoPath for this repository', 'Fix repoPath in karst.yml (use the typed setup tools)');
   if (!p.pathExists(repo.repoPath)) {
     return check(id, 'fail', `repoPath ${repo.repoPath} does not exist`, fix);
   }
@@ -102,7 +112,7 @@ function checkStart(name: string, service: ServiceDef, p: ManifestProbes): Docto
       id,
       'fail',
       `start command "${command}" does not resolve on PATH`,
-      consented(
+      prose(
         'Install the start command or correct service.start',
         `Install "${command}" or correct service.start for repository "${name}" in karst.yml`,
       ),
@@ -149,7 +159,7 @@ function checkBlockedDefaults(name: string, service: ServiceDef): DoctorCheck | 
     `manifest.blocked-ports.${name}`,
     'warn',
     `default port is blocked by fetch and Chrome, so the HTTP health check cannot pass: ${primary.default} (${primary.name})`,
-    consented(
+    prose(
       'Use a default port that is not on the Fetch blocked-port list, or use a tcp:// health',
       `Change the default port or the health URL for "${name}" in karst.yml`,
     ),
@@ -172,7 +182,7 @@ function checkDependsOn(name: string, service: ServiceDef, m: Manifest): DoctorC
     id,
     'fail',
     `dependsOn does not resolve: ${named}`,
-    consented(
+    prose(
       'Point dependsOn at a runnable repository with that port slot',
       `Fix dependsOn for repository "${name}" in karst.yml (use the typed setup tools)`,
     ),
@@ -211,7 +221,7 @@ function envChecks(m: Manifest, p: ManifestProbes): DoctorCheck[] {
       `manifest.env.${w.slice(0, w.indexOf(':'))}`,
       'warn',
       w,
-      consented('Fix the environment or karst.yml', 'Follow the fix named in the detail above'),
+      prose('Fix the environment or karst.yml', 'Follow the fix named in the detail above'),
     ),
   );
 }

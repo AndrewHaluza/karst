@@ -122,9 +122,11 @@ export function checkAgySandboxGlobs(p: AgyPermissionProbe): DoctorCheck[] {
       title: 'Antigravity sandbox glob rules',
       detail,
       fix: {
-        tier: 'consented',
+        // Prose, not a command: a consented fix renders in a <pre> with a Copy
+        // button (DR-2), and this sentence would be pasted into a shell.
+        tier: 'report',
         summary: 'Replace glob rules in agy permissions.allow with plain directory paths',
-        command,
+        nextStep: command,
       },
     },
   ];

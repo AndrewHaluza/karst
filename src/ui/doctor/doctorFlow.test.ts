@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDoctorFlow, createDoctorPanelController, type DoctorFlow, type DoctorFlowDeps } from './doctorFlow.js';
+import { createDoctorFlow, createDoctorPanelController, type DoctorFlow, type DoctorFlowDeps, type DoctorPanelLifecycle } from './doctorFlow.js';
 import type { DoctorCheck, DoctorReport } from '../../doctor/types.js';
 
 const empty = (): DoctorReport => ({
@@ -49,7 +49,7 @@ interface RunCall {
 
 function harness() {
   const renders: string[] = [];
-  const posts: Array<{ type: 'fix-cancelled' }> = [];
+  const posts: Array<{ type: 'fix-cancelled' } | { type: 'copy-done' }> = [];
   const copies: string[] = [];
   const confirms: ConfirmCall[] = [];
   const runs: RunCall[] = [];
@@ -294,11 +294,91 @@ describe('copy (DR-2)', () => {
     expect(h.copies).toEqual(['sbx prune --all']);
   });
 
+  it('confirms a successful copy so the page can announce it (UI-R27)', async () => {
+    const h = harness();
+    const flow = createDoctorFlow(h.deps);
+    await flow.handleMessage({ type: 'copy', text: 'sbx prune --all' });
+    expect(h.posts).toEqual([{ type: 'copy-done' }]);
+  });
+
   it('ignores a copy message with no text', async () => {
     const h = harness();
     const flow = createDoctorFlow(h.deps);
     await flow.handleMessage({ type: 'copy', text: 42 });
     expect(h.copies).toHaveLength(0);
+    expect(h.posts).toHaveLength(0);
+  });
+});
+
+describe('a panel that closes mid-run (DR-7)', () => {
+  it('drops the report when the run finishes after the dispose', async () => {
+    let closed = false;
+    let settle!: (r: DoctorReport) => void;
+    const renders: string[] = [];
+    const flow = createDoctorFlow({
+      run: () => new Promise<DoctorReport>((resolve) => {
+        settle = resolve;
+      }),
+      confirm: async () => true,
+      render: (html) => renders.push(html),
+      post: () => {
+        throw new Error('post reached a disposed panel');
+      },
+      isDisposed: () => closed,
+      nonce: () => 'n',
+    });
+    const started = flow.start();
+    closed = true;
+    settle(empty());
+    await started;
+    // Only the loading page, written while the tab was still open.
+    expect(renders).toHaveLength(1);
+    expect(renders[0]).toContain('Running checks…');
+  });
+
+  it('drops the error page too: the catch cannot render a second time into a closed panel', async () => {
+    let closed = false;
+    let fail!: (e: Error) => void;
+    const renders: string[] = [];
+    const flow = createDoctorFlow({
+      run: () => new Promise<DoctorReport>((_resolve, reject) => {
+        fail = reject;
+      }),
+      confirm: async () => true,
+      render: (html) => renders.push(html),
+      post: () => undefined,
+      isDisposed: () => closed,
+      nonce: () => 'n',
+    });
+    const started = flow.start();
+    closed = true;
+    fail(new Error('boom'));
+    await started;
+    expect(renders).toHaveLength(1);
+  });
+
+  it('runs nothing when the panel closes while the confirmation is open', async () => {
+    let closed = false;
+    const runs: RunCall[] = [];
+    const posts: Array<{ type: string }> = [];
+    const flow = createDoctorFlow({
+      run: async (fix, only) => {
+        runs.push({ fix, ...(only === undefined ? {} : { only }) });
+        return autoReport();
+      },
+      confirm: async () => {
+        closed = true;
+        return true;
+      },
+      render: () => undefined,
+      post: (message) => posts.push(message),
+      isDisposed: () => closed,
+      nonce: () => 'n',
+    });
+    await flow.start();
+    await flow.handleMessage({ type: 'fix' });
+    expect(runs.filter((r) => r.fix)).toHaveLength(0);
+    expect(posts).toHaveLength(0);
   });
 });
 
@@ -388,19 +468,25 @@ describe('single-panel reuse (DR-7)', () => {
   function controllerHarness() {
     const panels: FakePanel[] = [];
     const flows: FakeFlow[] = [];
+    const adopted: FakePanel[] = [];
+    const lifecycles: DoctorPanelLifecycle[] = [];
     const controller = createDoctorPanelController<FakePanel>({
       createPanel: () => {
         const panel = fakePanel();
         panels.push(panel);
         return panel;
       },
-      createFlow: () => {
+      adopt: (panel) => {
+        adopted.push(panel);
+      },
+      createFlow: (_panel, lifecycle) => {
+        lifecycles.push(lifecycle);
         const flow = fakeFlow();
         flows.push(flow);
         return flow;
       },
     });
-    return { controller, panels, flows };
+    return { controller, panels, flows, adopted, lifecycles };
   }
 
   it('reveals the open panel and asks it to rerun instead of minting a second one', async () => {
@@ -422,6 +508,27 @@ describe('single-panel reuse (DR-7)', () => {
     expect(h.flows[1]!.starts).toBe(1);
   });
 
+  it('adopts the created panel (icon + scripts before the flow starts)', async () => {
+    const h = controllerHarness();
+    await h.controller.open();
+    expect(h.adopted).toEqual([h.panels[0]]);
+  });
+
+  it('adopts a restored panel too: a restored tab comes back with scripts off', async () => {
+    const h = controllerHarness();
+    const restored = fakePanel();
+    await h.controller.restore(restored);
+    expect(h.adopted).toEqual([restored]);
+  });
+
+  it('tells the flow its panel is disposed, so a late run drops its render', async () => {
+    const h = controllerHarness();
+    await h.controller.open();
+    expect(h.lifecycles[0]!.isDisposed()).toBe(false);
+    h.panels[0]!.dispose();
+    expect(h.lifecycles[0]!.isDisposed()).toBe(true);
+  });
+
   it('adopts a restored panel and wires its messages', async () => {
     const h = controllerHarness();
     const restored = fakePanel();
@@ -430,6 +537,28 @@ describe('single-panel reuse (DR-7)', () => {
     restored.fireMessage({ type: 'fix' });
     await Promise.resolve();
     expect(h.flows[0]!.messages).toEqual([{ type: 'fix' }]);
+  });
+
+  it('does not let a rejected message handler escape as an unhandled rejection', async () => {
+    const panels: FakePanel[] = [];
+    const controller = createDoctorPanelController<FakePanel>({
+      createPanel: () => {
+        const panel = fakePanel();
+        panels.push(panel);
+        return panel;
+      },
+      adopt: () => undefined,
+      createFlow: () => ({
+        start: async () => undefined,
+        handleMessage: async () => {
+          throw new Error('handler exploded');
+        },
+      }),
+    });
+    await controller.open();
+    panels[0]!.fireMessage({ type: 'rerun' });
+    await Promise.resolve();
+    await Promise.resolve();
   });
 
   it('disposes a duplicate restored panel when one is already open', async () => {

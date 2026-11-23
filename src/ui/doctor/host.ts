@@ -27,25 +27,23 @@ export interface DoctorWiring {
 export function registerDoctorCommand(deps: DoctorWiringDeps): DoctorWiring {
   const config = (): { cliEntry: string; dbPath: string; manifestPath?: string } => deps.cli();
 
-  /**
-   * Everything a panel needs before its flow runs: the karst tab icon, scripts
-   * on, and no local resource roots (the page is self-contained, DR-11).
-   */
-  const adopt = (panel: vscode.WebviewPanel): vscode.WebviewPanel => {
-    panel.iconPath = brandIconUri(deps.brandIcon);
-    panel.webview.options = { enableScripts: true, localResourceRoots: [] };
-    return panel;
-  };
-
   const controller = createDoctorPanelController<vscode.WebviewPanel>({
     createPanel: () =>
-      adopt(
-        vscode.window.createWebviewPanel(DOCTOR_VIEW_TYPE, 'Karst Doctor', vscode.ViewColumn.Active, {
-          enableScripts: true,
-          localResourceRoots: [],
-        }),
-      ),
-    createFlow: (panel) => {
+      vscode.window.createWebviewPanel(DOCTOR_VIEW_TYPE, 'Karst Doctor', vscode.ViewColumn.Active, {
+        enableScripts: true,
+        localResourceRoots: [],
+      }),
+    /**
+     * Everything a panel needs before its flow runs: the karst tab icon, scripts
+     * on, and no local resource roots (the page is self-contained, DR-11). The
+     * controller runs this for a created AND a restored panel — a restore comes
+     * back with the serializer's options, so scripts would stay off.
+     */
+    adopt: (panel) => {
+      panel.iconPath = brandIconUri(deps.brandIcon);
+      panel.webview.options = { enableScripts: true, localResourceRoots: [] };
+    },
+    createFlow: (panel, lifecycle) => {
       const { cliEntry, dbPath, manifestPath } = config();
       // The CLI spawns git/gh synchronously; the extension host never blocks. The
       // spawn error rides along so a missing binary is not a blank reason (DR-4).
@@ -62,16 +60,20 @@ export function registerDoctorCommand(deps: DoctorWiringDeps): DoctorWiring {
         // VS Code appends Cancel; Cancel resolves to undefined, never the action.
         confirm: async (title, items, actionLabel) =>
           (await ask.warn(title, { modal: true, detail: items.join('\n') }, actionLabel)) === actionLabel,
-        // The page carries both markers; the host swaps them for the real CSS.
+        // The page carries all three markers; the host swaps CSS, runtime and palette.
         render: (html) => {
           panel.webview.html = injectPalette(injectDesignSystem(html));
         },
         post: (message) => {
-          void panel.webview.postMessage(message);
+          // The Thenable rejects when the tab is disposed between the flow's
+          // guard and this call: a dropped message is not an unhandled rejection.
+          void Promise.resolve(panel.webview.postMessage(message)).catch(() => undefined);
         },
         copy: async (text) => {
           await vscode.env.clipboard.writeText(text);
         },
+        // A run that finishes after the tab closed must not touch the webview.
+        isDisposed: lifecycle.isDisposed,
       });
     },
   });

@@ -4,8 +4,12 @@ import { plural } from '../model/notifyText.js';
 import { formatDoctorBytes } from './formatBytes.js';
 import type { DoctorCheck } from './types.js';
 
-/** Disk warning threshold for karst sandboxes (a constant, not config). */
-export const SANDBOX_DISK_WARN_BYTES = 10e9;
+/**
+ * Disk warning threshold for karst sandboxes (a constant, not config). Binary,
+ * like the one byte formatter (DR-8): 10 GiB. A decimal 10e9 would warn at a
+ * size the page prints as "9.3 GB", so the threshold and the number disagree.
+ */
+export const SANDBOX_DISK_WARN_BYTES = 10 * 2 ** 30;
 
 export interface SandboxCheckInput {
   /** The sandbox backends some core selects; sbx and docker can both be on. */

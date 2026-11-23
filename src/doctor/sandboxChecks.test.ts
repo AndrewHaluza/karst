@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SANDBOX_DISK_WARN_BYTES, checkSandboxBackends, checkSandboxSetupDeclared, parseDockerSize, type SetupRepoFact } from './sandboxChecks.js';
+import { formatDoctorBytes } from './formatBytes.js';
 
 const OK = { ok: true } as const;
 const base = { selected: ['sbx'], sbx: OK, docker: OK, sandboxCount: 0, diskBytes: undefined } as const;
@@ -36,6 +37,9 @@ describe('checkSandboxBackends', () => {
   it('warns above 10 GB', () => {
     const c = checkSandboxBackends({ ...base, sandboxCount: 1, diskBytes: SANDBOX_DISK_WARN_BYTES + 1 }).find((x) => x.id === 'state.sandbox-disk');
     expect(c).toMatchObject({ status: 'warn' });
+  });
+  it('the threshold is 10 GB in the unit the page prints (binary, DR-8)', () => {
+    expect(formatDoctorBytes(SANDBOX_DISK_WARN_BYTES)).toBe('10.0 GB');
   });
   it('exactly 10 GB does not warn', () => {
     expect(checkSandboxBackends({ ...base, sandboxCount: 1, diskBytes: SANDBOX_DISK_WARN_BYTES }).find((x) => x.id === 'state.sandbox-disk')!.status).toBe('ok');

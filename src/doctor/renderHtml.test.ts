@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cspMetaTag } from '../model/csp.js';
-import { DS_CSS_MARKER, injectDesignSystem } from '../model/designSystem.js';
+import { DS_CSS_MARKER, DS_JS_MARKER, injectDesignSystem } from '../model/designSystem.js';
 import { injectPalette, PALETTE_MARKER } from '../model/palette.js';
 import { doctorErrorHtml, doctorLoadingHtml, renderDoctorHtml } from './renderHtml.js';
 import { DOCTOR_FIXTURES } from './renderFixtures.js';
@@ -42,6 +42,7 @@ describe('the shared document shell', () => {
   it.each(PAGES)('carries both design-system markers and keeps the palette as the last style block (%s)', (_name, page) => {
     const html = page('n');
     expect(html).toContain(DS_CSS_MARKER);
+    expect(html).toContain(DS_JS_MARKER);
     expect(html).toContain(PALETTE_MARKER);
     const lastOpen = html.lastIndexOf('<style>');
     const paletteAt = html.lastIndexOf(PALETTE_MARKER);
@@ -49,6 +50,23 @@ describe('the shared document shell', () => {
     expect(paletteAt).toBeGreaterThan(lastOpen);
     // Nothing but the palette marker between the last <style> and </style>.
     expect(html.slice(lastOpen + '<style>'.length, paletteAt).trim()).toBe('');
+  });
+
+  it.each(PAGES)('puts the DS JS marker in a nonce script (UI-R03, @ui:DS-INJECTION) (%s)', (_name, page) => {
+    const html = page('abc123');
+    const at = html.indexOf(DS_JS_MARKER);
+    expect(at).toBeGreaterThan(0);
+    expect(html.slice(0, at)).toMatch(/<script nonce="abc123">$/u);
+  });
+
+  it.each(PAGES)('keeps every marker in the head, ahead of any dynamic string (%s)', (_name, page) => {
+    const html = page('n');
+    const headEnd = html.indexOf('</head>');
+    expect(headEnd).toBeGreaterThan(0);
+    for (const marker of [DS_CSS_MARKER, DS_JS_MARKER, PALETTE_MARKER]) {
+      expect(html.indexOf(marker)).toBeGreaterThan(0);
+      expect(html.indexOf(marker)).toBeLessThan(headEnd);
+    }
   });
 
   it.each(PAGES)('hydrates tokens, primitives and palette without leaving a marker (%s)', (_name, page) => {
@@ -59,7 +77,36 @@ describe('the shared document shell', () => {
     expect(html).toContain('.k-btn{');
     expect(html).toContain('--k-passed:');
     expect(html).not.toContain(DS_CSS_MARKER);
+    expect(html).not.toContain(DS_JS_MARKER);
     expect(html).not.toContain(PALETTE_MARKER);
+  });
+
+  it('never lets a marker spelled in check text become the injection site', () => {
+    const html = renderDoctorHtml(
+      report({
+        checks: [
+          check({
+            id: 'tools.marker',
+            area: 'tools',
+            status: 'warn',
+            title: 'Marker',
+            detail: `${DS_CSS_MARKER} ${DS_JS_MARKER} ${PALETTE_MARKER}`,
+            fix: { tier: 'consented', summary: 'Run it', command: DS_JS_MARKER },
+          }),
+        ],
+        summary: { ok: 0, warn: 1, fail: 0, skipped: 0 },
+      }),
+      'n',
+    );
+    const hydrated = injectPalette(injectDesignSystem(html));
+    // The escaped text and the data-copy attribute keep their literal markers.
+    expect(hydrated).toContain(`${DS_CSS_MARKER} ${DS_JS_MARKER} ${PALETTE_MARKER}`);
+    expect(hydrated).toContain(`data-copy="${DS_JS_MARKER}"`);
+    // The runtime landed in the head, exactly once.
+    const runtimeAt = hydrated.indexOf('Karst design system runtime');
+    expect(runtimeAt).toBeGreaterThan(0);
+    expect(runtimeAt).toBeLessThan(hydrated.indexOf('</head>'));
+    expect(hydrated.indexOf('Karst design system runtime', runtimeAt + 1)).toBe(-1);
   });
 
   it.each(PAGES)('uses <main> and one shared page header with no brand mark (%s)', (_name, page) => {
@@ -174,6 +221,12 @@ describe('ordering, grouping and the header subtitle (DR-6, DR-8, DR-9)', () => 
     expect(clean).toContain('Checked at 09:05');
   });
 
+  it('says No checks ran for a run that collected nothing, never All 0 checks passed', () => {
+    const empty = renderDoctorHtml(report({ checks: [], summary: { ok: 0, warn: 0, fail: 0, skipped: 0 } }), 'n', { checkedAt: '09:05' });
+    expect(empty).toContain('No checks ran · Checked at 09:05');
+    expect(empty).not.toContain('All 0 checks passed');
+  });
+
   it('derives a human title when a check has none', () => {
     const titled = renderDoctorHtml(
       report({ checks: [check({ id: 'state.server-dead.12', area: 'state', status: 'warn', title: undefined })], summary: { ok: 0, warn: 1, fail: 0, skipped: 0 } }),
@@ -242,6 +295,17 @@ describe('the fix action and its busy state (DR-5)', () => {
     expect(html).toContain("e.data.type === 'fix-cancelled'");
     expect(html).toContain('fix.dataset.label');
     expect(html).toContain('fix.focus()');
+  });
+
+  it('re-arms Run again on fix-cancelled: a rerun dropped by the busy guard must not stay disabled', () => {
+    expect(html).toContain('rerun.disabled = false');
+    expect(html).toContain("rerun.removeAttribute('aria-busy')");
+  });
+
+  it('confirms a copy in a polite live region (UI-R27)', () => {
+    expect(html).toContain('<span id="copy-status" class="doc-sr" role="status"></span>');
+    expect(html).toContain("e.data.type === 'copy-done'");
+    expect(html).toContain("copyStatus.textContent = 'Copied to clipboard'");
   });
 
   it('forwards Copy clicks as a copy message', () => {
