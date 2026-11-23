@@ -60,6 +60,40 @@ export const QUOTA_PHRASES =
 export const QUOTA_CODES =
   /(insufficient[_ ]quota|quota[_ ]exceeded|quota[_ ]exhausted|resource[_ ]exhausted|billing[_ ]hard[_ ]limit)/i;
 
+/** A relative reset: `Resets in 2h45m19s`, `resets in 45m`, `reset in 30s` (agy). */
+const RESET_IN = /\bresets?\s+in\s+(?=\d)(?:(\d{1,3})\s*h)?\s*(?:(\d{1,4})\s*m)?\s*(?:(\d{1,5})\s*s)?/i;
+
+/** A wall-clock reset: `resets 3:30am`, `resets at 8:50pm (Europe/Warsaw)`, `resets 3am` (claude). */
+const RESET_AT = /\bresets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i;
+
+/**
+ * The instant a usage limit resets, read from the provider's failure text, as
+ * ISO-8601; null when the text names no reset (T1313). Two forms:
+ * - relative (`Resets in 2h45m19s`): `now` plus the duration;
+ * - wall clock (`resets 3:30am`): the NEXT occurrence of that local time after
+ *   `now` (today when it is still ahead, else tomorrow). A trailing time-zone
+ *   name is ignored: the time reads as the host's local time.
+ * A zero duration or an impossible clock time (13pm, 3:75am) reads as null.
+ */
+export function parseUsageLimitResetAt(text: string, now: Date): string | null {
+  const rel = RESET_IN.exec(text);
+  if (rel) {
+    const [hours, minutes, seconds] = [rel[1], rel[2], rel[3]].map((p) => (p === undefined ? 0 : Number(p)));
+    const ms = (hours! * 3600 + minutes! * 60 + seconds!) * 1000;
+    return ms > 0 ? new Date(now.getTime() + ms).toISOString() : null;
+  }
+  const abs = RESET_AT.exec(text);
+  if (!abs) return null;
+  const hour12 = Number(abs[1]);
+  const minute = abs[2] === undefined ? 0 : Number(abs[2]);
+  if (hour12 < 1 || hour12 > 12 || minute > 59) return null;
+  const hour = (hour12 % 12) + (abs[3]!.toLowerCase() === 'pm' ? 12 : 0);
+  const at = new Date(now.getTime());
+  at.setHours(hour, minute, 0, 0);
+  if (at.getTime() <= now.getTime()) at.setDate(at.getDate() + 1);
+  return at.toISOString();
+}
+
 export interface HeadlessFailure {
   /** Display name of the agent core, e.g. `Claude`. */
   tool: string;

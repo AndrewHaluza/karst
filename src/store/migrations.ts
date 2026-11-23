@@ -3123,5 +3123,13 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 136) {
+    // v136: `usage_limit_parks.reset_at`, `carry_provider`, `carry_model`, `carry_until` — the parsed reset instant and the opt-in carried pick (T1313, @arch:AC-65). Additive; NULL = unknown reset / one-shot pick (no backfill).
+    const parkCols136 = tableColumns(db, 'usage_limit_parks');
+    for (const col of ['reset_at', 'carry_provider', 'carry_model', 'carry_until']) {
+      if (parkCols136.size > 0 && !parkCols136.has(col)) db.exec(`ALTER TABLE usage_limit_parks ADD COLUMN ${col} TEXT`);
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

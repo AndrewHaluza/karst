@@ -329,6 +329,7 @@ At most one OPEN row per `(ticket_id, COALESCE(stage,''), kind, COALESCE(lane,''
 Resolution and one-shot re-run (D159):
 - `claimUsageLimitPark` (`store/usageLimitParks.ts`) claims an open park row atomically in one transaction (`UPDATE … SET resolved_at=?, resolution=? WHERE id=? AND resolved_at IS NULL RETURNING *`), verifying `blocked_kind = 'usage-limit'` inside the transaction for stage blocks, and clearing the block. Concurrent callers receive `claimed: false` and notify 'already handled'.
 - One-shot override re-run (`workflow/usageLimitRerun.ts`): re-runs only the parked lane with an ephemeral adapter and model, merges with sibling outcomes preserved in `kept_outcome`, and runs normal aggregation. For either lane the target set is the parked target PLUS every target the original pass never reached — the lane records those as `not-run` in `kept_outcome` (`workflow/usageLimitKept.ts` owns that vocabulary), so a re-run finishes them instead of silently omitting them from the verdict. An `op` park is NEVER re-run by that path — it names no lane and no target, and its re-run is the op's own (the ticket form's error notification re-runs exactly that op), so a stage lane never stands in for it; the row stays open for the op path.
+- Opt-in carry (v136, `@arch:AC-65`): `claimUsageLimitPark` takes an optional `carry` and writes `carry_provider`, `carry_model` and `carry_until` in the same claim UPDATE; `insertOpenPark` writes `reset_at` (from `parseUsageLimitResetAt` on the detail, unless the caller gives one). `resolveCarriedPick`, `listActiveCarries` and `stopCarriedPick` read and end a carry; `reopenUsageLimitPark` clears it.
 - Dismiss: for stage blocks, opens a NEW run with `openGateRun` (never the parked run's id; the bare `openStageRun` would skip the attachment a run opened while a recovery round awaits its revalidation needs), then commits a failed verdict via `commitGateOutcome` with `RecoveryTrigger` kind `'usage-limit-dismissed'`, moving the ticket into fix.
 END_DOC_BLOCK: [@arch:V82]
 
@@ -383,6 +384,8 @@ END_DOC_BLOCK: [@arch:V121]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
+
+**v136:** `usage_limit_parks.reset_at` (the parsed reset instant of the failure text, NULL = unknown) and `carry_provider`, `carry_model`, `carry_until` (the opt-in carried pick, written by the claim; NULL = no carry; `@arch:AC-65`). Additive, no backfill: a pre-v135 park reads as one-shot with no known reset.
 
 **v135:** `planning_proposals.revision_count` (INTEGER NOT NULL DEFAULT 0, the in-place revisions of a draft; only `updateProposalPayload` increments it; `@arch:PLANNING`). Additive, 0 for a pre-v135 row, no backfill from `updated_at`: accept, discard, `setProposalWarnings` and `setProposalBaseShas` also bump `updated_at`, so a backfill would invent revisions.
 

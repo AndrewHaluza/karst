@@ -135,6 +135,8 @@ export type TicketFormMessage =
   | { type: 'usage-limit-park-pick'; parkId: number }
   | { type: 'usage-limit-park-retry'; parkId: number }
   | { type: 'usage-limit-park-dismiss'; parkId: number }
+  // T1313 (@arch:AC-65): "Stop using pick" — end the carried pick on this park row.
+  | { type: 'usage-limit-carry-stop'; parkId: number }
   // Open the native file picker. Carries nothing — the host owns the dialog, so
   // a crafted message can neither choose a path nor pre-fill one.
   | { type: 'attach-pick'; draft?: FormDraft }
@@ -280,6 +282,8 @@ export interface TicketFormActions {
   usageLimitParkRetry: (parkId: number) => void | Promise<void>;
   /** D159: resolve a parked op without re-running it. */
   usageLimitParkDismiss: (parkId: number) => void | Promise<void>;
+  /** T1313: end this ticket's carried usage-limit pick now. */
+  usageLimitCarryStop: (parkId: number) => void | Promise<void>;
   attachPick: (draft?: FormDraft) => Promise<void>;
   attachBytes: (name: string, base64: string, draft?: FormDraft) => Promise<void>;
   detachAttachment: (id: number) => Promise<void>;
@@ -486,6 +490,8 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       return isRowId(m.parkId) ? { type: 'usage-limit-park-retry', parkId: m.parkId } : null;
     case 'usage-limit-park-dismiss':
       return isRowId(m.parkId) ? { type: 'usage-limit-park-dismiss', parkId: m.parkId } : null;
+    case 'usage-limit-carry-stop':
+      return isRowId(m.parkId) ? { type: 'usage-limit-carry-stop', parkId: m.parkId } : null;
     case 'attach-pick':
       return { type: 'attach-pick', draft: parseDraft(m.draft) };
     case 'attach-bytes': {
@@ -614,6 +620,9 @@ export function routeTicketFormAction(
       return;
     case 'usage-limit-park-dismiss':
       void actions.usageLimitParkDismiss(msg.parkId);
+      return;
+    case 'usage-limit-carry-stop':
+      void actions.usageLimitCarryStop(msg.parkId);
       return;
     case 'attach-pick':
       return actions.attachPick(msg.draft);

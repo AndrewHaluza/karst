@@ -34,6 +34,7 @@ import { ALL_STAGE_KEYS } from '../../model/types.js';
 import {
   recordUsageLimitOpPark,
   claimUsageLimitPark,
+  stopCarriedPick,
   listParks,
   type UsageLimitParkRow,
 } from '../../store/usageLimitParks.js';
@@ -47,6 +48,7 @@ import type { AnalyzeServiceInput } from '../../workflow/classify/analyze.js';
 import { runAnalysis, type RunAnalysisResult } from '../../workflow/classify/runAnalysis.js';
 import { codePointersEnabled } from '../../manifest/validate/analysis.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
+import { askCarry, type CarryPickDeps } from '../../workflow/carriedPick.js';
 import { labelForProvider } from '../../model/inside/agent.js';
 import type { TicketFormActions, TicketDraftFields, FormDraft } from './messages.js';
 import type { TicketFormActionsCtx, TicketFormActionsFactory } from './panel.js';
@@ -158,6 +160,13 @@ export interface TicketFormActionsDeps {
     parkedProvider: string,
     parkedModel: string | null,
   ) => Promise<{ provider: AgentProvider; model: string | null } | undefined>;
+  /**
+   * T1313 (@arch:AC-65): the third step after the pick — "Only this run" (the
+   * default) or "Use for this ticket until the limit resets". Absent → the pick
+   * stays one-shot. `quotaResetFor` is the quota module's reset for a core.
+   */
+  pickUsageLimitCarry?: CarryPickDeps['pickCarry'];
+  quotaResetFor?: CarryPickDeps['quotaResetFor'];
   /** Notify the host to refresh sidebar/dashboard after a create/edit. */
   onChange: () => void;
   /**
@@ -1688,11 +1697,21 @@ export function buildTicketFormActions(
         ctx.post({ type: 'usage-limit-park-cancelled' });
         return;
       }
-      if (!claimUsageLimitPark(deps.store, parkId, 'pick').claimed) {
+      const carry = await askCarry(
+        { pickCarry: deps.pickUsageLimitCarry, quotaResetFor: deps.quotaResetFor },
+        park,
+        picked,
+      );
+      if (carry === undefined) {
+        ctx.post({ type: 'usage-limit-park-cancelled' });
+        return;
+      }
+      if (!claimUsageLimitPark(deps.store, parkId, 'pick', undefined, carry ?? undefined).claimed) {
         ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
         return;
       }
       ctx.post({ type: 'usage-limit-park-resolved' });
+      if (carry) ctx.pushState();
       analysisOverride = { provider: picked.provider, model: picked.model };
       await rerunParkedOp(park);
     },
@@ -1710,6 +1729,16 @@ export function buildTicketFormActions(
       ctx.post({ type: 'usage-limit-park-resolved' });
       analysisOverride = { provider: park.provider as AgentProvider, model: park.model };
       await rerunParkedOp(park);
+    },
+
+    // T1313 (@arch:AC-65): "Stop using pick" ends this ticket's carry now.
+    usageLimitCarryStop(parkId: number): void {
+      if (ctx.ticketId === undefined || !stopCarriedPick(deps.store, ctx.ticketId, parkId, new Date())) {
+        ctx.post({ type: 'error', message: 'This pick is no longer in use.' });
+        ctx.pushState();
+        return;
+      }
+      ctx.pushState();
     },
 
     usageLimitParkDismiss(parkId: number): void {

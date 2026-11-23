@@ -20,6 +20,8 @@ import {
   reopenInterruptedRound,
 } from '../store/recoveryRounds.js';
 import { nowIso } from '../model/time.js';
+import { resolveLaneProcess, type CarryLaneRole } from './carriedPick.js';
+import type { AgentProvider } from '../manifest/types.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
 import type { IntegrateOutcome } from './subtaskIntegration.js';
 import { runUat, type UatSpin, type UatStopServers } from './stages/uat.js';
@@ -135,7 +137,21 @@ export interface DriveTicketDeps {
    * EXACTLY once per run — the host's resolver builds a fresh instrumented
    * adapter per call, so a second call would instrument twice.
    */
-  uatTester?: (ticketId: number) => DriveProcessBundle | null;
+  uatTester?: (
+    ticketId: number,
+    /** A carried usage-limit pick (@arch:AC-65): the core/model for this one run. */
+    override?: { provider: AgentProvider; model: string | null },
+  ) => DriveProcessBundle | null;
+  /**
+   * The lane guard's provider read (@arch:AC-65): the role's resolved provider
+   * WITHOUT building an adapter, so the guard can look for a carried pick
+   * before the lane's one bundle is built. Absent → no carry is consulted.
+   */
+  laneProvider?: (ticketId: number, role: CarryLaneRole) => string | null;
+  /** One Activity entry when a lane runs on a carried pick (@arch:AC-65). */
+  carryActivity?: (ticketId: number, title: string) => void;
+  /** Injectable clock for the carry expiry; defaults to the wall clock. */
+  carryNow?: () => Date;
   /**
    * The service spin/stop seams (D155): threaded into `UatDeps` so UAT starts
    * the ticket's runnable services before the Tester and stops them after, on
@@ -153,7 +169,10 @@ export interface DriveTicketDeps {
    * assignment; null → the lane falls back to the plain findings adapter
    * and opens no process run.
    */
-  reviewProcess?: (ticketId: number) => DriveProcessBundle | null;
+  reviewProcess?: (
+    ticketId: number,
+    override?: { provider: AgentProvider; model: string | null },
+  ) => DriveProcessBundle | null;
   /** Intent / spec / plan the review judges the change against; absent → review as before. */
   reviewArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
   /**
@@ -311,6 +330,26 @@ export async function driveTicket(
   ticketId: number,
   runners: DriveTicketRunners = {},
 ): Promise<StageOutcome> {
+  // The headless UAT tester / review findings bundle, resolved ONCE per run.
+  // The lane guard (@arch:AC-65) looks for a carried usage-limit pick on the
+  // role's provider first; absent resolver → no process (undefined), as before.
+  const laneProcess = (
+    id: number,
+    role: CarryLaneRole,
+    resolver: DriveTicketDeps['uatTester'],
+  ): DriveProcessBundle | null | undefined =>
+    resolver === undefined
+      ? undefined
+      : resolveLaneProcess({
+          store: deps.store,
+          ticketId: id,
+          role,
+          now: deps.carryNow?.() ?? new Date(),
+          laneProvider: deps.laneProvider,
+          resolve: (override) => (override ? resolver(id, override) : resolver(id)),
+          debug: deps.debug,
+          activity: deps.carryActivity,
+        });
   const ticket = getTicket(deps.store, ticketId);
   if (ticket.pausedAt !== null) {
     deps.debug?.(`[driver] ticket ${ticketId} is paused — skipping drive`);
@@ -374,7 +413,7 @@ export async function driveTicket(
         // builds a fresh instrumented adapter per call, so calling it twice
         // would instrument twice (Task 8).
         runUat: (id, cwd) => {
-          const tester = deps.uatTester?.(id) ?? undefined;
+          const tester = laneProcess(id, 'uat-tester', deps.uatTester) ?? undefined;
           return uat(
             deps.store,
             {
@@ -486,7 +525,7 @@ export async function driveTicket(
         // absent here means absent there, never a no-op default. The Review
         // findings process resolves ONCE per run, like the Tester above.
         runReview: (id, cwd) => {
-          const reviewProcess = deps.reviewProcess?.(id);
+          const reviewProcess = laneProcess(id, 'review', deps.reviewProcess);
           return review(
             deps.store,
             {

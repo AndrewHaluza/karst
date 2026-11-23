@@ -96,7 +96,7 @@ module.exports = {
           '^src/manifest/(foldProcessRows|schema)\\.ts$',
           '^src/model/(artifacts|inside/agent|inside/gates)\\.ts$',
           '^src/store/(interactiveUsageSamples|tickets|usageLimitParks)\\.ts$',
-          '^src/workflow/(agentScope|conflictBrief|graphMarkerGuard|messageDelivery|shipPreview|subtaskGate|stallSuggestion|usageLimitRerun|prDescription)\\.ts$',
+          '^src/workflow/(agentScope|conflictBrief|graphMarkerGuard|messageDelivery|shipPreview|subtaskGate|stallSuggestion|usageLimitRerun|carriedPick|prDescription)\\.ts$',
           '^src/workflow/artifacts/(alignment|alignmentTrigger)\\.ts$',
           '^src/workflow/gates/gateConsole\\.ts$',
           '^src/workflow/review/(aggregate|findingsLane)\\.ts$',

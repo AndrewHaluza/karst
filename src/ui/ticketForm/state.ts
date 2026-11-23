@@ -30,6 +30,8 @@ import { buildBlockerLabel, list as listRelationViews, listRelations, listPendin
 import { subtaskParentBranch, type PlannedBaseTicket } from '../../workflow/baseRef.js';
 import { ticketRefView, type TicketRefView } from '../shared/ticketRefView.js';
 import type { TicketWithStages } from '../../store/tickets.js';
+import { listActiveCarries } from '../../store/usageLimitParks.js';
+import { carryTarget, formatCarryTime } from '../../workflow/carriedPick.js';
 
 export const RELATION_LABEL: Record<string, string> = {
   'blocked-by': 'Waits on',
@@ -304,6 +306,24 @@ export interface TicketFormState {
   attachments: AttachmentView[];
   relations?: TicketFormRelation[];
   failedWritebacks?: number[];
+  /**
+   * T1313 (@arch:AC-65): the ticket's active carried usage-limit picks, newest
+   * first, each with a host-built label. The form offers "Stop using pick".
+   */
+  activeCarries?: ActiveCarryView[];
+}
+
+export interface ActiveCarryView {
+  parkId: number;
+  label: string;
+}
+
+/** The ticket's active carries as the form shows them (host-built text, UI-R31). */
+export function activeCarryViews(store: Store, ticketId: number, now: Date): ActiveCarryView[] {
+  return listActiveCarries(store, ticketId, now).map((park) => ({
+    parkId: park.id,
+    label: `Stop using pick: ${carryTarget(park)} until ${formatCarryTime(park.carryUntil ?? '', now)} (parked on ${park.provider})`,
+  }));
 }
 
 /**
@@ -663,6 +683,7 @@ export function buildTicketFormState(
       };
     }),
     failedWritebacks: listPendingWritebacks(store, ticketId).filter((r) => r.writebackState === 'failed').map((r) => r.id),
+    activeCarries: activeCarryViews(store, ticketId, new Date()),
   };
 }
 

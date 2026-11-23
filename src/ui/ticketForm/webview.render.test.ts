@@ -83,9 +83,27 @@ describe('ticket form — action labels', () => {
     const v = open(baseState());
     expect(v.query('#saveBtn')!.textContent).toBe('Save draft');
     expect(v.query('#submitBtn')!.textContent).toBe('Create & start');
-    const ids = v.queryAll('#actionBar button').map((b) => b.id);
+    // The hidden carry control (T1313) sits beside the reason; the visible order is unchanged.
+    const ids = v.queryAll('#actionBar button').filter((b) => !b.classList.contains('hidden')).map((b) => b.id);
     expect(ids).toEqual(['cancelBtn', 'saveBtn', 'submitBtn']);
     expect(v.query('#actionHint')).toBeNull();
+  });
+
+  // T1313 / @arch:AC-65: an active carried pick shows "Stop using pick" in the
+  // action row; a click posts the park id; no carry keeps it hidden.
+  it('shows Stop using pick for an active carry and posts its park id', () => {
+    const none = open(baseState());
+    expect(none.query('#carryStopBtn')!.classList.contains('hidden')).toBe(true);
+    none.close();
+    const v = open({ ...baseState(), activeCarries: [{ parkId: 14, label: 'Stop using pick: claude/claude-opus-5-5 until 15:05 (parked on antigravity)' }] });
+    const btn = v.query('#carryStopBtn') as HTMLButtonElement;
+    expect(btn.classList.contains('hidden')).toBe(false);
+    expect(btn.title).toBe('Stop using pick: claude/claude-opus-5-5 until 15:05 (parked on antigravity)');
+    expect(btn.textContent).toBe('Stop using pick: claude/claude-opus-5-5 until 15:05 (parked on antigravity)');
+    btn.click();
+    expect(v.posted).toContainEqual({ type: 'usage-limit-carry-stop', parkId: 14 });
+    const ids = v.queryAll('#actionBar button').filter((b) => !b.classList.contains('hidden')).map((b) => b.id);
+    expect(ids.at(-1)).toBe('submitBtn');
   });
 
   it('static markup labels match the create-mode runtime labels', () => {
