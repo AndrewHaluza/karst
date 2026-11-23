@@ -12,6 +12,16 @@ describe('sandboxMarkerCommand', () => {
   });
 });
 
+describe('renderSandboxMarkerInstruction no-change sentence', () => {
+  it('names --no-change in the fix instruction only', () => {
+    const fix = renderSandboxMarkerInstruction({ runDir: '/karst-bridge/7', core: 'claude', stage: 'fix' });
+    const impl = renderSandboxMarkerInstruction({ runDir: '/karst-bridge/7', core: 'claude', stage: 'impl' });
+    expect(fix).toContain('fix --no-change "<evidence>"');
+    expect(fix).toContain('never make an empty commit');
+    expect(impl).not.toContain('--no-change');
+  });
+});
+
 describe('renderSandboxMarkerInstruction', () => {
   const text = renderSandboxMarkerInstruction({ runDir: '/karst-bridge/7', core: 'opencode2', stage: 'impl' });
   it('names the command and the three exit codes', () => {

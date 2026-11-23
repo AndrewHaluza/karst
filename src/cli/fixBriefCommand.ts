@@ -1,4 +1,3 @@
-import { hostRerunSpent } from '../store/hostRerunRound.js';
 import { formatFixBriefNumber } from '../model/entityId.js';
 import type { Store } from '../store/db.js';
 import { getTicket } from '../store/tickets.js';
@@ -97,7 +96,7 @@ function liveBrief(store: Store, ticketId: number): string {
     latestFindingBatch(store, t.id),
     listGateRuns(store, t.id),
     shipRound === null ? undefined : listPrFeedbackForRound(store, t.id, shipRound.id),
-    { hasPrototype: hasLinkedPrototype(t), hostRerunSpent: (stage) => hostRerunSpent(store, t.id, stage) },
+    { hasPrototype: hasLinkedPrototype(t) },
   );
   if (brief === null) {
     return 'No failed gate is recorded for this ticket — there is nothing to fix.';

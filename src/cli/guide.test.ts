@@ -14,6 +14,10 @@ import { SERVERS_VIA_CLI_RULE, MCP_TOOLS_PREFERRED } from '../agent/promptText.j
  */
 
 describe('karst guide — content', () => {
+  it('lists the no-change form of the fix marker', () => {
+    expect(AGENT_GUIDE).toContain('stage fix pass --no-change "<reason>"');
+  });
+
   it('tells the agent to re-record an intended visual change and not to ask in chat', () => {
     expect(AGENT_GUIDE).toContain('test:visual:docker:update');
     expect(AGENT_GUIDE).toContain('Do not ask for approval in chat');

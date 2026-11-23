@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PROCESS_KILL_RULE } from './promptText.js';
-import { FIX_NO_FAULT_RULE, REVIEW_SWEEP_RULE, VISUAL_RERECORD_RULE } from './fixBrief.js';
+import { FIX_NO_CHANGE_RULE, REVIEW_SWEEP_RULE, VISUAL_RERECORD_RULE } from './fixBrief.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
@@ -159,24 +159,23 @@ describe('renderFixBrief', () => {
     });
   });
 
-  describe('no-fault rule', () => {
-    it('tells a failed uat gate brief to call the marker when the ticket code has no fault', () => {
-      const brief = renderFixBrief('PROJ-9', [{ stageKey: 'uat', status: 'failed' }]);
-      expect(brief).toContain(FIX_NO_FAULT_RULE);
-      expect(brief?.split(FIX_NO_FAULT_RULE).length).toBe(2);
-      expect(FIX_NO_FAULT_RULE).toContain('call the done marker now');
+  describe('no-change rule', () => {
+    it.each(['uat', 'review'] as const)('a %s fix brief carries the one no-change rule once', (stageKey) => {
+      const brief = renderFixBrief('PROJ-9', [{ stageKey, status: 'failed' }]) ?? '';
+      expect(brief.split(FIX_NO_CHANGE_RULE).length - 1).toBe(1);
+      expect(brief).toContain('--no-change');
+      expect(brief).toContain('noChange');
+      expect(brief).toContain('never make an empty commit');
     });
 
-    it('keeps the rule out of a review gate brief and out of PR feedback', () => {
-      const review = renderFixBrief('PROJ-9', [{ stageKey: 'review', status: 'failed' }]);
-      expect(review).not.toContain(FIX_NO_FAULT_RULE);
+    it('keeps the rule out of PR feedback', () => {
       const ship = renderFixBrief('PROJ-9', [{ stageKey: 'ship', status: 'failed' }], [], [], [
         {
           repo: 'r', path: 'a.ts', line: 1, originalLine: 1, body: 'x',
           author: { login: 'bob', association: '' },
         } as never,
       ]);
-      expect(ship).not.toContain(FIX_NO_FAULT_RULE);
+      expect(ship).not.toContain(FIX_NO_CHANGE_RULE);
     });
 
     it('limits "run the checks yourself" to gates the fix changes and leaves UI gates to the host', () => {

@@ -427,6 +427,7 @@ describe('runContextCommand — stage ending', () => {
     seed('fix');
     const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI);
     expect(md).toContain('stage fix pass');
+    expect(md).toContain('--no-change');
   });
 
   it('appends gate-only text for a review ticket, no stage ... pass', () => {

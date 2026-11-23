@@ -288,6 +288,9 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
   can fire. It advances the ticket from \`impl\` or \`fix\` to the next stage.
   A session ending does NOT advance the ticket — you must fire this marker
   yourself when the stage's work is done.
+  When no code change is correct in a fix round, fire
+  \`stage fix pass --no-change "<reason>"\` (MCP: \`noChange\`) and never make an
+  empty commit.
  - \`phase <name>\` — append-only evidence that you REPORTED entering a phase
    of your declared workflow (e.g. \`research\`, \`plan\`, \`implement\`). It
    records an event; it never moves the ticket.

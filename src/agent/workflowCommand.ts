@@ -100,6 +100,10 @@ export function buildWorkflowInvocation(approachId: string, ticketKey: string): 
   return `/${KARST_PLUGIN_NAME}:${orchestratorCommandBasename(approachId)} ${ticketKey}`.trim();
 }
 
+/** Fix-stage sentence of the done marker: the way out when no code change is correct. */
+const NO_CHANGE_MARKER_SENTENCE =
+  'When no code change is correct, add --no-change "<evidence>" to the fix marker (MCP: noChange: "<evidence>"); never make an empty commit.';
+
 /**
  * The explicit done-marker instruction (§5.4). A session ending is NOT a verdict,
  * so the agent must fire `<stageCommand> <ticketArg>` itself once the stage's
@@ -135,6 +139,7 @@ export function renderDoneMarkerInstruction(
   const sandboxTail = mcpStage
     ? ' If you fall back to the command and access to the Karst registry is denied, request approval to run this exact marker command outside the workspace sandbox.'
     : ' If access to the Karst registry is denied, request approval to run this exact marker command outside the workspace sandbox.';
+  const isFix = mcpStage === 'fix' || stageCommand.includes(' stage fix pass ');
   const base =
     "When you have finished this stage's work — whether that is code, research, or a " +
     `confirmation — ${runPhrase} to record the done marker and ` +
@@ -149,7 +154,8 @@ export function renderDoneMarkerInstruction(
     // workflow command): stop only what you started. The hard stop is the
     // per-core permission deny (`processKillGuard.ts`); this is the correct
     // way, stated where the agent is told the stage's rules.
-    ` ${PROCESS_KILL_RULE}`;
+    ` ${PROCESS_KILL_RULE}` +
+    (isFix ? ` ${NO_CHANGE_MARKER_SENTENCE}` : '');
   const marker = ' stage impl pass ';
   if (!stageCommand.includes(marker)) return base;
   const notesCommand = `${stageCommand.replace(marker, ' notes post ')} ${ticketArg}`;

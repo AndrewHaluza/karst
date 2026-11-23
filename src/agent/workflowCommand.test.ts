@@ -204,6 +204,22 @@ describe('renderWorkflowCommand', () => {
   });
 });
 
+describe('renderDoneMarkerInstruction no-change sentence', () => {
+  const NAME = '--no-change "<evidence>"';
+  it('names the flag for a fix command, in CLI and MCP form', () => {
+    const cli = renderDoneMarkerInstruction('node "/c.js" stage fix pass --db "/x.db" --ticket', 'PROJ-9');
+    expect(cli).toContain(NAME);
+    expect(cli).toContain('never make an empty commit');
+    const mcp = renderDoneMarkerInstruction('node "/c.js" stage fix pass --db "/x.db" --ticket', 'PROJ-9', 'fix');
+    expect(mcp).toContain(NAME);
+    expect(mcp).toContain('noChange');
+  });
+  it('leaves an impl command without it', () => {
+    expect(renderDoneMarkerInstruction('node "/c.js" stage impl pass --db "/x.db" --ticket', 'PROJ-9'))
+      .not.toContain('--no-change');
+  });
+});
+
 describe('renderDoneMarkerInstruction', () => {
   it('renders the marker command with the given ticket arg', () => {
     const s = renderDoneMarkerInstruction(
