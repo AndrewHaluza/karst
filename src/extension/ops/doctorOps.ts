@@ -28,7 +28,9 @@ export async function runDoctorViaCli(
     'doctor',
     '--json',
     ...(fix ? ['--fix'] : []),
-    ...(fix && only && only.length > 0 ? only.flatMap((id) => ['--only', id]) : []),
+    // An empty `only` flat-maps to no flag, so it needs no length guard: `> 0`
+    // and `>= 0` build the same args, and that guard can never be observed.
+    ...(fix && only ? only.flatMap((id) => ['--only', id]) : []),
   ];
   const { stdout, stderr, error } = await deps.runCli(args);
   try {
