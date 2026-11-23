@@ -2331,6 +2331,13 @@ describe("round selection (T3): selectedAttempt resolves through the T1 selector
     expect(review.detail).toBe("has not run");
   });
 
+  it("does not state has not run for a legacy review that has findings but no run row", () => {
+    const review = reviewProcesses(
+      qualityInput({ processRuns: [], findings: [finding("high", { title: "legacy finding", file: "a.ts", line: 1 })] }),
+    ).find((p) => p.id === "review")!;
+    expect(review.detail).not.toBe("has not run");
+  });
+
   it("a selected attempt with no matching run renders absence, never a different attempt's run", () => {
     const views = uatProcesses(
       qualityInput({

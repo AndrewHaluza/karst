@@ -12,8 +12,8 @@
  */
 export const UNREADABLE_RESULT_KIND = 'unreadable-output';
 
-/** The legacy Review detail that marks an unreadable-only answer. */
-const LEGACY_UNREADABLE_DETAIL = 'unreadable output from';
+/** The legacy Review detail that marks an unreadable-only answer: a PREFIX, with the aggregate's own lead-in allowed. */
+const LEGACY_UNREADABLE_DETAIL = /^(?:review findings: )?unreadable output from/;
 
 /** Whether a process run produced no readable answer, by kind or by legacy row. */
 export function isUnreadableRun(run: {
@@ -23,6 +23,6 @@ export function isUnreadableRun(run: {
   if (run.resultKind === UNREADABLE_RESULT_KIND) return true;
   return (
     run.resultKind === 'execution-failed' &&
-    (run.failureDetail ?? '').includes(LEGACY_UNREADABLE_DETAIL)
+    LEGACY_UNREADABLE_DETAIL.test((run.failureDetail ?? '').trimStart())
   );
 }

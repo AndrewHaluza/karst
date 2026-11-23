@@ -15,6 +15,14 @@ describe('isUnreadableRun', () => {
     ).toBe(true);
   });
 
+  it('matches the legacy sentence as a prefix, not a substring', () => {
+    const detail = 'review findings: unreadable output from /wt/web — no findings could be read';
+    expect(isUnreadableRun({ resultKind: 'execution-failed', failureDetail: detail })).toBe(true);
+    expect(
+      isUnreadableRun({ resultKind: 'execution-failed', failureDetail: 'crash: unreadable output from the log' }),
+    ).toBe(false);
+  });
+
   it('keeps a crash and a usage limit as failures', () => {
     expect(isUnreadableRun({ resultKind: 'execution-failed', failureDetail: 'spawn ENOENT' })).toBe(false);
     expect(

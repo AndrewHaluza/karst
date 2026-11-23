@@ -595,7 +595,7 @@ describe('shipProcesses', () => {
       }),
     );
     const merge = views[3]!;
-    expect(merge.detail).toBe('no recorded evidence for this ship');
+    expect(merge.detail).toBe('resolved when ship runs');
   });
 
   it('renders absence once, on the Commit row, when no ship evidence was ever recorded', () => {
@@ -615,6 +615,20 @@ describe('shipProcesses', () => {
       expect(process.status).toBe('note');
       expect(process.detail).toBeUndefined();
     }
+  });
+
+  it('does not state an absence on a row the running ship has not reached yet', () => {
+    const views = shipProcesses(
+      shipInput({
+        cell: cell('ship', 'running', { startedAt: NOW }),
+        evidence: evidence({
+          repos: { '/web': repoEvidence('/web', { steps: { push: step('push') } }) },
+        }),
+      }),
+    );
+    const [commit, , pr] = views;
+    expect(commit!.detail).toBe('resolved when ship runs');
+    expect(pr!.detail).toBe('resolved when ship runs');
   });
 
   it('keeps the absence on a row that has no evidence when the evidence is partial (DB-14)', () => {

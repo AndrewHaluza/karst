@@ -484,7 +484,8 @@ function ranStatus(input: ShipProcessesInput): InsideStatus {
 }
 
 function noEvidenceDetail(input: ShipProcessesInput): string {
-  return input.cell.status === 'pending'
+  // A ship that is still running has not reached every row: those rows are not absent, they are not resolved yet.
+  return input.cell.status === 'pending' || input.cell.status === 'running'
     ? 'resolved when ship runs'
     : 'no recorded evidence for this ship';
 }
@@ -515,7 +516,7 @@ function hasCommitEvidence(repo: ShipRepoEvidence): boolean {
  * states it once (DB-14).
  */
 function keepsOwnAbsence(input: ShipProcessesInput): boolean {
-  return input.cell.status === 'pending' || hasRecordedEvidence(input);
+  return input.cell.status === 'pending' || input.cell.status === 'running' || hasRecordedEvidence(input);
 }
 
 /**

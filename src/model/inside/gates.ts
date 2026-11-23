@@ -1220,7 +1220,10 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
         }
       : eff.historical
         ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
-        : { detail: HAS_NOT_RUN_DETAIL }),
+        : // Findings with no run row (a legacy review) are evidence that it ran: never claim it has not.
+        rows.length > 0
+          ? {}
+          : { detail: HAS_NOT_RUN_DETAIL }),
     evidence: {
       kind: 'findings',
       rows,
