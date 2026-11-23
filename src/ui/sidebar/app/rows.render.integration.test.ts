@@ -81,6 +81,10 @@ describe('ticket row', () => {
     const long = 'FIX-GRAPH-2-A-REALLY-LONG-TICKET-TITLE-THAT-THE-STAGE-PILL-CUTS';
     const h = await mount(stateWith({ current: [row(1, { label: long })] }));
     expect(h.query('.ticket .name')!.getAttribute('title')).toBe(long);
+    // T1318 (UI-R44): the ellipsized copy is visual only; a 1x1 `.sr-only` sibling carries the same text,
+    // so a clipped title is announced once and is never silent truncation (the layout gate's clipped-text check).
+    expect(h.query('.ticket .name [aria-hidden="true"]')!.textContent).toBe(long);
+    expect(h.query('.ticket .name .sr-only')!.textContent).toBe(long);
     await h.click('[data-toggle="910001"]');
     expect(text(h.query('.peek-fullname'))).toBe(long);
   });
@@ -679,7 +683,8 @@ describe('host feed', () => {
   it('escapes hostile ticket text — it is text, never markup (UI-R32)', async () => {
     const h = await mount(fixture('hostile'));
     expect(h.queryAll('.list script, .list img')).toHaveLength(0);
-    expect(text(h.query('.ticket .name'))).toBe('<script>alert(1)</script>');
+    expect(text(h.query('.ticket .name [aria-hidden="true"]'))).toBe('<script>alert(1)</script>');
+    expect(text(h.query('.ticket .name .sr-only'))).toBe('<script>alert(1)</script>');
     expect(text(h.query('.peek-title'))).toBe('<script>alert(1)</script>');
   });
 });

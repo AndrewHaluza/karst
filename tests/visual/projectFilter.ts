@@ -38,6 +38,8 @@ export const FILE_PROJECTS: Readonly<Record<string, readonly string[]>> = Object
   'subtasks.visual.ts': ['dark'],
   'status.visual.ts': ['dark', 'dark-grayscale', 'dark-reduced-motion'],
   'stagePalette.visual.ts': ['dark', 'light', 'hc'],
+  // T1318: the sidebar's geometry checks read the dark page; the state shapes record their own themes.
+  'sidebar.visual.ts': ['dark'],
 });
 
 const TAG_PREFIX = '@NOT-';

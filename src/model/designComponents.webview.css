@@ -260,12 +260,14 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
   width:var(--k-space-7);height:var(--k-space-7);
   font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);
   line-height:1;border-radius:var(--k-radius-circle)}
-.k-status--pending{color:var(--k-pending)}
-.k-status--running{color:var(--k-running)}
-.k-status--attention{color:var(--k-attention)}
-.k-status--passed{color:var(--k-passed)}
-.k-status--failed{color:var(--k-failed)}
-.k-status--bypassed{color:var(--k-pending)}
+/* The glyph is a character, so it takes the readable tone, not the chart hue (@ui:UI-R29): `--k-<state>-fg`
+   is the same hue tuned per theme until it clears 4.5:1 on the row surface (model/palette.ts STATUS_FG). */
+.k-status--pending{color:var(--k-pending-fg,var(--k-pending))}
+.k-status--running{color:var(--k-running-fg,var(--k-running))}
+.k-status--attention{color:var(--k-attention-fg,var(--k-attention))}
+.k-status--passed{color:var(--k-passed-fg,var(--k-passed))}
+.k-status--failed{color:var(--k-failed-fg,var(--k-failed))}
+.k-status--bypassed{color:var(--k-pending-fg,var(--k-pending))}
 /* The stage pill: the shared stg-<stage> token (model/stagePalette) is its text colour and its washed-out fill. The
    sidebar row and the dashboard Sub-tasks panel both paint it. Keyed on the stg- class so an unrelated `.stage`
    caption (Resources ticket groups) stays plain. Uppercase + tracking match the rail's stage label. */

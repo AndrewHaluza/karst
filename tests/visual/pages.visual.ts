@@ -65,11 +65,19 @@ const TIME_MASKS = [
 karstTest.describe('full-page screenshots', () => {
   for (const view of WEBVIEW_NAMES) {
     for (const v of VARIANTS[view]) {
-      karstTest(`${view}/${v.id}: full-page screenshot`, { tag: outsideTags(v.themes) }, async ({ gotoView, page }) => {
+      karstTest(`${view}/${v.id}: full-page screenshot`, { tag: outsideTags(v.themes) }, async ({ gotoView, page }, testInfo) => {
         if (v.width !== undefined || v.viewportHeight !== undefined) {
           await page.setViewportSize({ width: v.width ?? page.viewportSize()?.width ?? 1100, height: v.viewportHeight ?? page.viewportSize()?.height ?? 720 });
         }
         await gotoView(view, { variant: v.id, ...(v.route === undefined ? {} : { route: v.route }) });
+        // UI-R28 (T1318 SB-1): the grayscale project proves a state glyph is a SHAPE, not a hue. The project sets no
+        // filter of its own (`status.visual.ts` has one of its own), so a variant that declares `dark-grayscale` would
+        // otherwise record the plain dark page. Scoped to the sidebar's state shapes: the older grayscale baselines
+        // (dashboard, diffs, resources, gettingStarted, usage) predate the filter and stay untouched here.
+        // The reduced-motion project needs nothing: playwright.config sets `use.reducedMotion: 'reduce'`.
+        if (testInfo.project.name === 'dark-grayscale' && view === 'sidebar') {
+          await page.addStyleTag({ content: ':root { filter: grayscale(1) }' });
+        }
         for (const pill of v.pills ?? []) await page.getByRole('button', { name: new RegExp(`^${pill}`) }).first().click();
         if (v.agentPopover !== undefined) {
           const steps = v.agentPopover;

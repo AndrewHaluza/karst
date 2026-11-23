@@ -132,7 +132,12 @@ export function TicketRow({ row, compact = false, time = false, older = false, s
       )}
       <span className="k-id" title={`Ticket ${row.idLabel}`}>{row.idLabel}</span>
       {row.priorityEditable ? <PriorityChip level={row.priority} source={row.prioritySource} provider={{ label: row.providerLabel, level: row.providerPriority }} /> : null}
-      <span className="name" title={row.label}>{row.label}</span>
+      {/* The ellipsized copy is visual only; the 1x1 `.sr-only` sibling is what assistive tech reads, so a
+          clipped title is announced once and is never silent truncation (@ui:UI-R44, SB-3). */}
+      <span className="name" title={row.label}>
+        <span aria-hidden="true">{row.label}</span>
+        <span className="sr-only">{row.label}</span>
+      </span>
       {row.subtaskParentKey && !row.subtaskDepth ? (
         <span className="parentref subtaskref" title={`Sub-task of ${row.subtaskParentKey}`}>⊂ {row.subtaskParentKey}</span>
       ) : row.parentKey ? (
