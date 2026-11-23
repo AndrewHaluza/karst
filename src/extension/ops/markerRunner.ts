@@ -37,7 +37,7 @@ export function createMarkerRunner(
   facts: MarkerRunnerFacts,
   spawn: MarkerSpawn = (command, args, cwd, env) => spawnHeadlessCli(command, args, cwd, env ? { env } : {}),
 ): MarkerRunner {
-  return async (stage) => {
+  return async (stage, options) => {
     if (facts.ensureSynced) {
       const synced = await facts.ensureSynced();
       if (!synced.ok) return { code: 1, stderr: synced.reason, transient: !synced.diverged && !PERMANENT_SYNC.test(synced.reason), diverged: synced.diverged };
@@ -45,6 +45,7 @@ export function createMarkerRunner(
     const args = [
       facts.cliEntry, 'stage', stage, 'pass',
       '--db', facts.dbPath, '--manifest', facts.manifestPath, '--ticket', facts.ticketKey,
+      ...(options?.noChange ? ['--no-change', options.noChange] : []),
     ];
     const result = await spawn(facts.nodePath, args, facts.cwd, { [MARKER_VIA_BRIDGE_ENV]: '1' });
     return result.exitCode === 0

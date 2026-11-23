@@ -26,6 +26,7 @@ import type { MarkerStage } from '../../agent/markerStage.js';
 import type { Drain } from '../../runtime/drain.js';
 import { recordHostRerunPass, type HostRerunPassDeps } from '../../workflow/hostRerunPass.js';
 import { runRequestedHostReruns } from '../../workflow/fixHostRerunRequest.js';
+import { NO_CHANGE_RERUN_PENDING } from '../../model/noChange.js';
 import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
 import {
   describeHostRerun,
@@ -319,13 +320,13 @@ export interface RecoverRefusalDeps {
   readonly debug?: (message: string) => void;
 }
 
-/** The `markerFlow.recoverRefusal` binding: only a no-new-commit fix refusal triggers the host re-run. */
+/** The `markerFlow.recoverRefusal` binding: a no-new-commit or a no-change-pending fix refusal triggers the host re-run. */
 export function makeRecoverRefusal(
   ticketId: number,
   deps: RecoverRefusalDeps,
 ): (stage: MarkerStage, stderr: string) => Promise<HostRerunReply | undefined> {
   return async (stage, stderr) => {
-    if (stage !== 'fix' || !stderr.includes(NO_NEW_COMMIT_REASON)) return undefined;
+    if (stage !== 'fix' || !(stderr.includes(NO_NEW_COMMIT_REASON) || stderr.includes(NO_CHANGE_RERUN_PENDING))) return undefined;
     const outcome = await deps.rerun(ticketId);
     deps.debug?.(`[fix-rerun] ticket ${ticketId}: ${outcome.kind}`);
     return describeHostRerun(outcome);

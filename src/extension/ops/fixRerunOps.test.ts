@@ -13,6 +13,7 @@ import { hostRerunFor, makeGateRerun, makeManifestGatesFor, makeRecoverRefusal, 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { addHostGates } from '../../store/ticketGates.js';
 import { setStage } from '../../store/stages.js';
+import { NO_CHANGE_RERUN_PENDING } from '../../model/noChange.js';
 import { NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
 import { uat, manifest as manifestOf, runnableRepo } from '../../manifest/fixtures.js';
 import type { FailedGate } from '../../workflow/fixHostRerun.js';
@@ -382,6 +383,13 @@ describe('makeRecoverRefusal', () => {
     const res = await recover('fix', `cannot mark this stage done: ${NO_NEW_COMMIT_REASON}`);
     expect(rerun).toHaveBeenCalledWith(7);
     expect(res).toEqual({ ok: true, message: 'no change: failed gates passed on re-run — the ticket returned to uat' });
+  });
+
+  it('runs the re-run for a NO_CHANGE_RERUN_PENDING refusal', async () => {
+    const rerun = vi.fn(async () => ({ kind: 'passed' as const, stage: 'uat' as const }));
+    const recover = makeRecoverRefusal(7, { ...deps, rerun });
+    expect(await recover('fix', `cannot mark this stage done: ${NO_CHANGE_RERUN_PENDING}`)).toMatchObject({ ok: true });
+    expect(rerun).toHaveBeenCalledWith(7);
   });
 
   it('returns undefined when the host did nothing', async () => {

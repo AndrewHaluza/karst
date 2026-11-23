@@ -143,6 +143,23 @@ describe('MARKER_EMIT', () => {
     expect(bad.code).toBe(1);
     expect(lines(events)).toHaveLength(1);
   });
+  it('fix --no-change adds the reason to the marker line', async () => {
+    const dir = ticketDir('7');
+    const events = join(dir, 'events.ndjson');
+    reply(events, { v: 1, stage: 'fix', ok: true, retrying: false, reason: '' });
+    const out = await runNode(join(dir, 'emit-marker.cjs'), [events, 'fix', '--no-change', 'port window'], '', { cwd: scratch(), env: FAST });
+    expect(out.code).toBe(0);
+    expect(lines(events)[0]).toMatchObject({ kind: 'marker', stage: 'fix', noChange: 'port window' });
+  });
+  it('--no-change on impl, or with a blank reason, is a usage error and writes no line', async () => {
+    const dir = ticketDir('7');
+    const events = join(dir, 'events.ndjson');
+    const impl = await runNode(join(dir, 'emit-marker.cjs'), [events, 'impl', '--no-change', 'r'], '', { cwd: scratch() });
+    const blank = await runNode(join(dir, 'emit-marker.cjs'), [events, 'fix', '--no-change', '  '], '', { cwd: scratch() });
+    expect(impl.code).toBe(1);
+    expect(blank.code).toBe(1);
+    expect(existsSync(events)).toBe(false);
+  });
   it('a refusal reply exits 1 with the host reason', async () => {
     const dir = ticketDir('7');
     const events = join(dir, 'events.ndjson');

@@ -28,14 +28,19 @@ export interface QueuedMarker {
   readonly nextAt: number;
 }
 
+/** Extra data a marker carries: the agent's no-change reason (fix marker only). */
+export interface MarkerOptions {
+  readonly noChange?: string;
+}
+
 export interface PendingMarkerStore {
-  load(): Promise<MarkerStage | undefined>;
-  save(stage: MarkerStage): Promise<void>;
+  load(): Promise<{ stage: MarkerStage; noChange?: string } | undefined>;
+  save(stage: MarkerStage, options?: MarkerOptions): Promise<void>;
   clear(): Promise<void>;
 }
 
 export interface MarkerFlowDeps {
-  readonly runMarker: (stage: MarkerStage) => Promise<MarkerOutcome>;
+  readonly runMarker: (stage: MarkerStage, options?: MarkerOptions) => Promise<MarkerOutcome>;
   /** Write the agent's reply file; best effort (the agent's wait just times out). */
   readonly reply: (seq: string, reply: MarkerReply) => Promise<void>;
   readonly pending: PendingMarkerStore;
@@ -63,7 +68,7 @@ export interface MarkerFlowDeps {
 
 export interface MarkerFlow {
   /** A verified marker line; `seq` is the agent's reply token. Serialised per ticket. */
-  handle(stage: MarkerStage, seq: string | undefined): Promise<void>;
+  handle(stage: MarkerStage, seq: string | undefined, options?: MarkerOptions): Promise<void>;
   /** Re-run a persisted transient marker (boot sweep, backoff timer, successful sync). */
   retryPending(): Promise<void>;
   /** The queued marker's reason, attempt and next retry time; `undefined` when nothing is waiting. */
@@ -74,6 +79,8 @@ export interface MarkerFlow {
   idle(): Promise<void>;
   stop(): void;
 }
+
+const optionsOf = (noChange: string | undefined): MarkerOptions | undefined => (noChange ? { noChange } : undefined);
 
 /** Retry steps after a transient failure; the last one repeats. */
 /** A transient failure that never clears is abandoned after this many retries and shown to the user once. */
@@ -96,6 +103,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
   const now = deps.now ?? Date.now;
   let queued: QueuedMarker | undefined;
   let gaveUpStage: MarkerStage | undefined;
+  let gaveUpOptions: MarkerOptions | undefined;
 
   const reply = async (seq: string | undefined, stage: MarkerStage, ok: boolean, retrying: boolean, reason: string): Promise<void> => {
     if (seq === undefined) return;
@@ -120,7 +128,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     if (queued) queued = { ...queued, attempt, nextAt: now() + ms };
     cancelTimer = schedule(() => { void retryPending(); }, ms);
   };
-  const run = async (stage: MarkerStage, seq: string | undefined, retry: boolean): Promise<void> => {
+  const run = async (stage: MarkerStage, seq: string | undefined, retry: boolean, options?: MarkerOptions): Promise<void> => {
     if (deps.currentStage() !== stage) {
       await deps.pending.clear();
       await reply(seq, stage, true, false, `stage ${stage} already advanced`);
@@ -128,7 +136,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     }
     let outcome: MarkerOutcome;
     try {
-      outcome = await deps.runMarker(stage);
+      outcome = await deps.runMarker(stage, options);
     } catch (err) {
       outcome = { code: 1, stderr: err instanceof Error ? err.message : String(err), transient: true };
     }
@@ -137,6 +145,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
       attempt = 0;
       queued = undefined;
       gaveUpStage = undefined;
+      gaveUpOptions = undefined;
       await deps.pending.clear();
       await reply(seq, stage, true, false, '');
       deps.onAccepted?.(stage);
@@ -162,6 +171,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
       attempt = 0;
       queued = undefined;
       gaveUpStage = stage;
+      gaveUpOptions = options;
       await deps.pending.clear();
       return;
     }
@@ -169,7 +179,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     if (!retry) deps.report({ stage, reason, diverged });
     if (transient) {
       queued = { stage, reason, attempt, maxRetries, nextAt: 0 };
-      await deps.pending.save(stage);
+      await deps.pending.save(stage, options);
       arm();
     } else {
       queued = undefined;
@@ -178,28 +188,31 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     }
     await reply(seq, stage, false, transient, reason);
   };
-  const enqueue = (stage: MarkerStage, seq: string | undefined, retry: boolean): Promise<void> => {
-    const next = chain.then(() => run(stage, seq, retry));
+  const enqueue = (stage: MarkerStage, seq: string | undefined, retry: boolean, options?: MarkerOptions): Promise<void> => {
+    const next = chain.then(() => run(stage, seq, retry, options));
     chain = next.catch(() => undefined);
     return next;
   };
   async function retryPending(): Promise<void> {
-    const stage = await deps.pending.load();
-    if (stage === undefined) return;
-    await enqueue(stage, undefined, true);
+    const pending = await deps.pending.load();
+    if (pending === undefined) return;
+    await enqueue(pending.stage, undefined, true, optionsOf(pending.noChange));
   }
   async function retryNow(): Promise<void> {
-    const stage = (await deps.pending.load()) ?? gaveUpStage;
+    const pending = await deps.pending.load();
+    const stage = pending?.stage ?? gaveUpStage;
     if (stage === undefined) return;
+    const options = pending ? optionsOf(pending.noChange) : gaveUpOptions;
     cancelTimer?.();
     attempt = 0;
     gaveUpStage = undefined;
-    await enqueue(stage, undefined, false);
+    gaveUpOptions = undefined;
+    await enqueue(stage, undefined, false, options);
   }
   return {
     status: () => queued,
     retryNow,
-    handle: (stage, seq) => enqueue(stage, seq, false),
+    handle: (stage, seq, options) => enqueue(stage, seq, false, options),
     retryPending,
     idle: () => chain,
     stop: () => { stopped = true; cancelTimer?.(); },

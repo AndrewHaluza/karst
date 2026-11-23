@@ -4,7 +4,7 @@ import type { MarkerReply } from './markerReply.js';
 import type { MarkerStage } from '../markerStage.js';
 
 function setup(outcomes: MarkerOutcome[], over: Partial<MarkerFlowDeps> = {}) {
-  let saved: MarkerStage | undefined;
+  let saved: { stage: MarkerStage; noChange?: string } | undefined;
   const replies: Array<[string, MarkerReply]> = [];
   const reports: Array<{ stage: string; reason: string; diverged: boolean }> = [];
   const timers: Array<{ fn: () => void; ms: number; cancelled: boolean }> = [];
@@ -14,7 +14,7 @@ function setup(outcomes: MarkerOutcome[], over: Partial<MarkerFlowDeps> = {}) {
   const flow = createMarkerFlow({
     runMarker: run,
     reply: async (seq, r) => { replies.push([seq, r]); },
-    pending: { load: async () => saved, save: async (s) => { saved = s; }, clear: async () => { saved = undefined; } },
+    pending: { load: async () => saved, save: async (s, o) => { saved = { stage: s, ...(o?.noChange ? { noChange: o.noChange } : {}) }; }, clear: async () => { saved = undefined; } },
     currentStage: () => stage,
     report: (f) => reports.push(f),
     schedule: (fn, ms) => { const t = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; },
@@ -29,6 +29,35 @@ const fire = async (timer: { fn: () => void }, flow: { idle(): Promise<void> }):
   await new Promise((r) => setImmediate(r));
   await flow.idle();
 };
+
+describe('createMarkerFlow noChange', () => {
+  it('passes noChange to runMarker and persists it with a transient failure', async () => {
+    const t = setup([{ code: 1, stderr: 'net', transient: true }]);
+    t.setStage('fix');
+    await t.flow.handle('fix', 'seq1', { noChange: 'r' });
+    expect(t.run).toHaveBeenCalledWith('fix', { noChange: 'r' });
+    expect(t.saved).toEqual({ stage: 'fix', noChange: 'r' });
+  });
+  it('retryPending re-sends the stored noChange', async () => {
+    const t = setup([{ code: 1, stderr: 'net', transient: true }, { code: 0, stderr: '' }]);
+    t.setStage('fix');
+    await t.flow.handle('fix', undefined, { noChange: 'r' });
+    await t.flow.retryPending();
+    expect(t.run).toHaveBeenLastCalledWith('fix', { noChange: 'r' });
+  });
+  it('retryNow re-sends the stored noChange', async () => {
+    const t = setup([{ code: 1, stderr: 'net', transient: true }, { code: 0, stderr: '' }]);
+    t.setStage('fix');
+    await t.flow.handle('fix', undefined, { noChange: 'r' });
+    await t.flow.retryNow();
+    expect(t.run).toHaveBeenLastCalledWith('fix', { noChange: 'r' });
+  });
+  it('a plain marker still calls runMarker with no options', async () => {
+    const t = setup([{ code: 0, stderr: '' }]);
+    await t.flow.handle('impl', 'a');
+    expect(t.run).toHaveBeenCalledWith('impl', undefined);
+  });
+});
 
 describe('createMarkerFlow', () => {
   it('reports an accepted marker, and only an accepted one', async () => {
@@ -59,7 +88,7 @@ describe('createMarkerFlow', () => {
     const t = setup([{ code: 1, stderr: 'sync failed', transient: true }]);
     await t.flow.handle('impl', 'a1');
     expect(t.replies[0]![1]).toMatchObject({ ok: false, retrying: true });
-    expect(t.saved).toBe('impl');
+    expect(t.saved).toEqual({ stage: 'impl' });
     expect(t.timers.map((x) => x.ms)).toEqual([10]);
     expect(t.reports).toHaveLength(1);
   });
