@@ -112,6 +112,10 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 .chip-branch{font-family:var(--k-font-mono)}
 .chip-kept{color:var(--k-success);border-color:var(--k-success)}
 .srow-actions [aria-pressed="true"]{border-color:var(--k-link);color:var(--k-link)}
+/* Verb glyphs carry the meaning colour used elsewhere: start green, restart link blue, stop red (danger variant). */
+.k-iconbtn.sv-start{color:var(--k-success)}
+.k-iconbtn.sv-restart{color:var(--k-link)}
+.sv-stopbtn .k-btn-icon{color:var(--k-danger)}
 /* A glyph island is a line box otherwise: it would be 1px taller than its wrapper (containment). */
 .k-iconbtn .icon-island,.k-btn-icon .icon-island{display:inline-flex;line-height:0}
 

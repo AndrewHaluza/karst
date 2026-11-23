@@ -76,6 +76,7 @@ function Footer({ state }: { state: ServersState }) {
         <Button
           variant="secondary"
           icon="player-stop"
+          className="sv-stopbtn"
           busy={idle.busy}
           spinning={idle.spinning}
           disabled={idle.disabled || why !== null}

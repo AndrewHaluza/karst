@@ -53,6 +53,8 @@ function SharedRow({ row, onLogs }: { row: SharedRowView; onLogs: () => void }) 
   const btn = (v: 'start' | 'restart' | 'stop' | 'open', aria: string) => (
     <IconButton
       label={aria}
+      danger={v === 'stop'}
+      className={`sv-${v}`}
       busy={verb.busyOn(v)}
       spinning={verb.spinningOn(v)}
       disabled={locked}

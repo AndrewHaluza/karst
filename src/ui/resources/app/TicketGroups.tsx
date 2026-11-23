@@ -37,6 +37,8 @@ function TicketRow({ row, ticketKey, onLogs }: { row: ServerRowView; ticketKey: 
   const btn = (v: 'start' | 'restart' | 'stop', aria: string) => (
     <IconButton
       label={aria}
+      danger={v === 'stop'}
+      className={`sv-${v}`}
       busy={verb.busyOn(v)}
       spinning={verb.spinningOn(v)}
       disabled={locked}
@@ -150,6 +152,7 @@ function TicketGroup({ group }: { group: TicketGroupView }) {
             aria-label={`Stop all servers of ${group.key}`}
             aria-describedby={countId}
             icon="player-stop"
+            className="sv-stopbtn"
             onClick={() => verb.run('stop-all')}
           >
             Stop all
