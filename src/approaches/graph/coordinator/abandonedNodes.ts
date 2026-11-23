@@ -15,7 +15,7 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import { releaseLeaseForNodeRun } from './leases.js';
-import { releaseProcessSlot, setNodeRunEndedAt } from '../../../store/graph/nodeRuns.js';
+import { nodeRunsForGraphRun, releaseProcessSlot, setNodeRunEndedAt } from '../../../store/graph/nodeRuns.js';
 import {
   decrementExpertRunCount,
   decrementNodeRunCount,
@@ -28,6 +28,30 @@ export interface AbandonedNodeRun {
   nodeKind: string;
   revisionId: number;
   nodeId: string;
+  /** The process the abandonment was judged on. Read by `unchangedAbandonedNodes`. */
+  processRunId?: number | null;
+}
+
+/**
+ * The nodes that are still the ones the drain judged abandoned: the same status,
+ * the same process, no replan request, and no new session in this window. A
+ * `blocked` row with a recorded process keeps the session exception of the
+ * judgement itself (its tab stays open). Synchronous: the cancel transaction
+ * calls it after the awaited preserve.
+ */
+export function unchangedAbandonedNodes(
+  deps: { db: GraphDb; sessionFor: (nodeRunId: number) => unknown },
+  graphRunId: number,
+  nodes: readonly AbandonedNodeRun[],
+): AbandonedNodeRun[] {
+  const rows = new Map(nodeRunsForGraphRun(deps.db, graphRunId).map((row) => [row.id, row]));
+  return nodes.filter((node) => {
+    const row = rows.get(node.id);
+    if (!row || row.status !== node.status || row.outcome === 'replan') return false;
+    if (row.process_run_id !== (node.processRunId ?? null)) return false;
+    const judgedByProcess = row.status === 'blocked' && row.process_run_id !== null;
+    return judgedByProcess || !deps.sessionFor(node.id);
+  });
 }
 
 /** Whether the claim reserved the expert budget: an agent node whose PINNED

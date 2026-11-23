@@ -9,9 +9,9 @@
  * ceiling paths are decided purely, never by this machine's processes.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../../store/db.js';
@@ -27,6 +27,7 @@ import { workspaceBytesOf, workspacesForNode } from '../../../store/graph/nodeRu
 import { defaultGitRunner } from '../../../integrations/git.js';
 import type { ProcessFactsSource } from '../../../runtime/serverIdentity.js';
 import type { GitRunner } from '../../../integrations/git.js';
+import { preserveNodeWork, preservedDir, restoreNodeWork } from './preserve.js';
 
 function git(cwd: string, args: string[]): string {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -470,6 +471,133 @@ describe('createNodeWorkspace', () => {
       // The clone reads from the canonical worktree; it must not write to it.
       expect(git(h.worktree, ['status', '--porcelain'])).toBe('');
       expect(git(h.worktree, ['rev-parse', 'HEAD'])).toBe(h.baseSha);
+    } finally {
+      h.close();
+    }
+  });
+});
+
+/** The real preserve/restore seams, rooted at the harness's artifact root. */
+function preserveSeams(h: Harness) {
+  const artifactRoot = (runId: number): string => join(h.globalRoot, 'artifacts', String(runId));
+  return {
+    preserveWork: (input: Parameters<NonNullable<NodeWorkspaceDeps['preserveWork']>>[0]) =>
+      preserveNodeWork({ db: h.db, git: defaultGitRunner, artifactRoot }, input),
+    restoreWork: (input: Parameters<NonNullable<NodeWorkspaceDeps['restoreWork']>>[0]) =>
+      restoreNodeWork({ git: defaultGitRunner, artifactRoot }, input),
+  };
+}
+
+describe('createNodeWorkspace — preserving the work of a superseded clone (T1323)', () => {
+  it('restores a commit, an unstaged edit, an untracked file and a binary file after a relaunch', async () => {
+    const h = harness();
+    try {
+      const deps = makeDeps(h, { ...preserveSeams(h), facts: factsOf({ alive: () => false }) });
+      const first = await createNodeWorkspace(deps, input(h, 5));
+      expect(first.kind).toBe('created');
+      if (first.kind !== 'created') return;
+      expect(first.restored).toBe(false);
+      const cwd = first.paths[0]!.cwd;
+
+      // One commit, one unstaged edit, one untracked file, one binary file.
+      writeFileSync(join(cwd, 'a.ts'), 'committed\n');
+      git(cwd, ['add', '-A']);
+      git(cwd, ['-c', 'user.name=karst-test', '-c', 'user.email=t@karst.local', 'commit', '-qm', 'work']);
+      writeFileSync(join(cwd, 'b.ts'), 'unstaged\n');
+      writeFileSync(join(cwd, 'c.ts'), 'untracked\n');
+      const binary = Buffer.from([0, 1, 2, 3, 255]);
+      writeFileSync(join(cwd, 'bin.dat'), binary);
+
+      const second = await createNodeWorkspace(deps, input(h, 5));
+      expect(second.kind).toBe('created');
+      if (second.kind !== 'created') return;
+      expect(second.restored).toBe(true);
+
+      const restored = second.paths[0]!.cwd;
+      // The work is restored as UNCOMMITTED changes on the base commit.
+      expect(git(restored, ['rev-parse', 'HEAD'])).toBe(h.baseSha);
+      expect(existsSync(join(restored, 'a.ts'))).toBe(true);
+      expect(existsSync(join(restored, 'b.ts'))).toBe(true);
+      expect(existsSync(join(restored, 'c.ts'))).toBe(true);
+      expect(existsSync(join(restored, 'bin.dat'))).toBe(true);
+      const status = git(restored, ['status', '--porcelain']);
+      expect(status).not.toBe('');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('leaves a clean clone and keeps the patch when the restore does not apply', async () => {
+    const h = harness();
+    try {
+      const seams = preserveSeams(h);
+      const deps = makeDeps(h, { ...seams, facts: factsOf({ alive: () => false }) });
+      const first = await createNodeWorkspace(deps, input(h, 5));
+      expect(first.kind).toBe('created');
+      if (first.kind !== 'created') return;
+      // No work in the clone → the preserve finds an empty diff and writes
+      // nothing, so a stale bad patch stays and the restore must reject it.
+      const dir = preservedDir(join(h.globalRoot, 'artifacts', String(h.graphRunId)), 5);
+      mkdirSync(dir, { recursive: true });
+      const bad = join(dir, 'web.patch');
+      writeFileSync(bad, 'not a patch this tree can apply\n');
+
+      const second = await createNodeWorkspace(deps, input(h, 5));
+      expect(second.kind).toBe('created');
+      if (second.kind !== 'created') return;
+      expect(second.restored).toBe(false);
+      expect(existsSync(bad)).toBe(true);
+      expect(git(second.paths[0]!.cwd, ['status', '--porcelain'])).toBe('');
+    } finally {
+      h.close();
+    }
+  });
+
+  it('keeps the old clone and its ledger when the preserve fails', async () => {
+    const h = harness();
+    try {
+      const ok = makeDeps(h, { measureBytes: () => 1000, facts: factsOf({ alive: () => false }) });
+      expect((await createNodeWorkspace(ok, input(h, 5))).kind).toBe('created');
+      const dir = nodeWorkspaceDir(h.globalRoot, 'proj', h.ticketId, h.graphRunId, 5);
+      const marker = join(dir, 'web', 'marker.txt');
+      writeFileSync(marker, 'work here');
+
+      const deps = makeDeps(h, {
+        measureBytes: () => 1000,
+        facts: factsOf({ alive: () => false }),
+        preserveWork: async () => ({ kind: 'failed', reason: 'disk full' }),
+      });
+      const result = await createNodeWorkspace(deps, input(h, 5));
+      expect(result).toEqual({ kind: 'preserve-failed', reason: 'disk full' });
+      // The workspace with work is NEVER removed, and its accounting stays.
+      expect(existsSync(marker)).toBe(true);
+      expect(workspacesForNode(h.db, 5)).toHaveLength(1);
+      expect(workspaceBytesOf(h.db, h.graphRunId)).toBe(1000);
+    } finally {
+      h.close();
+    }
+  });
+
+  it('a live process still blocks before any preserve is attempted', async () => {
+    const h = harness();
+    try {
+      const ok = makeDeps(h, { facts: factsOf({ alive: () => false }) });
+      expect((await createNodeWorkspace(ok, input(h, 5))).kind).toBe('created');
+      const dir = nodeWorkspaceDir(h.globalRoot, 'proj', h.ticketId, h.graphRunId, 5);
+      h.db
+        .prepare(
+          `INSERT INTO servers (ticket_id, repo, pid, status, cwd, started_at)
+           VALUES (?, 'web', 4242, 'running', ?, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(h.ticketId, join(dir, 'web'));
+      const preserveWork = vi.fn(async () => ({ kind: 'nothing' as const }));
+      const live = makeDeps(h, {
+        facts: factsOf({ alive: () => true, cwd: () => null, start: () => null }),
+        preserveWork,
+      });
+      const result = await createNodeWorkspace(live, input(h, 5));
+      expect(result.kind).toBe('live-process');
+      expect(preserveWork).not.toHaveBeenCalled();
     } finally {
       h.close();
     }

@@ -610,11 +610,13 @@ The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` r
 | `discard-required` | `launch-unknown`, `termination-unknown` | no |
 | `artifact-recheck` | `output-artifact-missing`, `artifact-unsafe` | no |
 | `explicit-resolution` | `integration-conflict`, `graph-topology-deadlock` | no |
-| `config-then-resume` | `graph-budget-exhausted`, `graph-workspace-deps` | no |
+| `config-then-resume` | `graph-budget-exhausted`, `graph-workspace-deps`, `graph-preserve-failed` | no |
 | `prompt-resnapshot` | `prompt-config-changed` | no |
 | unknown reason | any other text | no |
 
 A `graph-workspace-deps` block means a node clone could not get the dependencies of its ticket worktree (`@arch:GRAPHDEPS`). A retry would repeat the same install, so a human installs the dependencies or sets `graphWorkspace`, then runs Replan.
+
+A `graph-preserve-failed` block means the host could not write the work of a superseded clone to a patch. The clone stays on disk. A retry would repeat the same failure, so a human repairs the cause first.
 
 An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. When that budget is spent, the recovery refuses with `config-then-resume` before the run claim and changes no row. The run keeps its block reason and the node keeps its failure evidence. A human Replan bypasses the document budget. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file.
 
@@ -623,7 +625,7 @@ A **replan drain** is a `draining` run with no `active` revision whose newest re
 
 A node run holds a replan drain open in every `ACTIVE_NODE_STATUSES` status, except the two dead artifact statuses below. That set is `ready`, `waiting-resource`, `launching`, `running`, `completing`, `integrating`, `launch-unknown`, `termination-unknown`, `failed-to-launch`, and a `blocked` row (with a NULL failure category). Two shapes do not hold it:
 
-- A `blocked` node run with the failure category `resource-claim-violated`, `integration-conflict` or `graph-budget-exhausted`. The pipeline writes these categories only after it proves termination. The category is the evidence a replan needs.
+- A `blocked` node run with the failure category `resource-claim-violated`, `integration-conflict` or `graph-budget-exhausted`. Each writer proves termination first: the pipeline, and `recordClaimEvidence` for `resource-claim-violated`. The category is the evidence a replan needs.
 - A node run with the status `output-artifact-missing` or `artifact-unsafe`. The pipeline writes both only after it proves termination, and the replan submit cancels these rows.
 
 A held lease does not hold the drain. It is the deferral source for revision N+1.
@@ -636,4 +638,26 @@ The host (`driveReplanDrain`) acts only when a replan drain has no planner run f
 A recovery note never carries a forbidden body character. A `resource-conflict` deferral names the canonical worktree path of the domain, not the durable domain key (which joins its halves with NUL), and the coordinator passes every reason through `sanitizeInline` before it posts the note.
 
 The count of automatic recoveries is `approach_graph_runs.auto_recovery_count`. The limit is `AUTO_RECOVERY_LIMIT` (3), a constant and not a manifest setting. At the limit the run stays `blocked` and the block reason says `automatic recovery stopped after 3 attempts` and lists the recovered reasons. A human Resume or Replan still works and does not reset the count.
+Continued in `arch:GRAPH-PRESERVE` (the work of a node that did not integrate, and the claim evidence of a `blocked` node).
 END_DOC_BLOCK: [@arch:GRAPH-AUTORECOVERY]
+
+## [@arch:GRAPH-PRESERVE] The graph host keeps the work of a node that did not integrate
+covers: src/approaches/graph/integration/claimEvidence.ts, src/approaches/graph/integration/changeSetCapture.ts, src/approaches/graph/workspace/preserve.ts, src/approaches/graph/workspace/preserveBestEffort.ts, src/approaches/graph/coordinator/abandonedNodes.ts, src/extension/graphPreserveBinding.ts, src/extension/graphClaimEvidenceBinding.ts
+
+Split out of `arch:GRAPH-AUTORECOVERY`.
+
+### The work of a node that did not integrate
+No step removes a workspace with work before its patch exists. The patch is `<artifactRoot>/preserved/<nodeRunId>/<repoName>.patch`, with its changed paths in `<repoName>.paths.json`. It holds the committed work, the uncommitted work and the untracked files. A launch retry writes the patch before it removes the superseded clone, and it applies the patch to the new clone. A preserve failure there blocks the run on `graph-preserve-failed` and deletes nothing.
+
+A drain cancel, a claim violation and a replan launch also preserve the work. None of them removes the clone, so each logs a preserve failure and continues. A drain cancel judges each node again in its transaction, because the node can move during the preserve.
+
+The `preservedWork` list of the reasons file names the node, the patch path (relative to the artifact root) and the changed paths. It has only node runs of the revision that drains, and no `completed` node run. The list is bounded.
+
+### A `blocked` node with out-of-claim work
+An agent report alone routes no replan. `recordClaimEvidence` runs the claim check of the completion pipeline on the clone of a node run with status `blocked`, outcome `blocked` and no failure category. The host awaits it before the pre-tick settle and before the settle of `driveCompletingNodes`. A violation writes the category `resource-claim-violated` and blocks the run on `resource-claim-violated: <paths>` in one transaction, so the recovery replans.
+
+- It runs only for a `running` run and in a replan drain. In a replan drain it writes only the node category.
+- It proves termination first. A session that can belong to a planner run with the same id is used only when the owner nonce matches.
+- It reads only a clone that is on disk. It never reads or restores the canonical worktree.
+- A capture error, or a termination that is not proven, changes nothing. The settle then writes `node-blocked`.
+END_DOC_BLOCK: [@arch:GRAPH-PRESERVE]

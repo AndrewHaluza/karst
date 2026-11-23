@@ -70,7 +70,8 @@ import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns
 import type { PlannerRunRow as FullPlannerRunRow } from '../../../store/graph/plannerRuns.js';
 import type { KillOutcome } from '../../../runtime/processTree.js';
 import { markLeaseAmbiguous } from './leases.js';
-import { cancelNodeRuns, type AbandonedNodeRun } from './abandonedNodes.js';
+import { cancelNodeRuns, unchangedAbandonedNodes, type AbandonedNodeRun } from './abandonedNodes.js';
+import { preserveBestEffort, type PreserveNodeWork } from '../workspace/preserveBestEffort.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
 import { graphRunHasLiveNodeProcess } from './liveness.js';
 import { drainingRevisionNumber, inReplanDrain } from './replanDrain.js';
@@ -142,6 +143,10 @@ export interface ReconcileGraphRunDeps {
    *  loser's launch reports `already moved`. `attempt` is the planner run's
    *  current durable `compile_attempt` (the next re-prompt is attempt + 1). */
   relaunchCompileRepair: (graphRunId: number, plannerRunId: number, attempt: number) => void;
+  /** Write the work of a node's clones to a patch before a drain cancels the
+   *  node (T1323). A failure is logged and the cancel still runs: a cancel
+   *  never removes the clone. */
+  preserveWork?: PreserveNodeWork;
 }
 
 export interface ReconcileGraphRunResult {
@@ -313,9 +318,30 @@ async function collectAbandonedDrainNodes(
       nodeKind: node.node_kind,
       revisionId: node.revision_id,
       nodeId: node.node_id,
+      processRunId: node.process_run_id,
     });
   }
   return { cancellable, resumable };
+}
+
+/** Preserve the work of every node that the drain will cancel. Awaited before
+ *  the cancel transaction, never inside it (the transaction is synchronous). */
+async function preserveAbandoned(
+  deps: ReconcileGraphRunDeps,
+  nodes: readonly AbandonedNodeRun[],
+): Promise<void> {
+  for (const node of nodes) await preserveBestEffort(deps, node.id, 'drain cancel');
+}
+
+/** Cancel the abandoned nodes that are still abandoned. Call it inside the
+ *  transaction: the row, its process and its session can change during the
+ *  preserve, and a status CAS alone does not see a new process or a replan. */
+function cancelUnchanged(
+  deps: ReconcileGraphRunDeps,
+  graphRunId: number,
+  nodes: readonly AbandonedNodeRun[],
+): number {
+  return cancelNodeRuns(deps, graphRunId, unchangedAbandonedNodes(deps, graphRunId, nodes));
 }
 
 /**
@@ -902,14 +928,16 @@ export async function reconcileGraphRun(
   let selfHealed = 0;
   if (run.status === 'running' && inReplanDrain(db, run.id)) {
     const { cancellable, resumable } = await collectAbandonedDrainNodes(deps, run);
+    await preserveAbandoned(deps, cancellable);
     // Hand the resumable completions back to the host BEFORE the run moves: the
     // running-gated node sweep can never reach them once the run is `draining`.
     for (const id of resumable) deps.resumePipeline(id);
     selfHealed = deps.transaction(() => {
+      if (!inReplanDrain(db, run.id)) return 0; // a replan was accepted during the preserve
       if (!casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, run.id, 'running', 'draining')) {
         return 0;
       }
-      return 1 + cancelNodeRuns(deps, run.id, cancellable);
+      return 1 + cancelUnchanged(deps, run.id, cancellable);
     });
     if (selfHealed > 0) {
       deps.debug?.(
@@ -936,9 +964,14 @@ export async function reconcileGraphRun(
     let nodeTransitions = 0;
     if (selfHealed === 0 && inReplanDrain(db, run.id)) {
       const { cancellable, resumable } = await collectAbandonedDrainNodes(deps, run);
+      await preserveAbandoned(deps, cancellable);
       for (const id of resumable) deps.resumePipeline(id);
       if (cancellable.length > 0) {
-        nodeTransitions = deps.transaction(() => cancelNodeRuns(deps, run.id, cancellable));
+        nodeTransitions = deps.transaction(() =>
+          graphRunStatus(db, run.id) === 'draining' && inReplanDrain(db, run.id)
+            ? cancelUnchanged(deps, run.id, cancellable)
+            : 0,
+        );
       }
     }
     const replanResult = await reconcilePlannerRun(deps, run, 'replan');

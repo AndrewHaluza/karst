@@ -184,7 +184,7 @@ export function harness(config: GraphApproachConfig = graphApproachConfig()): Ha
     cwdForRepo: (_graphRunId, repo) => join(root, `wt-${repo}`),
     gitCommonDirOf: () => null,
     workspaceOf: () => undefined,
-    createWorkspace: async () => ({ kind: 'created', paths: [{ repoName: 'api', cwd: join(root, 'ws'), domainKey: 'd' }] }),
+    createWorkspace: async () => ({ kind: 'created', paths: [{ repoName: 'api', cwd: join(root, 'ws'), domainKey: 'd' }], restored: false }),
     sessionNamingOf: (_graphRunId, runId, kind) => ({ name: `Karst ${kind} ${runId}` }),
     cliNodeCompletionCommand: () => 'node "/ext/dist/cli/main.js" node complete',
   };
