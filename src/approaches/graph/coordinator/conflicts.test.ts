@@ -27,6 +27,7 @@ import {
   type SchedulerState,
   type AllowlistCommandAccess,
 } from './conflicts.js';
+import { domainKeyOf } from '../integration/domains.js';
 
 const claim = (repo: string, paths: readonly string[], mode: 'read' | 'write'): ConflictClaim => ({
   repo,
@@ -306,6 +307,35 @@ describe('schedulerReady', () => {
       state({ heldLeases: held }),
     );
     expect(decisions[0]).toMatchObject({ admitted: false, refused: { reason: 'resource-conflict' } });
+  });
+
+  // T1322: the deferral detail is posted as a recovery note, so it must not
+  // carry the durable domain key's NUL separator (a forbidden body character).
+  // The canonical worktree path is the readable half.
+  it('names the worktree path, never the NUL-keyed domain, of a held write lease', () => {
+    const key = domainKeyOf('/wt/t1', '/wt/.git');
+    const held: SchedulerLease[] = [{ physicalDomain: key, accessMode: 'write', ambiguous: false, paths: [] }];
+    const decisions = schedulerReady(
+      [group({ domains: [{ physicalDomain: key, accessMode: 'write', paths: [] }] })],
+      state({ heldLeases: held }),
+    );
+    expect(decisions[0]!.refused!.detail).toBe(
+      'physical domain /wt/t1 is held write (repo-wide) by another node run',
+    );
+    expect(decisions[0]!.refused!.detail).not.toContain('\u0000');
+  });
+
+  it('names the worktree path of an ambiguous-process lease and no NUL', () => {
+    const key = domainKeyOf('/wt/t1', '/wt/.git');
+    const held: SchedulerLease[] = [{ physicalDomain: key, accessMode: 'read', ambiguous: true, paths: [] }];
+    const decisions = schedulerReady(
+      [group({ domains: [{ physicalDomain: key, accessMode: 'read', paths: [] }] })],
+      state({ heldLeases: held }),
+    );
+    expect(decisions[0]!.refused!.detail).toBe(
+      'physical domain /wt/t1 has an ambiguous-process lease (process death unproven)',
+    );
+    expect(decisions[0]!.refused!.detail).not.toContain('\u0000');
   });
 
   it('agent and command activations count against the process ceiling', () => {

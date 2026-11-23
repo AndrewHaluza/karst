@@ -73,7 +73,7 @@ import { markLeaseAmbiguous } from './leases.js';
 import { cancelNodeRuns, type AbandonedNodeRun } from './abandonedNodes.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
 import { graphRunHasLiveNodeProcess } from './liveness.js';
-import { inReplanDrain } from './replanDrain.js';
+import { drainingRevisionNumber, inReplanDrain } from './replanDrain.js';
 import { MAX_COMPILE_ATTEMPTS } from './repair.js';
 import {
   isLaunchInFlight,
@@ -179,19 +179,6 @@ function ticketAtImpl(db: GraphDb, ticketId: number): boolean {
     .prepare('SELECT stage_current FROM tickets WHERE id = ?')
     .get(ticketId) as { stage_current: string | null } | undefined;
   return row !== undefined && row.stage_current === 'impl';
-}
-
-/** The draining revision's number whose successor the current replan planner
- *  is compiling (its `target_revision_number`), or undefined when no revision
- *  is draining. */
-function drainingRevisionNumber(db: GraphDb, graphRunId: number): number | undefined {
-  const row = db
-    .prepare(
-      `SELECT revision_number FROM approach_graph_revisions
-       WHERE graph_run_id = ? AND status = 'draining' ORDER BY id DESC LIMIT 1`,
-    )
-    .get(graphRunId) as { revision_number: number } | undefined;
-  return row?.revision_number;
 }
 
 /** The statuses the transport's terminal-close handler writes. `stale` is NOT

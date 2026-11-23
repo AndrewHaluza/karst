@@ -37,3 +37,18 @@ export function inReplanDrain(db: GraphDb, graphRunId: number): boolean {
     .get(graphRunId) as { status: string } | undefined;
   return newest?.status === 'draining';
 }
+
+/**
+ * The draining revision's number whose successor the current replan planner
+ * compiles (its `target_revision_number`), or undefined when no revision is
+ * draining. A Stop drain keeps its revision `active`, so it has none.
+ */
+export function drainingRevisionNumber(db: GraphDb, graphRunId: number): number | undefined {
+  const row = db
+    .prepare(
+      `SELECT revision_number FROM approach_graph_revisions
+       WHERE graph_run_id = ? AND status = 'draining' ORDER BY id DESC LIMIT 1`,
+    )
+    .get(graphRunId) as { revision_number: number } | undefined;
+  return row?.revision_number;
+}

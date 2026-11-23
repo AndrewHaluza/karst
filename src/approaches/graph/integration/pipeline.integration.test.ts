@@ -9,7 +9,7 @@
  * fakes.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, chmodSync, mkdirSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
@@ -25,7 +25,14 @@ import type { AgentTransport, SupervisedAgentSession } from '../transport/superv
 import { defaultGitRunner, GIT_MAX_OUTPUT_BYTES, type GitRunner } from '../../../integrations/git.js';
 import { cleanupTerminalNodeWorkspace } from '../workspace/cleanup.js';
 import { nodeWorkspaceDir } from '../workspace/provider.js';
-import { formatIntegrationNonce, reclaimNodeRunIntegrating, workspacesForNode } from '../../../store/graph/nodeRuns.js';
+import {
+  formatIntegrationNonce,
+  nodeRunIdsInStatusesForGraphRun,
+  reclaimNodeRunIntegrating,
+  workspacesForNode,
+} from '../../../store/graph/nodeRuns.js';
+import { beginReplanPlannerRun } from '../coordinator/replan.js';
+import { driveReplanDrain } from '../../../extension/ops/graphReplanDrain.js';
 import type { ProcessFacts, ProcessFactsSource, LiveCwd } from '../../../runtime/serverIdentity.js';
 
 interface Harness {
@@ -1531,6 +1538,116 @@ describe('runCompletionPipeline — a run that drains (T1322)', () => {
       expect(runRow(h).status).toBe('draining');
     },
   );
+
+  /** The host's `relaunchReplanPlannerHost`: allocate the drain's planner for
+   *  real (against the same store) and record the allocator's answer. */
+  function relaunchRecorder(h: Harness): {
+    relaunch: (graphRunId: number) => Promise<void>;
+    results: Array<{ ok: boolean; reason?: string }>;
+  } {
+    const results: Array<{ ok: boolean; reason?: string }> = [];
+    return {
+      results,
+      relaunch: async (graphRunId) => {
+        const begun = beginReplanPlannerRun(
+          {
+            db: h.db,
+            transaction: <T>(fn: () => T): T =>
+              (
+                h.db.transaction as unknown as (
+                  f: () => T,
+                  o: { begin: 'immediate' },
+                ) => () => T
+              )(fn, { begin: 'immediate' })(),
+            now: () => '2026-08-12T00:00:00.000Z',
+            writeSnapshot: (_runId, rel, bytes) => {
+              const target = join(h.artifactRoot, rel);
+              mkdirSync(join(target, '..'), { recursive: true });
+              writeFileSync(target, bytes);
+            },
+            readPrompt: () => new TextEncoder().encode('# Planner'),
+            promptPath: 'karst-graph-planner',
+            ticketContext: '# Ticket context',
+          },
+          { graphRunId },
+        );
+        results.push(begun.ok ? { ok: true } : { ok: false, reason: begun.reason });
+      },
+    };
+  }
+
+  it('the last live node completes in a replan drain, then the drain allocates its planner', async () => {
+    // T1322 / T1317: a node was still live when the election drained the run.
+    // It integrates in the drain (no successor token on its END edge), the run
+    // stays `draining` — never `completed-awaiting-impl-marker`, never
+    // `blocked` — and only then is the N+1 planner allocated.
+    const h = harness();
+    cleanups.push(h.close);
+    const ws = completingNode(h, 99, 'a.ts', 'work in the drain\n');
+    drain(h, 'draining');
+    const { relaunch, results } = relaunchRecorder(h);
+
+    // The completing node still holds the drain: the planner is deferred.
+    await relaunch(h.graphRunId);
+    expect(results).toEqual([{ ok: false, reason: 'not-quiescent' }]);
+
+    await driveReplanDrain(
+      {
+        db: h.db,
+        driveCompletingNodes: async (graphRunId) => {
+          for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(h.db, graphRunId, ['completing'])) {
+            await runCompletionPipeline(
+              makeDeps(h, { ...realDeclaredWrites(h), workspaceCwdOf: () => ws }),
+              { graphRunId, nodeRunId },
+            );
+          }
+        },
+        relaunchReplanPlanner: relaunch,
+      },
+      h.graphRunId,
+    );
+
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('work in the drain\n');
+    expect(nodeRow(h, 99).status).toBe('completed');
+    // The END edge made no token: the claim is consumed and nothing follows.
+    expect(tokens(h)).toEqual([{ edge_id: 'e-entry', status: 'consumed' }]);
+    expect(leaseRow(h, 99)).toEqual({ status: 'released' });
+    expect(activeProcesses(h)).toEqual({ active_processes: 0 });
+    expect(runRow(h)).toEqual({ status: 'draining', blocked_reason: null });
+    // Quiescent at last: the planner for revision 2 is allocated.
+    expect(results).toEqual([{ ok: false, reason: 'not-quiescent' }, { ok: true }]);
+    expect(
+      h.db
+        .prepare(
+          'SELECT kind, status, target_revision_number FROM approach_planner_runs WHERE graph_run_id = ?',
+        )
+        .all(h.graphRunId),
+    ).toEqual([{ kind: 'replan', status: 'ready', target_revision_number: 2 }]);
+  });
+
+  it('a Stop drain allocates no planner and leaves the live node alone', async () => {
+    const h = harness();
+    cleanups.push(h.close);
+    completingNode(h, 100, 'a.ts', 'work\n');
+    drain(h, 'active');
+    const { relaunch, results } = relaunchRecorder(h);
+    const driveCompletingNodes = vi.fn(async () => undefined);
+
+    await driveReplanDrain(
+      { db: h.db, driveCompletingNodes, relaunchReplanPlanner: relaunch },
+      h.graphRunId,
+    );
+
+    expect(driveCompletingNodes).not.toHaveBeenCalled();
+    expect(results).toEqual([]);
+    expect(
+      h.db
+        .prepare('SELECT COUNT(*) AS n FROM approach_planner_runs WHERE graph_run_id = ?')
+        .get(h.graphRunId),
+    ).toEqual({ n: 0 });
+    expect(nodeRow(h, 100).status).toBe('completing');
+    expect(readFileSync(join(h.worktree, 'a.ts'), 'utf8')).toBe('a\n');
+  });
 });
 
 describe('runCompletionPipeline — workspace patch bytes (T1304)', () => {
