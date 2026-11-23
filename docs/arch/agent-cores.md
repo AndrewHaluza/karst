@@ -676,6 +676,7 @@ covers: src/workflow/fixNoChange.ts, src/workflow/fixParkExit.ts, src/store/fixN
 - **Parked round**: the ticket is at fix, the fix row is `failed` with no `blocked_kind`, and the latest round is `interrupted` with source stage uat or review. An exhausted round or a review stall is not a parked round.
 - **Retry gate** (banner `FixParkBanner.tsx`, and the Inside menu "Re-run gate"): the round keeps its number, its `end_reason` becomes `no change: the user retried the <stage> gate`, and the source stage runs again on the same head.
 - **Accept and continue**: one `fix_round_acceptances` row (round, source stage, trigger, accepted items, optional note), the round closes `passed` (`accepted by the user`), and the source stage commits a PASSED verdict. The items stay unfixed in history.
+- **Live session**: both exits refuse while the fix agent session is `running`, because that session can still write a marker. The user retries after the session ends.
 END_DOC_BLOCK: [@arch:AC-66]
 
 ## [@arch:AC-35] Sandbox backend UI — choosing, checking and cleaning up (`agentBackends`)

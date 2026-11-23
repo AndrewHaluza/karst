@@ -7,7 +7,7 @@ import { closeRoundPassed } from '../store/hostRerunRound.js';
 import { listGateRuns } from '../store/gateRuns.js';
 import { getStage, setStage } from '../store/stages.js';
 import { latestStageRun } from '../store/stageRuns.js';
-import { setAgentState, setStageCurrent } from '../store/tickets.js';
+import { getTicket, setAgentState, setStageCurrent } from '../store/tickets.js';
 import { nowIso } from '../model/time.js';
 import { failedGatesOf } from './fixHostRerun.js';
 import { openBlockingItems } from './noChangeClaim.js';
@@ -33,6 +33,10 @@ export interface FixParkView {
 }
 
 const NOT_PARKED = 'the fix round is not parked';
+const AGENT_RUNNING = 'the fix agent session is still running';
+
+/** A live fix session can still write a marker, so neither exit may move the ticket under it. */
+const agentIsRunning = (store: Store, ticketId: number): boolean => getTicket(store, ticketId).agentState === 'running';
 /** The manifest threshold of one source stage; absent means the default. */
 export type BlockingSeverityOf = (stage: SourceStage) => Severity | 'none' | undefined;
 
@@ -91,6 +95,7 @@ export function retryParkedFixRound(store: Store, ticketId: number, opts?: { now
   return store.db.transaction((): FixParkExitResult => {
     const round = parkedGateRound(store, ticketId);
     if (round === null) return { ok: false, reason: NOT_PARKED };
+    if (agentIsRunning(store, ticketId)) return { ok: false, reason: AGENT_RUNNING };
     store.db.prepare('UPDATE recovery_rounds SET end_reason = ? WHERE id = ?').run(FIX_PARK_RETRY_END_REASON(round.sourceStage), round.id);
     leaveFix(store, ticketId, round.sourceStage, at);
     setAgentState(store, ticketId, 'idle');
@@ -107,6 +112,7 @@ export function acceptParkedFixRound(store: Store, ticketId: number, note: strin
   return store.db.transaction((): FixParkExitResult => {
     const round = parkedGateRound(store, ticketId);
     if (round === null) return { ok: false, reason: NOT_PARKED };
+    if (agentIsRunning(store, ticketId)) return { ok: false, reason: AGENT_RUNNING };
     const source = round.sourceStage;
     recordFixRoundAcceptance(store, {
       ticketId, roundId: round.id, sourceStage: source, triggerKind: round.triggerKind,

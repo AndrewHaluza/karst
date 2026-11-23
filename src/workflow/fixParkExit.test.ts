@@ -5,7 +5,7 @@ import { openRecoveryRound } from '../store/recoveryRounds.js';
 import { roundById } from '../store/recoveryRoundsRead.js';
 import { parkRoundOutOfFixing } from '../store/hostRerunRound.js';
 import { getStage, setStage } from '../store/stages.js';
-import { setStageCurrent, getTicket } from '../store/tickets.js';
+import { setStageCurrent, setAgentState, getTicket } from '../store/tickets.js';
 import { upsertProject } from '../store/projects.js';
 import { parkedFixRound } from '../store/fixNoChangeRounds.js';
 import { recordFindings } from '../store/reviewFindings.js';
@@ -85,6 +85,16 @@ describe('parked fix round exits', () => {
     expect(acceptParkedFixRound(store, ticketId, null, { now: () => LATER })).toEqual({ ok: true, stage: 'uat' });
     expect(listFixRoundAcceptances(store, ticketId)[0]).toMatchObject({ items: ['unit', 'visual'], note: null });
     expect(getTicket(store, ticketId).stageCurrent).toBe('review');
+  });
+
+  it('both exits refuse while the fix agent session is running and change nothing', () => {
+    park('review', 'blocking-review-findings');
+    setAgentState(store, ticketId, 'running');
+    const refused = { ok: false, reason: 'the fix agent session is still running' };
+    expect(acceptParkedFixRound(store, ticketId, null, { now: () => LATER })).toEqual(refused);
+    expect(retryParkedFixRound(store, ticketId, { now: () => LATER })).toEqual(refused);
+    expect(getTicket(store, ticketId).stageCurrent).toBe('fix');
+    expect(listFixRoundAcceptances(store, ticketId)).toEqual([]);
   });
 
   it('accept on a uat tester round records the blocking observations', () => {
