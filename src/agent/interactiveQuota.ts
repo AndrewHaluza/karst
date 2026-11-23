@@ -34,21 +34,39 @@ export function isInteractiveQuota(provider: string, text: string): boolean {
 }
 
 /**
- * The quota text of a Claude transcript whose LAST entry is an API error, with
- * that entry's raw line as a key (unique per error: it carries uuid/timestamp).
- * A resumed session appends past an old error, so an earlier error line never
- * re-parks a session that has since moved on.
+ * The quota text of a Claude transcript, found by walking the non-empty lines
+ * from the end. Claude appends metadata (`system` `turn_duration`, `last-prompt`,
+ * `file-history-snapshot`, queued `user` task notifications) after an API error
+ * in the same second, so the error is rarely the last line: the last
+ * `assistant` entry decides — the error text when Claude marked the entry an API
+ * error (`quotaTextFromClaudeEntry`), otherwise null. A `user` entry whose
+ * `origin.kind` is `human` means the person acted after the error, so nothing
+ * parks. Every other entry is skipped. A line that is not valid JSON is a write
+ * in progress, so the read yields nothing.
+ *
+ * The key is that entry's raw line (unique per error: it carries uuid/timestamp),
+ * so a resumed session that appends past an old error never re-parks, and the
+ * same error reported on several ticks offers once.
  */
 export function claudeTrailingQuota(transcript: string): { text: string; key: string } | null {
   const lines = transcript.split('\n').filter((line) => line.trim() !== '');
-  const last = lines[lines.length - 1];
-  if (last === undefined) return null;
-  try {
-    const text = quotaTextFromClaudeEntry(JSON.parse(last));
-    return text === null ? null : { text, key: last };
-  } catch {
-    return null;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]!;
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (typeof entry !== 'object' || entry === null) continue;
+    const typed = entry as { type?: unknown; origin?: { kind?: unknown } };
+    if (typed.type === 'assistant') {
+      const text = quotaTextFromClaudeEntry(entry);
+      return text === null ? null : { text, key: line };
+    }
+    if (typed.type === 'user' && typed.origin?.kind === 'human') return null;
   }
+  return null;
 }
 
 export function claudeTrailingQuotaText(transcript: string): string | null {

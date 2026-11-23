@@ -133,7 +133,7 @@ An interactive impl/fix/planning/setup session that hits its provider usage limi
 | core | signal | verdict |
 |---|---|---|
 | opencode, opencode2 | `session.error` hook `message`, handed to `onSessionError` (observation only; agent_state is unchanged) | detected |
-| claude | transcript tail (`claudeTranscriptWatch` tick, no new timer): the LAST entry has `isApiErrorMessage: true` | detected |
+| claude | transcript (`claudeTranscriptWatch` tick): the last `assistant` entry is the API error (`isApiErrorMessage: true`) and no human prompt (`origin.kind: 'human'`) follows it; the metadata and queued-notification entries Claude appends after the error are skipped | detected |
 | codex | bridge forwards no provider-error event | no change |
 | agy | no hook channel; the conversation-DB watch carries run status, no error text | no change |
 
