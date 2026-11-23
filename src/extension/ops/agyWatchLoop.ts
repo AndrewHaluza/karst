@@ -36,10 +36,28 @@ export interface AgyWatchLoopDeps {
   readonly sandboxAppDataDir?: (ticketId: number) => string | undefined;
   /** Resolve a terminal to its ticket identity, or `undefined` if unnamed. */
   readonly identifyTerminal: (terminal: unknown) => AgyTerminalNamed | undefined;
+  /**
+   * The workspace a terminal was launched in, when recoverable. A GRAPH node or
+   * planner session runs in its own workspace, not the ticket worktree, and
+   * writes its conversation with that cwd — so the conversation lookup needs it.
+   */
+  readonly terminalWorkspacePath?: (terminal: unknown) => string | undefined;
   /** Per-ticket memory of the lifecycle watch (conversation db, pending state). */
   readonly agyWatchStates: Map<number, AgyWatchState>;
   /** Per-ticket memory of the usage watch (last emitted event id). */
   readonly agyUsageStates: Map<number, AgyUsageState>;
+  /**
+   * A provider-error step (`step_type = 17`) was observed in the ticket's
+   * conversation. `key` is `<conversationId>:<idx>` — stable for one error step,
+   * so the binding can offer once. Called on EVERY sweep the step exists; the
+   * once-per-error rule is the binding's.
+   */
+  readonly onProviderError: (
+    ticketId: number,
+    conversationId: string,
+    text: string,
+    key: string,
+  ) => void;
   readonly notifyHook: (ticketId: number, payload: HookPayload) => void;
   readonly shouldApplyHookState: (ticketId: number, payload: HookPayload) => boolean | 'foreign-project';
   readonly sessionProviderFor: (ticketId: number) => AgentProvider | null;
@@ -77,6 +95,14 @@ export interface AgyWatchLoop {
  * attribution (impl segment vs fix), the generation barrier, and the store's
  * cumulative-delta ledger are shared. A re-sweep of an unchanged DB emits
  * nothing; the store dedupes on event id anyway.
+ *
+ * Provider errors: the same DB records a provider failure as a `steps` row with
+ * `step_type = 17`, whose `step_payload` carries the provider's own text. While
+ * the DB is open the sweep reads the NEWEST such row and reports it through
+ * `onProviderError` (every sweep it exists); the binding's once-key decides the
+ * single offer. That is how an interactive agy session — including graph
+ * planner/node sessions, whose workspace differs from the ticket worktree —
+ * gets the same usage-limit park as claude and opencode (@arch:AC-42).
  */
 export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
   let running = false;
@@ -141,10 +167,20 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
         }
         let snapshot: AgyConversationSnapshot | null = null;
         let agyUsage: AgyConversationUsage | null = null;
+        let providerError: { conversationId: string; idx: number; text: string } | null = null;
         const custom = deps.sandboxAppDataDir?.(named.ticketId);
         const ticketAppDataDir = custom && existsSync(custom) ? custom : resolveAgyAppDataDir(sessionReaderEnv('antigravity', getTicket(deps.store, named.ticketId).sessionId));
         try {
-          const found = findConversationForWorktree(ticketAppDataDir, [worktree.path, CONTAINER_REPO]);
+          // The terminal's own workspace comes first: a GRAPH node/planner
+          // session writes its conversation with that cwd, not the ticket
+          // worktree's. A normal session adds the same worktree it already has.
+          const terminalWorkspace = deps.terminalWorkspacePath?.(terminal);
+          const candidates = [
+            ...(terminalWorkspace ? [terminalWorkspace] : []),
+            worktree.path,
+            CONTAINER_REPO,
+          ];
+          const found = findConversationForWorktree(ticketAppDataDir, candidates);
           if (found) {
             const db = openAgyConversationDb(found.dbPath);
             try {
@@ -159,6 +195,18 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
                 runningStepCount = db.runningStepCount();
               } catch {
                 // transient SQLITE_BUSY or foreign schema: leave as null (unknown)
+              }
+              // Provider error steps (`step_type = 17`): the usage-limit signal
+              // an interactive session parks on. Read while the DB is open; a
+              // locked/foreign row reads as "no signal".
+              let errorStep: { idx: number; text: string } | null = null;
+              try {
+                errorStep = db.providerErrorStep();
+              } catch {
+                // transient SQLITE_BUSY or foreign schema: leave as null
+              }
+              if (errorStep) {
+                providerError = { conversationId: found.conversationId, ...errorStep };
               }
               snapshot = {
                 dbPath: found.dbPath,
@@ -189,6 +237,18 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
         deps.debug(
           `[agy] ticket ${named.ticketId}: conversation=${snapshot?.conversationId ?? 'none'}, usage=${agyUsage ? `${agyUsage.input}/${agyUsage.output}/${agyUsage.cacheRead}` : 'null'}, launchId=${named.launchId ?? 'none'}, idle=${snapshot ? snapshot.idle : 'none'}`,
         );
+        if (providerError !== null) {
+          try {
+            deps.onProviderError(
+              named.ticketId,
+              providerError.conversationId,
+              providerError.text,
+              `${providerError.conversationId}:${providerError.idx}`,
+            );
+          } catch (error) {
+            deps.logError(`karst: agy provider-error report failed for ticket ${named.ticketId}`, error);
+          }
+        }
         const state =
           deps.agyWatchStates.get(named.ticketId) ?? {
             dbPath: null,

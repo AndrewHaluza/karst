@@ -89,6 +89,32 @@ describe('createInteractiveUsageLimitBinding', () => {
     expect(m.record.mock.calls[0]![1]).toMatchObject({ ticketId: 2, sessionId: 's2', provider: 'claude', text: 'q' });
   });
 
+  it('reports an agy provider error once per error key and forces the antigravity provider', () => {
+    const b = createInteractiveUsageLimitBinding(deps);
+    m.once.mockReturnValueOnce(false);
+    b.onAgyError(1, 'conv', 'RESOURCE_EXHAUSTED (code 429)', 'conv:7');
+    expect(m.record).not.toHaveBeenCalled();
+    m.once.mockReturnValueOnce(true);
+    deps.sessionProviderFor.mockReturnValue('claude');
+    b.onAgyError(2, 'conv2', 'RESOURCE_EXHAUSTED (code 429)', 'conv2:3');
+    expect(m.once).toHaveBeenLastCalledWith(2, 'conv2', 'conv2:3');
+    expect(m.record.mock.calls[0]![1]).toMatchObject({
+      ticketId: 2,
+      sessionId: 'conv2',
+      provider: 'antigravity',
+      text: 'RESOURCE_EXHAUSTED (code 429)',
+    });
+  });
+
+  it('two sweeps over the same agy error step offer once', () => {
+    const b = createInteractiveUsageLimitBinding(deps);
+    m.once.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    b.onAgyError(3, 'conv3', 'Individual quota reached', 'conv3:5');
+    b.onAgyError(3, 'conv3', 'Individual quota reached', 'conv3:5');
+    expect(m.record).toHaveBeenCalledTimes(1);
+    expect(m.record.mock.calls[0]![1]).toMatchObject({ sessionId: 'conv3', provider: 'antigravity' });
+  });
+
   it('skips the report when no provider is known', () => {
     const b = createInteractiveUsageLimitBinding(deps);
     deps.sessionProviderFor.mockReturnValue(null);

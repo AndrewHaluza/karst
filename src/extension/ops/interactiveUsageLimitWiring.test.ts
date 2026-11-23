@@ -68,10 +68,10 @@ describe('interactive usage-limit signal fixtures', () => {
         );
       }
     };
-    const prose = JSON.stringify({ message: { content: [{ type: 'text', text: 'we hit a usage limit and rate limit' }] } });
+    const prose = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'we hit a usage limit and rate limit' }] } });
     record(claudeTrailingQuotaText(prose));
     expect(listOpenParks(store, ticketId)).toHaveLength(0);
-    const err = JSON.stringify({ isApiErrorMessage: true, message: { content: [{ type: 'text', text: 'Claude usage limit reached' }] } });
+    const err = JSON.stringify({ type: 'assistant', isApiErrorMessage: true, message: { content: [{ type: 'text', text: 'Claude usage limit reached' }] } });
     record(claudeTrailingQuotaText(`${prose}\n${err}\n`));
     record(claudeTrailingQuotaText(`${prose}\n${err}\n`));
     expect(listOpenParks(store, ticketId)).toHaveLength(1);

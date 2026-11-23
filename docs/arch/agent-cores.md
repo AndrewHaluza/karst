@@ -133,11 +133,12 @@ An interactive impl/fix/planning/setup session that hits its provider usage limi
 | core | signal | verdict |
 |---|---|---|
 | opencode, opencode2 | `session.error` hook `message`, handed to `onSessionError` (observation only; agent_state is unchanged) | detected |
-| claude | transcript tail (`claudeTranscriptWatch` tick, no new timer): the LAST entry has `isApiErrorMessage: true` | detected |
+| claude | transcript (`claudeTranscriptWatch` tick): the last `assistant` entry is the API error (`isApiErrorMessage: true`) and no human prompt (`origin.kind: 'human'`) follows it; the metadata and queued-notification entries Claude appends after the error are skipped | detected |
 | codex | bridge forwards no provider-error event | no change |
-| agy | no hook channel; the conversation-DB watch carries run status, no error text | no change |
+| agy | conversation-DB `steps` row with `step_type = 17`: the provider text in `step_payload` (`agyWatchLoop` sweep, reported through `onAgyError`); live only while no later non-error step exists, so a reload never parks on an old error | detected |
 
-- Only provider-authored error text is a candidate, and the verdict is `isQuotaExhausted` (`QUOTA_PHRASES`), never the broad `LIMIT_PHRASES`. Agent prose that says "rate limit" never parks.
+- Only provider-authored error text is a candidate, and the verdict is `isQuotaExhausted` (`QUOTA_PHRASES`), never the broad `LIMIT_PHRASES`. Agent prose that says "rate limit" never parks. The agy reader touches ONLY `step_type = 17` rows: a model step (any other type) is never read, and a `step_payload` that cannot be decoded yields no text, never a throw out of the sweep.
+- **Graph sessions park too.** A graph node/planner terminal carries no `session_launch_intents` row, so the transport records its resolved provider in the window's terminal registry at launch (`makeGraphTerminalHost`), and the agy sweep finds its conversation by the terminal's own workspace `cwd` as well as the ticket worktree. A repeated error step while the row is open upserts and does not offer again; the once-key is `<conversationId>:<idx>`.
 - Row: `kind='interactive'`, `lane`/`target` NULL, `stage` = the ticket's current stage (NULL for planning/setup, where `session_id` keeps two sessions on one ticket apart). No stage block. A repeated signal while the row is open upserts it and does not re-offer.
 - **Exception to D159's one-shot rule.** An interactive Pick IS a persisted session switch: it runs `applyAgentSwitchSelection`, whose `deps.persist` writes provider/model to the ticket, exactly as the header switch does. Headless re-runs stay one-shot.
 - **Claim AFTER the switch.** Only outcome `switched` claims the row (`switched:<core>/<model>`). `stale`, `unavailable`, `cancelled` and `launch-failed` leave it open and the prompt asks again. A second window whose claim finds zero rows does nothing further.

@@ -65,6 +65,13 @@ export interface CreateTransportTerminalOpts {
   hideFromUser?: boolean;
   /** The karst brand mark for the terminal tab (a path to the logo asset). */
   iconPath?: string;
+  /**
+   * The resolved core/model the launch runs with. Recorded in the window's
+   * terminal registry so a sweep that selects terminals by PROVIDER (the
+   * claude/agy usage watches) sees a graph session exactly like a ticket
+   * session — a graph terminal carries no `session_launch_intents` row.
+   */
+  identity?: { provider: string; model?: string | null; agentName?: string | null };
 }
 
 /** The identity a graph launch resolved to: the profile id and the provider,

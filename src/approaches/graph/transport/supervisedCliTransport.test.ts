@@ -125,6 +125,39 @@ describe('SupervisedCLITransport', () => {
     expect(calls[0]!.name).toBe('Karst: K-1 — fix');
   });
 
+  it('forwards the resolved launch identity so a provider-keyed watch sees the graph session', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const h = harness(undefined, {
+      createTerminal: (opts) => {
+        calls.push(opts as unknown as Record<string, unknown>);
+        return fakeTerminal(4242);
+      },
+    });
+    const transport = createSupervisedCliTransport(h.deps);
+    await transport.start({
+      ...LAUNCH,
+      identity: { profile: 'worker', provider: 'antigravity', model: 'gemini-4-neon-high' },
+    });
+    expect(calls[0]!.identity).toEqual({
+      provider: 'antigravity',
+      model: 'gemini-4-neon-high',
+      agentName: 'worker',
+    });
+  });
+
+  it('omits the terminal identity when the launch resolved none', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const h = harness(undefined, {
+      createTerminal: (opts) => {
+        calls.push(opts as unknown as Record<string, unknown>);
+        return fakeTerminal(4242);
+      },
+    });
+    const transport = createSupervisedCliTransport(h.deps);
+    await transport.start({ ...LAUNCH });
+    expect(calls[0]).not.toHaveProperty('identity');
+  });
+
   it('carries the caller-persisted owner nonce onto the session and records identity after spawn', async () => {
     const h = harness(4242);
     const transport = createSupervisedCliTransport(h.deps);

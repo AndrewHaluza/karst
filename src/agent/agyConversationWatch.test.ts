@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +10,7 @@ import {
   AGY_STEP_STATUS_RUNNING,
   AGY_STEP_STATUS_DONE,
   AGY_STEP_STATUS_AWAITING_APPROVAL,
+  AGY_STEP_TYPE_PROVIDER_ERROR,
   agyPointerBusy,
   agyWatchTick,
   findConversationForWorktree,
@@ -20,6 +21,10 @@ import {
   type AgyConversationSnapshot,
   type AgyWatchState,
 } from './agyConversationWatch.js';
+import { openStore } from '../store/db.js';
+import { createTicket } from '../store/tickets.js';
+import { listOpenParks } from '../store/usageLimitParks.js';
+import { recordInteractiveUsageLimit } from '../extension/ops/interactiveUsageLimitOps.js';
 
 function fixtureDb(
   dir: string,
@@ -34,7 +39,7 @@ function fixtureDb(
   const db = new Database(dbPath);
   db.exec(
     'CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);' +
-      'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, metadata BLOB);',
+      'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, metadata BLOB, step_payload BLOB);',
   );
   db.prepare('INSERT INTO trajectory_metadata_blob (id, data) VALUES (?, ?)').run(
     'main',
@@ -51,6 +56,55 @@ function fixtureDb(
   db.close();
   return dbPath;
 }
+
+/** Encode one protobuf varint (the test-side encoder, mirroring the reader). */
+function pbVarint(value: number): Buffer {
+  const bytes: number[] = [];
+  let rest = value;
+  do {
+    let byte = rest & 0x7f;
+    rest >>>= 7;
+    if (rest > 0) byte |= 0x80;
+    bytes.push(byte);
+  } while (rest > 0);
+  return Buffer.from(bytes);
+}
+
+/** One length-delimited protobuf field carrying raw bytes. */
+function pbBytes(field: number, payload: Buffer): Buffer {
+  return Buffer.concat([pbVarint((field << 3) | 2), pbVarint(payload.length), payload]);
+}
+
+/** One length-delimited protobuf field carrying a UTF-8 string. */
+function pbString(field: number, text: string): Buffer {
+  return pbBytes(field, Buffer.from(text, 'utf8'));
+}
+
+/** Append a raw `steps` row (a provider error carries its text in `step_payload`). */
+function insertPayloadStep(dbPath: string, idx: number, stepType: number, payload: Buffer): void {
+  const db = new Database(dbPath);
+  db.prepare(
+    'INSERT INTO steps (idx, step_type, status, step_payload) VALUES (?, ?, 3, ?)',
+  ).run(idx, stepType, payload);
+  db.close();
+}
+
+/**
+ * A provider-error payload shaped like the real agy one: the provider text in a
+ * NESTED message (the walk must descend), plus a non-quota request field.
+ */
+function providerErrorPayload(
+  message: string,
+  code = 'google.rpc.RESOURCE_EXHAUSTED',
+): Buffer {
+  return Buffer.concat([
+    pbBytes(1, Buffer.concat([pbString(1, message), pbString(2, code)])),
+    pbString(3, 'request-id-8f21'),
+  ]);
+}
+
+const QUOTA_STEP_TEXT =
+  'RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h57m43s.';
 
 function writeLastConversationsCache(dir: string, content: string | object): string {
   const cacheDir = join(dir, 'cache');
@@ -114,6 +168,7 @@ describe('agyConversationWatch', () => {
       },
       pendingApprovalCount: () => 0,
       runningStepCount: () => null,
+      providerErrorStep: () => null,
       usage: () => null,
       close: () => undefined,
     });
@@ -756,6 +811,146 @@ describe('agyConversationWatch', () => {
       const second = db.usage();
       expect(second).toEqual(first);
       db.close();
+    });
+  });
+
+  describe('providerErrorStep()', () => {
+    it('reads the provider text from a step_type 17 step_payload, descending into nested messages', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      insertPayloadStep(
+        dbPath,
+        2,
+        AGY_STEP_TYPE_PROVIDER_ERROR,
+        providerErrorPayload(QUOTA_STEP_TEXT),
+      );
+      const db = openAgyConversationDb(dbPath);
+      const step = db.providerErrorStep();
+      expect(step?.idx).toBe(2);
+      expect(step?.text).toContain('RESOURCE_EXHAUSTED (code 429)');
+      expect(step?.text).toContain('Resets in 1h57m43s.');
+      db.close();
+    });
+
+    it('returns the NEWER provider error when several exist', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      insertPayloadStep(dbPath, 2, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload('quota exceeded (older)'));
+      insertPayloadStep(dbPath, 6, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload(QUOTA_STEP_TEXT));
+      const db = openAgyConversationDb(dbPath);
+      const step = db.providerErrorStep();
+      expect(step?.idx).toBe(6);
+      expect(step?.text).toContain('Individual quota reached');
+      db.close();
+    });
+
+    it('returns null once a later non-error step exists: the session went on after the error', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      insertPayloadStep(dbPath, 2, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload(QUOTA_STEP_TEXT));
+      insertPayloadStep(dbPath, 3, 15, pbString(1, 'continuing after the user typed'));
+      const db = openAgyConversationDb(dbPath);
+      expect(db.providerErrorStep()).toBeNull();
+      db.close();
+    });
+
+    it('still returns a provider error that only later error steps follow', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      insertPayloadStep(dbPath, 2, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload('quota exceeded (older)'));
+      insertPayloadStep(dbPath, 3, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload(QUOTA_STEP_TEXT));
+      const db = openAgyConversationDb(dbPath);
+      expect(db.providerErrorStep()?.idx).toBe(3);
+      db.close();
+    });
+
+    it('ignores agent prose: only step_type 17 rows are read, whatever their text says', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      // A model/agent prose step (type 15) whose payload talks about a rate limit.
+      insertPayloadStep(dbPath, 2, 15, pbString(1, 'we hit the rate limit, so I will retry later'));
+      const db = openAgyConversationDb(dbPath);
+      expect(db.providerErrorStep()).toBeNull();
+      db.close();
+    });
+
+    it('returns null when the steps table has no step_payload column (foreign schema)', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const conversationsDir = join(dir, 'conversations');
+      mkdirSync(conversationsDir, { recursive: true });
+      const dbPath = join(conversationsDir, 'old-schema.db');
+      const raw = new Database(dbPath);
+      raw.exec(
+        'CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);' +
+          'CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0, metadata BLOB);',
+      );
+      raw.prepare('INSERT INTO steps (idx, step_type, status) VALUES (2, 17, 3)').run();
+      raw.close();
+
+      const db = openAgyConversationDb(dbPath);
+      expect(db.providerErrorStep()).toBeNull();
+      db.close();
+    });
+
+    it('returns null on a corrupt payload and never throws', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      // An unterminated length-delimited field: the walk stops, no throw.
+      insertPayloadStep(dbPath, 2, AGY_STEP_TYPE_PROVIDER_ERROR, Buffer.from([0x0a, 0xff, 0x01]));
+      const db = openAgyConversationDb(dbPath);
+      expect(() => db.providerErrorStep()).not.toThrow();
+      expect(db.providerErrorStep()).toBeNull();
+      db.close();
+    });
+  });
+
+  describe('provider error -> interactive park', () => {
+    it('parks an antigravity session on RESOURCE_EXHAUSTED and offers once', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      insertPayloadStep(dbPath, 2, AGY_STEP_TYPE_PROVIDER_ERROR, providerErrorPayload(QUOTA_STEP_TEXT));
+      const db = openAgyConversationDb(dbPath);
+      const text = db.providerErrorStep()!.text;
+      db.close();
+
+      const store = openStore(':memory:');
+      const ticketId = createTicket(store, { key: 'T-AGY', title: 'agy' }).id;
+      const offer = vi.fn();
+      recordInteractiveUsageLimit(
+        { store, offer },
+        { ticketId, sessionId: 'conv-1', provider: 'antigravity', model: null, stage: null, text },
+      );
+      expect(listOpenParks(store, ticketId)).toHaveLength(1);
+      expect(offer).toHaveBeenCalledTimes(1);
+      store.close();
+    });
+
+    it('a provider error with non-quota text does not park', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      const dbPath = fixtureDb(dir, '11111111-1111-4111-8111-111111111111', '/wt', false);
+      insertPayloadStep(
+        dbPath,
+        2,
+        AGY_STEP_TYPE_PROVIDER_ERROR,
+        providerErrorPayload(
+          'Internal error: the model returned no content.',
+          'google.rpc.INTERNAL',
+        ),
+      );
+      const db = openAgyConversationDb(dbPath);
+      const text = db.providerErrorStep()!.text;
+      db.close();
+
+      const store = openStore(':memory:');
+      const ticketId = createTicket(store, { key: 'T-AGY', title: 'agy' }).id;
+      const offer = vi.fn();
+      recordInteractiveUsageLimit(
+        { store, offer },
+        { ticketId, sessionId: 'conv-1', provider: 'antigravity', model: null, stage: null, text },
+      );
+      expect(listOpenParks(store, ticketId)).toHaveLength(0);
+      expect(offer).not.toHaveBeenCalled();
+      store.close();
     });
   });
 });

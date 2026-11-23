@@ -51,6 +51,16 @@ export function createInteractiveUsageLimitBinding(deps: InteractiveUsageLimitBi
       if (!quota || !once(ticketId, sessionId, quota.key)) return;
       binding.report(ticketId, sessionId, quota.text, 'claude');
     },
+    /**
+     * An Antigravity conversation-DB provider error (`step_type = 17`). The key
+     * is `<conversationId>:<idx>`, stable for one error step, so repeated
+     * sweeps offer once. The verdict stays `isInteractiveQuota` inside
+     * `recordInteractiveUsageLimit`, so agent prose never parks.
+     */
+    onAgyError(ticketId: number, sessionId: string, text: string, key: string): void {
+      if (!once(ticketId, sessionId, key)) return;
+      binding.report(ticketId, sessionId, text, 'antigravity');
+    },
     report(ticketId: number, sessionId: string, text: string, provider = deps.sessionProviderFor(ticketId)): void {
       if (!provider) return;
       const ticket = getTicket(deps.store, ticketId);
