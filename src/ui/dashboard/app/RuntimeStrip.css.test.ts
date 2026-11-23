@@ -31,4 +31,10 @@ describe('RuntimeStrip.css — the sandbox safety fact stays visible (DB-6, UI-R
     expect(rule).toContain('min-width: 0');
     expect(block('.rs-sub {')).toContain('text-overflow: ellipsis');
   });
+
+  it('lets the sandbox cell take the rest of its row at a narrow width, so the actions do not wrap to a third row', () => {
+    const rule = block('.rs-cell--sandbox {');
+    expect(rule).toContain('flex: 1 1 0');
+    expect(rule).toContain('min-width: 0');
+  });
 });

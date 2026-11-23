@@ -381,6 +381,11 @@
   .rs-cell:not(.rs-more) {
     position: static;
   }
+  /* The sandbox cell takes the rest of its row and its detail ellipsizes, so Sync, Diff and the menu stay on the same row (no third row). */
+  .rs-cell--sandbox {
+    flex: 1 1 0;
+    min-width: 0;
+  }
   .rs-note {
     flex-wrap: wrap;
   }

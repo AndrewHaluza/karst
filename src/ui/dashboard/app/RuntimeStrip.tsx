@@ -292,7 +292,7 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
         {agent && sandbox ? <span className="rs-vsep" aria-hidden="true" /> : null}
 
         {sandbox && secondary ? (
-          <div className="rs-cell">
+          <div className="rs-cell rs-cell--sandbox">
             <button
               ref={triggers.sandbox}
               type="button"
