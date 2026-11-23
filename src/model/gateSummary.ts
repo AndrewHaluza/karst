@@ -85,6 +85,10 @@ function sectionIds(lines: string[], header: RegExp): string[] {
  * breaks, then the base-drift ids marked "(base drift, not this ticket)",
  * then any other FAIL id, each once; the tail fills the rest. The sections
  * are parsed from the whole output, never from the tail.
+ *
+ * For non-vitest output, the summary leads with the LAST `ticket breaks … — N:`
+ * header (scripts/baseDrift.mjs) when the tail cut would drop it, so a fix
+ * brief can still see that the ticket breaks the base.
  */
 export function summarizeGateFailure(output: string): string | null {
   if (!output) return null;
@@ -96,7 +100,15 @@ export function summarizeGateFailure(output: string): string | null {
   const drift = isVitest ? sectionIds(nonEmpty, DRIFT_HEADER_RE).filter((id) => !breaks.includes(id)) : [];
   const others = isVitest ? failingTestIds(output).filter((id) => !breaks.includes(id) && !drift.includes(id)) : [];
   const ids = [...breaks, ...drift, ...others];
-  if (ids.length === 0) return capTail(tail.join('\n'));
+  if (ids.length === 0) {
+    const capped = capTail(tail.join('\n'));
+    // A sweep with many breaks puts its header above the 12-line/600-char tail.
+    // Keep the last one, and cut the tail again by its length.
+    const header = [...nonEmpty].reverse().find((l) => BREAKS_HEADER_RE.test(l));
+    if (header === undefined || capped.includes(header)) return capped;
+    const rest = tail.filter((l) => l !== header).join('\n');
+    return `${header}\n${capTail(rest, MAX_GATE_SUMMARY_CHARS - header.length - 1)}`;
+  }
   const head = [
     ...breaks.map((id) => `FAIL ${id}`),
     ...drift.map((id) => `FAIL ${id}${DRIFT_MARK}`),

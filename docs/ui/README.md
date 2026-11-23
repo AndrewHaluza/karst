@@ -30,8 +30,10 @@ read a whole file.
    check and any ledger change go through `npm run test:layout:docker`
    (`test:visual:docker` for baselines).
    Known drift: the `settings--route-agents-agents-profiles-builtin-3AuatTester.png` baseline can re-render differently after an update (cause not yet found). After a scoped `:update`, `git status` must show only in-scope PNGs: `git checkout` that one if it appears.
-6. **Screenshot changes need user approval.** Re-record a baseline only for an
-   intended change; the user approves it in the baseline review. Never edit
+6. **A baseline change follows four steps.** For an intended change: (1) re-record only the
+   failing views, (2) commit the baselines, (3) fire the done marker, (4) the user approves
+   once, in the dashboard baseline review, after the gates pass. Do not wait for an approval
+   before the re-record. Never re-record a baseline to hide an unintended change. Never edit
    baselines or the layout ledger (`tests/visual/layout-known-failures.json`) to pass a gate; the ledger
    shrinks only via `npm run test:layout:docker:prune`. After a DOM structure
    change the ledger reads STALE and NEW at once: follow `ui:LEDGER-SHIFT`.
