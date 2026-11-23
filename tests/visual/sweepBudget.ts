@@ -34,7 +34,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1293 inside-uat-gates-wait-and-run (one gate waits for a slot, one runs in the other lane), @ui:UI-R57: 4 width tiers (+4 screenshots) and their layout runs (+8).
   dashboard: { screenshots: 616, layout: 730 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
-  diffs: { screenshots: 8, layout: 25 },
+  // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
+  //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21
+  //   opens the 400/399/320 tier probes for all 8 diffs pages (5 x 3 existing pages = +15).
+  diffs: { screenshots: 13, layout: 64 },
   gettingStarted: { screenshots: 8, layout: 30 },
   // T1317 RS-10 (@ui:UI-R57): the eight `resources--servers-*` variants of the Servers tab, which had
   // no baseline at all. Screenshots: servers-mixed in dark/light/hc/grayscale (+4), servers-failed in
@@ -65,7 +68,13 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1213 planning-artifacts variants (Open artifacts icon on a planning row), @ui:RD-TIERS: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1269 Activity pane variants (empty, populated, long content, 460 and 300 tiers), @ui:RD-TIERS: 7 screenshots (3 variants in dark, 2 widths in dark and light) and their layout runs (+15).
   // T1298 attention-one (the "1 needs you · 1 failed" attention line), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because it opens the populated page.
-  sidebar: { screenshots: 42, layout: 95 },
+  // T1318 SB-3 (@ui:RD-TIERS, @ui:UI-R57): every sidebar shot records the real 300 px width. The five tier families
+  // (queue-chips, activity, stage-chip, waits-on, planning-artifacts) add the 320 step and the hc theme (5 x (2 x 3 + 3)
+  // = +25 screenshots); peek-states adds the 320 and 460 widths and the two shape projects (+3); the new states
+  // (populated-300, host-error, peek-blocked-300, peek-pr-closed-300, row-hover-300) add 5, and filtered/peek are renames.
+  // The three new pages (populated-300, peek-blocked-300, peek-pr-closed-300) add 3 x 5 layout widths (+15); every other
+  // width or theme change shares its page's run.
+  sidebar: { screenshots: 75, layout: 110 },
   // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
   // T1301 agent-picker-open (the open agent-core menu at the wide 799-tall window, RD-AGENT-MENU), @ui:UI-R57: 1 theme (dark) (+1 screenshot); the page shares the edit-core-model layout run, so no layout tests are added.
   // T1301 SET-63 realistic-create / graph-roles / error at ALL_THEMES, SET-56's HC realistic-create-switches (Auto-improve Off), and SET-65's open approach picker, @ui:UI-R57: 7 screenshots (3 variants x 2 added themes = +6, the HC switch variant = +1); skipLayout, because the switch toggle adds no geometry and realistic-create already runs the page.

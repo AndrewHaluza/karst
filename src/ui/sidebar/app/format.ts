@@ -5,6 +5,8 @@
  */
 import type { FacetKey } from '../facets.js';
 import type { QueueRowView, SidebarState, TicketRow } from '../state.js';
+import { GLYPH_WORD, type Glyph } from '../../../model/glyph.js';
+import type { StatusKind } from '../../shared/Status.js';
 
 /**
  * The deepest indent painted, mirroring `MAX_SUBTASK_INDENT` in
@@ -17,27 +19,32 @@ export const MAX_SUBTASK_INDENT = 4;
 /**
  * `dotVariant` names a `.k-dot--<variant>` suffix (model/designComponents), not
  * the facet's own key — "input" (needs you) maps to the shared "attention"
- * status meaning, "done" to "passed".
+ * status meaning, "done" to "passed". `label` is the shared `GLYPH_WORD`
+ * (SB-13), so the facet and the glyph name one state.
  */
 export const FACET_META: ReadonlyArray<{ key: FacetKey; label: string; dotVariant: string | null }> = [
   { key: 'all', label: 'All', dotVariant: null },
-  { key: 'running', label: 'In progress', dotVariant: 'running' },
-  { key: 'input', label: 'Needs you', dotVariant: 'attention' },
-  { key: 'failed', label: 'Blocked', dotVariant: 'failed' },
-  { key: 'done', label: 'Done', dotVariant: 'passed' },
+  { key: 'running', label: GLYPH_WORD.blue, dotVariant: 'running' },
+  { key: 'input', label: GLYPH_WORD.amber, dotVariant: 'attention' },
+  { key: 'failed', label: GLYPH_WORD.red, dotVariant: 'failed' },
+  { key: 'done', label: GLYPH_WORD.green, dotVariant: 'passed' },
   { key: 'archived', label: 'Archived', dotVariant: null },
 ];
 
-/** Status word for the glyph's role="img" aria-label — colour is never the only carrier (UI-R28). */
-export const GLYPH_WORD: Readonly<Record<string, string>> = {
-  gray: 'Pending',
-  blue: 'Running',
-  amber: 'Needs you',
-  green: 'Done',
-  red: 'Failed',
-};
-
+/** The autostart sub-task state word: "Queued" / "Starting". */
 export const AUTOSTART_WORD: Readonly<Record<string, string>> = { queued: 'Queued', starting: 'Starting' };
+
+/**
+ * The status marker each glyph paints (SB-1). One shape per state, so the hue
+ * reinforces the shape instead of carrying it alone (UI-R28, UI-R28b).
+ */
+export const GLYPH_STATUS: Readonly<Record<Glyph, StatusKind>> = {
+  gray: 'pending',
+  blue: 'running',
+  amber: 'attention',
+  green: 'passed',
+  red: 'failed',
+};
 
 /** The empty snapshot shown before the first host push (and for a pre-upgrade restore). */
 export const EMPTY_STATE: SidebarState = {
@@ -98,9 +105,23 @@ export function withStateDefaults(prev: SidebarState | undefined): SidebarState 
   };
 }
 
+const DAY_MS = 86_400_000;
+const MONTH_DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+const MONTH_DAY_YEAR = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
 /**
- * Compact "4m ago" / "2h ago" from an ISO timestamp, against the viewer's clock
- * (the host stores UTC; formatting here keeps the model host-clock-free).
+ * A timestamp older than the day unit reads as a calendar day ("Jan 6"); a year
+ * or older adds the year ("Jan 6, 2025", SB-20). Short month names are stable.
+ */
+function calendarText(t: number, now: number): string {
+  return now - t >= 365 * DAY_MS ? MONTH_DAY_YEAR.format(t) : MONTH_DAY.format(t);
+}
+
+/**
+ * Compact "4m ago" / "2h ago" / "12d ago" from an ISO timestamp, against the
+ * viewer's clock (the host stores UTC; formatting here keeps the model
+ * host-clock-free). From 30 days on it reads as the date ("Jan 6"), with the
+ * year once the date is a year old (SB-20).
  */
 export function relTime(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return '';
@@ -112,11 +133,13 @@ export function relTime(iso: string | null | undefined, now: number = Date.now()
   if (m < 60) return `${m}m ago`;
   const h = Math.round(m / 60);
   if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
+  const d = Math.round(h / 24);
+  return d < 30 ? `${d}d ago` : calendarText(t, now);
 }
 
 /**
- * The headline age: `for 2h` for a running stage, `6m ago` for a finished one.
+ * The headline age: `for 2h` for a running stage, `6m ago` for a finished one,
+ * `since Jan 6` once the age passes the day unit (SB-20).
  * The host sends ISO times; this runs in the webview so a stale snapshot never freezes the text.
  */
 export function sinceText(since: { at: string; kind: 'for' | 'ago' } | null | undefined, now: number = Date.now()): string {
@@ -129,7 +152,8 @@ export function sinceText(since: { at: string; kind: 'for' | 'ago' } | null | un
   if (m < 60) return `for ${m}m`;
   const h = Math.floor(m / 60);
   if (h < 24) return `for ${h}h`;
-  return `for ${Math.floor(h / 24)}d`;
+  const d = Math.floor(h / 24);
+  return d < 30 ? `for ${d}d` : `since ${calendarText(t, now)}`;
 }
 
 /** The agent line's last-activity text: `active 4m ago`. Empty before the first hook. */

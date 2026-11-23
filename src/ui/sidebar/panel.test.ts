@@ -171,6 +171,22 @@ describe('SidebarViewManager', () => {
     expect(() => mgr.refresh()).not.toThrow();
   });
 
+  it('posts an error and logs it instead of a blank state when the snapshot cannot be built (SB-2)', () => {
+    // A closed store is the cheapest real failure: the first query throws.
+    const dead = openStore(':memory:');
+    dead.close();
+    const logError = vi.fn();
+    const mgr = new SidebarViewManager(dead, () => stubActions(), undefined, undefined, logError);
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    const view = resolve();
+    expect(view.posted).toHaveLength(0);
+    const errors = view.postedRaw.filter((m): m is Extract<SidebarHostMessage, { type: 'error' }> => m.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.message.length).toBeGreaterThan(0);
+    expect(logError).toHaveBeenCalledWith('karst: sidebar state build failed', expect.any(Error));
+  });
+
   it('notifies the refresh subscriber on every refresh', () => {
     const mgr = new SidebarViewManager(store, () => stubActions());
     const { host, resolve } = fakeHost();

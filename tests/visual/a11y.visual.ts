@@ -149,8 +149,8 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:span.ttitle': { ratio: 2.36, gap: 'G5' },
   'light:div#unknownNote.meta': { ratio: 2.36, gap: 'G5' },
   'light:span#diskHint.meta': { ratio: 2.36, gap: 'G5' },
-  'light:span.sec-name': { ratio: 2.36, gap: 'G5' },
-  'light:span.sec-n': { ratio: 2.36, gap: 'G5' },
+  // T1318 (SB-12): the sidebar section label and count moved from --k-text-faint
+  // to --k-text-dim and clear AA on their own; their G5 entries are gone.
   // NDL-219 removed `light:span.stage.stg-impl` here (3.13, G5) and
   // `light:span.stage.stg-done` below (2.34, G5) — both were the harness
   // missing the theme body class, not a palette defect. See the header note.

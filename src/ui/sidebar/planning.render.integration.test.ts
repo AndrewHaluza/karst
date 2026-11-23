@@ -22,15 +22,16 @@ describe('sidebar planning tree', () => {
     expect(h.query('[data-pane="planning"] [role="tree"]')).not.toBeNull();
     const tree = h.query('[role="tree"]')!;
     expect(tree.getAttribute('aria-label')).toBe('Planning sessions');
-    expect(h.queryAll('[role="treeitem"][aria-level="1"]')).toHaveLength(2);
+    expect(h.queryAll('.ptree [role="treeitem"][aria-level="1"]')).toHaveLength(2);
   });
 
-  it('a session row has a twistie, a status dot, the title and a muted draft count — no text pills', async () => {
+  it('a session row has a twistie, a status marker, the title and a muted draft count — no text pills', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
     const row = session(h, 90).querySelector('.pt-row')!;
     expect(row.querySelector('.pt-twistie')).not.toBeNull();
-    expect(row.querySelector('.pt-dot')).not.toBeNull();
+    expect(row.querySelector('.k-status')).not.toBeNull();
+    expect(row.querySelector('.k-status')!.getAttribute('aria-label')).toBe('needs review');
     expect(row.querySelector('.pt-label')!.textContent).toBe('P90 Planning 90');
     expect(row.querySelector('.pt-count')!.textContent).toBe('2');
     expect(row.querySelector('.k-pill,.agent-identity,.plan-meta')).toBeNull();
@@ -55,24 +56,26 @@ describe('sidebar planning tree', () => {
       fixturePlanningRow(4, { proposals: [fixtureDraft({ id: 41, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] })] }),
       fixturePlanningRow(5),
     ]) });
-    const dot = (id: number) => session(h, id).querySelector('.pt-dot')!.className;
-    expect(dot(1)).toContain('pt-dot--attention');
-    expect(dot(2)).toContain('pt-dot--running');
-    expect(dot(3)).toContain('pt-dot--passed');
-    expect(dot(4)).toContain('pt-dot--passed');
-    expect(dot(5)).toContain('pt-dot--pending');
+    const dot = (id: number) => session(h, id).querySelector('.k-status')!.className;
+    expect(dot(1)).toContain('k-status--attention');
+    expect(dot(2)).toContain('k-status--running');
+    expect(dot(3)).toContain('k-status--passed');
+    expect(dot(4)).toContain('k-status--passed');
+    expect(dot(5)).toContain('k-status--pending');
     expect(session(h, 2).getAttribute('aria-label')).toMatch(/terminal live/);
     expect(session(h, 3).getAttribute('aria-label')).toMatch(/filed/);
   });
 
-  it('expands a session with pending drafts by default and collapses one without', async () => {
+  it('starts every session collapsed, even one with pending drafts', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: withPlans([
       fixturePlanningRow(1, { proposals: [fixtureDraft({ id: 11, title: 'p', status: 'pending', ticketId: null, dependsOn: [] })] }),
       fixturePlanningRow(2, { proposals: [fixtureDraft({ id: 21, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] })] }),
       fixturePlanningRow(3),
     ]) });
-    expect(session(h, 1).getAttribute('aria-expanded')).toBe('true');
+    expect(session(h, 1).getAttribute('aria-expanded')).toBe('false');
+    expect(session(h, 1).querySelector('.pt-twistie')).not.toBeNull();
+    expect(draft(h, 11)).toBeNull();
     // Only accepted drafts: nothing to expand until the accepted toggle reveals them.
     expect(session(h, 2).hasAttribute('aria-expanded')).toBe(false);
     expect(draft(h, 21)).toBeNull();
@@ -85,7 +88,11 @@ describe('sidebar planning tree', () => {
     const before = h.posted.length;
     await h.click('[data-node="s90"] .pt-twistie');
     expect(h.posted.slice(before)).toEqual([]);
-    expect(session(h, 90).querySelector('.pt-twistie')!.hasAttribute('data-open')).toBe(false);
+    expect(session(h, 90).getAttribute('aria-expanded')).toBe('true');
+    expect(draft(h, 501)).not.toBeNull();
+    await h.receive({ type: 'state', state: stateOf('all-sections') });
+    expect(session(h, 90).getAttribute('aria-expanded')).toBe('true');
+    await h.click('[data-node="s90"] .pt-twistie');
     expect(session(h, 90).getAttribute('aria-expanded')).toBe('false');
     expect(draft(h, 501)).toBeNull();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
@@ -123,6 +130,8 @@ describe('sidebar planning tree', () => {
     const head = h.query('[data-pane="planning"] .pane-head')!;
     expect(head.querySelector('.pane-count')!.textContent).toBe('2');
     expect(head.querySelector('[data-act="plan-create"]')!.getAttribute('aria-label')).toBe('Start planning session');
+    await h.expandPlans();
+    expect(session(h, 90).getAttribute('aria-expanded')).toBe('true');
     await h.click('[data-pane="planning"] [data-plan-collapse-all]');
     expect(session(h, 90).getAttribute('aria-expanded')).toBe('false');
     await h.click('[data-pane="planning"] [data-act="plan-create"]');
@@ -194,6 +203,7 @@ describe('sidebar planning drafts', () => {
   it('a pending draft shows its #id before the title and named Approve / Discard icon actions', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
     const d = draft(h, 501);
     expect(d.getAttribute('aria-level')).toBe('2');
     expect(d.getAttribute('aria-label')).toBe('D501 Add rate limit, needs review');
@@ -209,6 +219,7 @@ describe('sidebar planning drafts', () => {
   it('a pending draft row has no primary action, so its body is inert', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
     const d = draft(h, 501);
     expect(d.querySelector('.pt-row [data-primary]')).toBeNull();
     // Approve and Discard still render; the removed read-only view does not.
@@ -223,6 +234,7 @@ describe('sidebar planning drafts', () => {
   it('posts a proposalId (never a ticketId or sessionId) for each draft action and goes pending', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
     await h.click('[data-act="plan-proposal-review"][data-proposal="501"]');
     await h.click('[data-act="plan-proposal-discard"][data-proposal="501"]');
     const sent = h.posted.filter((m) => /^plan-proposal-/.test((m as { type: string }).type));
@@ -237,6 +249,7 @@ describe('sidebar planning drafts', () => {
   it('an accepted draft shows its #id, stays muted and struck through, and links to its ticket', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
     await reveal(h, 90);
     const d = draft(h, 503);
     expect(d.classList.contains('pt-accepted')).toBe(true);
@@ -252,7 +265,7 @@ describe('sidebar planning drafts', () => {
 
   describe('dependency status chips', () => {
     const chips = (h: RenderedSidebar, id: number) => Array.from(draft(h, id).querySelectorAll<HTMLButtonElement>('.pt-deps-row .k-ticket-ref'));
-    const withDeps = (h: RenderedSidebar) => h.receive({ type: 'state', state: stateOf('planning-deps') });
+    const withDeps = async (h: RenderedSidebar) => { await h.receive({ type: 'state', state: stateOf('planning-deps') }); await h.expandPlans(); };
 
     it('renders nothing for a draft with no deps', async () => {
       const h = await renderSidebarApp();
@@ -333,6 +346,7 @@ describe('sidebar planning drafts', () => {
         fixtureDraft({ id: 12, title: 'Settled', status: 'accepted', ticketId: 4, dependsOn: [], droppedDepends: [9] }),
       ] }),
     ]) });
+    await h.expandPlans();
     const warn = draft(h, 11).querySelector('.pt-deps--warn')!;
     expect(warn.textContent).toBe('D9 was discarded');
     expect(warn.getAttribute('title')).toBe('D9 was discarded');
@@ -357,6 +371,7 @@ describe('sidebar planning drafts', () => {
         fixtureDraft({ id: 23, title: 'Clean', status: 'pending', ticketId: null, dependsOn: [] }),
       ] }),
     ]) });
+    await h.expandPlans();
     const one = draft(h, 21).querySelector('.pt-cwarn')!;
     expect(one.textContent).toBe('unknown design key @arch:<b>X');
     expect(draft(h, 21).querySelector('.pt-cwarn b')).toBeNull();
@@ -369,6 +384,7 @@ describe('sidebar planning drafts', () => {
   it('escapes a hostile draft title in text and labels (UI-R32)', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('hostile') });
+    await h.expandPlans();
     expect(h.query('[data-node="d502"] script')).toBeNull();
     expect(h.query('[data-act="plan-proposal-review"][data-proposal="502"]')!.getAttribute('aria-label')).toBe(`Approve draft: ${HOSTILE}`);
     expect(draft(h, 502).querySelector('.pt-label')!.textContent).toBe(`D502 ${HOSTILE}`);
@@ -379,7 +395,8 @@ describe('sidebar planning tree keyboard', () => {
   it('uses a roving tabindex: only the first item is tabbable', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
-    const items = h.queryAll('[role="treeitem"]');
+    await h.expandPlans();
+    const items = h.queryAll('.ptree [role="treeitem"]');
     expect(items.filter((i) => i.getAttribute('tabindex') === '0')).toHaveLength(1);
     expect(items[0]!.getAttribute('tabindex')).toBe('0');
     expect(h.queryAll('.pt-actions button').every((b) => b.getAttribute('tabindex') === '-1')).toBe(true);
@@ -388,6 +405,7 @@ describe('sidebar planning tree keyboard', () => {
   it('ArrowDown/ArrowUp move through visible items; Left/Right collapse, expand and move', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
     const s90 = session(h, 90);
     s90.focus();
     await h.key(s90, 'ArrowDown');
@@ -409,6 +427,7 @@ describe('sidebar planning tree keyboard', () => {
   it('Enter opens the terminal on a session and does nothing on a pending draft', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
     await h.key(session(h, 89), 'Enter');
     const afterSession = h.posted.length;
     await h.key(draft(h, 501), 'Enter');
@@ -419,9 +438,26 @@ describe('sidebar planning tree keyboard', () => {
     expect(h.posted.slice(afterSession)).toEqual([]);
   });
 
+  it('Enter and ArrowDown on a tool inside a row are left to the control, not the tree', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
+    const tool = session(h, 89).querySelector<HTMLElement>('button');
+    expect(tool).not.toBeNull();
+    tool!.focus();
+    const before = h.posted.length;
+    await h.key(tool!, 'Enter');
+    await h.key(tool!, 'ArrowDown');
+    expect(h.posted.slice(before).filter((m) => (m as { type: string }).type === 'plan-open')).toEqual([]);
+    expect(h.document.activeElement).toBe(tool);
+    await h.key(tool!, 'ArrowLeft');
+    expect(h.document.activeElement).toBe(session(h, 89));
+  });
+
   it('Shift+F10 opens a context menu listing every action of the item', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
     await h.key(draft(h, 501), 'F10', { shiftKey: true });
     const items = h.queryAll('#ctxMenu.open [role="menuitem"]');
     expect(items.map((i) => i.getAttribute('data-act'))).toEqual(['plan-proposal-review', 'plan-proposal-discard', null, 'cloud-session-add']);
@@ -434,6 +470,7 @@ describe('sidebar planning tree keyboard', () => {
   it('the contextmenu event on a session lists Open terminal and Archive', async () => {
     const h = await renderSidebarApp();
     await h.receive({ type: 'state', state: stateOf('all-sections') });
+    await h.expandPlans();
     await h.contextMenu(session(h, 89).querySelector('.pt-row')!);
     const items = h.queryAll('#ctxMenu.open [role="menuitem"]');
     expect(items.map((i) => i.textContent!.trim())).toEqual(['Open terminal', 'Archive']);
@@ -441,7 +478,7 @@ describe('sidebar planning tree keyboard', () => {
 
   describe('priority', () => {
     const chip = (h: RenderedSidebar, id: number) => draft(h, id).querySelector<HTMLElement>('.k-pri');
-    const withPriority = (h: RenderedSidebar) => h.receive({ type: 'state', state: stateOf('priority') });
+    const withPriority = async (h: RenderedSidebar) => { await h.receive({ type: 'state', state: stateOf('priority') }); await h.expandPlans(); };
 
     it('puts a chip after the id and before the title, with the level word as text', async () => {
       const h = await renderSidebarApp();

@@ -8,6 +8,7 @@ import {
 } from './attention.js';
 import type { TicketWithStages } from '../store/tickets.js';
 import type { StageKey, StageStatus } from '../model/types.js';
+import { facetCounts } from './sidebar/facets.js';
 
 const stage = (key: StageKey, status: StageStatus): TicketWithStages['stages'][number] => ({
   ticketId: 1,
@@ -104,11 +105,15 @@ describe('attentionItems', () => {
     });
   });
 
-  it('reports a failed stage as failed, naming the stage', () => {
+  it('reports a failed stage as failed, naming the stage in title case (SB-18)', () => {
     const items = attentionItems([
       ticket({ stageCurrent: 'uat', stages: [stage('uat', 'failed')] }),
     ]);
-    expect(items[0]).toMatchObject({ kind: 'failed', reason: 'uat failed' });
+    expect(items[0]).toMatchObject({ kind: 'failed', reason: 'UAT failed' });
+    const review = attentionItems([
+      ticket({ stageCurrent: 'review', stages: [stage('review', 'failed')] }),
+    ]);
+    expect(review[0]!.reason).toBe('Review failed');
   });
 
   it('falls back to T<id> and an empty title when the ticket has neither', () => {
@@ -158,22 +163,49 @@ describe('attentionSummary', () => {
   it('uses singular copy for one ticket', () => {
     const s = attentionSummary([item()]);
     expect(s?.text).toBe('$(bell) 1 needs you');
-    expect(s?.badgeTooltip).toBe('1 ticket needs your input');
+    expect(s?.badgeTooltip).toBe('1 needs your input');
     expect(s?.count).toBe(1);
   });
 
   it('uses plural copy for several tickets', () => {
     const s = attentionSummary([item(), item({ ticketId: 2, key: 'A-2' })]);
     expect(s?.text).toBe('$(bell) 2 need you');
-    expect(s?.badgeTooltip).toBe('2 tickets need your input');
+    expect(s?.badgeTooltip).toBe('2 need your input');
   });
 
-  it('lists one key · reason line per ticket in the tooltip', () => {
+  it('splits the badge tooltip and the tooltip head by kind (RD-2)', () => {
+    const items = (input: number, failed: number): AttentionItem[] => [
+      ...Array.from({ length: input }, (_, i) => item({ ticketId: i + 1, key: `I-${i + 1}` })),
+      ...Array.from({ length: failed }, (_, i) => item({ ticketId: 100 + i, key: `F-${i + 1}`, kind: 'failed' })),
+    ];
+    expect(attentionSummary(items(4, 2))?.badgeTooltip).toBe('4 need your input, 2 failed');
+    expect(attentionSummary(items(0, 2))?.badgeTooltip).toBe('2 failed');
+    expect(attentionSummary(items(1, 1))?.badgeTooltip).toBe('1 needs your input, 1 failed');
+    expect(attentionSummary(items(1, 0))?.badgeTooltip).toBe('1 needs your input');
+    // The tooltip head is the same split line, then a blank line, then the tickets.
+    expect(attentionSummary(items(4, 2))?.tooltip.startsWith('4 need your input, 2 failed\n\n')).toBe(true);
+  });
+
+  it('the header parts sum to the attention set for the same tickets (RD-2)', () => {
+    const tickets = [
+      ticket({ id: 1, agentState: 'waiting' }),
+      ticket({ id: 2, agentState: 'not-started' }),
+      ticket({ id: 3, stageCurrent: 'impl', stages: [stage('impl', 'running')] }),
+      ticket({ id: 4, stageCurrent: 'uat', stages: [stage('uat', 'failed')] }),
+      ticket({ id: 5, stageCurrent: 'uat', stages: [stage('uat', 'running')] }),
+    ];
+    const counts = facetCounts(tickets);
+    expect(counts.input + counts.failed).toBe(attentionItems(tickets).length);
+    expect(counts.input).toBe(2);
+    expect(counts.failed).toBe(1);
+  });
+
+  it('lists one key · reason line per ticket in the tooltip, after the split head', () => {
     const s = attentionSummary([
       item({ key: 'A-3', kind: 'failed', reason: 'uat failed' }),
       item({ ticketId: 2, key: 'A-1' }),
     ]);
-    expect(s?.tooltip).toBe('A-3 · uat failed\n\nA-1 · agent asked a question');
+    expect(s?.tooltip).toBe('1 needs your input, 1 failed\n\nA-3 · uat failed\n\nA-1 · agent asked a question');
   });
 
   it('warns only when something is actually blocked', () => {
@@ -185,7 +217,8 @@ describe('attentionSummary', () => {
     const many = Array.from({ length: 13 }, (_, i) =>
       item({ ticketId: i + 1, key: `A-${i + 1}` }),
     );
-    const lines = attentionSummary(many)!.tooltip.split('\n\n');
+    const [head, ...lines] = attentionSummary(many)!.tooltip.split('\n\n');
+    expect(head).toBe('13 need your input');
     expect(lines).toHaveLength(11);
     expect(lines[10]).toBe('…and 3 more');
     expect(attentionSummary(many)?.count).toBe(13);
@@ -235,11 +268,11 @@ describe('AttentionManager', () => {
     expect(host.status).toEqual([
       [
         '$(bell) 2 need you',
-        'A-1 · agent asked a question\n\nA-2 · agent asked a question',
+        '2 need your input\n\nA-1 · agent asked a question\n\nA-2 · agent asked a question',
         false,
       ],
     ]);
-    expect(host.badges).toEqual([[2, '2 tickets need your input']]);
+    expect(host.badges).toEqual([[2, '2 need your input']]);
   });
 
   it('flags the status warning when a ticket is blocked', () => {

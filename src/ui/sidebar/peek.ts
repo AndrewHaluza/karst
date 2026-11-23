@@ -2,8 +2,9 @@ import type { Stage } from '../../store/stages.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { SessionAction } from '../../agent/sessionAction.js';
 import { STAGE_TITLE } from '../../model/stageBadge.js';
+import { plural } from '../../model/notifyText.js';
 import type { MergeGateState } from '../../workflow/mergeGate.js';
-import type { StageKey } from '../../model/types.js';
+import type { BlockerKind, StageKey } from '../../model/types.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { Glyph } from '../../model/glyph.js';
 import type { RailNeeds } from '../../model/railNeeds.js';
@@ -40,13 +41,13 @@ export interface PeekAgent {
 export interface PeekRepo {
   repo: string;
   number: number | null;
-  state: 'ready' | 'conflict';
+  state: 'ready' | 'conflict' | 'closed';
 }
 
 /** The gate fact line: its text and the tone that colors it. */
 export interface PeekGates {
   text: string;
-  tone: 'ok' | 'running' | 'failed';
+  tone: 'ok' | 'running' | 'failed' | 'neutral';
 }
 
 /** The headline age. `for` is a running stage (`startedAt`); `ago` is a finished one (`endedAt`). */
@@ -108,9 +109,35 @@ const GATE_KEYS: ReadonlySet<string> = new Set(['uat', 'review']);
 const INTERACTIVE_KEYS: ReadonlySet<string> = new Set(['impl', 'fix']);
 const PAUSED_NOTE = 'No stage starts until you resume';
 
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
+/**
+ * The block kinds whose reason is the peek's headline (RD-4). Two blocks are
+ * news the user must read as the state word; every other kind keeps its family
+ * word (`awaiting-merge` keeps the ship family; the needs-you kinds keep
+ * "Waiting for you").
+ */
+export const BLOCK_TITLE: Readonly<Record<BlockerKind, string | null>> = {
+  'review-stalled': 'Review stalled',
+  'unmapped-repository': 'Repository not mapped',
+  'nothing-to-run': null,
+  'resource-killed': null,
+  'capability-missing': null,
+  'no-independent-signal': null,
+  'boot-failed': null,
+  'lease-lost': null,
+  'awaiting-merge': null,
+  'baseline-review': null,
+  'tester-skipped': null,
+  'push-diverged': null,
+  'base-moved-failed': null,
+  'approach-graph-failed': null,
+  'awaiting-impl-marker': null,
+  'awaiting-subtask': null,
+  'subtask-integration-conflict': null,
+  'usage-limit': null,
+  'stranded-stage': null,
+  'sandbox-sync': null,
+  'sandbox-setup': null,
+};
 
 /** The first line of a verdict, trimmed; null when blank. */
 function firstLine(text: string | null | undefined): string | null {
@@ -156,11 +183,13 @@ function gatesLine(input: PeekInput, stage: StageKey, status: Stage['status']): 
   }
   const failed = runs.filter((r) => r.exitCode !== null && r.exitCode !== 0).length;
   const parts: string[] = [];
-  if (passed > 0 || (failed === 0 && running === 0)) parts.push(`${passed} passed`);
+  // A failure is the news, so it leads; passed counts follow, running last (SB-14).
   if (failed > 0) parts.push(`${failed} failed: ${failedNames.join(', ')}`);
+  if (passed > 0 || (failed === 0 && running === 0)) parts.push(`${passed} passed`);
   if (running > 0) parts.push(`${running} running`);
   if (passed + failed + running === 0) return null;
-  return { text: parts.join(' · '), tone: failed > 0 ? 'failed' : running > 0 ? 'running' : 'ok' };
+  const tone = failed > 0 ? 'failed' : running > 0 ? 'running' : status === 'passed' ? 'ok' : 'neutral';
+  return { text: parts.join(' · '), tone };
 }
 
 /** A failed stage with no gate rows shows its verdict as one red line. */
@@ -184,10 +213,10 @@ function agentOf(input: PeekInput): PeekAgent | null {
   return { provider: input.provider, model: input.model, activity, activeAt: input.lastHookAt };
 }
 
-/** One repo row per unmerged repo; conflicted repos precede their pending siblings. */
+/** One repo row per unmerged repo; a closed or conflicted repo precedes its pending siblings. */
 function shipRepos(
   input: PeekInput,
-  gate: Extract<MergeGateState, { kind: 'conflicted' | 'awaiting' }>,
+  gate: Extract<MergeGateState, { kind: 'closed' | 'conflicted' | 'awaiting' }>,
 ): PeekRepo[] {
   const numberByRepo = new Map<string, number | null>();
   for (const p of input.prs) {
@@ -198,7 +227,10 @@ function shipRepos(
   const push = (repo: string, state: PeekRepo['state']): void => {
     rows.push({ repo, number: numberByRepo.get(repo) ?? null, state });
   };
-  if (gate.kind === 'conflicted') {
+  if (gate.kind === 'closed') {
+    for (const repo of gate.repos) push(repo, 'closed');
+    for (const repo of gate.pending) push(repo, 'ready');
+  } else if (gate.kind === 'conflicted') {
     for (const repo of gate.repos) push(repo, 'conflict');
     for (const repo of gate.pending) push(repo, 'ready');
   } else {
@@ -218,6 +250,7 @@ interface Family {
 function shipFamily(input: PeekInput, status: Stage['status']): Family {
   if (status === 'failed') return { title: 'Ship failed', gates: verdictLine(input) };
   const gate = input.mergeGate;
+  if (gate?.kind === 'closed') return { title: 'PR closed', repos: shipRepos(input, gate) };
   if (gate?.kind === 'conflicted') return { title: 'Merge conflict', repos: shipRepos(input, gate) };
   if (gate?.kind === 'awaiting') {
     const failing = input.ciFailingRepos ?? [];
@@ -269,6 +302,7 @@ export function buildPeek(input: PeekInput): TicketPeek {
   const status = input.current?.status ?? 'pending';
   const shipRunning = stage === 'ship' && status === 'running';
   const terminal = stage === 'done' || stage === 'closed';
+  const blockTitle = input.current?.blockedKind ? BLOCK_TITLE[input.current.blockedKind] : null;
 
   let family: Family;
   if (stage === 'closed') {
@@ -284,6 +318,8 @@ export function buildPeek(input: PeekInput): TicketPeek {
     family = { title: 'Waiting for you' };
   } else if (input.paused) {
     family = { title: 'Paused' };
+  } else if (blockTitle !== null) {
+    family = { title: blockTitle, gates: verdictLine(input) };
   } else if (stage === 'ship') {
     family = shipFamily(input, status);
   } else if (stage !== null && GATE_KEYS.has(stage)) {
@@ -294,13 +330,19 @@ export function buildPeek(input: PeekInput): TicketPeek {
     family = scopeFamily(input);
   }
 
+  // A failed family with no verdict and no block reason still says why the line is empty (RD-7).
+  const gates =
+    family.gates ?? (family.title.endsWith('failed') && verdictLine(input) === null
+      ? { text: 'No reason was recorded', tone: 'neutral' as const }
+      : null);
+
   const attempt = input.current?.attempt ?? 0;
   return {
     title: family.title,
     tone: input.glyph,
     since: sinceOf(input.current),
     attempt: attempt > 1 ? attempt : null,
-    gates: family.gates ?? null,
+    gates,
     repos: family.repos ?? null,
     pausedNote: input.paused && !terminal ? PAUSED_NOTE : null,
     agent: agentOf(input),

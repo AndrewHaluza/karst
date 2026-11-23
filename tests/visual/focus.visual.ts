@@ -115,6 +115,11 @@ const FOCUS_CAP = 12;
  * buttons, not a roving-tabindex group), and they pick the agent source, which no
  * other control does.
  *
+ * Updated by T1313 (arch:AC-65): `ticketForm` 30 → 31 — `#carryStopBtn`, the "Stop using pick"
+ * action that ends an active carried usage-limit pick. It is a net-new control (the
+ * ticket asks for it in the existing action row) and folds into no other action: the
+ * Pick agent/model action starts a pick, this one ends the carry.
+ *
  * Updated a thirteenth time by the Servers & resources page: `resources` 17 → 19 —
  * the page is now two tabs (Servers, Resources), and the two tab buttons are
  * net-new interactive controls that fold into nothing: they switch which pane is
@@ -160,7 +165,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)
   diffs: 35,
   settings: 195,
-  ticketForm: 30,
+  ticketForm: 31,
   gettingStarted: 6,
 };
 

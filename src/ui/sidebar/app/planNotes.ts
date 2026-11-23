@@ -7,6 +7,7 @@
  * View-side bookkeeping only: nothing here is ticket data and nothing posts.
  */
 import type { PlanningRow } from '../state.js';
+import { plural } from '../../../model/notifyText.js';
 import { ds } from './runtime.js';
 
 export class PlanNotes {
@@ -37,5 +38,11 @@ export class PlanNotes {
     if (!fresh) return;
     this.watch = null;
     ds.toast('success', `Planning session started: ${fresh.title}`);
+  }
+
+  /** A RISE in the needs-you count is the one announced event (SB-16); a fall or the same count is silent. */
+  announceNeedsYou(prev: number, next: number): void {
+    if (next <= prev || next <= 0) return;
+    ds.toast('warning', plural(next, 'ticket needs you', 'tickets need you'));
   }
 }

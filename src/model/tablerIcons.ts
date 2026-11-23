@@ -80,6 +80,8 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M9 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -14"/>' +
     '<path d="M4 20h14"/>',
   check: '<path d="M5 12l5 5l10 -10"/>',
+  // Added for the Activity pane's "Mark all read" (SB-15): two checks, not one.
+  checks: '<path d="M7 12l5 5l10 -10"/><path d="M2 12l5 5m5 -5l5 -5"/>',
   'chevrons-up': '<path d="M7 11l5 -5l5 5"/><path d="M7 17l5 -5l5 5"/>',
   'chevron-down': '<path d="M6 9l6 6l6 -6"/>',
   'chevron-left': '<path d="M15 6l-6 6l6 6"/>',
@@ -263,6 +265,8 @@ export const TABLER_ICONS: Record<string, string> = {
   'arrow-back-up':
     '<path d="M9 14l-4 -4l4 -4"/>' +
     '<path d="M5 10h11a4 4 0 1 1 0 8h-1"/>',
+  /** The Diffs unstage action (DF-20). */
+  minus: '<path d="M5 12l14 0"/>',
   'loader-2':
     '<path d="M12 3a9 9 0 1 0 9 9"/>',
   'git-merge':

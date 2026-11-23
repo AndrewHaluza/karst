@@ -82,6 +82,10 @@ export type SidebarHostMessage =
   | { type: 'edge'; side: SidebarEdge }
   // `karst.showActivity`: expand the Activity pane and scroll it into view.
   | { type: 'reveal-activity' }
+  // The host could not build the snapshot (SB-2): the webview states the fixed
+  // line "Karst cannot read the tickets." with a Retry, and keeps the reason as
+  // the tooltip. A later `state` clears it.
+  | { type: 'error'; message: string }
   | ActionResultMessage;
 
 /**

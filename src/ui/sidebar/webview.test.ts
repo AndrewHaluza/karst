@@ -41,7 +41,10 @@ describe('sidebar webview.html', () => {
     const blocks = styleBlocks();
     for (const block of blocks) {
       const local = block.slice(block.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length);
-      const offenders = local.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
+      // The one allowed px literal is a tier boundary in a container query: the
+      // tiers are px-only and a container query cannot read a token (RD-TIERS).
+      const withoutTier = local.replace(/@container \(min-width: 400px\)/g, '@container');
+      const offenders = withoutTier.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
       expect(offenders, JSON.stringify(offenders)).toBeNull();
     }
   });
@@ -97,11 +100,43 @@ describe('sidebar webview.html', () => {
     // collapse chevron sits in flow in the same slot, so on hover the strip's
     // solid surface + hit area covered the chevron and a pointer could not
     // click it (verified in a real browser: elementFromPoint at the chevron
-    // returned the `data-menu` action). The strip reserves one control-width
-    // whenever a collapse control is present, so the two never overlap.
+    // returned the `data-menu` action). The strip reserves one control-width per
+    // in-flow control to its right: the sub-tree chevron and the always-visible
+    // More menu (SB-8).
     expect(HTML).toMatch(
-      /\.row:has\(\.subchev\) \.rowacts\{right:calc\(var\(--k-space-3\) \+ var\(--k-hit-min\)\)\}/,
+      /\.row:has\(\.subchev\) \.rowacts\{right:calc\(var\(--k-space-3\) \+ var\(--k-hit-min\) \* 2\)\}/,
     );
+  });
+
+  it('gives the Queue chain and menu tracks the --k-hit-min floor (RD-1)', () => {
+    // A --k-space-8 (20px) track was narrower than the .k-iconbtn min-width
+    // (--k-hit-min, 24px), so every row was 4px wider than the pane and the body
+    // scrolled sideways. The floor is the button's own minimum; no overflow
+    // clipping hides the defect.
+    expect(HTML).toMatch(/\.q-row\{[^}]*grid-template-columns:minmax\(0,1fr\) auto auto var\(--k-hit-min\)/);
+    expect(HTML).toMatch(/\.q-chain\{[^}]*width:var\(--k-hit-min\);height:var\(--k-hit-min\)/);
+    expect(HTML).toMatch(/\.q-menu\{[^}]*width:var\(--k-hit-min\);height:var\(--k-hit-min\)/);
+    expect(DS_CSS).toMatch(/\[data-region="queue"\] \.q-row\{grid-template-columns:minmax\(0,1fr\) auto var\(--k-hit-min\)/);
+    expect(HTML).not.toContain('overflow-x:hidden');
+  });
+
+  it('puts the full stage word base rule before the container tier, so the short key wins (SB-5)', () => {
+    const base = DS_CSS.indexOf('.stage[data-full]::before{content:attr(data-full)}');
+    const tier = DS_CSS.indexOf('@container (max-width: 400px)');
+    const short = DS_CSS.indexOf('.stage[data-full]::before{content:attr(data-short)}');
+    expect(base).toBeGreaterThan(-1);
+    expect(tier).toBeGreaterThan(-1);
+    expect(short).toBeGreaterThan(tier);
+    expect(base).toBeLessThan(tier);
+  });
+
+  it('keeps one always-visible row control and shows the rest only at the narrow tier (SB-8)', () => {
+    // The stage pill is never hidden for a hover-only control.
+    expect(HTML).not.toMatch(/\.row:hover \.stage\{opacity:0\}/);
+    expect(HTML).toMatch(/\.rowmore\{[^}]*flex:0 0 auto/);
+    expect(HTML).toMatch(/@container \(min-width: 400px\)\{\s*\.row:hover \.rowacts/);
+    // The Queue row menu is visible at rest, at the shared dim ink.
+    expect(HTML).toMatch(/\.q-menu\{[^}]*opacity:1;color:var\(--k-text-dim\)/);
   });
 
   it('paints a super-thin inset edge line on the side facing the editor (SIDEBAR-SUPER-THIN-EDGE-LINE-SO)', () => {
@@ -120,5 +155,19 @@ describe('sidebar webview.html', () => {
 describe('content width cap (UI-R48)', () => {
   it('stays uncapped', () => {
     expect(HTML).not.toContain('--k-content-max');
+  });
+});
+
+describe('view title menu (SB-7)', () => {
+  it('carries the resource monitor, token usage and settings handoffs on karst.tickets', () => {
+    const pkg = JSON.parse(readFileSync(join(HERE, '..', '..', '..', 'package.json'), 'utf8')) as {
+      contributes: { menus: { 'view/title': Array<{ command: string; when: string; group: string }> } };
+    };
+    const entries = pkg.contributes.menus['view/title'].filter((e) => e.when === 'view == karst.tickets');
+    expect(entries.map((e) => [e.command, e.group])).toEqual([
+      ['karst.openResources', 'navigation@1'],
+      ['karst.openTokenUsage', 'navigation@2'],
+      ['karst.openSettings', 'navigation@3'],
+    ]);
   });
 });

@@ -505,7 +505,7 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'revision_count')).toHaveLength(1);
   });
 
-  it('migrates a pre-v136 database by adding servers.last_error as NULL, idempotently', () => {
+  it('migrates a pre-v137 database by adding servers.last_error as NULL, idempotently', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');
@@ -695,6 +695,32 @@ describe('openStore', () => {
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
     expect(colsOf(reopened).filter((c) => c === 'agent_identity')).toHaveLength(1);
+  });
+
+  it('migrates a pre-v136 database by adding the usage_limit_parks reset and carry columns, idempotently, without a backfill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE usage_limit_parks (id INTEGER PRIMARY KEY, ticket_id INTEGER, provider TEXT, resolved_at TEXT)');
+    legacy.exec("INSERT INTO usage_limit_parks (ticket_id, provider) VALUES (1, 'claude')");
+    legacy.pragma('user_version = 135');
+    legacy.close();
+
+    const added = ['reset_at', 'carry_provider', 'carry_model', 'carry_until'];
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('usage_limit_parks')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toEqual(expect.arrayContaining(added));
+    expect(migrated.db.prepare(`SELECT ${added.join(', ')} FROM usage_limit_parks`).get()).toEqual({
+      reset_at: null, carry_provider: null, carry_model: null, carry_until: null,
+    });
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    for (const col of added) expect(colsOf(reopened).filter((c) => c === col)).toHaveLength(1);
   });
 
   it('migrates a pre-v134 database by adding gate_runs.skip_reason, idempotently, without a backfill', () => {

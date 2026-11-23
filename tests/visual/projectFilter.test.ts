@@ -71,6 +71,7 @@ describe('testIgnoreFor', () => {
       '**/subtasks.visual.ts',
       '**/status.visual.ts',
       '**/stagePalette.visual.ts',
+      '**/sidebar.visual.ts',
     ]);
     expect(testIgnoreFor('dark')).toEqual(['**/catalog.visual.ts']);
     expect(testIgnoreFor('dark-grayscale')).toEqual([
@@ -79,6 +80,7 @@ describe('testIgnoreFor', () => {
       '**/servers.visual.ts',
       '**/subtasks.visual.ts',
       '**/stagePalette.visual.ts',
+      '**/sidebar.visual.ts',
     ]);
   });
 

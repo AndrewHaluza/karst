@@ -274,6 +274,75 @@ describe('usageLimitParkOps', () => {
       expect(refresh).toHaveBeenCalledWith(ticket.id);
     });
 
+    // T1313 / @arch:AC-65: the third step. 'Only this run' is first (the
+    // default) and writes no carry; the carry choice writes the picked pair and
+    // the SAME time the dialog showed; a cancel claims nothing.
+    describe('the carry step', () => {
+      const setup = () => {
+        const store = openStore(':memory:');
+        const ticket = createTicketFlow(store, { key: 'TEST-C', title: 'Carry ticket' });
+        setWorktreePath(store, ticket.id, '/tmp');
+        advanceToReview(store, ticket.id);
+        const stageRunId = seedGateEvidence(store, ticket.id);
+        setStage(store, ticket.id, 'review', {
+          blockedKind: 'usage-limit',
+          blockedReason: 'out of credits',
+          blockedAt: '2026-10-14T00:00:00Z',
+        });
+        insertOpenPark(store, {
+          ticketId: ticket.id, stage: 'review', kind: 'stage-block', lane: 'review', target: 'repo',
+          provider: 'claude', model: 'claude-3-7-sonnet', detail: 'out of credits', stageRunId,
+          keptOutcome: null, resetAt: null,
+        });
+        const mockAdapter = { runHeadless: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '[]', stderr: '' }) } as unknown as AgentAdapter;
+        return { store, ticket, mockAdapter };
+      };
+      const run = async (
+        ctx: ReturnType<typeof setup>,
+        pickCarry: (items: { label: string; carry: boolean }[]) => Promise<{ label: string; carry: boolean } | undefined>,
+      ) =>
+        handleUsageLimitPick({
+          store: ctx.store, ticketId: ctx.ticket.id, stageKey: 'review', catalog: fakeCatalog,
+          notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+          pickCore: vi.fn().mockResolvedValue({ id: 'codex', label: 'Codex' }),
+          pickModel: vi.fn().mockResolvedValue({ model: 'gpt-4o', label: 'GPT-4o' }),
+          pickCarry,
+          quotaResetFor: (provider) => (provider === 'claude' ? '2026-11-22T13:30:00.000Z' : null),
+          now: () => new Date('2026-11-22T12:00:00.000Z'),
+          redrive: vi.fn(), refresh: vi.fn(),
+          adapterFor: vi.fn().mockReturnValue(ctx.mockAdapter),
+          cwd: '/tmp', artifactDir: '/tmp',
+        });
+
+      it('writes the carry with the time the dialog showed', async () => {
+        const ctx = setup();
+        let shown: { label: string; carry: boolean }[] = [];
+        await run(ctx, async (items) => {
+          shown = items;
+          return items[1];
+        });
+        expect(shown[0]!.label).toBe('Only this run');
+        expect(shown[1]!.label).toMatch(/^Use for this ticket until the limit resets \(/);
+        expect(listParks(ctx.store, ctx.ticket.id)[0]).toMatchObject({
+          resolution: 'pick', carryProvider: 'codex', carryModel: 'gpt-4o', carryUntil: '2026-11-22T13:30:00.000Z',
+        });
+      });
+
+      it("'Only this run' writes no carry (the current behaviour)", async () => {
+        const ctx = setup();
+        await run(ctx, async (items) => items[0]);
+        expect(listParks(ctx.store, ctx.ticket.id)[0]).toMatchObject({ resolution: 'pick', carryProvider: null, carryUntil: null });
+        expect(ctx.mockAdapter.runHeadless).toHaveBeenCalled();
+      });
+
+      it('a cancel at the carry step claims nothing and runs nothing', async () => {
+        const ctx = setup();
+        await run(ctx, async () => undefined);
+        expect(listOpenParks(ctx.store, ctx.ticket.id)).toHaveLength(1);
+        expect(ctx.mockAdapter.runHeadless).not.toHaveBeenCalled();
+      });
+    });
+
     it('runs handleUsageLimitPick with default cwd and artifactDir when omitted', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });

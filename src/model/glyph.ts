@@ -7,6 +7,24 @@ import type { StageStatus, AgentState } from './types.js';
 export type Glyph = 'gray' | 'blue' | 'amber' | 'green' | 'red';
 
 /**
+ * The ONE word each glyph carries (SB-13, @ui:UI-R28). Every surface that names
+ * a ticket state reads this table — the row and peek glyphs, the Planning rows,
+ * the facet filters and presets, the attention line and split, and the status
+ * bar — so one state has one name everywhere.
+ *
+ * `red` is "Failed": the current stage failed. "Blocked" is the amber stage
+ * block (@arch:BLOCKED), never the red glyph; the glyph word is "Failed" and
+ * stays that way.
+ */
+export const GLYPH_WORD: Readonly<Record<Glyph, string>> = {
+  gray: 'Pending',
+  blue: 'Running',
+  amber: 'Needs you',
+  green: 'Done',
+  red: 'Failed',
+};
+
+/**
  * Map (stageStatus, agentState) → glyph color.
  *
  * Precedence: a waiting agent (needs-you) wins over stage status, because it is

@@ -1,4 +1,12 @@
-import { diffsSummaryText, worktreeCountText, type ChangedFileView, type CommitView, type TicketChangesState, type WorktreeChangesView } from './snapshot.js';
+import {
+  authoredLabel,
+  diffsSummaryText,
+  worktreeCountText,
+  type ChangedFileView,
+  type CommitView,
+  type TicketChangesState,
+  type WorktreeChangesView,
+} from './snapshot.js';
 
 /**
  * The checked-in render fixture corpus for the diffs (ticket changes) webview.
@@ -10,12 +18,21 @@ import { diffsSummaryText, worktreeCountText, type ChangedFileView, type CommitV
  * no fixture control can resolve a real host target.
  */
 
-export type DiffsScenario = 'empty' | 'populated' | 'one-commit' | 'error' | 'hostile';
+export type DiffsScenario =
+  | 'empty'
+  | 'populated'
+  | 'one-commit'
+  | 'clean'
+  | 'many'
+  | 'error'
+  | 'hostile';
 
 export const DIFFS_SCENARIOS: readonly DiffsScenario[] = [
   'empty',
   'populated',
   'one-commit',
+  'clean',
+  'many',
   'error',
   'hostile',
 ];
@@ -46,12 +63,14 @@ export function fixtureFile(
 }
 
 export function fixtureCommit(index: number, overrides?: Partial<CommitView>): CommitView {
+  const authoredAt = overrides?.authoredAt ?? `2026-01-0${index + 1}T12:00:00Z`;
   return {
     hash: `fixture:hash:${index}`.padEnd(40, '0'),
     shortHash: `fixture${index}`,
     subject: `Fixture commit ${index}`,
     author: 'Fixture Author',
-    authoredAt: `2026-01-0${index + 1}T12:00:00Z`,
+    authoredAt,
+    authoredLabel: authoredLabel(authoredAt),
     files: [fixtureFile(`src/fixture-${index}.ts`)],
     ...overrides,
   };
@@ -93,6 +112,7 @@ export function stateFor(worktrees: readonly WorktreeChangesView[]): TicketChang
   const { commitCount, pendingCount } = countsFor(worktrees);
   return {
     ticketId: 900001,
+    ticketLabel: 'T900001 · Fixture ticket',
     worktreeCount: worktrees.length,
     commitCount,
     pendingCount,
@@ -122,7 +142,11 @@ function populatedState(): TicketChangesState {
       fixtureCommit(1, { files: [fixtureFile('src/ui/dashboard/render.ts')] }),
     ],
     staged: [fixtureFile('src/ui/dashboard/messages.ts', { status: 'added' })],
-    unstaged: [fixtureFile('src/ui/dashboard/panel.ts')],
+    unstaged: [
+      fixtureFile('src/ui/dashboard/panel.ts'),
+      // DF-23: a deleted file, so the row's mark and its missing "Open file" render.
+      fixtureFile('src/ui/dashboard/legacy.ts', { status: 'deleted' }),
+    ],
     untracked: [fixtureFile('src/ui/dashboard/scratch.ts', { status: 'added' })],
   });
   const repoB = fixtureWorktree({
@@ -147,6 +171,40 @@ function oneCommitState(): TicketChangesState {
     branch: 'fixture/one-commit',
     baseRef: 'main',
     commits: [fixtureCommit(0, { files: [fixtureFile('src/app.ts')] })],
+  });
+  return stateFor([repo]);
+}
+
+/** Worktrees with commits and nothing pending — the "No changes yet." state (DF-23). */
+function cleanState(): TicketChangesState {
+  const repoA = fixtureWorktree({
+    label: 'fixture-web',
+    branch: 'feat/142-dashboard',
+    baseRef: 'main',
+    commits: [fixtureCommit(0), fixtureCommit(1)],
+  });
+  const repoB = fixtureWorktree({
+    label: 'fixture-cli',
+    branch: 'feat/142-cli',
+    baseRef: 'develop',
+    commits: [fixtureCommit(2)],
+  });
+  return stateFor([repoA, repoB]);
+}
+
+/** How many files the `many` scenario carries (DF-11 renders the first 200 of a group). */
+export const MANY_FILES_COUNT = 1500;
+
+/** 1,500 pending files in one worktree — the many-files state (DF-11, DF-23). */
+function manyState(): TicketChangesState {
+  const files = Array.from({ length: MANY_FILES_COUNT }, (_unused, index) =>
+    fixtureFile(`src/generated/file-${String(index + 1).padStart(4, '0')}.ts`, { status: 'added' }),
+  );
+  const repo = fixtureWorktree({
+    label: 'fixture-web',
+    branch: 'feat/142-many',
+    baseRef: 'main',
+    untracked: files,
   });
   return stateFor([repo]);
 }
@@ -185,6 +243,8 @@ const BUILDERS: Readonly<Record<DiffsScenario, () => TicketChangesState>> = {
   empty: emptyState,
   populated: populatedState,
   'one-commit': oneCommitState,
+  clean: cleanState,
+  many: manyState,
   error: errorState,
   hostile: hostileState,
 };

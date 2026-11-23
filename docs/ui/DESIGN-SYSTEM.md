@@ -315,8 +315,13 @@ Owned visually by `palette.ts`.
 
 Workflow status is rendered by the icon-only `.k-status` primitive (§11.12).
 
-`--k-attention-fg` is the readable text tone of `--k-attention` (the needs-you chip). Each stage has a text tone
-`--stage-<key>-fg` beside `--stage-<key>`; a `stg-<key>` class sets `--stg-fg` to it (`stagePalette.ts`). Chip geometry
+Each state also has a readable glyph tone `--k-<state>-fg`, emitted from `STATUS_FG` in `palette.ts` (dark values in
+`:root`, light values under `body.vscode-light`; hc reads the dark set). The semantic tokens above are the theme's
+chart hues and serve as borders/fills; a glyph is a character, so `.k-status` paints the `-fg` tone instead — the same
+hue tuned until it clears 4.5:1 on the row surface (`palette.test.ts` pins the ratios). `--k-attention-fg` is the same
+tone and is also the needs-you chip text.
+
+Each stage has a text tone `--stage-<key>-fg` beside `--stage-<key>`; a `stg-<key>` class sets `--stg-fg` to it (`stagePalette.ts`). Chip geometry
 tokens: `--k-chip-h`, `--k-chip-pad-x`, `--k-chip-lh`, `--k-chip-lh-caps`, `--k-chip-hit-bleed`, `--k-chip-tracking`, `--k-chip-wash`, `--k-chip-wash-needs` (§11.21).
 The glyph/shape carries the visible state; color reinforces it.
 
@@ -917,13 +922,14 @@ describe the result where useful, but the marker itself is only the icon.
 
 | State | Visible marker | Color |
 |---|---|---|
-| pending / not checked | neutral circle/dot | `--k-pending` |
-| running | spinner | `--k-running` |
-| needs attention / paused / blocked | pause icon | `--k-attention` |
-| passed / done | checkmark | `--k-passed` |
-| failed | cross | `--k-failed` |
+| pending / not checked | neutral circle/dot | `--k-pending` (glyph `--k-pending-fg`) |
+| running | spinner | `--k-running` (glyph `--k-running-fg`) |
+| needs attention / paused / blocked | pause icon | `--k-attention` (glyph `--k-attention-fg`) |
+| passed / done | checkmark | `--k-passed` (glyph `--k-passed-fg`) |
+| failed | cross | `--k-failed` (glyph `--k-failed-fg`) |
 
-`passed` and `done` intentionally share the same visible green checkmark.
+The `-fg` tone is the hue tuned per theme to 4.5:1 on the row surface; the plain token stays the border/fill colour
+(§3.4, `STATUS_FG`). `passed` and `done` intentionally share the same visible green checkmark.
 
 Requirements:
 

@@ -15,6 +15,12 @@ export type ChangesWebviewMessage =
   | { type: 'open-file'; changeId: string }
   | { type: 'discard'; changeId: string }
   | { type: 'unstage'; changeId: string }
+  /**
+   * Open the ticket itself (DF-14): the empty state asks for work this panel
+   * cannot do, so its action goes to the dashboard. The panel already knows its
+   * own ticket id, so the message carries nothing a crafted payload could aim.
+   */
+  | { type: 'open-ticket' }
   | { type: 'copy-hash'; hash: string };
 
 /**
@@ -54,6 +60,8 @@ export interface ChangesActions {
   openFile(changeId: string): void | Promise<void>;
   discard(changeId: string): void | Promise<void>;
   unstage(changeId: string): void | Promise<void>;
+  /** Open the ticket in the dashboard (DF-14); the host owns the id. */
+  openTicket(): void | Promise<void>;
   copyHash(hash: string): void | Promise<void>;
 }
 
@@ -81,6 +89,8 @@ export function parseChangesMessage(raw: unknown): ChangesWebviewMessage | null 
       return typeof message.changeId === 'string' && message.changeId.length > 0
         ? { type: 'unstage', changeId: message.changeId }
         : null;
+    case 'open-ticket':
+      return { type: 'open-ticket' };
     case 'copy-hash':
       return typeof message.hash === 'string' && HASH.test(message.hash)
         ? { type: 'copy-hash', hash: message.hash }
@@ -109,6 +119,8 @@ export function routeChangesAction(msg: ChangesWebviewMessage, actions: ChangesA
       return actions.discard(msg.changeId);
     case 'unstage':
       return actions.unstage(msg.changeId);
+    case 'open-ticket':
+      return actions.openTicket();
     case 'copy-hash':
       return actions.copyHash(msg.hash);
   }

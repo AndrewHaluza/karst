@@ -56,7 +56,7 @@ export function groupByDay(rows: readonly ActivityRowView[], now: number): Activ
   return groups;
 }
 
-/** The header count: `<n> new` while unread rows exist, else the total. */
+/** The header count while unfiltered: `6 · 2 new` once anything is unread, else the total (SB-17). */
 export function activityCount(unread: number, total: number): string {
-  return unread > 0 ? `${unread} new` : String(total);
+  return unread > 0 ? `${total} · ${unread} new` : String(total);
 }

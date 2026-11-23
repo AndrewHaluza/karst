@@ -6,11 +6,13 @@
  * — the view phrases no domain state, it only formats the ISO times.
  */
 import type { RailCta } from '../../../model/railNeeds.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
 import type { PeekNext, TicketPeek } from '../peek.js';
 import type { TicketRow } from '../state.js';
 import { ActButton, type ActionSpec } from './action.js';
 import { AgentIdentity, Icon } from './Icon.js';
-import { activeText, metaLine, sinceText, whereLine } from './format.js';
+import { activeText, GLYPH_STATUS, metaLine, sinceText, whereLine } from './format.js';
+import { Status } from '../../shared/Status.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketTools } from './TicketTools.js';
 
@@ -34,15 +36,22 @@ export function ctaSpec(cta: RailCta, id: number): { spec: ActionSpec; label: st
   }
 }
 
+/** The rail cta tone: ready-to-ship and merge are routine, so they wear the sunken wash (SB-10). */
+function ctaTone(cta: RailCta): 'attention' | 'neutral' {
+  return cta.kind === 'ship-confirm' || cta.kind === 'merge' || cta.kind === 'merge-panel' ? 'neutral' : 'attention';
+}
+
 /** The one action strip: the rail's detail and its button, or the peek-only CI strip. */
 function ActionStrip({ peek, row }: { readonly peek: TicketPeek; readonly row: TicketRow }) {
   const id = row.ticketId;
   const needs = peek.needs;
   if (needs) {
     const btn = ctaSpec(needs.cta, id);
+    // A detail that only repeats the headline adds nothing (RD-7).
+    const repeat = needs.detail.trim().toLowerCase() === peek.title.trim().toLowerCase();
     return (
-      <div className="peek-strip">
-        <span className="peek-strip-text">{needs.detail}</span>
+      <div className={`peek-strip ${ctaTone(needs.cta)}`}>
+        {repeat ? null : <span className="peek-strip-text">{needs.detail}</span>}
         {btn ? (
           <ActButton spec={btn.spec} className="k-btn k-btn--primary" title={btn.label}>
             {btn.label}
@@ -54,7 +63,7 @@ function ActionStrip({ peek, row }: { readonly peek: TicketPeek; readonly row: T
   const next: PeekNext | null = peek.next;
   if (next && next.kind === 'send-ci-failure') {
     return (
-      <div className="peek-strip">
+      <div className="peek-strip attention">
         <span className="peek-strip-text">CI is failing</span>
         <ActButton spec={{ act: next.kind, id }} className="k-btn k-btn--primary" title={next.label}>
           {next.label}
@@ -68,12 +77,13 @@ function ActionStrip({ peek, row }: { readonly peek: TicketPeek; readonly row: T
 function Headline({ peek, row, sessVerb }: { readonly peek: TicketPeek; readonly row: TicketRow; readonly sessVerb: string }) {
   const { now } = useSidebar();
   const age = sinceText(peek.since, now);
+  const glyph = peek.tone || row.glyph;
   return (
     <div className="peek-head">
       <div className="peek-copy">
-        <span className={`peek-dot g-${peek.tone || row.glyph}`} aria-hidden="true" />
+        <Status kind={GLYPH_STATUS[glyph]} label={GLYPH_WORD[glyph]} />
         <span className="peek-title">{peek.title}</span>
-        {age ? <span className="peek-age">{age}</span> : null}
+        {age ? <span className="peek-age" title={peek.since?.at}>{age}</span> : null}
         {peek.attempt && peek.attempt > 1 ? <span className="peek-attempt">attempt {peek.attempt}</span> : null}
       </div>
       <div className="peek-tools">
@@ -89,7 +99,7 @@ function PeekRepos({ repos }: { readonly repos: NonNullable<TicketPeek['repos']>
       {repos.map((r) => (
         <span className="peek-repo" key={r.repo}>
           {r.number != null ? `#${r.number} ` : ''}
-          {r.repo} · <span className={`peek-repo-state ${r.state}`}>{r.state === 'conflict' ? 'conflict' : 'ready'}</span>
+          {r.repo} · <span className={`peek-repo-state ${r.state}`}>{r.state}</span>
         </span>
       ))}
     </div>
@@ -103,7 +113,7 @@ function AgentLine({ agent }: { readonly agent: NonNullable<TicketPeek['agent']>
   return (
     <div className="peek-line peek-agentline">
       <AgentIdentity provider={agent.provider} model={agent.model} />
-      {tail ? <span className="peek-agent-tail"> · {tail}</span> : null}
+      {tail ? <span className="peek-agent-tail">· {tail}</span> : null}
     </div>
   );
 }
@@ -169,6 +179,9 @@ export function TicketBody({ row, sessVerb }: { readonly row: TicketRow; readonl
   const meta = metaLine(row);
   return (
     <div className="body">
+      {/* The row title lives in a fixed cell and ends in an ellipsis; the expanded
+          body prints it whole, wrapped, on its first line (UI-R44, SB-5). */}
+      {row.label ? <div className="peek-fullname">{row.label}</div> : null}
       {!row.archived && peek && (
         <div className="peek">
           <Headline peek={peek} row={row} sessVerb={sessVerb} />

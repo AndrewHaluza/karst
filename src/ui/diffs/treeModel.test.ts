@@ -42,6 +42,7 @@ function makeCommit(
     subject: overrides.subject,
     author: 'author',
     authoredAt: '2024-01-01T00:00:00Z',
+    authoredLabel: 'date',
     files: overrides.files,
   };
 }
@@ -55,6 +56,7 @@ function makeSnapshot(views: WorktreeChangesView[]): TicketChangesSnapshot {
   return {
     state: {
       ticketId: 1,
+      ticketLabel: 'T1',
       worktreeCount: views.length,
       commitCount,
       pendingCount,
@@ -62,6 +64,7 @@ function makeSnapshot(views: WorktreeChangesView[]): TicketChangesSnapshot {
       summaryText: diffsSummaryText(views.length, commitCount, pendingCount),
     },
     targets: new Map(),
+    files: new Map(),
   };
 }
 

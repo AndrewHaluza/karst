@@ -1,5 +1,6 @@
 import type { TicketWithStages } from '../../store/tickets.js';
 import { ticketGlyph } from '../../model/ticketGlyph.js';
+import { GLYPH_WORD } from '../../model/glyph.js';
 
 /**
  * Derived state facets for the ticket list (§14 redesign). A ticket has no
@@ -23,14 +24,15 @@ export interface Facet {
 /**
  * Ordered facet list for the filter UI. Order = display order. `archived` is a
  * lifecycle view (soft-deleted tickets) rather than a derived-state bucket, so
- * it sits last, after the state facets.
+ * it sits last, after the state facets. The state labels are the shared
+ * `GLYPH_WORD` (SB-13), so the filter and the glyph name one state.
  */
 export const FACETS: readonly Facet[] = [
   { key: 'all', label: 'All' },
-  { key: 'running', label: 'In progress' },
-  { key: 'input', label: 'Needs you' },
-  { key: 'failed', label: 'Blocked' },
-  { key: 'done', label: 'Done' },
+  { key: 'running', label: GLYPH_WORD.blue },
+  { key: 'input', label: GLYPH_WORD.amber },
+  { key: 'failed', label: GLYPH_WORD.red },
+  { key: 'done', label: GLYPH_WORD.green },
   { key: 'archived', label: 'Archived' },
 ];
 

@@ -36,10 +36,13 @@ export type SidebarScenario =
   | 'activity-long'
   | 'hostile'
   | 'cloud-sessions'
-  | 'peek-states';
+  | 'peek-states'
+  | 'real-titles'
+  | 'peek-blocked'
+  | 'peek-pr-closed';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'planning-artifacts', 'priority', 'queue', 'queue-long', 'activity', 'activity-long', 'hostile', 'cloud-sessions', 'peek-states',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'waits-on', 'planning-artifacts', 'priority', 'queue', 'queue-long', 'activity', 'activity-long', 'hostile', 'cloud-sessions', 'peek-states', 'real-titles', 'peek-blocked', 'peek-pr-closed',
 ];
 
 export interface SidebarRenderFixture {
@@ -573,13 +576,181 @@ function peekStatesState(): SidebarState {
   const rows: TicketRow[] = [
     fixtureRow(0, { glyph: 'blue', worktrees: wh, peek: fixturePeek({ title: 'Agent working', tone: 'blue', since: { at: PEEK_AT, kind: 'for' }, agent: PEEK_AGENT }) }),
     fixtureRow(1, { glyph: 'gray' as Glyph, paused: true, peek: fixturePeek({ title: 'Paused', since: { at: PEEK_AT, kind: 'for' }, pausedNote: 'No stage starts until you resume' }) }),
-    fixtureRow(2, { glyph: 'red', peek: fixturePeek({ title: 'Impl failed', tone: 'red', since: { at: PEEK_AT, kind: 'ago' }, attempt: 2, gates: { text: '3 passed · 2 failed: lint, test', tone: 'failed' }, agent: PEEK_AGENT, next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' } }) }),
+    fixtureRow(2, { glyph: 'red', peek: fixturePeek({ title: 'Impl failed', tone: 'red', since: { at: PEEK_AT, kind: 'ago' }, attempt: 2, gates: { text: '2 failed: lint, test · 3 passed', tone: 'failed' }, agent: PEEK_AGENT, next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' } }) }),
     fixtureRow(3, { glyph: 'amber', stageCurrent: 'ship', peek: fixturePeek({ title: 'Ready to ship', tone: 'amber', since: { at: PEEK_AT, kind: 'ago' }, needs: { detail: 'The gates passed. Confirm to open the pull requests.', action: 'Confirm ship', cta: { kind: 'ship-confirm' } } as never }) }),
     fixtureRow(4, { glyph: 'amber', stageCurrent: 'ship', peek: fixturePeek({ title: 'Awaiting merge', tone: 'amber', since: { at: PEEK_AT, kind: 'for' }, repos: [{ repo: 'karst', number: 1148, state: 'ready' }, { repo: 'karst-docs', number: 77, state: 'ready' }], needs: { detail: 'Merge #1148 in karst.', action: 'Merge', cta: { kind: 'merge', repo: 'karst' } } as never }) }),
     fixtureRow(5, { glyph: 'red', stageCurrent: 'ship', peek: fixturePeek({ title: 'Merge conflict', tone: 'red', since: { at: PEEK_AT, kind: 'for' }, repos: [{ repo: 'karst', number: 1148, state: 'conflict' }], needs: { detail: 'karst has a merge conflict.', action: 'Resolve', cta: { kind: 'resolve-conflicts', repo: 'karst' } } as never }) }),
     fixtureRow(6, { glyph: 'green', stageCurrent: 'done', stageLabel: 'Done', stageClass: 'stg-done', stageChip: 'done', worktrees: wh, peek: fixturePeek({ title: 'Shipped', tone: 'green', since: { at: PEEK_AT, kind: 'ago' }, next: { kind: 'create-follow-up', label: 'Create follow-up' } }) }),
   ];
   return { ...allSectionsState(), sections: { current: rows, awaitingReview: [], recentlyDone: [], olderDone: [] } };
+}
+
+/** SB-3 (T1318): the 15 titles of the real probe, so the real-width shot records real rows, not fixture ids. */
+const REAL_TITLES: readonly string[] = [
+  'Fix the sidebar empty state on a cold start',
+  'One shape and one word for every ticket state',
+  'Status bar reads the shared state word',
+  'Queue pane scrolls sideways at 300 px',
+  'Activity keeps three rows at 700 px',
+  'Peek shows the stage block as its headline',
+  'A closed pull request says PR closed',
+  'The Tickets tree takes one tab stop',
+  'A filtered count reads shown over total',
+  'A long ticket title never moves the stage pill',
+  'The stage pill uses the short key at the tight tier',
+  'The settings nav follows the mid tier',
+  'The usage pager counts the filtered rows',
+  'The resources inventory hides empty servers',
+  'Getting started marks the finished steps',
+];
+
+/** One stage per glyph colour: blue runs, amber needs you, red failed, green done, gray pending. */
+const REAL_STAGES = {
+  impl: { label: 'Implementing', cls: 'stg-impl', chip: 'impl', current: 'impl' },
+  uat: { label: 'Validating', cls: 'stg-uat', chip: 'uat', current: 'uat' },
+  review: { label: 'Reviewing', cls: 'stg-review', chip: 'review', current: 'review' },
+  ship: { label: 'Shipping', cls: 'stg-ship', chip: 'ship', current: 'ship' },
+  scope: { label: 'Not scoped', cls: 'stg-scope', chip: 'scope', current: 'scope' },
+  done: { label: 'Done', cls: 'stg-done', chip: 'done', current: 'done' },
+} as const;
+
+function realTicket(index: number, glyph: Glyph, stage: keyof typeof REAL_STAGES, extra: Partial<TicketRow> = {}): TicketRow {
+  const s = REAL_STAGES[stage];
+  return fixtureRow(index, {
+    label: REAL_TITLES[index]!,
+    glyph,
+    stageLabel: s.label,
+    stageClass: s.cls,
+    stageChip: s.chip,
+    stageCurrent: s.current,
+    peek: fixturePeek({ title: REAL_TITLES[index]!, tone: glyph }),
+    ...extra,
+  });
+}
+
+/**
+ * SB-3 (T1318): the populated sidebar at the real ~300 px host width: 15 rows with the probe's
+ * titles, the plan and the Activity rows. `sidebar/populated-300` pins a real page, and the
+ * Activity floor (three rows at 700 px, SB-7) is measured on rows a user would see.
+ */
+function realTitlesState(): SidebarState {
+  const current = [
+    realTicket(0, 'blue', 'impl'),
+    realTicket(1, 'blue', 'uat'),
+    realTicket(2, 'blue', 'review'),
+    realTicket(3, 'blue', 'impl'),
+    realTicket(4, 'amber', 'scope'),
+    realTicket(5, 'amber', 'ship'),
+    realTicket(6, 'red', 'impl'),
+    realTicket(7, 'gray', 'scope'),
+    realTicket(8, 'gray', 'scope'),
+    realTicket(9, 'gray', 'scope'),
+    realTicket(10, 'amber', 'scope'),
+  ];
+  const rows: ActivityRowView[] = [
+    { id: 8, level: 'error', title: 'Autopilot: auto-fix stopped after 3 rounds', ticketId: 900001, ticketLabel: 'T900001', createdAt: activityAt(5, 14, 30), unread: true },
+    { id: 7, level: 'warn', title: 'Autopilot: auto-fix did not run', ticketId: 900002, ticketLabel: 'T900002', createdAt: activityAt(5, 11, 5), unread: true },
+    { id: 6, level: 'success', title: 'Merged 2 pull requests', ticketId: 900013, ticketLabel: 'T900013', createdAt: activityAt(4, 17, 45), unread: false },
+    { id: 5, level: 'info', title: 'Karst finished a background check', ticketId: null, ticketLabel: null, createdAt: activityAt(4, 9, 0), unread: false },
+  ];
+  return {
+    facets: ['all'],
+    filter: '',
+    counts: fixtureCounts({ all: 15, running: 5, input: 3, failed: 2, done: 2 }),
+    sections: {
+      current,
+      awaitingReview: [realTicket(11, 'blue', 'ship'), realTicket(12, 'red', 'ship')],
+      recentlyDone: [realTicket(13, 'green', 'done')],
+      olderDone: [realTicket(14, 'green', 'done')],
+    },
+    done: [],
+    rows: [],
+    queue: EMPTY_QUEUE,
+    activity: { rows, unread: 2, total: 4, hasMore: false },
+    planning: [
+      fixturePlanningRow(88, { ticketCount: 2, proposals: [fixtureDraft({ id: 601, title: 'Split the sidebar state builder', status: 'pending', ticketId: null, dependsOn: [] })] }),
+      fixturePlanningRow(87),
+    ],
+    unlinkedCloudSessions: [],
+  };
+}
+
+/**
+ * RD-4/RD-5 (T1318): the two stage blocks as the peek headline, from the real probe (T8 review-stalled,
+ * T5 unmapped-repository). A stage block is amber ("needs you", `@arch:BLOCKED`); the words are `BLOCK_TITLE`.
+ */
+function peekBlockedState(): SidebarState {
+  return {
+    ...emptyState(),
+    counts: fixtureCounts({ all: 2, input: 2 }),
+    sections: {
+      current: [
+        fixtureRow(7, {
+          label: 'T8 review stalled on round 2',
+          glyph: 'amber',
+          stageCurrent: 'review',
+          stageLabel: 'Reviewing',
+          stageClass: 'stg-review',
+          stageChip: 'review',
+          peek: fixturePeek({
+            title: 'Review stalled',
+            tone: 'amber',
+            since: { at: PEEK_AT, kind: 'for' },
+            gates: { text: 'Round 2 was consumed without a verdict', tone: 'neutral' },
+            needs: { detail: 'Restart the review loop from the dashboard.', action: 'Open dashboard', cta: { kind: 'graph-panel' } },
+          }),
+        }),
+        fixtureRow(5, {
+          label: 'T5 repository not in the manifest',
+          glyph: 'amber',
+          stageCurrent: 'scope',
+          stageLabel: 'Not scoped',
+          stageClass: 'stg-scope',
+          stageChip: 'scope',
+          peek: fixturePeek({
+            title: 'Repository not mapped',
+            tone: 'amber',
+            gates: { text: 'karst-docs is not in karst.yml', tone: 'neutral' },
+            needs: { detail: 'Map karst-docs before the worktree starts.', action: 'Open session', cta: { kind: 'open-session' } },
+          }),
+        }),
+      ],
+      awaitingReview: [],
+      recentlyDone: [],
+      olderDone: [],
+    },
+  };
+}
+
+/** RD-3 (T1318): a closed pull request keeps the ship family and reads "PR closed" (probe T12). */
+function peekPrClosedState(): SidebarState {
+  return {
+    ...emptyState(),
+    counts: fixtureCounts({ all: 1, input: 1 }),
+    sections: {
+      current: [
+        fixtureRow(12, {
+          label: 'T12 pull request closed outside Karst',
+          glyph: 'red',
+          stageCurrent: 'ship',
+          stageLabel: 'Shipping',
+          stageClass: 'stg-ship',
+          stageChip: 'ship',
+          prs: [{ repo: 'karst', number: 1148, url: 'fixture:pr/1148', status: 'closed' }],
+          peek: fixturePeek({
+            title: 'PR closed',
+            tone: 'red',
+            since: { at: PEEK_AT, kind: 'for' },
+            repos: [{ repo: 'karst', number: 1148, state: 'closed' }, { repo: 'karst-docs', number: 77, state: 'ready' }],
+            needs: { detail: 'karst has a closed pull request.', action: 'Open dashboard', cta: { kind: 'merge-panel' } },
+          }),
+        }),
+      ],
+      awaitingReview: [],
+      recentlyDone: [],
+      olderDone: [],
+    },
+  };
 }
 
 const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
@@ -601,6 +772,9 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   hostile: hostileState,
   'cloud-sessions': cloudSessionsState,
   'peek-states': peekStatesState,
+  'real-titles': realTitlesState,
+  'peek-blocked': peekBlockedState,
+  'peek-pr-closed': peekPrClosedState,
 };
 
 export function sidebarRenderFixtures(): SidebarRenderFixture[] {

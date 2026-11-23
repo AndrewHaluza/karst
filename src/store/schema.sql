@@ -722,9 +722,9 @@ CREATE TABLE IF NOT EXISTS servers (
   -- the stop and re-verify paths use to unpublish and stop it there (arch:AC-32).
   -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
   sandbox       TEXT,
-  -- The short reason a row is `failed` (v136): the start refusal ("Port 3000 in
+  -- The short reason a row is `failed` (v137): the start refusal ("Port 3000 in
   -- use by pid 4123") or the crash that the liveness sweep saw ("Exited with
-  -- code 1"). NULL on a running row and on a pre-v136 row. Placed LAST, as the
+  -- code 1"). NULL on a running row and on a pre-v137 row. Placed LAST, as the
   -- ALTER appends.
   last_error    TEXT
 );
@@ -1503,7 +1503,13 @@ CREATE TABLE IF NOT EXISTS usage_limit_parks (
   kept_outcome TEXT,
   parked_at    TEXT NOT NULL,
   resolved_at  TEXT,
-  resolution   TEXT
+  resolution   TEXT,
+  -- v136 (T1313, @arch:AC-65): the parsed reset instant (NULL = unknown) and the
+  -- opt-in carried pick (NULL = one-shot). Written by the claim, never Settings.
+  reset_at       TEXT,
+  carry_provider TEXT,
+  carry_model    TEXT,
+  carry_until    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_usage_limit_parks_ticket
   ON usage_limit_parks(ticket_id, resolved_at);

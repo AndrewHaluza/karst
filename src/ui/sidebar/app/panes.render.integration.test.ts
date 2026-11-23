@@ -7,6 +7,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { fixtureDraft, fixturePlanningRow, sidebarRenderFixtures } from '../renderFixtures.js';
 import type { SidebarState } from '../state.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
 import { closeSidebarRealm, renderSidebarApp, type RenderedSidebar } from './renderSidebarApp.js';
 
 afterAll(closeSidebarRealm);
@@ -22,12 +23,46 @@ const sent = (h: RenderedSidebar) => h.posted.filter((m) => m.type !== 'request-
 const withCounts = (state: SidebarState, counts: Partial<SidebarState['counts']>): SidebarState => ({ ...state, counts: { ...state.counts, ...counts } });
 
 describe('toolbar', () => {
-  it('keeps resources, token usage and settings only', async () => {
+  it('is gone: the resource monitor, token usage and settings handoffs live in the view title menu (SB-7)', async () => {
     const h = await mount(fixture('all-sections'));
-    expect(h.queryAll('.toolbar [aria-label]').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Open resource monitor', 'Open token usage', 'Open settings',
-    ]);
-    expect(h.query('.toolbar [data-act="create"],.toolbar [data-act="plan-create"]')).toBeNull();
+    expect(h.query('.toolbar')).toBeNull();
+    expect(h.queryAll('[data-act="open-resources"],[data-act="open-token-usage"],[data-act="open-settings"]')).toHaveLength(0);
+  });
+});
+
+describe('cold start and host failure (SB-2)', () => {
+  it('paints skeleton bars, never the empty text, before the first host state', async () => {
+    const h = await renderSidebarApp();
+    // Planning and Tickets are the open panes by default.
+    expect(h.queryAll('.pane-skel')).toHaveLength(2);
+    expect(h.queryAll('.pane-skel-bar')).toHaveLength(6);
+    expect(h.query('.k-empty-title')).toBeNull();
+    expect(h.query('.pane-empty')).toBeNull();
+    expect(h.query('[data-pane="planning"]')!.getAttribute('data-loading')).toBe('true');
+  });
+
+  it('replaces the skeletons on the first state', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'state', state: fixture('empty') });
+    expect(h.queryAll('.pane-skel')).toHaveLength(0);
+    expect(h.query('[data-pane="planning"]')!.getAttribute('data-loading')).toBe('false');
+  });
+
+  it('states one fixed line with a Retry that asks the host again, and keeps the reason as its tooltip', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'error', message: 'database is locked' });
+    expect(text(h.query('[data-sidebar-error]'))).toContain('Karst cannot read the tickets.');
+    expect(h.query('[data-sidebar-error]')!.getAttribute('title')).toBe('database is locked');
+    await h.click('.sidebar-error-retry');
+    expect(h.posted.at(-1)).toEqual({ type: 'refresh' });
+  });
+
+  it('clears the error line on the next state', async () => {
+    const h = await renderSidebarApp();
+    await h.receive({ type: 'error', message: 'boom' });
+    expect(h.query('[data-sidebar-error]')).not.toBeNull();
+    await h.receive({ type: 'state', state: fixture('empty') });
+    expect(h.query('[data-sidebar-error]')).toBeNull();
   });
 });
 
@@ -40,7 +75,18 @@ describe('pane headers', () => {
     expect(text(planning.querySelector('.pane-count'))).toBe('0');
     expect(text(tickets.querySelector('.pane-title'))).toBe('Tickets');
     expect(text(tickets.querySelector('.pane-count'))).toBe('0');
-    expect(planning.querySelector('.pane-toggle')!.getAttribute('aria-expanded')).toBe('true');
+    // An empty pane folds to its header by default (SB-7).
+    expect(planning.querySelector('.pane-toggle')!.getAttribute('aria-expanded')).toBe('false');
+    expect(tickets.querySelector('.pane-toggle')!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('shows an empty pane\'s empty text only after the user opens it (SB-7)', async () => {
+    const h = await mount(fixture('empty'));
+    expect(h.query('[data-pane="planning"] .pane-empty')).toBeNull();
+    await h.click('[data-pane="planning"] .pane-toggle');
+    expect(text(h.query('[data-pane="planning"] .k-empty-title'))).toBe('No planning sessions');
+    expect(h.query('[data-pane="planning"] [data-pane-empty]')).not.toBeNull();
+    expect(text(h.query('[data-pane="planning"] [data-pane-empty] [data-act="plan-create"]'))).toBe('New planning session');
   });
 
   it('the + buttons reuse the plan-create and create actions', async () => {
@@ -88,6 +134,8 @@ describe('pane headers', () => {
 
   it('Planning keeps Collapse all', async () => {
     const h = await mount(fixture('all-sections'));
+    await h.expandPlans();
+    expect(h.query('[role="treeitem"][data-node="s90"]')!.getAttribute('aria-expanded')).toBe('true');
     await h.click('[data-pane="planning"] [data-plan-collapse-all]');
     expect(h.query('[role="treeitem"][data-node="s90"]')!.getAttribute('aria-expanded')).toBe('false');
   });
@@ -106,11 +154,11 @@ describe('Tickets filter menu', () => {
     await open(h);
     expect(btn.getAttribute('aria-expanded')).toBe('true');
     const items = h.queryAll('[role="menuitemradio"]');
-    expect(items.map(text)).toEqual(['All', 'Needs attention', 'In progress', 'Done', 'Archived']);
+    expect(items.map(text)).toEqual(['All', 'Needs you or failed', 'Running', 'Done', 'Archived']);
     expect(items.map((i) => i.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false', 'false']);
   });
 
-  it('Needs attention applies facets input + blocked through the existing messages', async () => {
+  it('the attention preset applies facets input + failed through the existing messages', async () => {
     const h = await mount(fixture('all-sections'));
     await open(h);
     await h.click('[data-preset="attention"]');
@@ -142,7 +190,7 @@ describe('Tickets filter menu', () => {
   it('marks the active preset and shows a dot on the funnel', async () => {
     const h = await mount({ ...fixture('multi-facet'), facets: ['input', 'failed'] });
     expect(h.query('[data-filter-dot]')).not.toBeNull();
-    expect(h.query('[data-filter-menu]')!.getAttribute('aria-label')).toBe('Filter tickets: Needs attention');
+    expect(h.query('[data-filter-menu]')!.getAttribute('aria-label')).toBe('Filter tickets: Needs you or failed');
     await open(h);
     expect(h.query('[data-preset="attention"]')!.getAttribute('aria-checked')).toBe('true');
     expect(h.query('[data-preset="all"]')!.getAttribute('aria-checked')).toBe('false');
@@ -171,7 +219,7 @@ describe('attention line', () => {
   it('reads "N need you · M failed" on All and applies Needs attention when clicked', async () => {
     const h = await mount(withCounts(fixture('all-sections'), { input: 2, failed: 1 }));
     const line = h.query('[data-attention]')!;
-    expect(text(line)).toBe('2 need you · 1 failed');
+    expect(text(line)).toBe(`2 need you · 1 ${GLYPH_WORD.red.toLowerCase()}`);
     await h.click(line);
     expect(sent(h).map((m) => (m as { facet?: string }).facet)).toEqual(['all', 'input', 'failed']);
   });
@@ -190,6 +238,42 @@ describe('attention line', () => {
     expect(h0(await mount({ ...withCounts(fixture('all-sections'), { input: 2, failed: 1 }), facets: ['running'] }))).toBeNull();
   });
   const h0 = (h: RenderedSidebar) => h.query('[data-attention]');
+});
+
+describe('filter state (SB-9)', () => {
+  it('shows shown / total and the "Showing" line while a search narrows the list', async () => {
+    const h = await mount(fixture('filtered'));
+    expect(text(h.query('[data-pane="tickets"] .pane-count'))).toBe('1 / 3');
+    expect(text(h.query('[data-filter-line]'))).toBe('Showing: “auth”Clear');
+    expect(h.query('[data-filter-line] [data-clear-filters]')).not.toBeNull();
+  });
+
+  it('names a custom facet selection and clears both the search and the preset', async () => {
+    const state = { ...fixture('multi-facet'), filter: 'auth' };
+    const h = await mount(state);
+    expect(text(h.query('[data-filter-line]'))).toBe('Showing: Custom · “auth”Clear');
+    await h.click('[data-filter-line] [data-clear-filters]');
+    expect(sent(h)).toEqual([
+      { type: 'set-filter', query: '' },
+      { type: 'toggle-facet', facet: 'all' },
+    ]);
+  });
+});
+
+describe('pane announcements (SB-16)', () => {
+  it('names each header button with its count and announces a rise in needs-you once', async () => {
+    const h = await mount(withCounts(fixture('all-sections'), { input: 1, failed: 0 }));
+    expect(h.query('[data-pane="tickets"] .pane-toggle')!.getAttribute('aria-label')).toBe('Tickets, 6');
+    expect(h.query('[data-pane="planning"] .pane-toggle')!.getAttribute('aria-label')).toBe('Planning, 2');
+    const said = () => h.queryAll('.k-toast-text').map(text).filter((t) => t.includes('need'));
+    expect(said()).toEqual([]);
+    await h.receive({ type: 'state', state: withCounts(fixture('all-sections'), { input: 2, failed: 0 }) });
+    expect(said()).toEqual(['2 tickets need you']);
+    await h.receive({ type: 'state', state: withCounts(fixture('all-sections'), { input: 2, failed: 0 }) });
+    expect(said()).toHaveLength(1);
+    await h.receive({ type: 'state', state: withCounts(fixture('all-sections'), { input: 1, failed: 0 }) });
+    expect(said()).toHaveLength(1);
+  });
 });
 
 describe('archived planning sessions', () => {
@@ -230,14 +314,16 @@ describe('accepted drafts', () => {
 
   it('keeps pending drafts visible and hides accepted ones behind an "N accepted" toggle', async () => {
     const h = await mount(state());
+    expect(h.query('[data-node="d11"]')).toBeNull();
+    await h.expandPlans();
     expect(h.query('[data-node="d11"]')).not.toBeNull();
     expect(h.query('[data-node="d12"]')).toBeNull();
     const toggle = h.query('[data-node="s3"] .pt-row [data-accepted-toggle]')!;
-    expect(text(toggle)).toBe('2 accepted ▸');
+    expect(text(toggle)).toBe('2 accepted');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     await h.click(toggle);
     const open = h.query('[data-node="s3"] [data-accepted-toggle]')!;
-    expect(text(open)).toBe('2 accepted ▾');
+    expect(text(open)).toBe('2 accepted');
     expect(open.getAttribute('aria-expanded')).toBe('true');
     expect(h.queryAll('[data-node^="d"]').map((n) => n.getAttribute('data-node'))).toEqual(['d11', 'd12', 'd13']);
   });
@@ -252,7 +338,7 @@ describe('accepted drafts', () => {
 
   it('a session with only accepted drafts shows the toggle and no pending rows', async () => {
     const h = await mount({ ...fixture('empty'), planning: [fixturePlanningRow(4, { proposals: [acc1] })] });
-    expect(text(h.query('[data-accepted-toggle]'))).toBe('1 accepted ▸');
+    expect(text(h.query('[data-accepted-toggle]'))).toBe('1 accepted');
     expect(h.query('[data-node="d12"]')).toBeNull();
   });
 

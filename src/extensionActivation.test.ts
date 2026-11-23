@@ -473,6 +473,19 @@ describe('extension activation', () => {
     expect(source).toContain('statusLabel');
   });
 
+  it('renders the status bar from one raw key and logs a failed ticket read (SB-4)', () => {
+    const source = readExtensionSources();
+    // The key is passed RAW: statusBarText formats the ref once, so no "T3 · T3".
+    expect(source).toContain("key: t.key ?? '',");
+    expect(source).not.toContain('key: formatTicketRef(ticketId, t.key),');
+    // The staging state is gone from the model; the bar reads the glyph word.
+    expect(source).not.toContain('state: t.agentState');
+    // A throwing read is logged and hides the item instead of leaving stale text.
+    expect(source).toContain(
+      "} catch (err) {\n      logError('karst: status bar render failed', err);\n      statusBar.render(null);\n    }",
+    );
+  });
+
   // Task 8 wiring: the Tester and Review AI processes and the verifier gate
   // runner must be reachable from the extension composition root — a stage
   // that passes its focused unit tests while the host never resolves its
@@ -482,7 +495,7 @@ describe('extension activation', () => {
   it('wires the resolved Tester and Review processes and the verifier runner into the driver', () => {
     const source = readExtensionSources();
 
-    expect(source).toContain("uatTester: (id) => processFor(id, 'uat-tester')");
+    expect(source).toContain("uatTester: (id, override) => processFor(id, 'uat-tester', override)");
     expect(source).toContain("reviewProcess: (id) => processFor(id, 'review')");
     expect(source).toContain('runVerifier: runProcess');
     expect(source).toContain('resolveProcessAssignment(');

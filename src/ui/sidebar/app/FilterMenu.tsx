@@ -1,27 +1,44 @@
 /**
- * The funnel in the Tickets header: a menu button offering the single-select
- * presets (menuitemradio). A dot marks any preset other than All. Opening moves
- * focus to the checked item; arrows/Home/End move, Escape closes returning focus
- * to the funnel, an outside click or Tab closes. A choice reports through the
- * existing facet messages (SidebarContext.applyPreset).
+ * One filter menu for the Tickets funnel and the Activity level (SB-9, SB-17):
+ * a menu button offering a single-select list (menuitemradio). A dot marks any
+ * choice other than the unfiltered one. Opening moves focus to the checked item;
+ * arrows/Home/End move, Escape closes returning focus to the trigger, an outside
+ * click or Tab closes. The caller owns the option list and what a choice means.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { ToolbarGlyph } from './Icon.js';
-import { activePreset, PRESETS, type PresetId } from './presets.js';
-import { useSidebar } from './SidebarContext.js';
 
 const FUNNEL = ['M4 4h16v2.172a2 2 0 0 1 -.586 1.414l-4.414 4.414v7l-6 2v-8.5l-4.48 -4.928a2 2 0 0 1 -.52 -1.345v-2.227'];
 
-export function FilterMenu() {
-  const { state, applyPreset } = useSidebar();
+export interface FilterOption {
+  readonly id: string;
+  readonly label: string;
+}
+
+export interface FilterMenuProps {
+  readonly options: readonly FilterOption[];
+  /** The checked option, or null when no option names the current filter. */
+  readonly value: string | null;
+  /** Whether anything is filtered: draws the dot and names the choice. */
+  readonly filtered: boolean;
+  readonly onChange: (id: string) => void;
+  /** The trigger's name when unfiltered ("Filter tickets"). */
+  readonly label: string;
+  readonly menuLabel: string;
+  /** The `data-*` hook on the trigger, its options and its dot. */
+  readonly triggerAttr: string;
+  readonly optionAttr: string;
+  readonly dotAttr: string;
+}
+
+export function FilterMenu({ options, value, filtered, onChange, label, menuLabel, triggerAttr, optionAttr, dotAttr }: FilterMenuProps) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement | null>(null);
   const button = useRef<HTMLButtonElement | null>(null);
   const pop = useRef<HTMLDivElement | null>(null);
   useAnchoredPopover(open, pop, button, () => setOpen(false));
-  const current = activePreset(state.facets || ['all']);
-  const filtered = current?.id !== 'all';
+  const current = options.find((o) => o.id === value) ?? null;
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -43,9 +60,9 @@ export function FilterMenu() {
     setOpen(false);
     if (returnFocus) button.current?.focus();
   };
-  const choose = (id: PresetId): void => {
+  const choose = (id: string): void => {
     close(true);
-    applyPreset(id);
+    onChange(id);
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
@@ -62,37 +79,37 @@ export function FilterMenu() {
     e.stopPropagation();
   };
 
-  const label = `Filter tickets${filtered ? `: ${current?.label ?? 'custom'}` : ''}`;
+  const name = `${label}${filtered ? `: ${current?.label ?? 'custom'}` : ''}`;
   return (
     <span className="filter-menu" ref={wrap}>
       <button
         type="button"
         className="k-iconbtn"
-        data-filter-menu="1"
+        {...{ [triggerAttr]: '1' }}
         ref={button}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={label}
-        title={label}
+        aria-label={name}
+        title={name}
         onClick={() => setOpen((o) => !o)}
       >
         <ToolbarGlyph paths={FUNNEL} />
-        {filtered ? <span className="filter-dot" data-filter-dot="1" aria-hidden="true" /> : null}
+        {filtered ? <span className="filter-dot" {...{ [dotAttr]: '1' }} aria-hidden="true" /> : null}
       </button>
       {open ? (
-        <div className="filter-pop" ref={pop} role="menu" aria-label="Ticket filter" onKeyDown={onKeyDown}>
-          {PRESETS.map((p) => (
+        <div className="filter-pop" ref={pop} role="menu" aria-label={menuLabel} onKeyDown={onKeyDown}>
+          {options.map((o) => (
             <button
               type="button"
-              key={p.id}
+              key={o.id}
               className="ctxitem"
               role="menuitemradio"
-              aria-checked={current?.id === p.id}
-              data-preset={p.id}
+              aria-checked={value === o.id}
+              {...{ [optionAttr]: o.id }}
               tabIndex={-1}
-              onClick={() => choose(p.id)}
+              onClick={() => choose(o.id)}
             >
-              {p.label}
+              {o.label}
             </button>
           ))}
         </div>

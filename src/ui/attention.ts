@@ -1,7 +1,9 @@
 import type { TicketWithStages } from '../store/tickets.js';
 import type { AgentState } from '../model/types.js';
+import { plural } from '../model/notifyText.js';
 import { facetOf } from './sidebar/facets.js';
 import { formatId } from '../model/entityId.js';
+import { stageWord } from './shared/ticketRefView.js';
 
 /**
  * Why a ticket is in the attention set. `input` and `failed` are the two
@@ -30,7 +32,7 @@ export interface AttentionItem {
  * confirm stage — that is the whole remaining case.
  */
 function reasonFor(t: TicketWithStages, kind: AttentionKind, stage: string): string {
-  if (kind === 'failed') return `${stage} failed`;
+  if (kind === 'failed') return `${stageWord(stage).full} failed`;
   if (t.pausedAt != null) return 'paused';
   if (((t.agentState ?? 'none') as AgentState) === 'waiting') return 'agent asked a question';
   if (((t.agentState ?? 'none') as AgentState) === 'not-started') return 'session did not start';
@@ -85,11 +87,11 @@ export interface AttentionSummary {
   count: number;
   /** Status-bar label, e.g. `$(bell) 2 need you`. */
   text: string;
-  /** Multi-line status-bar tooltip, one `key · reason` line per ticket. */
+  /** Multi-line status-bar tooltip: the split line, a blank line, then one `key · reason` line per ticket. */
   tooltip: string;
   /** True when any item is `failed` — drives the warning background. */
   warning: boolean;
-  /** Badge tooltip, e.g. `2 tickets need your input`. */
+  /** Badge tooltip, the same split line the tooltip head shows, e.g. `4 need your input, 2 failed`. */
   badgeTooltip: string;
 }
 
@@ -109,12 +111,24 @@ export function attentionSummary(items: readonly AttentionItem[]): AttentionSumm
   const dropped = count - lines.length;
   if (dropped > 0) lines.push(`…and ${dropped} more`);
 
+  // The split names the two kinds in the shared words (RD-2, SB-13): needs-you
+  // (amber) and failed (red). The status-bar text stays the union count (D746);
+  // the badge tooltip and the tooltip head show the split, so the header and the
+  // bar can agree on the number and name each part correctly. A zero part is
+  // hidden (@arch:NTF-07: one `plural` for every count text).
+  const input = items.filter((i) => i.kind === 'input').length;
+  const failed = count - input;
+  const parts: string[] = [];
+  if (input > 0) parts.push(plural(input, 'needs your input', 'need your input'));
+  if (failed > 0) parts.push(plural(failed, 'failed', 'failed'));
+  const split = parts.join(', ');
+
   return {
     count,
     text: `$(bell) ${count} ${count === 1 ? 'needs' : 'need'} you`,
-    tooltip: lines.join('\n\n'),
-    warning: items.some((i) => i.kind === 'failed'),
-    badgeTooltip: `${count} ${count === 1 ? 'ticket needs' : 'tickets need'} your input`,
+    tooltip: `${split}\n\n${lines.join('\n\n')}`,
+    warning: failed > 0,
+    badgeTooltip: split,
   };
 }
 

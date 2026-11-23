@@ -183,6 +183,9 @@
   "src/agent/cliEnv.ts#quoteArg": [
     "arch:CLI-10"
   ],
+  "src/agent/cliFailure.ts#parseUsageLimitResetAt": [
+    "arch:AC-65"
+  ],
   "src/agent/fakeCore.ts#FakeAdapter": [
     "arch:UATHOST-00",
     "arch:UATHOST-07"
@@ -504,6 +507,9 @@
   "src/extension/ops/autopilotOps.ts#runBaseMovedRound": [
     "arch:AP-06"
   ],
+  "src/extension/ops/autopilotRefusal.ts": [
+    "arch:AP-01"
+  ],
   "src/extension/ops/autopilotRerun.ts": [
     "arch:AP-03"
   ],
@@ -531,6 +537,9 @@
   ],
   "src/extension/ops/ciActionsWiring.ts": [
     "arch:AP-05"
+  ],
+  "src/extension/ops/ciActionsWiring.ts#autoDeliverAction": [
+    "arch:AP-01"
   ],
   "src/extension/ops/ciActionsWiring.ts#deliverToPrAction": [
     "arch:AP-01"
@@ -1125,6 +1134,15 @@
   "src/store/usageLimitParks.ts": [
     "arch:V82"
   ],
+  "src/store/usageLimitParks.ts#listActiveCarries": [
+    "arch:AC-65"
+  ],
+  "src/store/usageLimitParks.ts#resolveCarriedPick": [
+    "arch:AC-65"
+  ],
+  "src/store/usageLimitParks.ts#stopCarriedPick": [
+    "arch:AC-65"
+  ],
   "src/store/worktree*.ts": [
     "arch:WT-00"
   ],
@@ -1236,6 +1254,15 @@
   ],
   "src/workflow/baseRef.ts#resolveTicketBaseRef": [
     "arch:BASE-PER"
+  ],
+  "src/workflow/carriedPick.ts#askCarry": [
+    "arch:AC-65"
+  ],
+  "src/workflow/carriedPick.ts#carryUntilFor": [
+    "arch:AC-65"
+  ],
+  "src/workflow/carriedPick.ts#resolveLaneProcess": [
+    "arch:AC-65"
   ],
   "src/workflow/changeBaseRef.ts#changeBaseRef": [
     "arch:BASE-PER",

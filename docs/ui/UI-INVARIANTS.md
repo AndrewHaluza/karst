@@ -225,21 +225,33 @@ Under the search box sit two panes, **Planning** and **Tickets**
 rendered, even when empty: a chevron toggle button (`aria-expanded`), title,
 count and the pane's actions (`+` reuses the `plan-create` / `create` messages;
 Planning also has Collapse all and a "show archived" toggle). Each body scrolls on
-its own; Planning is capped at about 40% while open, Tickets takes the rest, and
-a collapsed pane hands its height to the other. The toolbar keeps only resources,
-token usage and settings. The facet chip row is gone: a funnel menu
+its own; every open pane sizes to its content, Tickets is the one pane that takes
+the remaining height, Planning is capped at about 40% while open, and a collapsed
+pane hands its height to the other. An open Activity pane keeps at least three rows
+(`min-height:calc(3 * var(--k-hit-min))`) and never shrinks. A pane whose count is
+0 folds to its header by default; its empty text shows only after the user opens
+it. On a cold start (no restored snapshot, before the first host `state`) every
+open pane paints three skeleton bars instead of the empty text, and a host build
+failure shows one fixed line, "Karst cannot read the tickets.", with a Retry that
+posts `refresh`. The webview has no toolbar row: the resource monitor, token usage
+and settings handoffs are `view/title` menu entries of `karst.tickets`. A collapsed
+ticket row keeps its More menu in flow at the row end; Session and Pause/Resume
+appear on hover only from the narrow tier (400 px) up, and the stage pill is never
+hidden for them. The facet chip row is gone: a funnel menu
 (`FilterMenu.tsx`, `menuitemradio`, a dot when a preset other than All is active)
-in the Tickets header offers single-select presets (All, Needs attention =
-`input`+`failed`, In progress, Done, Archived). A preset is a facet selection, so
+in the Tickets header offers single-select presets (All, Needs you or failed =
+`input`+`failed`, Running, Done, Archived). A preset is a facet selection, so
 the host protocol is unchanged: the view posts `toggle-facet` `all` (reset) and
 then each facet. A selection no preset names (only reachable from an old
 persisted state) shows the dot and no checked item. "N need you · M failed" ("1 needs you" for one input; a zero part is hidden) sits
 under the Tickets header on All when a count is above zero and applies Needs
 attention. Presets affect Tickets only: `state.planning` now always carries live
 and archived sessions and the Planning pane filters archived ones with its toggle.
-Pending drafts always show; accepted ones sit behind an "N accepted" button on the
+Each session starts collapsed (`planIsOpen`); the twistie, the arrow keys or a
+dependency chip expand it, and that choice is in-memory view state that survives
+re-renders. In an expanded session, pending drafts always show; accepted ones sit behind an "N accepted" button on the
 session row (its own tab stop, outside the tree's roving tabindex), and a search
-that matches an accepted draft reveals its session's accepted drafts. Collapsed
+that matches an accepted draft reveals its session's accepted drafts and expands it. Collapsed
 panes and the archived toggle are pure view state kept in the webview state API
 (`view` beside the snapshot) and never posted.
 A priority chip (`PriorityChip.tsx`: URG / HIGH / LOW, no chip for normal or none)
@@ -252,6 +264,11 @@ level only, and the host validates both. The urgent and high chips share one tin
 is dim text. The
 approved layout is `docs/ui/prototypes/queue-pane.html` (section 2). The menu list
 opens inline, not as a flyout, because the menu window scrolls and would clip it.
+The Queue pane, its row layout and its filters are in `@ui:SIDEBAR-QUEUE`.
+END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
+
+## [@ui:SIDEBAR-QUEUE] Sidebar Queue pane and filters
+
 A third pane, **Queue** (`QueuePane.tsx` on `Pane.tsx`), sits between Planning and
 Tickets and shows the one computed order of `@arch:QUEUE-ORDER`. It is collapsed
 by default (pure view state, never posted) and has no actions. Open, it takes at
@@ -289,11 +306,11 @@ filter (the row and all it waits on or that wait on it, transitively) as the chi
 of hidden rows. When no row matches the pane says `No queue items match.` with a
 Clear filters link. The filters are `queueFilters` in the webview `view` state: they
 survive a reload and are never posted.
-END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
+END_DOC_BLOCK: [@ui:SIDEBAR-QUEUE]
 
-## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926, T972, T1021, T1301)
+## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926, T972, T1021, T1301, T1313)
 
-**One recorded exception** (T690, 2026-10-23): D159's usage-limit park actions ('Pick agent/model…', 'Retry same', 'Dismiss') in the ticket form's op-park error, still a vanilla view — a `usage-limit` block is non-resumable and no other surface reaches the action; it expires with the ticket form's migration (`@ui:REACT-VIEWS`). **Second recorded exception** (T862, 2026-10-30): the layout B′ shell restructure of `src/ui/ticketForm/webview.html` (D284; user-chosen layout, binding prototype `docs/design/ticket-form-b-prime.html`), scoped by the ticket brief and sequenced with D285–D287, which also edit this vanilla file; it expires with the same migration. **Third recorded exception** (T926, 2026-11-02): the create-mode Sandbox backend picker (Inherit / Host opt-out only, `@arch:AC-32`) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D381); it expires with the same migration. **Fourth recorded exception** (T972, 2026-11-06): the window-reload draft restore (`formPersist`, the only `getState`/`setState` caller) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D372); it expires with the same migration. **Fifth recorded exception** (T1021, 2026-11-09): the shared ticket reference chip and the readable relation labels in the ticket form's Relations card, rendered from the host's `ticketRefView` by a small DOM builder in `src/ui/ticketForm/webview.html`; the same `ticketRefView` and `.k-ticket-ref` primitive are the React surfaces' implementation, and the form stays vanilla until the migration, so the ticket brief scopes this one; it expires with the same migration. The one-stage-chip change (T1099) updates that DOM builder to the same chip markup, as the same exception. **Sixth recorded exception** (T1301, 2026-11-22): the ticket-form production-readiness sweep of `src/ui/ticketForm/webview.html` (D748 — SET-49/50/51/52/53/54/55/57/58/59/60/61/62: the action bar and settings scroll region, the honest loading and fetch-error states, the host-side Cancel confirmation, the auto-growing title textarea and the copy fixes) on the vanilla view, scoped by the ticket brief; it expires with the same migration.
+**One recorded exception** (T690, 2026-10-23): D159's usage-limit park actions ('Pick agent/model…', 'Retry same', 'Dismiss') in the ticket form's op-park error, still a vanilla view — a `usage-limit` block is non-resumable and no other surface reaches the action; it expires with the ticket form's migration (`@ui:REACT-VIEWS`). **Second recorded exception** (T862, 2026-10-30): the layout B′ shell restructure of `src/ui/ticketForm/webview.html` (D284; user-chosen layout, binding prototype `docs/design/ticket-form-b-prime.html`), scoped by the ticket brief and sequenced with D285–D287, which also edit this vanilla file; it expires with the same migration. **Third recorded exception** (T926, 2026-11-02): the create-mode Sandbox backend picker (Inherit / Host opt-out only, `@arch:AC-32`) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D381); it expires with the same migration. **Fourth recorded exception** (T972, 2026-11-06): the window-reload draft restore (`formPersist`, the only `getState`/`setState` caller) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D372); it expires with the same migration. **Fifth recorded exception** (T1021, 2026-11-09): the shared ticket reference chip and the readable relation labels in the ticket form's Relations card, rendered from the host's `ticketRefView` by a small DOM builder in `src/ui/ticketForm/webview.html`; the same `ticketRefView` and `.k-ticket-ref` primitive are the React surfaces' implementation, and the form stays vanilla until the migration, so the ticket brief scopes this one; it expires with the same migration. The one-stage-chip change (T1099) updates that DOM builder to the same chip markup, as the same exception. **Sixth recorded exception** (T1301, 2026-11-22): the ticket-form production-readiness sweep of `src/ui/ticketForm/webview.html` (D748 — SET-49/50/51/52/53/54/55/57/58/59/60/61/62: the action bar and settings scroll region, the honest loading and fetch-error states, the host-side Cancel confirmation, the auto-growing title textarea and the copy fixes) on the vanilla view, scoped by the ticket brief; it expires with the same migration. **Seventh recorded exception** (T1313, 2026-11-22): the hidden "Stop using pick" button for an active carried usage-limit pick (`@arch:AC-65`) in the existing action row of `src/ui/ticketForm/webview.html`, beside the reason so Cancel stays first and the primary stays last; the host builds its label (`activeCarryViews`). No new region. Scoped by the ticket brief (D796); it expires with the same migration.
 END_DOC_BLOCK: [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS]
 
 ## [@ui:USAGE-MIGRATION-EXCEPTION] Token-usage migration exception (T1302)

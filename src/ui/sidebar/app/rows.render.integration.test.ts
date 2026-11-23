@@ -77,12 +77,45 @@ describe('ticket row', () => {
     expect(h.queryAll('.rail')).toHaveLength(0);
   });
 
-  it('tints the karst mark by the status glyph and names the state for assistive tech (UI-R28)', async () => {
+  it('gives the truncated row title its full text: a tooltip on the name and the whole title in the body (SB-5)', async () => {
+    const long = 'FIX-GRAPH-2-A-REALLY-LONG-TICKET-TITLE-THAT-THE-STAGE-PILL-CUTS';
+    const h = await mount(stateWith({ current: [row(1, { label: long })] }));
+    expect(h.query('.ticket .name')!.getAttribute('title')).toBe(long);
+    // T1318 (UI-R44): the ellipsized copy is visual only; a 1x1 `.sr-only` sibling carries the same text,
+    // so a clipped title is announced once and is never silent truncation (the layout gate's clipped-text check).
+    expect(h.query('.ticket .name [aria-hidden="true"]')!.textContent).toBe(long);
+    expect(h.query('.ticket .name .sr-only')!.textContent).toBe(long);
+    await h.click('[data-toggle="910001"]');
+    expect(text(h.query('.peek-fullname'))).toBe(long);
+  });
+
+  it('keeps the More menu in flow and moves the other tools to the hover strip (SB-8)', async () => {
+    const h = await mount(stateWith({ current: [row(1)] }));
+    const more = h.query('.ticket > .row > .rowmore [data-menu="910001"]')!;
+    expect(more.getAttribute('aria-label')).toBe('More ticket actions');
+    // One More trigger in the row itself: the strip holds Session/Pause only (the
+    // hidden expanded body has its own tools, as it always has).
+    expect(h.queryAll('.ticket > .row [data-menu="910001"]')).toHaveLength(1);
+    expect(h.queryAll('.ticket > .row > .rowacts [data-act]').map((b) => b.getAttribute('data-act'))).toEqual(['open-session', 'pause-ticket']);
+    await h.click('[data-toggle="910001"]');
+    expect(h.query('.ticket .rowmore')).toBeNull();
+    expect(h.query('.peek-tools [data-menu="910001"]')).not.toBeNull();
+  });
+
+  it('paints the shared status marker for the glyph and names the state for assistive tech (UI-R28, SB-1)', async () => {
     const h = await mount(stateWith({ current: [row(1, { glyph: 'amber' })] }));
-    const glyph = h.query('.ticket .glyph')!;
-    expect(glyph.classList.contains('g-amber')).toBe(true);
+    const glyph = h.query('.ticket .k-status')!;
+    expect(glyph.classList.contains('k-status--attention')).toBe(true);
     expect(glyph.getAttribute('role')).toBe('img');
     expect(glyph.getAttribute('aria-label')).toBe('Needs you');
+  });
+
+  it('paints a red ticket with the failed cross and the word "Failed" (SB-1)', async () => {
+    const h = await mount(stateWith({ current: [row(1, { glyph: 'red' })] }));
+    const glyph = h.query('.ticket .k-status--failed')!;
+    expect(glyph.getAttribute('aria-label')).toBe('Failed');
+    // The primitive renders no visible status word (UI-R28b).
+    expect(text(glyph)).toBe('✕');
   });
 
   it('puts the check-in-ring on completed rows, with no stage pill, and the age only on Recently done', async () => {
@@ -194,10 +227,10 @@ describe('ticket row', () => {
     const toggle = () => h.query('[data-collapse="900001"]')!;
     expect(glyph(toggle())).toBe(paths('list-tree'));
     expect(glyph(toggle())).not.toBe(glyph(h.query('.chev')!));
-    expect(toggle().getAttribute('aria-label')).toBe('Hide 1 nested sub-task');
+    expect(toggle().getAttribute('aria-label')).toBe('Hide subtasks');
     await h.click(toggle());
     expect(glyph(toggle())).toBe(paths('layout-list'));
-    expect(toggle().getAttribute('aria-label')).toBe('Show 1 nested sub-task');
+    expect(toggle().getAttribute('aria-label')).toBe('Show subtasks');
     expect(h.posted.filter((m) => m.type !== 'request-state')).toEqual([]);
   });
 
@@ -215,6 +248,42 @@ describe('ticket row', () => {
     await h.receive({ type: 'state', state: stateWith({ current: [r] }) });
     expect(chev().getAttribute('aria-expanded')).toBe('false');
     expect(h.posted.filter((m) => m.type !== 'request-state')).toEqual([]);
+  });
+});
+
+describe('ticket tree (SB-6)', () => {
+  it('is one roving tab stop: a tree with labelled groups, one tabIndex 0, and Down Arrow moves focus', async () => {
+    const h = await mount(stateWith({ current: [row(1), row(2), row(3)] }));
+    expect(h.query('.list')!.getAttribute('role')).toBe('tree');
+    const items = h.queryAll<HTMLElement>('.list [role="treeitem"]');
+    expect(items).toHaveLength(3);
+    expect(items.map((i) => i.getAttribute('aria-level'))).toEqual(['1', '1', '1']);
+    expect(h.queryAll('.list [role="treeitem"][tabindex="0"]')).toHaveLength(1);
+    expect(items[0]!.getAttribute('tabindex')).toBe('0');
+    items[0]!.focus();
+    await h.key(items[0]!, 'ArrowDown');
+    expect(h.document.activeElement).toBe(items[1]);
+    expect(items[1]!.getAttribute('tabindex')).toBe('0');
+    expect(h.queryAll('[role="group"]').map((g) => g.getAttribute('aria-label'))).toContain('Current, 3 tickets');
+  });
+
+  it('gives the row tools no tab stop of their own', async () => {
+    const h = await mount(stateWith({ current: [row(1)] }));
+    const rowEl = h.query('.ticket > .row')!;
+    expect(rowEl.getAttribute('tabindex')).toBe('0');
+    const buttons = [...rowEl.querySelectorAll('button')];
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.map((b) => b.getAttribute('tabindex'))).toEqual(buttons.map(() => '-1'));
+  });
+
+  it('marks the sub-tree toggle pressed and names it Show/Hide subtasks (SB-15)', async () => {
+    const h = await mount(fixture('subtasks'));
+    const toggle = () => h.query('[data-collapse="900001"]')!;
+    expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    expect(toggle().getAttribute('aria-label')).toBe('Hide subtasks');
+    await h.click(toggle());
+    expect(toggle().getAttribute('aria-pressed')).toBe('false');
+    expect(toggle().getAttribute('aria-label')).toBe('Show subtasks');
   });
 });
 
@@ -265,6 +334,24 @@ describe('expanded mini-dashboard', () => {
     }
   });
 
+  it('gives ready-to-ship and merge the neutral wash and leaves a call to action on the attention wash (SB-10)', async () => {
+    const ship = await mount(stateWith({ current: [peeked({ needs: { detail: 'why', action: 'Confirm ship', cta: { kind: 'ship-confirm' } } })] }));
+    expect(ship.query('.peek-strip')!.classList.contains('neutral')).toBe(true);
+    const merge = await mount(stateWith({ current: [peeked({ needs: { detail: 'why', action: 'Merge', cta: { kind: 'merge', repo: 'api' } } })] }));
+    expect(merge.query('.peek-strip')!.classList.contains('neutral')).toBe(true);
+    const retry = await mount(stateWith({ current: [peeked({ needs: { detail: 'why', action: 'Retry ship', cta: { kind: 'retry-ship' } } })] }));
+    expect(retry.query('.peek-strip')!.classList.contains('attention')).toBe(true);
+    expect(retry.query('.peek-strip')!.classList.contains('neutral')).toBe(false);
+  });
+
+  it('omits a strip detail that only repeats the headline, case ignored (RD-7)', async () => {
+    const h = await mount(stateWith({ current: [peeked({ title: 'Ship failed', needs: { detail: 'ship failed', action: 'Retry ship', cta: { kind: 'retry-ship' } } })] }));
+    expect(h.queryAll('.peek-strip-text')).toHaveLength(0);
+    expect(text(h.query('.peek-strip .k-btn--primary'))).toBe('Retry ship');
+    const kept = await mount(stateWith({ current: [peeked({ title: 'Ship failed', needs: { detail: 'push rejected', action: 'Retry ship', cta: { kind: 'retry-ship' } } })] }));
+    expect(text(kept.query('.peek-strip-text'))).toBe('push rejected');
+  });
+
   it('keeps the peek-only strips: Send CI failure, and Create follow-up on the where line', async () => {
     const ci = await mount(stateWith({ current: [peeked({ next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' } })] }));
     await ci.click('.peek-strip .k-btn--primary');
@@ -284,9 +371,24 @@ describe('expanded mini-dashboard', () => {
     })] }));
     expect(text(h.query('.peek-gates.failed'))).toBe('3 passed · 2 failed: lint, test');
     expect(h.query('.peek-agent .agent-identity.compact')!.getAttribute('data-provider')).toBe('claude');
-    expect(text(h.query('.peek-agent-tail'))).toBe(' · working');
+    expect(text(h.query('.peek-agent-tail'))).toBe('· working');
     expect(h.queryAll('.peek-repo').map(text)).toEqual(['#12 api · ready', 'web · conflict']);
     expect(text(h.query('.peek-paused'))).toBe('No stage starts until you resume');
+  });
+
+  it('prints the agent tail as "· idle", separated from the identity (SB-14)', async () => {
+    const h = await mount(stateWith({ current: [peeked({
+      agent: { provider: 'claude', model: 'opus', activity: 'idle', activeAt: null },
+    })] }));
+    expect(text(h.query('.peek-agent-tail'))).toBe('· idle');
+  });
+
+  it('renders a closed PR row with the word "closed" (RD-3)', async () => {
+    const h = await mount(stateWith({ current: [peeked({
+      title: 'PR closed',
+      repos: [{ repo: 'app', number: 497, state: 'closed' }, { repo: 'web', number: 498, state: 'ready' }],
+    })] }));
+    expect(h.queryAll('.peek-repo').map(text)).toEqual(['#497 app · closed', '#498 web · ready']);
   });
 
   it('draws the graph role line for a graph ticket, with the rung that supplied each role (T1266)', async () => {
@@ -361,30 +463,32 @@ describe('posting controls', () => {
     expect(text(h.query('[aria-live="polite"]'))).toContain('could not open');
   });
 
-  it('post every toolbar handoff', async () => {
-    const h = await mount(base);
-    for (const act of ['open-resources', 'open-token-usage', 'open-settings']) {
-      await h.click(`.toolbar [data-act="${act}"]`);
-    }
-    expect(h.posted.filter((m) => m.type !== 'request-state').map((m) => m.type)).toEqual([
-      'open-resources', 'open-token-usage', 'open-settings',
-    ]);
-    expect(h.queryAll('.toolbar [aria-label]').map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Open resource monitor', 'Open token usage', 'Open settings',
-    ]);
-  });
-
   it('offer Create ticket from the empty list', async () => {
     const h = await mount(fixture('empty'));
+    // An empty pane folds to its header by default (SB-7): open Tickets first.
+    await h.click('[data-pane="tickets"] .pane-toggle');
     expect(text(h.query('.k-empty-title'))).toBe('No tickets yet');
-    await h.click('.k-empty [data-act="create"]');
+    await h.click('[data-pane-empty] [data-act="create"]');
     expect(h.posted.at(-1)).toMatchObject({ type: 'create' });
   });
 
   it('say why the list is empty for a search, the Done facet and the Archived facet', async () => {
-    expect(text((await mount({ ...fixture('empty'), filter: 'zzz' })).query('.k-empty-title'))).toBe('No tickets match');
-    expect(text((await mount({ ...fixture('empty'), facets: ['done'] })).query('.k-empty-title'))).toBe('No done tickets');
-    expect(text((await mount({ ...fixture('empty'), facets: ['archived'] })).query('.k-empty-title'))).toBe('No archived tickets');
+    const emptyTitle = async (state: SidebarState): Promise<string> => {
+      const h = await mount(state);
+      await h.click('[data-pane="tickets"] .pane-toggle');
+      return text(h.query('.k-empty-title'));
+    };
+    expect(await emptyTitle({ ...fixture('empty'), filter: 'zzz' })).toBe('No tickets match');
+    expect(await emptyTitle({ ...fixture('empty'), facets: ['done'] })).toBe('No done tickets');
+    expect(await emptyTitle({ ...fixture('empty'), facets: ['archived'] })).toBe('No archived tickets');
+  });
+
+  it('offers Clear filters on a search with no match (SB-9)', async () => {
+    const h = await mount({ ...fixture('empty'), filter: 'zzz' });
+    await h.click('[data-pane="tickets"] .pane-toggle');
+    expect(text(h.query('[data-pane-empty]'))).toContain('No tickets match');
+    await h.click('[data-pane-empty] [data-clear-filters]');
+    expect(h.posted.at(-1)).toEqual({ type: 'set-filter', query: '' });
   });
 });
 
@@ -448,7 +552,7 @@ describe('context window', () => {
     expect(h.query('#ctxMenu.open')).toBeNull();
     expect(h.document.activeElement).toBe(trigger);
     await h.click(trigger);
-    await h.click('.toolbar');
+    await h.click('.search-input');
     expect(h.query('#ctxMenu.open')).toBeNull();
   });
 
@@ -555,18 +659,32 @@ describe('search box', () => {
     await h.receive({ type: 'state', state: { ...base, filter: '' } });
     expect(h.query<HTMLInputElement>('#search')!.value).toBe('');
   });
+
+  it('clears from the clear button and on Escape, posting an empty filter (SB-9)', async () => {
+    const h = await mount({ ...base, filter: 'auth' });
+    expect(h.query<HTMLInputElement>('#search')!.value).toBe('auth');
+    expect(h.query('[data-search-clear]')).not.toBeNull();
+    await h.click('[data-search-clear]');
+    expect(h.posted.at(-1)).toEqual({ type: 'set-filter', query: '' });
+    expect(h.query('[data-search-clear]')).toBeNull();
+    const escaped = await mount({ ...base, filter: 'auth' });
+    await escaped.key('#search', 'Escape');
+    expect(escaped.posted.at(-1)).toEqual({ type: 'set-filter', query: '' });
+    expect(escaped.query<HTMLInputElement>('#search')!.value).toBe('');
+  });
 });
 
 describe('host feed', () => {
   it('remembers the last snapshot with setState so a re-resolved view repaints at once', async () => {
     const h = await mount(base);
-    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, queue: true, tickets: false, activity: true }, showArchivedPlans: false, queueFilters: { kinds: [], sessions: [], levels: [], blocked: [], chain: null } } });
+    expect(h.handle.state).toEqual({ ...base, view: { collapsed: { planning: false, queue: true, tickets: false, activity: true }, showArchivedPlans: false, queueFilters: { kinds: [], sessions: [], levels: [], blocked: [], chain: null }, activityLevel: 'all' } });
   });
 
   it('escapes hostile ticket text — it is text, never markup (UI-R32)', async () => {
     const h = await mount(fixture('hostile'));
     expect(h.queryAll('.list script, .list img')).toHaveLength(0);
-    expect(text(h.query('.ticket .name'))).toBe('<script>alert(1)</script>');
+    expect(text(h.query('.ticket .name [aria-hidden="true"]'))).toBe('<script>alert(1)</script>');
+    expect(text(h.query('.ticket .name .sr-only'))).toBe('<script>alert(1)</script>');
     expect(text(h.query('.peek-title'))).toBe('<script>alert(1)</script>');
   });
 });

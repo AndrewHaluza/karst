@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DiffTarget, InspectedFile, InspectedWorktree, WorktreeSpec } from './git.js';
-import { buildTicketChangesSnapshot, diffsSummaryText, worktreeCountText } from './snapshot.js';
+import {
+  authoredLabel,
+  buildTicketChangesSnapshot,
+  diffsSummaryText,
+  worktreeCountText,
+} from './snapshot.js';
 
 const firstSpec: WorktreeSpec = {
   label: 'API',
@@ -73,6 +78,7 @@ describe('buildTicketChangesSnapshot', () => {
 
     expect(snapshot.state).toEqual({
       ticketId: 42,
+      ticketLabel: 'T42',
       worktreeCount: 2,
       commitCount: 1,
       pendingCount: 3,
@@ -88,6 +94,7 @@ describe('buildTicketChangesSnapshot', () => {
             subject: 'Add endpoint',
             author: 'Ada',
             authoredAt: '2026-07-30T10:00:00Z',
+            authoredLabel: authoredLabel('2026-07-30T10:00:00Z'),
             files: [{ changeId: 'generation-a:1', status: 'modified', path: 'src/api.ts', oldPath: null, absolutePath: '/worktrees/api/src/api.ts' }],
           }],
           staged: [{ changeId: 'generation-a:2', status: 'modified', path: 'src/staged.ts', oldPath: null, absolutePath: '/worktrees/api/src/staged.ts' }],
@@ -204,5 +211,80 @@ describe('buildTicketChangesSnapshot', () => {
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(inspect).not.toHaveBeenCalled();
+  });
+
+  /**
+   * DF-3: a row action needs the worktree path and the status of the row the
+   * `changeId` names. They live on the snapshot, so two panels never share one.
+   */
+  it('records the host-only repo path, path, status and group of every changed row', async () => {
+    const result = inspected(firstSpec, {
+      commits: [{
+        hash: 'abcdef123456', shortHash: 'abcdef1', subject: 'Commit', author: 'Ada', authoredAt: 'now', files: [file('src/committed.ts')],
+      }],
+      staged: [file('src/staged.ts', 'added')],
+      unstaged: [file('src/unstaged.ts', 'deleted')],
+      untracked: [file('src/untracked.ts', 'added')],
+    });
+
+    const snapshot = await buildTicketChangesSnapshot(4, [firstSpec], async () => result, () => 'g');
+    const view = snapshot.state.worktrees[0]!;
+
+    expect(snapshot.files.get(view.commits[0]!.files[0]!.changeId)).toEqual({
+      repoPath: '/worktrees/api',
+      path: 'src/committed.ts',
+      status: 'modified',
+      group: 'commit',
+    });
+    expect(snapshot.files.get(view.staged[0]!.changeId)).toEqual({
+      repoPath: '/worktrees/api', path: 'src/staged.ts', status: 'added', group: 'staged',
+    });
+    expect(snapshot.files.get(view.unstaged[0]!.changeId)).toEqual({
+      repoPath: '/worktrees/api', path: 'src/unstaged.ts', status: 'deleted', group: 'unstaged',
+    });
+    expect(snapshot.files.get(view.untracked[0]!.changeId)).toEqual({
+      repoPath: '/worktrees/api', path: 'src/untracked.ts', status: 'added', group: 'untracked',
+    });
+    expect(snapshot.files.size).toBe(4);
+  });
+
+  it('keeps the files map empty for a worktree that failed to inspect', async () => {
+    const snapshot = await buildTicketChangesSnapshot(
+      7,
+      [firstSpec],
+      async () => { throw new Error('nope'); },
+      () => 'g',
+    );
+
+    expect(snapshot.files.size).toBe(0);
+  });
+
+  it('defaults the ticket label to the formatted id and takes the tab title text when given', async () => {
+    const result = inspected(firstSpec, { staged: [file('src/a.ts')] });
+
+    const named = await buildTicketChangesSnapshot(
+      42, [firstSpec], async () => result, () => 'g', undefined, 'T42 · ABC-42 Fix login',
+    );
+    expect(named.state.ticketLabel).toBe('T42 · ABC-42 Fix login');
+  });
+});
+
+describe('authoredLabel', () => {
+  it('formats the ISO instant for people instead of printing it raw (DF-16)', () => {
+    const format = new Intl.DateTimeFormat('en-GB', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: 'UTC',
+    });
+
+    expect(authoredLabel('2026-07-30T10:00:00Z', format)).toBe('30 Jul 2026, 10:00');
+  });
+
+  it('renders in the reader default locale and zone, never as the raw ISO string', () => {
+    expect(authoredLabel('2026-07-30T10:00:00Z')).not.toContain('T10:00');
+  });
+
+  it('hands back an unparseable value instead of showing Invalid Date', () => {
+    expect(authoredLabel('not a date')).toBe('not a date');
   });
 });

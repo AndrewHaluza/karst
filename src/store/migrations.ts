@@ -3124,9 +3124,17 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 136) {
-    // v136: `servers.last_error` — the short reason a row is `failed` ("Port 3000 in use by pid 4123", "Exited unexpectedly"). `recordFailedStart` and the liveness sweep's `markServerCrashed` write it; a successful start writes NULL (@arch:SERVERS-PANEL). Additive; NULL for every pre-v136 row (no backfill: the old reason was never stored).
-    const serverCols136 = tableColumns(db, 'servers');
-    if (serverCols136.size > 0 && !serverCols136.has('last_error')) db.exec('ALTER TABLE servers ADD COLUMN last_error TEXT');
+    // v136: `usage_limit_parks.reset_at`, `carry_provider`, `carry_model`, `carry_until` — the parsed reset instant and the opt-in carried pick (T1313, @arch:AC-65). Additive; NULL = unknown reset / one-shot pick (no backfill).
+    const parkCols136 = tableColumns(db, 'usage_limit_parks');
+    for (const col of ['reset_at', 'carry_provider', 'carry_model', 'carry_until']) {
+      if (parkCols136.size > 0 && !parkCols136.has(col)) db.exec(`ALTER TABLE usage_limit_parks ADD COLUMN ${col} TEXT`);
+    }
+  }
+
+  if (current < 137) {
+    // v137: `servers.last_error` — the short reason a row is `failed` ("Port 3000 in use by pid 4123", "Exited unexpectedly"). `recordFailedStart` and the liveness sweep's `markServerCrashed` write it; a successful start writes NULL (@arch:SERVERS-PANEL). Additive; NULL for every pre-v136 row (no backfill: the old reason was never stored).
+    const serverCols137 = tableColumns(db, 'servers');
+    if (serverCols137.size > 0 && !serverCols137.has('last_error')) db.exec('ALTER TABLE servers ADD COLUMN last_error TEXT');
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

@@ -71,7 +71,10 @@ const LITERAL_BUDGET: Record<string, number> = {
   // to prevent) — commented in webview.html and pinned by the dashboard's own
   // px allowlist test.
   dashboard: 24,
-  diffs: 1,
+  // 2, not 1: the two tier conditions `@media (max-width: 699px)` (narrow) and
+  // `(max-width: 399px)` (tight, @ui:RD-TIERS). A media condition cannot read a
+  // custom property, so the canonical edges are the only literal form.
+  diffs: 2,
   // 4, not 0: the layout B′ tier breakpoints (@container 999/699/399 + the
   // 700px label-left query) — a container condition cannot read a custom property.
   ticketForm: 4,
@@ -79,7 +82,11 @@ const LITERAL_BUDGET: Record<string, number> = {
   // (max-width: 699px)` — a container condition cannot read a custom property,
   // the same exemption ticketForm/gettingStarted take (@ui:RD-TIERS).
   settings: 1,
-  sidebar: 0,
+  // 1, not 0: the ticket row shows its hover tools only from the narrow tier
+  // (`@container (min-width: 400px)`, SB-8/@ui:RD-TIERS). A container condition
+  // cannot read a custom property, so the canonical tier edge is the only
+  // literal form; webview.test.ts pins that one query and the token-only rest.
+  sidebar: 1,
   // 2, not 0: the two @container tier conditions (`699px` narrow, `399px`
   // tight, @ui:RD-TIERS). A container condition cannot read a custom property,
   // so the canonical edges are the only literal form; every other dimension

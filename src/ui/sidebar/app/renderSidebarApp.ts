@@ -30,6 +30,8 @@ export interface RenderedSidebar {
   receive(message: SidebarHostMessage): Promise<void>;
   settle(): Promise<void>;
   click(target: Element | string): Promise<void>;
+  /** Click the twistie of every collapsed Planning session that has drafts (sessions start collapsed). */
+  expandPlans(): Promise<void>;
   key(target: Element | string, key: string, init?: KeyboardEventInit): Promise<void>;
   contextMenu(target: Element | string): Promise<void>;
   /** Every message the page posted, oldest first. */
@@ -117,6 +119,13 @@ export async function renderSidebarApp(opts?: { nowMs?: number }): Promise<Rende
     async contextMenu(target) {
       node(target).dispatchEvent(new handle.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
       await settle();
+    },
+    async expandPlans() {
+      const ids = handle.queryAll('.pt-twistie:not(.leaf)[data-expanded="false"]').map((t) => t.getAttribute('data-plan-toggle'));
+      for (const id of ids) {
+        node(`.pt-twistie[data-plan-toggle="${id}"]`).dispatchEvent(new handle.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+        await settle();
+      }
     },
     query: (selector) => handle.query(selector),
     queryAll: (selector) => handle.queryAll(selector),
