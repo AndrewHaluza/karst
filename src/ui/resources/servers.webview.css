@@ -22,7 +22,10 @@
 .rpanel{container-type:inline-size}
 
 /* ---- Servers tab ------------------------------------------------------ */
-.stats-servers{margin-bottom:var(--k-space-6)}
+/* `.stats` (webview.html) sets its own 8 px bottom margin and comes later in the
+   document, so the section gap needs both classes: the between-section gap must be
+   larger than any gap inside a section (the `.smain` 12 px grid gap, @ui:UI-R42). */
+.stats.stats-servers{margin-bottom:var(--k-space-7)}
 .smain{display:grid;gap:var(--k-space-6);margin-bottom:var(--k-space-6)}
 
 .group{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
@@ -39,7 +42,7 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 .ghead-ticket .count{margin-left:var(--k-space-0)}
 .gtitle{margin:0;font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);min-width:0;flex:1 1 auto;
   display:flex;align-items:baseline;gap:var(--k-space-4);flex-wrap:wrap}
-.gtitle .tkey{font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
+.gtitle .tkey{font-family:var(--k-font-mono);font-size:var(--k-text-xs);overflow-wrap:anywhere;min-width:0}
 .gtitle .gname{font-weight:var(--k-weight-normal);overflow-wrap:anywhere;min-width:0}
 .gmeta{display:flex;align-items:center;gap:var(--k-space-4);color:var(--k-text-dim);font-size:var(--k-text-xs)}
 .gmeta .stage{text-transform:uppercase;letter-spacing:.04em;font-size:var(--k-text-2xs)}
@@ -66,7 +69,9 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 /* A failed row still names its port, dimmed: the address is not reachable (RS-2). */
 .saddr-dim{color:var(--k-text-dim)}
 /* On a ticket row the address itself opens the server (RS-15, @ui:SG-25). */
-.saddr-link{background:transparent;border:0;padding:var(--k-space-0);margin:var(--k-space-0);
+/* A link-styled verb is still a control: its box keeps the small control height
+   so the hit area does not collapse to the glyphs (@ui:UI-R53). */
+.saddr-link{display:block;min-height:var(--k-control-h-sm);background:transparent;border:0;padding:var(--k-space-0);margin:var(--k-space-0);
   font:inherit;font-family:var(--k-font-mono);color:var(--k-link);cursor:pointer;text-align:left;
   overflow-wrap:anywhere;min-width:0;border-radius:var(--k-radius-xs)}
 .saddr-link:hover{color:var(--k-link-active);text-decoration:underline}
@@ -87,6 +92,9 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 
 /* status mark: shape AND word (UI-R28) */
 .smark{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);white-space:nowrap}
+/* The in-flight mark turns, and a rotated box needs room for its diagonal: without
+   the padding the spinner's visual box escapes its inline parent by ~2 px (@ui:UI-R45). */
+.smark:has(.smark-busy){padding:var(--k-space-2)}
 .smark-running{color:var(--k-success)}
 .smark-starting,.smark-stopping{color:var(--k-text-dim)}
 .smark-stopped{color:var(--k-text-dim)}
@@ -97,7 +105,10 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 .smark-busy{display:inline-block;animation:k-smark-turn var(--k-dur-spin) linear infinite}
 @keyframes k-smark-turn{to{transform:rotate(360deg)}}
 
-.chip-branch,.chip-kept{font-size:var(--k-text-2xs);border-radius:var(--k-radius-pill);
+/* Inline-blocks so the pill's vertical padding stays inside its line box, and they
+   break a long branch name instead of escaping the row (hostile labels). */
+.chip-branch,.chip-kept{display:inline-block;max-width:100%;overflow-wrap:anywhere;
+  font-size:var(--k-text-2xs);border-radius:var(--k-radius-pill);
   padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);color:var(--k-text-dim)}
 .chip-branch{font-family:var(--k-font-mono)}
 .chip-kept{color:var(--k-success);border-color:var(--k-success)}

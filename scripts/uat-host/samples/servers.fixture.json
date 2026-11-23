@@ -1,0 +1,34 @@
+{
+  "tickets": [
+    {
+      "key": "UAT-SERVERS-1",
+      "title": "Servers, Resources and Server logs fixture",
+      "description": "A ticket whose servers cover the three states the Servers tab and the Server logs panel must show: a live service, a start refused by a taken port, and a log over the 2 MiB read cap.",
+      "stageCurrent": "impl",
+      "worktree": true
+    }
+  ],
+  "servers": [
+    {
+      "ticket": "UAT-SERVERS-1",
+      "service": "api",
+      "status": "running",
+      "port": 4000,
+      "logBytes": 2048
+    },
+    {
+      "ticket": "UAT-SERVERS-1",
+      "service": "web",
+      "status": "failed",
+      "port": 3000,
+      "lastError": "Port 3000 in use by pid 4123"
+    },
+    {
+      "ticket": "UAT-SERVERS-1",
+      "service": "worker",
+      "status": "running",
+      "port": 4100,
+      "logBytes": 3145728
+    }
+  ]
+}

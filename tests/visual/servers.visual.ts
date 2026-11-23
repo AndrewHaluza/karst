@@ -53,7 +53,10 @@ test.describe('Servers tab geometry (UI-R43/R45/R47)', () => {
         expect(geo.sideways, 'horizontal page scroll').toBeLessThanOrEqual(1);
         expect(geo.scrollers, 'nested scroll containers').toEqual([]);
         if (geo.toolbar) expect(geo.main!.y).toBeGreaterThanOrEqual(geo.toolbar.y + geo.toolbar.h - TOLERANCE);
-        expect(geo.footer!.y).toBeGreaterThanOrEqual(geo.main!.y + geo.main!.h - TOLERANCE);
+        // RS-18: the footer (legend + project actions) renders only when there is
+        // something to act on, so the empty tab has no footer to order.
+        if (scenario === 'servers-none') expect(geo.footer, 'a footer on the empty tab').toBeNull();
+        else expect(geo.footer!.y).toBeGreaterThanOrEqual(geo.main!.y + geo.main!.h - TOLERANCE);
       });
     }
   }

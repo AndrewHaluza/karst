@@ -12,6 +12,13 @@ export interface LogLine {
   service: string;
   /** The line's OWN timestamp if it starts with one, else null. */
   ts: string | null;
+  /**
+   * The timestamp that ORDERS this line when it has none of its own: the next
+   * stamped line's, else the previous one's, else null. A line karst wrote
+   * itself (the "[Earlier output not shown: …]" marker) carries no stamp, and
+   * sorting it after every stamped line put it at the END of the log (T1317).
+   */
+  order?: string | null;
   /** Arrival order within the surface; the tiebreak when `ts` is null. */
   seq: number;
   /** The line with every escape sequence removed — what search matches on. */
@@ -187,7 +194,7 @@ export function toLogLines(service: string, text: string, startSeq: number): Log
   if (text === '') return [];
   const rawLines = text.split('\n');
   if (rawLines[rawLines.length - 1] === '') rawLines.pop();
-  return rawLines.map((raw, index) => {
+  const lines: LogLine[] = rawLines.map((raw, index) => {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     const plain = stripAnsi(line);
     const ts = parseTimestamp(plain);
@@ -200,6 +207,21 @@ export function toLogLines(service: string, text: string, startSeq: number): Log
       marker: isRunMarker(plain),
     };
   });
+  // An unstamped line keeps the position it was written at: it orders with the
+  // next stamped line (so a leading note stays first), else with the previous one.
+  const next: (string | null)[] = new Array(lines.length);
+  let upcoming: string | null = null;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i]!.ts !== null) upcoming = lines[i]!.ts;
+    next[i] = upcoming;
+  }
+  let previous: string | null = null;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (line.ts !== null) previous = line.ts;
+    line.order = line.ts ?? next[i] ?? previous;
+  }
+  return lines;
 }
 
 /** The lines from the last run marker onward, that marker included. */
@@ -212,9 +234,11 @@ export function currentRun(lines: readonly LogLine[]): LogLine[] {
 
 /** Order by timestamp when both have one, else by sequence. */
 export function compareLines(a: LogLine, b: LogLine): number {
-  if (a.ts !== null && b.ts !== null) return a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0;
-  if (a.ts === null && b.ts === null) return a.seq - b.seq;
-  return a.ts === null ? 1 : -1;
+  const at = a.ts ?? a.order ?? null;
+  const bt = b.ts ?? b.order ?? null;
+  if (at !== null && bt !== null) return at < bt ? -1 : at > bt ? 1 : 0;
+  if (at === null && bt === null) return a.seq - b.seq;
+  return at === null ? 1 : -1;
 }
 
 /** Case-insensitive substring test against the stripped line. */

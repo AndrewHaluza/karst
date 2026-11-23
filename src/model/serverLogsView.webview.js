@@ -206,7 +206,7 @@ var KARST_SERVER_LOGLINE = (function () {
     if (text === '') return [];
     var rawLines = text.split('\n');
     if (rawLines[rawLines.length - 1] === '') rawLines.pop();
-    return rawLines.map(function (raw, index) {
+    var lines = rawLines.map(function (raw, index) {
       var line = raw.slice(-1) === '\r' ? raw.slice(0, -1) : raw;
       var plain = stripAnsi(line);
       var ts = parseTimestamp(plain);
@@ -220,6 +220,23 @@ var KARST_SERVER_LOGLINE = (function () {
         marker: isRunMarker(plain),
       };
     });
+    // An unstamped line keeps the position it was written at: it orders with the
+    // next stamped line (so a leading note stays first), else with the previous
+    // one. Without this the "[Earlier output not shown: …]" marker sorted after
+    // every stamped line and showed at the END of the log (T1317, LG-1).
+    var upcoming = null;
+    var next = [];
+    var i;
+    for (i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].ts !== null) upcoming = lines[i].ts;
+      next[i] = upcoming;
+    }
+    var previous = null;
+    for (i = 0; i < lines.length; i++) {
+      if (lines[i].ts !== null) previous = lines[i].ts;
+      lines[i].order = lines[i].ts !== null ? lines[i].ts : (next[i] !== null ? next[i] : previous);
+    }
+    return lines;
   }
 
   /** The lines from the last run marker onward, that marker included. */
@@ -230,11 +247,13 @@ var KARST_SERVER_LOGLINE = (function () {
     return lines.slice();
   }
 
-  /** Order by timestamp when both have one, else by sequence. */
+  /** Order by timestamp when both have one, else by the line's inherited key, else by sequence. */
   function compareLines(a, b) {
-    if (a.ts !== null && b.ts !== null) return a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0;
-    if (a.ts === null && b.ts === null) return a.seq - b.seq;
-    return a.ts === null ? 1 : -1;
+    var at = a.ts !== null ? a.ts : (a.order !== undefined ? a.order : null);
+    var bt = b.ts !== null ? b.ts : (b.order !== undefined ? b.order : null);
+    if (at !== null && bt !== null) return at < bt ? -1 : at > bt ? 1 : 0;
+    if (at === null && bt === null) return a.seq - b.seq;
+    return at === null ? 1 : -1;
   }
 
   /** Case-insensitive substring test against the stripped line. */

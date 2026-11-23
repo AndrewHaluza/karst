@@ -21,8 +21,12 @@
 
 /* One row per decoded line; the segments inside are the ANSI runs. Wrapping
    breaks anywhere inside an unbroken token (a URL, a hash) rather than pushing
-   the page wide (UI-R45); Wrap off pins the lines and scrolls the log host. */
+   the page wide (UI-R45); Wrap off pins the lines and scrolls the log host.
+   Each run is its own inline box: an inline run that wraps reports the union of
+   its line boxes, which reads as an overlap with the run beside it (the gate's
+   `sibling-overlap`). A box that wraps internally reports one rectangle. */
 .logsview .logline{white-space:pre-wrap;overflow-wrap:anywhere;padding:0 var(--k-space-4)}
+.logsview .logline > span{display:inline-block;max-width:100%}
 .logsview.nowrap .logline{white-space:pre;overflow-wrap:normal}
 .logsview.nowrap .loghost{overflow-x:auto}
 

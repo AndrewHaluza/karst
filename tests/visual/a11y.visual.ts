@@ -48,7 +48,10 @@ const PENDING_PROBE: Partial<Record<ViewId, string>> = {
  * palette (--vscode-terminal-ansi*), which is the user's own terminal theme.
  * Those hues are below WCAG AA against the editor background by design — VS
  * Code's built-in terminal has the same property — so a handful of ANSI
- * foregrounds on the log lines are tolerated, never karst's own tokens.
+ * foregrounds on the log lines are tolerated, never karst's own tokens. T1317
+ * (LG-7) mapped the light and high-contrast foregrounds to the design system's
+ * meaning tokens, so only dark, which keeps the terminal palette (Q8), still
+ * carries an entry.
  *
  * G5: the dashboard/sidebar/usage/resources/gettingStarted visual corpora
  * moved from MINIMAL/neutral seed state to populated production fixtures
@@ -122,8 +125,9 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:button.proc-advanced-link': { ratio: 2.61 },
   'light:button#approachDrawerDelete.k-btn.k-btn--danger': { ratio: 4.27, gap: 'G3' },
   'light:p#leaveModalError.modal-error.hidden': { ratio: 4.27, gap: 'G3' },
-  'light:span.k-ansi-fg-green': { ratio: 2.56, gap: 'G6' },
-  'light:span.k-ansi-fg-yellow': { ratio: 3.11, gap: 'G6' },
+  // T1317 LG-7 removed `light:span.k-ansi-fg-green` (2.56) and
+  // `light:span.k-ansi-fg-yellow` (3.11): the light log foregrounds now map to
+  // --k-success / --k-warning, which clear AA.
   'light:span.full': { ratio: 2.05, gap: 'G5' },
   'light:span.abbr': { ratio: 2.05, gap: 'G5' },
   'light:span.g': { ratio: 2.61, gap: 'G5' },
@@ -155,8 +159,8 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:span#subtaskWaitText': { ratio: 3.12 },
   'light:span.subtaskBlock': { ratio: 2.81 },
   'light:span#subtaskCount.count': { ratio: 2.36, gap: 'G5' },
-  // hc theme
-  'hc:span.k-ansi-fg-red': { ratio: 3.6, gap: 'G6' },
+  // hc theme — T1317 LG-7 removed `hc:span.k-ansi-fg-red` (3.6): the
+  // high-contrast log foregrounds now map to --k-danger, which clears AA.
 };
 
 karstTest.describe('UI-R29 contrast (computed assertion)', () => {

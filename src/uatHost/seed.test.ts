@@ -1,4 +1,7 @@
 import { getPlacement } from '../store/placement.js';
+import { existsSync, mkdtempSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../store/db.js';
 import { getTicketByKey } from '../store/tickets.js';
@@ -100,6 +103,59 @@ describe('seedStore', () => {
     const [id] = seedStore(store, parseFixtureFile({ tickets: [{ key: 'D-2', title: 'd', stageCurrent: 'review', worktree: true }] }), { repoPath: '/ws/repo' });
     const row = store.db.prepare('SELECT repo, path, base_ref FROM worktrees WHERE ticket_id = ?').get(id) as { repo: string; path: string; base_ref: string };
     expect(row).toEqual({ repo: '/ws/repo', path: '/ws/repo/.karst/worktrees/D-2', base_ref: 'main' });
+  });
+});
+
+describe('seedStore servers', () => {
+  const tmpRoot = (): string => mkdtempSync(join(tmpdir(), 'karst-seed-servers-'));
+
+  it('writes a running row from the injected spawner and a failed row with its reason', () => {
+    const repoPath = tmpRoot();
+    const store = openStore(':memory:');
+    const spec = parseFixtureFile({
+      tickets: [{ key: 'T-S', title: 's', stageCurrent: 'impl' }],
+      servers: [
+        { ticket: 'T-S', service: 'api', status: 'running', port: 4000 },
+        { ticket: 'T-S', service: 'web', status: 'failed', port: 3000, lastError: 'Port 3000 in use by pid 4123' },
+      ],
+    });
+    const asked: number[] = [];
+    const [id] = seedStore(store, spec, { repoPath, spawnServer: (port) => { asked.push(port); return 4321; } });
+    expect(asked).toEqual([4000]);
+    expect(store.db.prepare('SELECT repo, host, port, pid, status, last_error, log_path, cwd FROM servers WHERE ticket_id = ? ORDER BY port DESC').all(id))
+      .toEqual([
+        { repo: 'api', host: 'localhost', port: 4000, pid: 4321, status: 'running', last_error: null, log_path: join(repoPath, '.karst', 'logs', 'api.log'), cwd: repoPath },
+        { repo: 'web', host: 'localhost', port: 3000, pid: null, status: 'failed', last_error: 'Port 3000 in use by pid 4123', log_path: join(repoPath, '.karst', 'logs', 'web.log'), cwd: repoPath },
+      ]);
+  });
+
+  it('writes a log of logBytes bytes at the row log path and none without it', () => {
+    const repoPath = tmpRoot();
+    const store = openStore(':memory:');
+    const spec = parseFixtureFile({
+      tickets: [{ key: 'T-L', title: 'l', stageCurrent: 'impl' }],
+      servers: [
+        { ticket: 'T-L', service: 'worker', status: 'running', port: 4100, logBytes: 4096 },
+        { ticket: 'T-L', service: 'api', status: 'running', port: 4000 },
+      ],
+    });
+    seedStore(store, spec, { repoPath, spawnServer: () => 11 });
+    expect(statSync(join(repoPath, '.karst', 'logs', 'worker.log')).size).toBeGreaterThanOrEqual(4096);
+    expect(existsSync(join(repoPath, '.karst', 'logs', 'api.log'))).toBe(false);
+  });
+
+  it('puts a worktree ticket log in its worktree', () => {
+    const repoPath = tmpRoot();
+    const store = openStore(':memory:');
+    const spec = parseFixtureFile({
+      tickets: [{ key: 'T-W', title: 'w', stageCurrent: 'impl', worktree: true }],
+      servers: [{ ticket: 'T-W', service: 'api', status: 'running', port: 4000 }],
+    });
+    const [id] = seedStore(store, spec, { repoPath, spawnServer: () => 12 });
+    const cwd = join(repoPath, '.karst', 'worktrees', 'T-W');
+    expect(store.db.prepare('SELECT cwd, log_path FROM servers WHERE ticket_id = ?').get(id)).toEqual({
+      cwd, log_path: join(cwd, '.karst', 'logs', 'api.log'),
+    });
   });
 });
 

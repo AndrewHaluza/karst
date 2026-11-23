@@ -126,6 +126,20 @@ describe('compareLines', () => {
     expect(compareLines(stamped, unstamped)).toBeLessThan(0);
     expect(compareLines(unstamped, stamped)).toBeGreaterThan(0);
   });
+
+  it('keeps a leading unstamped note before the stamped lines it precedes (T1317, LG-1)', () => {
+    const lines = toLogLines('api', '[Earlier output not shown: 14.2 MB]\n2024-01-02T03:04:05Z a\n2024-01-02T03:04:06Z b', 0);
+    expect([...lines].sort(compareLines).map((l) => l.plain)).toEqual([
+      '[Earlier output not shown: 14.2 MB]',
+      '2024-01-02T03:04:05Z a',
+      '2024-01-02T03:04:06Z b',
+    ]);
+  });
+
+  it('keeps a trailing unstamped line after the stamped one it follows', () => {
+    const lines = toLogLines('api', '2024-01-02T03:04:05Z a\ncontinuation', 0);
+    expect([...lines].sort(compareLines).map((l) => l.plain)).toEqual(['2024-01-02T03:04:05Z a', 'continuation']);
+  });
 });
 
 describe('matchesQuery', () => {

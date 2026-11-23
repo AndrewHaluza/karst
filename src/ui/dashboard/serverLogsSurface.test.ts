@@ -316,6 +316,14 @@ describe('server logs surface — LG-1: the newest output of a large log', () =>
     view.handleInitial([{ service: 'api', content: 'only line\n' }]);
     expect(els.get('logsHost')!.innerHTML).not.toContain('logtrunc');
   });
+
+  it('renders the earlier-output marker above the lines it precedes, not at the end', () => {
+    const { view, els } = bootRuntime();
+    view.handleInitial([{ service: 'api', content: '[Earlier output not shown: 14.2 MB]\n2024-01-02T03:04:05Z newest\n', truncated: true }]);
+    const html = els.get('logsHost')!.innerHTML;
+    expect(html.indexOf('[Earlier output not shown: 14.2 MB]')).toBeGreaterThan(-1);
+    expect(html.indexOf('[Earlier output not shown: 14.2 MB]')).toBeLessThan(html.indexOf('title="2024-01-02T03:04:05Z"'));
+  });
 });
 
 describe('server logs surface — LG-3: no Close in the standalone panel', () => {
