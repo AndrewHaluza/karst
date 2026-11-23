@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildResourcesState, toDiskRows } from './state.js';
+import { attributionText, buildResourcesState, toDiskRows } from './state.js';
 import type { ResourceReading } from '../../runtime/resourceMonitor.js';
 import type { DiskUsage } from '../../runtime/worktreeDisk.js';
 
@@ -77,6 +77,7 @@ describe('buildResourcesState', () => {
       uptimeMs: 100_000,
       uptimeDisplay: '1m 40s',
       attribution: 'attributable',
+      attributionText: 'Proven Karst process',
     });
   });
 
@@ -94,9 +95,24 @@ describe('buildResourcesState', () => {
     expect(state.rows[1]).toMatchObject({
       ticketKey: '',
       cpuPctDisplay: '—',
-      rssDisplay: '0 B',
+      rssDisplay: '—',
+      rssBytes: -1,
       uptimeDisplay: '',
     });
+  });
+
+  it('renders the totals as em-dash when no row has a measured cost (RS-23)', () => {
+    const noCost: ResourceReading = {
+      ...reading,
+      inventory: {
+        ...reading.inventory!,
+        attributed: reading.inventory!.attributed.map((row) => ({ ...row, cost: null })),
+        totals: { rssBytes: 0, cpuPct: null },
+      },
+    };
+    const state = buildResourcesState(noCost, []);
+    expect(state.rssDisplay).toBe('—');
+    expect(state.cpuPctDisplay).toBe('—');
   });
 
   it('renders unattributed rows', () => {
@@ -108,6 +124,8 @@ describe('buildResourcesState', () => {
       rssDisplay: '400.0 MB',
       cpuPctDisplay: '—',
       procCount: 1,
+      rssBytes: 400 * 1024 * 1024,
+      cpuPct: null,
     });
   });
 
@@ -230,15 +248,35 @@ describe('buildResourcesState', () => {
   it('builds the monitor facts lane from the reading', () => {
     const state = buildResourcesState({ ...reading, skipped: 2, fastLane: true }, []);
     const facts = Object.fromEntries(state.facts.map((f) => [f.label, f.value]));
-    expect(facts['Sampling lane']).toBe('Fast · 2s');
+    expect(facts['Samples']).toBe('every 2 s');
+    expect(facts['Recent CPU']).toBe('steady');
     expect(facts['Skipped overlaps']).toBe('2');
     expect(facts['CWD probes']).toBe('1 / 3 · slow lane only');
     expect(facts['Disk lane']).toBe('panel open');
   });
 
+  it('keeps only the sample cadence and the recent trend open; the rest fold into details (RS-24)', () => {
+    const state = buildResourcesState(reading, []);
+    const open = state.facts.filter((f) => f.primary);
+    expect(open.map((f) => f.label)).toEqual(['Samples', 'Recent CPU']);
+    const folded = state.facts.filter((f) => !f.primary).map((f) => f.label);
+    expect(folded).toEqual(['Snapshot cost', 'Skipped overlaps', 'CWD probes', 'Disk lane']);
+  });
+
   it('reports the slow lane when the fast lane is off', () => {
     const state = buildResourcesState({ ...reading, fastLane: false }, []);
-    expect(state.facts.find((f) => f.label === 'Sampling lane')?.value).toBe('Slow · 30s');
+    expect(state.facts.find((f) => f.label === 'Samples')?.value).toBe('every 30 s');
+  });
+});
+
+describe('attributionText', () => {
+  it.each([
+    ['attributable', 'Proven Karst process'],
+    ['dead', 'Karst process ended'],
+    ['foreign', 'Another process owns the pid'],
+    ['unknown', 'Cannot confirm this process'],
+  ] as const)('%s reads as %s', (attribution, word) => {
+    expect(attributionText(attribution)).toBe(word);
   });
 });
 

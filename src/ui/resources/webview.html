@@ -46,6 +46,12 @@
     overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);
     white-space:nowrap;border:var(--k-border-w) solid transparent;
   }
+  /* The trend's text alternative (RS-8): in the accessibility tree, out of the layout. */
+  .sr-only{
+    position:absolute;width:var(--k-space-1);height:var(--k-space-1);
+    margin:calc(var(--k-space-1) * -1);padding:var(--k-space-0);
+    overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;
+  }
 
   .note{border:var(--k-border-w) solid var(--k-warning);border-radius:var(--k-radius-lg);
     padding:var(--k-space-5) var(--k-space-6);margin-bottom:var(--k-space-6);
@@ -91,31 +97,24 @@
   .swRss{background:var(--k-series-1)}
   .scaleNote{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
   .chartWrap{position:relative;height:calc(var(--k-space-9) * 4);background:var(--k-surface-sunken);
-    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);overflow:hidden;
-    --yaxis-w:calc(var(--k-space-9) * 3)}
-  .chartWrap .plot{position:absolute;top:0;right:0;bottom:0;left:var(--yaxis-w);width:auto;
-    height:100%;display:block;overflow:visible}
+    border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);overflow:hidden}
+  .chartWrap .plot{position:absolute;top:0;left:0;width:100%;height:calc(100% - var(--k-space-4));
+    display:block;overflow:visible}
   .series-rss{fill:none;stroke:var(--k-series-1);stroke-width:calc(var(--k-space-1) / 2)}
   .series-cpu{fill:none;stroke:var(--k-series-2);stroke-width:calc(var(--k-space-1) / 2)}
   .series-rss.muted,.series-cpu.muted{opacity:.08}
   .gridline{stroke:var(--k-border);stroke-width:var(--k-border-w);opacity:.5}
   .spark-empty{fill:var(--k-text-faint);font-family:var(--k-font-ui);font-size:var(--k-text-sm)}
-  .chartTicks{position:absolute;left:var(--yaxis-w);bottom:var(--k-space-1);width:calc(100% - var(--yaxis-w));
+  .chartTicks{position:absolute;left:0;bottom:var(--k-space-1);width:100%;
     height:var(--k-space-4);fill:var(--k-text-faint);font-size:var(--k-text-2xs);pointer-events:none;overflow:visible}
   .chartTicks text{dominant-baseline:central}
-  .chartScale{position:absolute;top:var(--k-space-2);left:calc(var(--yaxis-w) + var(--k-space-4));
-    color:var(--k-text-faint);font-size:var(--k-text-2xs);pointer-events:none;display:flex;gap:var(--k-space-5);font-family:var(--k-font-mono)}
-  .chartScale .cpu{color:var(--k-series-2)}
-  .chartScale .rss{color:var(--k-series-1)}
 
-  /* Y-axis labels: one value pair per gridline, sitting in the reserved gutter
-     to the left of the plot. They are SVG text at percentage coordinates (no
-     inline style anywhere in the app). The cpu/rss colors are the series
-     identity, so a muted series dims its own label too (UI-R28 — never an
-     invented label). */
-  .chartY{position:absolute;left:0;top:0;width:var(--yaxis-w);height:100%;pointer-events:none;
-    font-family:var(--k-font-mono);font-size:var(--k-text-2xs);overflow:visible}
-  .chartY .yTick{text-anchor:end;dominant-baseline:central}
+  /* Y-axis labels sit INSIDE the plot band, on their own gridline (RS-8). The
+     sunken fill behind the glyphs keeps both series readable where they cross. */
+  .chartY{position:absolute;left:var(--k-space-2);right:var(--k-space-2);top:0;
+    height:calc(100% - var(--k-space-4));pointer-events:none;font-family:var(--k-font-mono);font-size:var(--k-text-2xs);overflow:visible}
+  .chartY .yTick{text-anchor:start;dominant-baseline:central;paint-order:stroke;
+    stroke:var(--k-surface-sunken);stroke-width:calc(var(--k-border-w) * 3);stroke-linejoin:round}
   .chartY .cpu{fill:var(--k-series-2)}
   .chartY .rss{fill:var(--k-series-1)}
   .chartY .muted{opacity:.25}
@@ -138,6 +137,10 @@
   td{padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--k-border);vertical-align:middle}
   tr:last-child td{border-bottom:none}
   tbody tr:hover{background:var(--k-surface-hover)}
+  /* A sort button inherits its th: same face, weight, tracking and colour; the
+     focus ring is the button primitive's. */
+  th .thsort{font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;
+    min-height:var(--k-space-0);padding:var(--k-space-0);background:none;border:0}
   td.mono{font-family:var(--k-font-mono)}
   td.ellipsis{max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .attrib{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
@@ -165,14 +168,14 @@
   .wrow + .wrow{border-top:var(--k-border-w) solid var(--k-border)}
   .wrow .reason{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .wrow .amt{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none}
-  .wrow .why{color:var(--k-text-faint);font-size:var(--k-text-2xs);flex:none}
+  .wrow .why{color:var(--k-text-dim);font-size:var(--k-text-2xs);flex:none}
   .wrow .k-btn{flex:none}
   .meta{color:var(--k-text-faint);font-size:var(--k-text-2xs)}
 
   .drow{display:grid;grid-template-columns:minmax(0,1fr) var(--k-space-8);gap:var(--k-space-4);padding:var(--k-space-3) 0}
   .drow + .drow{border-top:var(--k-border-w) solid var(--k-border)}
   .drow .path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--k-font-mono);font-size:var(--k-text-md)}
-  .drow .amt{font-family:var(--k-font-mono);font-size:var(--k-text-md);text-align:right;flex:none}
+  .drow .amt{font-family:var(--k-font-mono);font-size:var(--k-text-md);text-align:right;flex:none;white-space:nowrap}
   /* A <progress>: the share is its value, so no element needs an inline width. */
   .diskTrack{display:block;appearance:none;width:100%;height:var(--k-space-2);border:0;
     background:var(--k-surface-sunken);border-radius:var(--k-radius-xs);overflow:hidden}
@@ -180,6 +183,37 @@
   .diskTrack::-webkit-progress-value{background:var(--k-series-1);border-radius:var(--k-radius-xs)}
   .diskTrack::-moz-progress-bar{background:var(--k-series-1);border-radius:var(--k-radius-xs)}
   .measure-row{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-3)}
+
+  /* Monitor details (RS-24): only the cadence and the recent trend stay open. */
+  .factDetails{border-top:var(--k-border-w) solid var(--k-border);padding-top:var(--k-space-1)}
+  .factDetails > summary{cursor:pointer;color:var(--k-text-dim);font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-2)}
+  .panel > .k-empty{margin:var(--k-space-5) var(--k-space-6)}
+
+  /* Tier rules (@ui:RD-TIERS, RS-11). The tier is stamped on `.rview` from
+     `layoutBreakpoints.tierFor` over a ResizeObserver, so the boundaries stay in
+     that one source instead of a raw container length (UI-R04). */
+  .rview{min-width:0}
+  /* narrow ≤699: priority-3 columns (Procs, Up, Attribution) are hidden. */
+  .rview[data-tier="narrow"] [data-priority="3"],
+  .rview[data-tier="tight"] [data-priority="3"]{display:none}
+  .rview[data-tier="narrow"] th,.rview[data-tier="narrow"] td{padding-left:var(--k-space-3);padding-right:var(--k-space-3)}
+  /* tight ≤399: each table row is a card of label: value pairs (@ui:RD-VIEWS). */
+  .rview[data-tier="tight"] .tscroll{overflow-x:visible}
+  .rview[data-tier="tight"] thead{display:none}
+  .rview[data-tier="tight"] table,.rview[data-tier="tight"] tbody,
+  .rview[data-tier="tight"] tr,.rview[data-tier="tight"] td{display:block;width:auto;max-width:none}
+  .rview[data-tier="tight"] tbody tr{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    padding:var(--k-space-3) var(--k-space-4);margin-bottom:var(--k-space-3)}
+  .rview[data-tier="tight"] tbody tr:last-child{margin-bottom:var(--k-space-0)}
+  .rview[data-tier="tight"] td{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);
+    gap:var(--k-space-4);align-items:baseline;padding:var(--k-space-1) var(--k-space-0);
+    border:0;text-align:left;white-space:normal;overflow:visible}
+  .rview[data-tier="tight"] td::before{content:attr(data-label);color:var(--k-text-dim);
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em}
+  .rview[data-tier="tight"] .utable td.cmd{max-width:none;overflow:visible;white-space:normal}
+  .rview[data-tier="tight"] .ticketCell .ttitle{max-width:none;white-space:normal}
+  .rview[data-tier="tight"] .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rview[data-tier="tight"] .stat .v{font-size:var(--k-text-xl)}
 </style>
 
 <div id="root"></div>

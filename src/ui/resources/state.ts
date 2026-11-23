@@ -44,6 +44,12 @@ export interface ResourceRowView {
   uptimeMs: number | null;
   uptimeDisplay: string;
   attribution: Attribution;
+  /**
+   * The host's word for the attribution lane (`Proven Karst process`, RS-22).
+   * Optional only so a hand-written fixture that predates RS-22 still typechecks;
+   * the builder always sets it and the view falls back to `attribution`.
+   */
+  attributionText?: string;
 }
 
 export interface UnknownRowView {
@@ -52,6 +58,10 @@ export interface UnknownRowView {
   rssDisplay: string;
   cpuPctDisplay: string;
   procCount: number;
+  /** Raw RSS bytes for sorting (RS-21); `-1` when unmeasured, which sorts last. */
+  rssBytes?: number;
+  /** Raw CPU percent for sorting (RS-21); `null` when unmeasured. */
+  cpuPct?: number | null;
 }
 
 export interface WasteRowView {
@@ -101,6 +111,8 @@ export interface VmOverheadView {
 export interface MonitorFact {
   label: string;
   value: string;
+  /** Shown in the open lane; the rest fold into the closed "Monitor details" (RS-24). */
+  primary?: boolean;
 }
 
 export interface ResourcesState {
@@ -155,6 +167,20 @@ export function formatBytes(bytes: number): string {
   if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${bytes} B`;
+}
+
+/** The host's word for one attribution (RS-22). It and the row mark agree. */
+export function attributionText(attribution: Attribution): string {
+  switch (attribution) {
+    case 'attributable':
+      return 'Proven Karst process';
+    case 'dead':
+      return 'Karst process ended';
+    case 'foreign':
+      return 'Another process owns the pid';
+    default:
+      return 'Cannot confirm this process';
+  }
 }
 
 /** `—` for an unmeasured tree, never a coerced 0 (Key Decision 1). */
@@ -274,19 +300,23 @@ export function buildResourcesState(
   const rows: ResourceRowView[] = (inventory?.attributed ?? []).map((row) => {
     const up = uptimeMs(row.cost?.startedMs ?? null, takenMs);
     const identity = row.ticketId === null ? undefined : lifecycle.get(row.ticketId);
+    const cost = row.cost;
     return {
       ticketKey: identity?.key ?? '',
       ticketTitle: identity?.title ?? '',
       label: row.label ?? '',
       pid: row.pid,
-      cpuPct: row.cost?.cpuPct ?? null,
-      cpuPctDisplay: percent(row.cost?.cpuPct ?? null),
-      rssBytes: row.cost?.rssBytes ?? 0,
-      rssDisplay: formatBytes(row.cost?.rssBytes ?? 0),
-      procCount: row.cost?.procCount ?? 0,
+      cpuPct: cost?.cpuPct ?? null,
+      cpuPctDisplay: percent(cost?.cpuPct ?? null),
+      // A missing cost is "not measured", not zero (RS-23): `—`, and -1 so it
+      // sorts last without pretending to be a size.
+      rssBytes: cost ? cost.rssBytes : -1,
+      rssDisplay: cost ? formatBytes(cost.rssBytes) : '—',
+      procCount: cost?.procCount ?? 0,
       uptimeMs: up,
       uptimeDisplay: formatUptime(up),
       attribution: row.attribution,
+      attributionText: attributionText(row.attribution),
     };
   });
 
@@ -296,6 +326,8 @@ export function buildResourcesState(
     rssDisplay: formatBytes(row.cost.rssBytes),
     cpuPctDisplay: percent(row.cost.cpuPct),
     procCount: row.cost.procCount,
+    rssBytes: row.cost.rssBytes,
+    cpuPct: row.cost.cpuPct,
   }));
 
   const waste: WasteRowView[] = reading.waste.map((f) => ({
@@ -308,6 +340,8 @@ export function buildResourcesState(
   }));
 
   const totals = inventory?.totals ?? { rssBytes: 0, cpuPct: null };
+  // "0 B" would read as a measured zero; nothing attributed is no reading (RS-23).
+  const measured = (inventory?.attributed ?? []).some((row) => row.cost !== null);
   const recentCpu = reading.history
     .map((s) => s.totals.cpuPct)
     .filter((v): v is number => v !== null)
@@ -320,7 +354,7 @@ export function buildResourcesState(
     supported: reading.supported,
     degraded: reading.degraded,
     totals,
-    rssDisplay: formatBytes(totals.rssBytes),
+    rssDisplay: measured ? formatBytes(totals.rssBytes) : '—',
     cpuPctDisplay: percent(totals.cpuPct),
     rows,
     unknown,
@@ -341,12 +375,12 @@ export function buildResourcesState(
       : null,
     containersDegraded: reading.containersDegraded ?? false,
     facts: [
-      { label: 'Sampling lane', value: reading.fastLane ? 'Fast · 2s' : 'Slow · 30s' },
+      { label: 'Samples', value: reading.fastLane ? 'every 2 s' : 'every 30 s', primary: true },
+      { label: 'Recent CPU', value: trendWord, primary: true },
       { label: 'Snapshot cost', value: '1 × ps' },
       { label: 'Skipped overlaps', value: String(reading.skipped) },
       { label: 'CWD probes', value: `${cwdProbes} / ${MAX_CWD_PROBES_PER_TICK} · slow lane only` },
       { label: 'Disk lane', value: 'panel open' },
-      { label: 'Recent CPU', value: trendWord },
     ],
   };
 }
