@@ -6,15 +6,26 @@ import { DASHBOARD } from './overlayStack.js';
 const proc = (id: string, over: Record<string, unknown> = {}) => ({ id, label: id, status: 'pass', console: true, ...over });
 const insideViews = {
   uat: { stageKey: 'uat', title: 'UAT', console: true, processes: [proc('gates', { console: false, status: 'fail' }), proc('tester', { label: 'Tester', time: '12:01', statusLabel: 'Completed' })] },
-  review: { stageKey: 'review', title: 'Review', processes: [proc('reviewer', { console: false })] },
+  review: { stageKey: 'review', title: 'Review', console: true, processes: [proc('review', { label: 'Review' })] },
 };
 const st = (over: Record<string, unknown> = {}): DashboardState => ({ artifacts: [], servers: [], insideViews, envOverrides: null, ...over }) as unknown as DashboardState;
 
 describe('consoleStreams', () => {
   it('lists the stage console and each console-capable process, with a status word and age', () => {
     expect(consoleStreams(insideViews as never)).toEqual([
-      { stage: 'uat', processId: null, label: 'UAT', status: 'fail', word: 'Failed', age: '' },
+      { stage: 'uat', processId: null, label: 'UAT gates', status: 'fail', word: 'Failed', age: '' },
       { stage: 'uat', processId: 'tester', label: 'UAT · Tester', status: 'pass', word: 'Completed', age: '12:01' },
+      { stage: 'review', processId: null, label: 'Review', status: 'pending', word: 'Pending', age: '' },
+      { stage: 'review', processId: 'review', label: 'Review agent', status: 'pass', word: 'Passed', age: '' },
+    ]);
+  });
+  it('keeps the plain view label when the stage has no gates process, and names other process streams in full', () => {
+    const views = {
+      review: { stageKey: 'review', title: 'Review', console: true, processes: [proc('tester', { label: 'Tester' })] },
+    };
+    expect(consoleStreams(views as never)).toEqual([
+      { stage: 'review', processId: null, label: 'Review', status: 'pending', word: 'Pending', age: '' },
+      { stage: 'review', processId: 'tester', label: 'Review · Tester', status: 'pass', word: 'Passed', age: '' },
     ]);
   });
   it('is empty without views', () => expect(consoleStreams(undefined)).toEqual([]));
@@ -26,7 +37,7 @@ describe('viewPills', () => {
   });
   it('shows every pill with its count when all targets exist', () => {
     const pills = viewPills(st({ artifacts: [{ id: 'a' }], servers: [{}, {}], envOverrides: { services: [], values: {} } }));
-    expect(pills.map((p) => [p.key, p.count])).toEqual([['dashboard', null], ['artifacts', 1], ['console', 2], ['logs', 2], ['env', null]]);
+    expect(pills.map((p) => [p.key, p.count])).toEqual([['dashboard', null], ['artifacts', 1], ['console', 4], ['logs', 2], ['env', null]]);
   });
   it('hides Env variables without servers', () => {
     expect(viewPills(st({ envOverrides: { services: [], values: {} } })).some((p) => p.key === 'env')).toBe(false);

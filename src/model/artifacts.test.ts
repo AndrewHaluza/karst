@@ -183,6 +183,89 @@ describe('buildTicketArtifacts', () => {
     expect(a.findings[0]).toMatchObject({ severity: 'high', file: 'src/a.ts' });
     expect(a.metrics.some((m) => m.label === 'high' && m.value === '1')).toBe(true);  });
 
+  it('reads an unreadable latest Review run as unknown, with output unreadable as its summary', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'blocked', '2026-08-01T09:00:00.000Z', null);
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 0, repo: '/wt/web' }],
+    });
+    const run = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(
+      store,
+      run.id,
+      'failed',
+      '2026-08-01T09:20:00.000Z',
+      'unreadable-output',
+      null,
+      'unreadable output from /wt/web — no findings could be read',
+    );
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a).toMatchObject({ status: 'unknown', summary: 'output unreadable' });
+  });
+
+  it('keeps a red gate visible as failed beside an unreadable Review run', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'failed', '2026-08-01T09:00:00.000Z', '2026-08-01T09:30:00.000Z');
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 1, repo: '/wt/web' }],
+    });
+    const run = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      processId: 'review',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(store, run.id, 'failed', '2026-08-01T09:20:00.000Z', 'unreadable-output');
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.status).toBe('failed');
+    expect(a.summary).toBe('0 passed · 1 failed');
+  });
+
+  it('does not count the advisory coverage record as a finding', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T09:30:00.000Z');
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T09:10:00.000Z',
+      gates: [{ gateName: 'lint', exitCode: 0, repo: '/wt/web' }],
+    });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T09:20:00.000Z',
+      findings: [
+        {
+          severity: 'info',
+          repo: '/wt/web',
+          title: 'COVERAGE (reported): PASS — checked the lane',
+          detail: '',
+          source: 'agent',
+        },
+      ],
+    });
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a).toMatchObject({ status: 'passed', summary: '1 passed · 0 failed' });
+    expect(a.findings).toEqual([]);
+    expect(a.metrics.some((m) => m.label === 'info')).toBe(false);
+  });
+
   it('a review with no findings and passing gates is passed', () => {
     const t = ticket({ stageCurrent: 'review' });
     stage(t.id, 'review', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T09:30:00.000Z');
@@ -262,6 +345,43 @@ describe('buildTicketArtifacts', () => {
     const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
     expect(a.findings).toHaveLength(1);
     expect(a.findings[0]).toMatchObject({ severity: 'info', title: 'Login flow renders', file: 'src/login.ts', line: 12 });
+  });
+
+  it('reads an unreadable latest Tester run as unknown, and ignores its coverage record', () => {
+    const t = ticket({ stageCurrent: 'uat' });
+    stage(t.id, 'uat', 'blocked', '2026-08-01T09:00:00.000Z', null);
+    uatGates(t.id, [{ name: 'test', exitCode: 0 }]);
+    const run = openProcessRun(store, {
+      ticketId: t.id,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: 0,
+      startedAt: '2026-08-01T09:05:00.000Z',
+    });
+    finishProcessRun(
+      store,
+      run.id,
+      'failed',
+      '2026-08-01T09:55:00.000Z',
+      'unreadable-output',
+      null,
+      'output unreadable',
+    );
+    recordUatFindings(store, {
+      ticketId: t.id,
+      processRunId: run.id,
+      createdAt: '2026-08-01T09:50:00.000Z',
+      findings: [
+        {
+          severity: 'info',
+          repo: '/wt/web',
+          title: 'COVERAGE (reported): NOT RUN — the answer was unreadable',
+        },
+      ],
+    });
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a).toMatchObject({ status: 'unknown', summary: 'output unreadable' });
+    expect(a.findings).toEqual([]);
   });
 
   it('names the gate-lane AI process whose console the report can open', () => {

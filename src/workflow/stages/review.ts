@@ -832,11 +832,10 @@ export async function runReview(
   // returns `blocked`/`capability-missing`, not a failed verdict — R6b never
   // sets `crashes` either (no call threw). Left unhandled, this fell through to
   // the `else` branch and recorded a run whose only answer was unreadable as
-  // `passed`/`validated`, contradicting the block. There is no dedicated
-  // "unreadable" result kind in this closed vocabulary — an unreadable answer
-  // is, for the process run's purposes, the same failure to produce anything
-  // usable as a thrown call, so it is recorded the same way: `failed`/
-  // `execution-failed`.
+  // `passed`/`validated`, contradicting the block. The run is recorded as
+  // `unreadable-output`, never as `execution-failed`: an unreadable answer
+  // blocks, it does not fail (UI-R14; arch:REVIEW R6b). A crash or a usage
+  // limit still closes `execution-failed`.
   const crashes: readonly string[] =
     findingsLane.kind === 'ran' ? (findingsLane.crashes ?? []) : [];
   const unreadableTargets: readonly string[] =
@@ -875,6 +874,7 @@ export async function runReview(
       // result. Retry review." — which pointed T694's reader at a retry when the
       // answer was present and the parser had dropped it.
       const uniqueCrashes = [...new Set(crashes)];
+      const unreadableOnly = unreadableBlock && uniqueCrashes.length === 0;
       const failureDetail =
         usageLimited && findingsLane.kind === 'usage-limited'
           ? findingsLane.detail
@@ -888,10 +888,11 @@ export async function runReview(
         processRunId,
         'failed',
         now(),
-        'execution-failed',
+        unreadableOnly ? 'unreadable-output' : 'execution-failed',
         artifactPath,
         failureDetail,
       );
+
     } else if (blocking) {
       finishProcessRun(store, processRunId, 'failed', now(), 'blocking', artifactPath);
     } else {

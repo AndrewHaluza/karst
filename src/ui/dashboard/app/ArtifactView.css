@@ -9,6 +9,7 @@
 .art-status.failed{color:var(--k-failed)}
 .art-status.attention{color:var(--k-attention)}
 .art-status.info{color:var(--k-pending)}
+.art-status.unknown{color:var(--k-pending)}
 .art-stale{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;color:var(--k-attention)}
 /* The detail's stale banner sits under the summary, not inline-styled. */
 .artdetail .art-stale-note{text-transform:none;letter-spacing:normal;margin-top:var(--k-space-3)}
