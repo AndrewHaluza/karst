@@ -49,4 +49,11 @@ describe('Status', () => {
     const marker = screen.getByRole('img', { name: 'Running' });
     expect(marker.querySelector('.k-spinner')).toBeTruthy();
   });
+
+  it('let the caller name the domain state (SB-1), still with no visible word', () => {
+    render(<Status kind="attention" label="Needs you" />);
+    const marker = screen.getByRole('img', { name: 'Needs you' });
+    expect(marker.textContent).toBe('⏸');
+    expect(marker.classList.contains('k-status--attention')).toBe(true);
+  });
 });

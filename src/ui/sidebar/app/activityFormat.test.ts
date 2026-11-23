@@ -18,6 +18,11 @@ describe('activity format', () => {
     expect(older).not.toBe('Yesterday');
     expect(older).toMatch(/3/);
   });
+  it('moves Today to Yesterday when the clock crosses midnight (SB-17)', () => {
+    const created = iso(at(2026, 11, 19, 23, 30));
+    expect(dayLabel(created, at(2026, 11, 19, 23, 59))).toBe('Today');
+    expect(dayLabel(created, at(2026, 11, 20, 0, 1))).toBe('Yesterday');
+  });
   it('returns empty text for a bad time', () => {
     expect(dayLabel('nope', now)).toBe('');
     expect(timeText('nope')).toBe('');
@@ -39,8 +44,8 @@ describe('activity format', () => {
     expect(matchesLevel(row(1, now, 'info'), 'problems')).toBe(false);
     expect(matchesLevel(row(1, now, 'info'), 'all')).toBe(true);
   });
-  it('counts new rows first, else the total', () => {
-    expect(activityCount(3, 10)).toBe('3 new');
+  it('counts new rows first, else the total (SB-17)', () => {
+    expect(activityCount(3, 10)).toBe('10 · 3 new');
     expect(activityCount(0, 10)).toBe('10');
     expect(activityCount(0, 0)).toBe('0');
   });

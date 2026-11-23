@@ -23,7 +23,7 @@ describe('Activity pane', () => {
     const panes = h.queryAll('[data-pane]').map((p) => p.getAttribute('data-pane'));
     expect(panes.indexOf('activity')).toBe(panes.indexOf('tickets') + 1);
     expect(text(h.query('[data-pane="activity"] .pane-title'))).toBe('Activity');
-    expect(text(h.query('[data-pane="activity"] .pane-count'))).toBe('2 new');
+    expect(text(h.query('[data-pane="activity"] .pane-count'))).toBe('4 · 2 new');
     expect(h.query('[data-pane="activity"] .pane-toggle')!.getAttribute('aria-expanded')).toBe('false');
     expect(h.query('[data-activity-row]')).toBeNull();
   });
@@ -42,7 +42,8 @@ describe('Activity pane', () => {
     const first = h.query('[data-activity-row="8"]')!;
     expect(first.getAttribute('data-unread')).toBe('true');
     expect(first.querySelector('.a-lvl--error')).not.toBeNull();
-    expect(first.querySelector('.k-ticket-ref')).not.toBeNull();
+    expect(text(first.querySelector('.a-ref'))).toBe('T900001');
+    expect(first.querySelector('.k-ticket-ref')).toBeNull();
     expect(text(first.querySelector('.a-title'))).toBe('Autopilot: auto-fix stopped after 3 rounds');
     expect(text(first.querySelector('.a-time'))).toMatch(/^\d\d:\d\d$/);
     expect(first.getAttribute('aria-label')).toContain('unread');
@@ -84,6 +85,7 @@ describe('Activity pane', () => {
     const h = await mount(fixture('empty'));
     await open(h);
     expect(text(h.query('[data-region="activity"]'))).toBe(ACTIVITY_EMPTY_TEXT);
+    expect(h.query('[data-pane="activity"] [data-pane-empty]')).not.toBeNull();
     expect(h.query('[data-activity-filter-menu]')).toBeNull();
   });
 
@@ -100,6 +102,27 @@ describe('Activity pane', () => {
     await h2.click('[data-activity-filter-menu]');
     await h2.click('[data-activity-level="problems"]');
     expect(text(h2.query('[data-region="activity"]'))).toBe(ACTIVITY_NO_MATCH_TEXT);
+  });
+
+  it('keeps the level in the webview view state and counts shown / total (SB-9)', async () => {
+    const h = await mount(fixture('activity'));
+    await open(h);
+    await h.click('[data-activity-filter-menu]');
+    await h.click('[data-activity-level="problems"]');
+    expect(text(h.query('[data-pane="activity"] .pane-count'))).toBe('2 / 4');
+    expect((h.handle.state as { view: { activityLevel: string } }).view.activityLevel).toBe('problems');
+    await h.receive({ type: 'reveal-activity' });
+    expect(text(h.query('[data-pane="activity"] .pane-count'))).toBe('2 / 4');
+  });
+
+  it('names Mark all read and uses the shared checks glyph (SB-15)', async () => {
+    const h = await mount(fixture('activity'));
+    const button = h.query('[data-activity-mark-all]')!;
+    expect(button.getAttribute('aria-label')).toBe('Mark all read');
+    const win = h.handle.window as unknown as { karstIcon(name: string, size: number): string };
+    const tmp = h.document.createElement('div');
+    tmp.innerHTML = win.karstIcon('checks', 13);
+    expect(button.querySelector('svg')!.innerHTML).toBe(tmp.querySelector('svg')!.innerHTML);
   });
 
   it('reveal-activity expands the pane', async () => {

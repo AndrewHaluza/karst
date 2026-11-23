@@ -3537,12 +3537,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const t = getTicket(localStore, ticketId);
       statusBar.render({
         ticketId,
-        key: formatTicketRef(ticketId, t.key),
+        // The bar formats the ref once (SB-4); the caller passes the raw key.
+        key: t.key ?? '',
         stage: t.stageCurrent ?? 'none',
-        state: t.agentState ?? 'none',
         glyph: ticketGlyph(t),
       });
-    } catch {
+    } catch (err) {
+      logError('karst: status bar render failed', err);
       statusBar.render(null);
     }
   };

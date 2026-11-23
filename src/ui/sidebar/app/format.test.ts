@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SUBTASK_DEPTH } from '../../../workflow/stages/subtask.js';
 import { FACETS } from '../facets.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
 import { sidebarRenderFixtures } from '../renderFixtures.js';
 import type { QueueRowView, SidebarState, TicketRow } from '../state.js';
-import { EMPTY_STATE, FACET_META, MAX_SUBTASK_INDENT, allRows, findRow, metaLine, relTime, visibleRows, withStateDefaults } from './format.js';
+import { EMPTY_STATE, FACET_META, GLYPH_STATUS, MAX_SUBTASK_INDENT, allRows, findRow, metaLine, relTime, sinceText, visibleRows, withStateDefaults } from './format.js';
+import type { StatusKind } from '../../shared/Status.js';
+
+const GLYPHS = ['gray', 'blue', 'amber', 'green', 'red'] as const;
 
 const fixtures = sidebarRenderFixtures();
 const baseRow = fixtures.find((f) => f.scenario === 'all-sections')!.state.sections.current[0]!;
@@ -18,6 +22,29 @@ describe('MAX_SUBTASK_INDENT', () => {
 describe('FACET_META', () => {
   it('lists every host facet once, in the host order', () => {
     expect(FACET_META.map((f) => f.key)).toEqual(FACETS.map((f) => f.key));
+  });
+
+  it('reads each state label from GLYPH_WORD, so the facet names one state (SB-13)', () => {
+    const label = (key: string) => FACET_META.find((f) => f.key === key)!.label;
+    expect(label('running')).toBe(GLYPH_WORD.blue);
+    expect(label('input')).toBe(GLYPH_WORD.amber);
+    expect(label('failed')).toBe(GLYPH_WORD.red);
+    expect(label('done')).toBe(GLYPH_WORD.green);
+    expect(label('failed')).toBe('Failed');
+  });
+});
+
+describe('GLYPH_STATUS', () => {
+  it('gives each glyph its own status marker, so hue is never the only carrier (SB-1, UI-R28)', () => {
+    const kinds: StatusKind[] = GLYPHS.map((g) => GLYPH_STATUS[g]);
+    expect(new Set(kinds).size).toBe(GLYPHS.length);
+    expect(GLYPH_STATUS).toEqual({
+      gray: 'pending',
+      blue: 'running',
+      amber: 'attention',
+      green: 'passed',
+      red: 'failed',
+    });
   });
 });
 
@@ -38,6 +65,16 @@ describe('relTime', () => {
   });
   it('treats a future timestamp as just now, never a negative age', () => {
     expect(relTime(new Date(now + 60_000).toISOString(), now)).toBe('just now');
+  });
+  it('reads the calendar date from 30 days, with the year once it is a year old (SB-20)', () => {
+    const clock = Date.parse('2026-02-10T12:00:00.000Z');
+    const daysAgo = (days: number): string => new Date(clock - days * 86_400_000).toISOString();
+    expect(relTime(daysAgo(1), clock)).toBe('1d ago');
+    expect(relTime(daysAgo(40), clock)).toBe('Jan 1');
+    expect(relTime(daysAgo(400), clock)).toBe('Jan 6, 2025');
+    expect(sinceText({ at: daysAgo(1), kind: 'for' }, clock)).toBe('for 1d');
+    expect(sinceText({ at: daysAgo(40), kind: 'for' }, clock)).toBe('since Jan 1');
+    expect(sinceText({ at: daysAgo(400), kind: 'for' }, clock)).toBe('since Jan 6, 2025');
   });
 });
 

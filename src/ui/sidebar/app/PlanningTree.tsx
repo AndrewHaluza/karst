@@ -5,16 +5,17 @@
  * never post. Status colour is never alone — the word is in each item's
  * aria-label and tooltip (UI-R28).
  */
-import { useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent } from 'react';
+import { useLayoutEffect, useRef, type MouseEvent } from 'react';
 import type { PlanningRow } from '../state.js';
 import { priorityMenuItem } from './priority.js';
 import { Icon } from './Icon.js';
 import { PlanControl, PlanDraft } from './PlanDraft.js';
 import { acceptedOf, actionsForNode, draftOf, planIsOpen, planStatus, searchRevealsAccepted, sessionActions, shownDrafts } from './planModel.js';
 import { ds } from './runtime.js';
+import { Status } from '../../shared/Status.js';
 import { useSidebar, type MenuItem } from './SidebarContext.js';
+import { useRovingTree } from './useRovingTree.js';
 
-const itemsOf = (root: HTMLElement): HTMLElement[] => [...root.querySelectorAll<HTMLElement>('[role="treeitem"]')];
 const ownRow = (item: HTMLElement): Element | null => item.querySelector(':scope > .pt-row');
 const primaryOf = (item: HTMLElement): HTMLElement | null => ownRow(item)?.querySelector<HTMLElement>('[data-primary]') ?? null;
 
@@ -42,7 +43,7 @@ function AcceptedToggle({ plan, revealed }: { readonly plan: PlanningRow; readon
         if (!revealed) setPlanOpen(plan.sessionId, true);
       }}
     >
-      {n} accepted {revealed ? '▾' : '▸'}
+      {n} accepted <span className="pt-accepted-chev" aria-hidden="true"><Icon name="chevron-right" size={12} /></span>
     </button>
   );
 }
@@ -72,7 +73,7 @@ function Session({ plan, stop }: { readonly plan: PlanningRow; readonly stop: st
         <span className={`pt-twistie${drafts.length ? '' : ' leaf'}`} data-plan-toggle={plan.sessionId} data-expanded={open} aria-hidden="true">
           <Icon name="chevron-right" size={12} />
         </span>
-        <span className={`pt-dot pt-dot--${st.tone}`} aria-hidden="true" />
+        <Status kind={st.tone} label={st.word} />
         <span className="pt-label">{plan.idLabel} {plan.title}</span>
         {all.length ? <span className="pt-count" aria-hidden="true">{all.length}</span> : null}
         <AcceptedToggle plan={plan} revealed={revealed} />
@@ -96,28 +97,19 @@ export function PlanningTree({ plans }: { readonly plans: readonly PlanningRow[]
   const query = state.filter || '';
   const shownOf = (p: PlanningRow) => shownDrafts(p, revealedFor(p, acceptedOpen, query));
   const openOf = (p: PlanningRow) => planIsOpen(p, planOpen, searchRevealsAccepted(p, query));
-  const tree = useRef<HTMLDivElement | null>(null);
   const reveal = useRef<string | null>(null);
 
-  // The tab stop is the focused node when it is still on screen, else the first item.
+  // The visible nodes: sessions and the drafts of the open ones, in document order.
   const nodes = plans.flatMap((p) => [
     `s${p.sessionId}`,
     ...(shownOf(p).length && openOf(p) ? shownOf(p).map((d) => `d${Number(d.id)}`) : []),
   ]);
-  const stop = planFocus !== null && nodes.includes(planFocus) ? planFocus : (nodes[0] ?? null);
-
-  const focusItem = (item: HTMLElement | null | undefined): void => {
-    if (!item) return;
-    setPlanFocus(item.dataset.node ?? null);
-    item.focus();
-  };
 
   const setExpanded = (item: HTMLElement, open: boolean): void => {
     const id = Number((item.dataset.node ?? '').slice(1));
     const p = plans.find((x) => x.sessionId === id);
     if (!p || !shownOf(p).length) return;
     setPlanOpen(p.sessionId, open);
-    focusItem(item);
   };
 
   // The context menu lists every action of the item, in row order, reusing the shared context window.
@@ -186,32 +178,15 @@ export function PlanningTree({ plans }: { readonly plans: readonly PlanningRow[]
     openPlanMenu(item);
   };
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
-    const item = e.target as HTMLElement;
-    if (!item.matches || !item.matches('[role="treeitem"]') || !tree.current) return;
-    const items = itemsOf(tree.current);
-    const at = items.indexOf(item);
-    const level = item.getAttribute('aria-level');
-    const exp = item.getAttribute('aria-expanded');
-    let handled = true;
-    if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') openPlanMenu(item);
-    else if (e.key === 'ArrowDown') focusItem(items[at + 1]);
-    else if (e.key === 'ArrowUp') focusItem(items[at - 1]);
-    else if (e.key === 'Home') focusItem(items[0]);
-    else if (e.key === 'End') focusItem(items[items.length - 1]);
-    else if (e.key === 'ArrowRight') {
-      if (exp === 'false') setExpanded(item, true);
-      else if (exp === 'true') focusItem(item.querySelector<HTMLElement>('[role="treeitem"]'));
-    } else if (e.key === 'ArrowLeft') {
-      if (exp === 'true') setExpanded(item, false);
-      else if (level === '2') focusItem(item.parentElement?.closest<HTMLElement>('[role="treeitem"]'));
-    } else if (e.key === 'Enter') primaryOf(item)?.click();
-    else handled = false;
-    if (handled) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  };
+  // The shared roving tree (@ui:UI-R09): the tab stop, arrows and the menu key.
+  const { tree, stop, focusItem, onKeyDown } = useRovingTree({
+    nodes,
+    focus: planFocus,
+    setFocus: setPlanFocus,
+    onMenu: openPlanMenu,
+    onPrimary: (item) => primaryOf(item)?.click(),
+    onExpand: setExpanded,
+  });
 
   return (
     <>

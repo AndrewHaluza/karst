@@ -29,8 +29,25 @@ export const PALETTE_TOKENS = {
   failed: 'var(--vscode-charts-red, #f14c4c)',
 } as const;
 
-/** `--k-attention-fg`: readable text tone of the attention amber, per theme. */
-export const ATTENTION_FG = { dark: '#f0c400', light: '#6f4f02' } as const;
+/**
+ * `--k-<state>-fg`: the readable tone of each status glyph, per theme (UI-R28 / UI-R28b, UI-R29).
+ *
+ * The semantic tokens above are the user's theme chart hues, and a chart hue is a border/fill colour: on the
+ * sidebar surface the pending gray reads 3.33:1 (dark) and 1.71:1 (light charts-lines), the failed red 4.29:1,
+ * and the light passed green 4.32:1 — below the 4.5:1 a text glyph needs. `.k-status` paints a character, so it
+ * uses these tones: the same hue, lightened or darkened until it clears AA on the row surface. The hc surface is
+ * black, where the dark tones clear as well.
+ */
+export const STATUS_FG = {
+  pending: { dark: '#8b949e', light: '#5f5f5f' },
+  running: { dark: '#3794ff', light: '#0062a3' },
+  attention: { dark: '#f0c400', light: '#6f4f02' },
+  passed: { dark: '#4bb64b', light: '#0f7b4f' },
+  failed: { dark: '#f85149', light: '#c72e0f' },
+} as const;
+
+/** The attention tone predates the five-glyph ramp and is quoted by name (needs-you chip text). */
+export const ATTENTION_FG = STATUS_FG.attention;
 
 /** Placeholder swapped for the palette block; sits inside each webview's `<style>`. */
 export const PALETTE_MARKER = '/*KARST_PALETTE*/';
@@ -43,11 +60,15 @@ export function paletteCss(): string {
     `--k-pending:${t.pending};` +
     `--k-running:${t.running};` +
     `--k-attention:${t.attention};` +
-    // Text tone for amber on its own 30% wash (needs-you chip); the amber itself
-    // is a border/fill color and fails 4.5:1 as small text. Dark is the base.
-    `--k-attention-fg:${ATTENTION_FG.dark};` +
     `--k-passed:${t.passed};` +
     `--k-failed:${t.failed};` +
+    // The glyph tones (UI-R29): a chart hue is a fill colour, not small text. Dark is the base; the light
+    // block below overrides each one (the light chart gray is the worst at 1.71:1).
+    `--k-pending-fg:${STATUS_FG.pending.dark};` +
+    `--k-running-fg:${STATUS_FG.running.dark};` +
+    `--k-attention-fg:${STATUS_FG.attention.dark};` +
+    `--k-passed-fg:${STATUS_FG.passed.dark};` +
+    `--k-failed-fg:${STATUS_FG.failed.dark};` +
     // The findings severity ramp — ONE definition for the inside block's
     // evidence rows and the Artifacts panel's finding cards. Before this the
     // two surfaces mapped the same five levels differently (Artifacts drew
@@ -67,9 +88,14 @@ export function paletteCss(): string {
     '--st-running:var(--k-running);--st-input:var(--k-attention);--st-failed:var(--k-failed);' +
     '--st-done:var(--k-passed);--st-pending:var(--k-pending);' +
     '}' +
+    `body.vscode-light{` +
+    `--k-pending-fg:${STATUS_FG.pending.light};` +
+    `--k-running-fg:${STATUS_FG.running.light};` +
+    `--k-attention-fg:${STATUS_FG.attention.light};` +
+    `--k-passed-fg:${STATUS_FG.passed.light};` +
+    `--k-failed-fg:${STATUS_FG.failed.light}}` +
     // The stage ramp ships through the same marker: one injection point, so a
     // webview cannot end up with status colors but no stage colors.
-    `body.vscode-light{--k-attention-fg:${ATTENTION_FG.light}}` +
     stagePaletteCss()
   );
 }

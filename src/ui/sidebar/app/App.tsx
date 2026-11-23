@@ -1,27 +1,45 @@
 /**
  * Root component for the ticket-list sidebar webview.
  *
- * The page is an app shell, not a scrolling document: the toolbar and search box
- * stay pinned and the ONLY things that scroll are the two pane bodies, each on
- * its own (UI-R38). The app decides NOTHING about ticket state — every label, count,
+ * The page is an app shell, not a scrolling document: the search box stays
+ * pinned and the ONLY things that scroll are the pane bodies, each on its own
+ * (UI-R38). The app decides NOTHING about ticket state — every label, count,
  * section and next action arrives host-derived in the `state` snapshot (state.ts)
  * — and it keeps only view state (which rows are expanded, collapsed sub-trees,
  * the history disclosure, the Planning tree's focus, collapsed panes), none of which reaches the
  * host. `data-karst-ready` is set after the first commit so `renderWebviewReady`
  * knows React has mounted into `#root`.
+ *
+ * The resource monitor, token usage and settings handoffs live in the view title
+ * menu (`package.json` `view/title` for `karst.tickets`), not in a second toolbar
+ * row (SB-7). One fixed error line sits above the panes when the host cannot build
+ * the snapshot (SB-2).
  */
 import { useEffect, useMemo } from 'react';
 import { ContextMenu } from './ContextMenu.js';
 import { pageHostBridge, type SidebarHostBridge } from './hostBridge.js';
 import { SearchBox } from './SearchBox.js';
-import { SidebarProvider } from './SidebarContext.js';
+import { SidebarProvider, useSidebar } from './SidebarContext.js';
 import { PlanningPane } from './PlanningPane.js';
 import { QueuePane } from './QueuePane.js';
 import { TicketsPane } from './TicketsPane.js';
 import { ActivityPane } from './ActivityPane.js';
-import { Toolbar } from './Toolbar.js';
 
 const READY_ATTR = ['data', 'karst', 'ready'].join('-');
+
+/** The host could not read the tickets: one fixed line and a Retry (SB-2). */
+function ErrorLine() {
+  const { error, post } = useSidebar();
+  if (!error) return null;
+  return (
+    <div className="sidebar-error" data-sidebar-error="1" role="alert" title={error}>
+      <span className="sidebar-error-text">Karst cannot read the tickets.</span>
+      <button type="button" className="k-btn k-btn--secondary sidebar-error-retry" onClick={() => post({ type: 'refresh' })}>
+        Retry
+      </button>
+    </div>
+  );
+}
 
 export function App({ bridge }: { readonly bridge?: SidebarHostBridge }) {
   useEffect(() => {
@@ -31,8 +49,8 @@ export function App({ bridge }: { readonly bridge?: SidebarHostBridge }) {
   const host = useMemo(() => bridge ?? pageHostBridge(), [bridge]);
   return (
     <SidebarProvider bridge={host}>
-      <Toolbar />
       <SearchBox />
+      <ErrorLine />
       <div className="panes" id="panes">
         <PlanningPane />
         <QueuePane />

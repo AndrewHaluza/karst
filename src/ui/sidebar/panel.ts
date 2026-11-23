@@ -1,7 +1,8 @@
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import type { LogError } from '../../logging/logger.js';
-import { buildSidebarState } from './state.js';
+import { reasonText } from '../../model/notifyText.js';
+import { buildSidebarState, type SidebarState } from './state.js';
 import { ACTIVITY_PAGE, buildActivity } from './activity.js';
 import {
   parseSidebarMessage,
@@ -222,23 +223,36 @@ export class SidebarViewManager {
     this.resetActivityLimitOnProjectChange();
     const now = this.options.now ?? (() => performance.now());
     const t0 = now();
-    const state = buildSidebarState(
-      this.store,
-      {
-        facets: this.facets,
-        filter: this.filter,
-        labelTemplate: this.labelTemplate?.(),
-        defaultProvider: this.defaultProvider?.(),
-        manifest: this.manifest?.(),
-        activeTicketId: this.activeTicketId?.(),
-        projectId: this.projectId?.(),
-        activityLimit: this.activityLimit,
-        ...(this.planningLive ? { planningLive: this.planningLive } : {}),
-        ...(this.artifactCount ? { artifactCount: this.artifactCount } : {}),
-        ...(this.options.planningArtifactCount ? { planningArtifactCount: this.options.planningArtifactCount } : {}),
-      },
-      this.pathContext?.(),
-    );
+    let state: SidebarState;
+    try {
+      state = buildSidebarState(
+        this.store,
+        {
+          facets: this.facets,
+          filter: this.filter,
+          labelTemplate: this.labelTemplate?.(),
+          defaultProvider: this.defaultProvider?.(),
+          manifest: this.manifest?.(),
+          activeTicketId: this.activeTicketId?.(),
+          projectId: this.projectId?.(),
+          activityLimit: this.activityLimit,
+          ...(this.planningLive ? { planningLive: this.planningLive } : {}),
+          ...(this.artifactCount ? { artifactCount: this.artifactCount } : {}),
+          ...(this.options.planningArtifactCount ? { planningArtifactCount: this.options.planningArtifactCount } : {}),
+        },
+        this.pathContext?.(),
+      );
+    } catch (err) {
+      // A snapshot the host cannot build is a visible state, not a blank page
+      // (SB-2): log the real error and name the fixed line the webview shows.
+      // Dropping the last-posted cache makes the next successful build post even
+      // when it equals the state from before the failure, so the view can clear
+      // the error line.
+      this.logError('karst: sidebar state build failed', err);
+      this.lastPosted = undefined;
+      view.postMessage({ type: 'error', message: reasonText(err) });
+      return;
+    }
     const t1 = now();
     const serialized = JSON.stringify(state);
     const same = !force && serialized === this.lastPosted;

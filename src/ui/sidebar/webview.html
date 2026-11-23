@@ -21,8 +21,8 @@
   *{box-sizing:border-box}
   /* The view is an app shell, not a scrolling document: html/body fill the
      view, body is a non-scrolling column, and the ONLY thing that scrolls is
-     the two pane bodies (UI-R38). The toolbar/search stay pinned — on a
-     long list they used to scroll away with the rows, leaving the filters
+     a pane body (UI-R38). The search box and the pane headers stay pinned — on
+     a long list they used to scroll away with the rows, leaving the filters
      and controls unreachable at the bottom. */
   body{
     margin:0;padding:0;
@@ -33,8 +33,8 @@
     font-size:var(--k-text-base);
   }
   html,body{height:100%}
-  /* The React mount point adds no box: the toolbar, search and panes stay
-     direct flex children of body, exactly as the page laid them out before. */
+  /* The React mount point adds no box: the search line, the error line and the
+     panes stay direct flex children of body, as the page laid them out before. */
   #root{display:contents}
 
   /* The resize edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO). VS Code owns the
@@ -49,21 +49,27 @@
   html[data-edge="right"] body{box-shadow:inset calc(-1 * var(--k-border-w)) 0 0 0 var(--k-border)}
   html[data-edge="left"] body{box-shadow:inset var(--k-border-w) 0 0 0 var(--k-border)}
 
-  /* toolbar */
-  .toolbar{display:flex;align-items:center;gap:var(--k-space-1);padding:var(--k-space-3) var(--k-space-4);
-    border-bottom:var(--k-border-w) solid var(--k-border);flex:0 0 auto}
-  .toolbar .sp{flex:1}
-
   /* search */
   .search{position:relative;margin:var(--k-space-4) var(--k-space-4) var(--k-space-3);flex:0 0 auto}
   .search-icon{position:absolute;left:var(--k-space-3);top:50%;transform:translateY(-50%);
-    color:var(--k-text-faint)}
-  .search-input{width:100%;padding-left:var(--k-space-9)}
+    color:var(--k-text-dim)}
+  .search-input{width:100%;padding-left:var(--k-space-9);padding-right:calc(var(--k-space-9) + var(--k-space-2))}
+  /* The clear control is a hit target: 24 px, not the 20 px icon token (SB-9, @ui:RD-TIERS rule 6). */
+  .search-clear{position:absolute;right:0;top:50%;transform:translateY(-50%);
+    width:var(--k-hit-min);height:var(--k-hit-min);min-width:var(--k-hit-min);min-height:var(--k-hit-min)}
 
-  /* panes: Planning and Tickets share the height under the search box. Each
-     header is always visible; each body scrolls on its own. Planning is capped
-     at ~40% while open with content, Tickets takes the rest, and a collapsed
-     pane gives its height to the other. */
+  /* One fixed line above the panes when the host cannot build the snapshot (SB-2).
+     The reason is the tooltip; the line and the Retry are always the same. */
+  .sidebar-error{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3);
+    margin:0 var(--k-space-4) var(--k-space-3);padding:var(--k-space-2) var(--k-space-3);flex:0 0 auto;
+    border:var(--k-border-w) solid var(--k-danger);border-radius:var(--k-radius-md);font-size:var(--k-text-xs)}
+  .sidebar-error-text{min-width:0;overflow-wrap:anywhere}
+  .sidebar-error-retry{flex:none}
+
+  /* panes: every open pane sizes to its content; Tickets is the one pane that
+     takes the remaining height (Q1, SB-7). Each header is always visible; each
+     body scrolls on its own. Planning is capped at ~40%, Queue at ~30%, Activity
+     at ~40%. A pane whose count is 0 folds to its header (Pane.tsx). */
   .panes{flex:1;min-height:0;display:flex;flex-direction:column}
   .pane{display:flex;flex-direction:column;min-height:0;flex:0 0 auto}
   .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:40%}
@@ -71,7 +77,10 @@
   .panes:has(.pane[data-pane="tickets"][data-collapsed="true"]) .pane[data-pane="planning"]:not([data-collapsed="true"]){flex:1 1 0;max-height:none}
   /* Queue pane: open it takes about 30% of the height and scrolls on its own; a collapsed pane hands its height to the others. */
   .pane[data-pane="queue"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:30%}
-  .pane[data-pane="activity"]:not([data-collapsed="true"]){flex:0 1 auto;max-height:40%}
+  /* Activity keeps at least three rows while open (SB-7): the pane does not shrink
+     and the body floor is three row heights; only its own body scrolls. */
+  .pane[data-pane="activity"]:not([data-collapsed="true"]){flex:0 0 auto;max-height:40%}
+  .pane[data-pane="activity"]:not([data-collapsed="true"]) .pane-body{min-height:calc(3 * var(--k-hit-min))}
   .pane + .pane{border-top:var(--k-border-w) solid var(--k-border);margin-top:var(--k-space-4)}
   .pane-head{display:flex;align-items:center;gap:var(--k-space-1);padding:0 var(--k-space-2) 0 var(--k-space-2);flex:0 0 auto;
     min-height:calc(var(--k-space-8) + var(--k-space-2))}
@@ -87,11 +96,22 @@
   .pane-acts .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
   /* The pane body is the host region for the stage word tier: full when wide, the stage key when narrow (@ui:UI-R49). */
   .pane-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--k-space-1) 0;container-type:inline-size}
-  .pane-empty{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-xs)}
+  .pane-empty{padding:var(--k-space-2) var(--k-space-4);color:var(--k-text-dim);font-size:var(--k-text-xs)}
+  /* One empty shape for every pane (SB-11): a dim title, an optional hint and action. */
+  .pane-empty .k-empty-title{margin:0;color:var(--k-text-dim);font-size:var(--k-text-xs);font-weight:var(--k-weight-regular)}
+  .pane-empty .k-empty-hint,.pane-empty .k-empty-action{margin-top:var(--k-space-1);font-size:var(--k-text-xs)}
+  /* A cold start paints the loaded layout with three row-height bars, never the
+     empty text (@ui:UI-R46, SB-2). Static marks do not move under reduced motion. */
+  .pane-skel{display:flex;flex-direction:column;gap:var(--k-space-1);padding:var(--k-space-2) var(--k-space-4)}
+  .pane-skel-bar{display:block;height:var(--k-hit-min);border-radius:var(--k-radius-sm);background:var(--k-surface-hover)}
   .pane-attention{min-height:var(--k-hit-min);display:block;width:calc(100% - 2 * var(--k-space-4));margin:0 var(--k-space-4) var(--k-space-2);padding:var(--k-space-1) var(--k-space-3);
     background:none;border:0;text-align:left;font:inherit;font-size:var(--k-text-xs);color:var(--k-text-dim);cursor:pointer;
     border-radius:var(--k-radius-md)}
   .pane-attention:hover{background:var(--vscode-list-hoverBackground)}
+  /* The active-filter line under the Tickets header (SB-9): "Showing: <preset> · Clear". */
+  .filter-line{display:flex;align-items:center;gap:var(--k-space-2);padding:0 var(--k-space-4) var(--k-space-2);
+    font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .filter-line-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .filter-menu{position:relative;display:inline-flex}
   .filter-menu .k-iconbtn{position:relative}
   .filter-dot{position:absolute;top:var(--k-space-1);right:var(--k-space-1);width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-pill);background:var(--k-attention)}
@@ -102,6 +122,8 @@
   .filter-pop [role="menuitemradio"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
   .pt-accepted-toggle{min-height:var(--k-hit-min);background:none;border:0;padding:0 var(--k-space-2);color:var(--k-text-dim);font:inherit;font-size:var(--k-text-2xs);cursor:pointer;white-space:nowrap}
   .pt-accepted-toggle:hover{color:var(--k-text)}
+  .pt-accepted-chev{display:inline-flex;vertical-align:middle;transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  .pt-accepted-toggle[aria-expanded="true"] .pt-accepted-chev{transform:rotate(90deg)}
 
   /* rows */
   /* flex:1 + min-height:0: the list is the one flex child allowed to shrink
@@ -114,6 +136,8 @@
     padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) 0;
     border-radius:var(--k-radius-md);position:relative;overflow:hidden}
   .row:hover{background:var(--k-surface-hover)}
+  /* The row is the treeitem (SB-6): one tab stop, a visible focus ring. */
+  .ticket [role="treeitem"]:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
   /* The row whose ticket view (dashboard/edit/diffs) is the window's ACTIVE
      view. "Currently active" is its own meaning, deliberately NOT the
      selection wash (STYLE-GUIDE §10): `--k-surface-selected` says "this item
@@ -126,24 +150,6 @@
   .ticket.active .row::before{content:"";position:absolute;left:0;top:var(--k-space-2);
     bottom:var(--k-space-2);width:calc(var(--k-border-w) * 2);
     border-radius:var(--k-radius-pill);background:var(--k-focus)}
-  /* The pending spinner replaces only the status dot — not the whole glyph —
-     so the karst mark stays visible and the row never shifts. The dot hides
-     and a same-size spinner takes its place (same absolute position). */
-  .glyph .sdot-spin{
-    display:none;position:absolute;right:calc(-1 * var(--k-space-2));bottom:calc(-1 * var(--k-space-2));
-    width:var(--k-space-3);height:var(--k-space-3);
-    border:var(--k-spinner-w) solid currentColor;border-top-color:transparent;
-    border-radius:var(--k-radius-circle);animation:k-spin var(--k-dur-spin) linear infinite}
-  /* The rowopen control IS the button that carries aria-busy (karstBeginPending),
-     and the glyph lives inside it — so the spinner swap is pure CSS on that
-     state, no MutationObserver needed. */
-  .rowopen[aria-busy="true"] .glyph .sdot{display:none}
-  .rowopen[aria-busy="true"] .glyph .sdot-spin{display:block}
-  /* The sidebar's rows spin their OWN dot — the generic `.k-btn[aria-busy]::before`
-     spinner (a leading flex icon) must not push the glyph aside as well. Scoped
-     to `.rowopen`, never `.k-btn--row`: the diffs view's file rows share that
-     class and their ONLY pending indicator is the generic ::before spinner. */
-  .rowopen[aria-busy="true"]::before{content:none}
 
   /* Override .k-iconbtn padding — the prototype chevron has zero inset. The
      min-width/min-height stay at the .k-iconbtn defaults (--k-hit-min) so the
@@ -184,23 +190,12 @@
     text-align:left;color:inherit}
   .rowopen:hover,.rowopen:focus-visible{color:inherit;text-decoration:none}
 
-  /* The row marker is the karst logo tinted by the status glyph: the mark is
-     drawn with fill="currentColor", so the g-* classes below set `color` and
-     the palette stays the single source (no per-view hex). Sized by the SVG's
-     own width/height attributes, not CSS. */
-  .glyph{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
+  /* The row marker is now the shared `.k-status` primitive (model/designComponents):
+     a shape per state, tinted by the shared status token. `.glyph` still wraps the
+     completed row's check-in-ring, and the `g-*` classes below stay because that
+     ring uses them. */
+  .glyph{display:inline-flex;align-items:center;flex:0 0 auto}
   .glyph svg{display:block}
-  /* Status dot on the mark: the tint alone is easy to miss at this size against
-     a themed sidebar, so the state also gets a shape. Ringed in the sidebar
-     background so it reads as an overlay, not part of the logo. */
-  .glyph .sdot{position:absolute;right:calc(-1 * var(--k-space-2));bottom:calc(-1 * var(--k-space-2));
-    width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);
-    background:currentColor;
-    box-shadow:0 0 0 calc(var(--k-border-w) * 1.5) var(--vscode-sideBar-background,var(--vscode-editor-background))}
-  /* Pending reads as absence: a hollow ring, not a filled dot. */
-  .glyph.g-gray .sdot{background:transparent;
-    box-shadow:0 0 0 calc(var(--k-border-w) * 1.5) var(--vscode-sideBar-background,var(--vscode-editor-background));
-    border:calc(var(--k-border-w) * 1.5) solid currentColor}
   .g-blue{color:var(--k-running)}
   .g-amber{color:var(--k-attention)}
   .g-red{color:var(--k-failed)}
@@ -224,7 +219,11 @@
   .refs-more:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .refs-list{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-4);margin:var(--k-space-1) 0 var(--k-space-2);padding:var(--k-space-2) var(--k-space-4);list-style:none;border-left:calc(var(--k-border-w) * 2) solid var(--k-border)}
   .refs-list[hidden]{display:none}
-  .name{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
+  /* `position` contains the sr-only copy: its 1x1 box stays inside this cell's clip, never the row's scroll width. */
+  .name{position:relative;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--k-text-md)}
+  /* The full text of an ellipsized name, for assistive tech only (@ui:UI-R44, SB-3). The visible copy is
+     aria-hidden, so the title is announced once. */
+  .sr-only{position:absolute;width:var(--k-border-w);height:var(--k-border-w);padding:0;margin:calc(var(--k-border-w) * -1);overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   /* Follow-up marker: says "this is a sub-task of <key>" without stealing row
      width. Capped at a share of the row with its own ellipsis — a long parent
      key must trim itself (full key stays in the tooltip), never starve the
@@ -278,41 +277,42 @@
      the two disclosures never look alike. Still a SEPARATE control (UI-R09:
      two independent disclosures are two buttons). */
   .subchev{margin-left:auto;flex:0 0 auto}
-  /* Actions overlay the row's right edge on hover so showing them never reflows
-      the row. The stage pill hides under them (same slot) to avoid overlap. The
-      cluster backs itself with the SOLID --k-surface (not the translucent
-      --k-surface-hover wash the row uses): the row's own text passes underneath
-      on narrow rows, and a translucent backdrop would let it show through the
-      icon buttons and read as a UI defect (UI-R05). The row's overflow:hidden
-      clips the name text at the row boundary so it never bleeds under the
-      actions overlay on narrow rows. */
-  .rowacts{display:none;gap:var(--k-space-1);position:absolute;right:var(--k-space-3);top:50%;
+  /* The row's always-visible More menu sits in flow at the row end (SB-8); the
+     other quick tools (Session, Pause/Resume) are an absolute overlay that only
+     the narrow tier shows. The overlay backs itself with the SOLID --k-surface
+     (not the translucent --k-surface-hover wash the row uses): the row's own text
+     passes underneath, and a translucent backdrop would let it show through the
+     icon buttons and read as a UI defect (UI-R05). The row's overflow:hidden
+     clips the name text at the row boundary so it never bleeds past it. */
+  .rowmore{display:inline-flex;flex:0 0 auto}
+  .rowacts{display:none;gap:var(--k-space-1);position:absolute;right:calc(var(--k-space-3) + var(--k-hit-min));top:50%;
     transform:translateY(-50%);background:var(--k-surface);border-radius:var(--k-radius-sm);
     padding-left:var(--k-space-2);opacity:0;pointer-events:none}
-  /* display:none until the row is hovered or holds focus: the overlay must not
-     sit over the row's open button in the resting layout (layout-sanity
-     sibling-overlap), and focus-within keeps it keyboard-reachable. */
-  .row:hover .rowacts,.row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
-  /* On a row that carries a sub-tree collapse control, the hover strip starts
-     one control-width further left. Both live in the row's right-edge slot —
-     the strip is absolute, `.subchev` is in flow — so without the shift the
-     strip's solid surface and hit area cover the chevron on hover, leaving the
-     collapse control unclickable with a pointer (NDL-86). */
-  .row:has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min))}
-  .row:hover .stage{opacity:0}
+  /* The quick tools need room: below the narrow tier's 400 px the row keeps only
+     More (SB-8); from 400 px up they appear on hover or focus. focus-within keeps
+     them keyboard-reachable, and the resting layout never carries them. */
+  @container (min-width: 400px){
+    .row:hover .rowacts,.row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
+  }
+  /* Archived rows have no More menu, so restore/delete stay in flow at every
+     width: they must never be reachable only by hover. */
+  .rowacts--static{display:flex;position:static;transform:none;opacity:1;pointer-events:auto;
+    padding-left:0;background:none}
+  /* The overlay starts left of the in-flow controls on the right (sub-tree
+     collapse, cloud links and the always-visible More), so it never covers one. */
+  .row:has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * 2)}
   /* Cloud-session icon links (arch:CLOUD-01): in flow at the row's right edge,
      always visible; the absolute hover strip starts that many controls further
      left (--cloud-n is the session count, stamped on the row) so it never covers them. */
   .cloudlinks{display:flex;flex:0 0 auto}
-  .row:has(.cloudlinks) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * var(--cloud-n,1))}
-  .row:has(.cloudlinks):has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 1))}
-  /* A session with no ticket has no expanded body to carry its actions, so its strip is also keyboard-reachable. */
-  .cloudrow .row:focus-within .rowacts{opacity:1;pointer-events:auto}
+  .row:has(.cloudlinks) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 1))}
+  .row:has(.cloudlinks):has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 2))}
+  /* A session with no ticket has no More menu (so no always-visible control), so
+     its strip keeps showing on hover/focus at every width: it is the row's action. */
+  .cloudrow .row:hover .rowacts,.cloudrow .row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
   /* An expanded row's actions live in the mini-dashboard toolbar below, so the
-     collapsed hover strip is suppressed and the stage stays the right anchor —
-     never two copies of the same quick actions visible at once. */
+     collapsed strip is suppressed — never two copies of the same quick actions. */
   .ticket.open .rowacts{display:none}
-  .ticket.open .row:hover .stage{opacity:1}
 
   /* An open ticket is ONE card: sunken surface, hairline border, a gap under it,
      and a hairline between the header row and the body. Two open rows next to
@@ -329,10 +329,13 @@
      its right, quiet fact lines with no label column, then at most one amber
      action strip. */
   .peek{margin:0}
+  /* The expanded body prints the row's full title, wrapped, before the peek card:
+     the row's own title cell ends in an ellipsis (UI-R44, SB-5). */
+  .peek-fullname{font-size:var(--k-text-sm);color:var(--k-text);font-weight:var(--k-weight-medium);
+    margin-bottom:var(--k-space-2);overflow-wrap:anywhere}
   .peek-head{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3)}
   .peek-copy{min-width:0;flex:1;display:flex;align-items:baseline;gap:var(--k-space-2);flex-wrap:wrap}
-  .peek-dot{width:var(--k-space-3);height:var(--k-space-3);border-radius:50%;flex:none;align-self:center;
-    background:currentColor}
+  .peek-copy>.k-status{align-self:center}
   .peek-title{font-size:var(--k-text-sm);color:var(--k-text);font-weight:var(--k-weight-medium)}
   .peek-age,.peek-attempt{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .peek-attempt{font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
@@ -348,7 +351,7 @@
   .peek-gates.ok{color:var(--k-passed)}
   .peek-gates.running{color:var(--k-running)}
   .peek-gates.failed{color:var(--k-failed)}
-  .peek-agentline{display:flex;align-items:center;flex-wrap:wrap}
+  .peek-agentline{display:flex;align-items:center;flex-wrap:wrap;column-gap:var(--k-space-1)}
   .peek-agent{margin-top:0}
   .peek-where{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
   .peek-where-text{font-family:var(--k-font-mono);font-size:var(--k-text-2xs)}
@@ -370,6 +373,9 @@
   .peek-strip{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-3);
     margin-top:var(--k-space-3);padding:var(--k-space-2) var(--k-space-3);border-radius:var(--k-radius-md);
     background:color-mix(in srgb,var(--k-attention) 14%,transparent)}
+  /* Ready-to-ship and merge are routine asks, not a warning: the sunken wash (SB-10). */
+  .peek-strip.neutral{background:var(--k-surface-sunken)}
+  .peek-strip .k-btn{white-space:nowrap}
   .peek-strip-text{font-size:var(--k-text-xs);color:var(--k-text);min-width:0}
 
   .meta{font-size:var(--k-text-2xs);color:var(--k-text-dim);
@@ -404,13 +410,13 @@
   .k-pri--low{color:var(--k-text-dim);background:var(--k-surface-hover)}
   /* Queue rows: one line each. The region is the container, so the reason and the session drop at a narrow sidebar, the title keeps the rest. */
   [data-region="queue"]{container-type:inline-size;container-name:queue}
-  .q-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto var(--k-space-8);grid-template-areas:"main rel chain menu";align-items:center;column-gap:var(--k-space-1);padding:0 var(--k-space-1) 0 var(--k-space-2);min-height:calc(var(--k-space-8) + var(--k-space-1));border-radius:var(--k-radius-sm)}
+  .q-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto var(--k-hit-min);grid-template-areas:"main rel chain menu";align-items:center;column-gap:var(--k-space-1);padding:0 var(--k-space-1) 0 var(--k-space-2);min-height:calc(var(--k-space-8) + var(--k-space-1));border-radius:var(--k-radius-sm)}
   .q-row:hover{background:var(--vscode-list-hoverBackground)}
   .q-main{grid-area:main;min-width:0;display:flex;align-self:stretch;align-items:center;gap:var(--k-space-2);height:100%;padding:0;background:none;border:0;color:var(--k-text);font:inherit;font-size:var(--k-text-sm);text-align:left;cursor:pointer}
   .q-main:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
   .q-pos{flex:none;min-width:2ch;text-align:right;font-family:var(--k-font-mono);font-variant-numeric:tabular-nums;color:var(--k-text-dim);font-size:var(--k-text-xs)}
   .q-id{flex:none;font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap}
-  .q-sx{color:var(--k-text-faint)}
+  .q-sx{color:var(--k-text-dim)}
   .q-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* The relation (D561 verb + D560 chip) is a sibling of .q-main: one line above the 400 tier, a second line under the position at the tier and less (the tier rule lives in the shared design CSS, UI-R04), so the title keeps the full width (UI-R44). */
   .q-row .q-rel{grid-area:rel;min-width:0;padding-left:0}
@@ -418,26 +424,30 @@
   .q-rel--cycle .refs-verb,.q-rel-icon{color:var(--k-danger)}
   .q-rel--cycle .k-ticket-ref{border-color:var(--k-danger)}
   .k-pri-up{margin-left:var(--k-border-w);vertical-align:-0.1em}
-  .q-chain{grid-area:chain;width:var(--k-space-8);height:var(--k-space-8)}
+  /* The chain and menu tracks are one control wide, never a token shorter than
+     the button's --k-hit-min floor (RD-1): a short track made every row wider
+     than the pane and the body scrolled sideways. */
+  .q-chain{grid-area:chain;width:var(--k-hit-min);height:var(--k-hit-min)}
   .q-chain[aria-pressed="true"]{color:var(--k-action-fg);background:var(--k-action-bg)}
   .q-hit{background:color-mix(in srgb,var(--k-attention) 35%,transparent);color:inherit;border-radius:var(--k-radius-xs)}
-  .q-gap{padding:0 var(--k-space-2);color:var(--k-text-faint);font-size:var(--k-text-xs);line-height:var(--k-space-6);letter-spacing:.2em;text-align:center}
+  .q-gap{padding:0 var(--k-space-2);color:var(--k-text-dim);font-size:var(--k-text-xs);line-height:var(--k-space-6);letter-spacing:.2em;text-align:center}
   .q-filters{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);padding:var(--k-space-1) var(--k-space-4) var(--k-space-2)}
   .q-fchip{padding:0 var(--k-space-1) 0 var(--k-space-3);gap:var(--k-space-1);max-width:100%;min-width:0}
   .q-fchip-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .q-fchip-x{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--k-space-8);height:var(--k-space-8);padding:0;background:none;border:0;color:inherit;cursor:pointer;border-radius:var(--k-radius-pill)}
   .q-fchip-x:focus-visible,.q-fclear:focus-visible,.q-clear-all:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
   .q-fclear,.q-clear-all{background:none;border:0;padding:0;font:inherit;font-size:var(--k-text-xs);cursor:pointer}
-  .filter-group-label{padding:var(--k-space-2) var(--k-space-3) var(--k-space-1);color:var(--k-text-faint);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em}
+  .filter-group-label{padding:var(--k-space-2) var(--k-space-3) var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em}
   .filter-pop [role="menuitemcheckbox"]{display:flex;justify-content:space-between;gap:var(--k-space-4);text-align:left;padding-left:var(--k-space-8);position:relative}
   .filter-pop [role="menuitemcheckbox"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
-  .filter-count{color:var(--k-text-faint);font-variant-numeric:tabular-nums}
-  .q-menu{grid-area:menu;width:var(--k-space-8);height:var(--k-space-8);opacity:0}
-  .q-row:hover .q-menu,.q-row:focus-within .q-menu,.q-menu[aria-expanded="true"]{opacity:1}
+  .filter-count{color:var(--k-text-dim);font-variant-numeric:tabular-nums}
+  /* The row menu is always visible at the shared dim ink (SB-8): no hover-only
+     control in a list that is read with the pointer moving. */
+  .q-menu{grid-area:menu;width:var(--k-hit-min);height:var(--k-hit-min);opacity:1;color:var(--k-text-dim)}
   @container queue (max-width: 20em){.q-sx{display:none}}
   /* Activity rows: one line each (glyph, ticket chip, title, time). The region is the container; the title takes the rest and ellipsizes, nothing wraps (UI-R43, UI-R45). */
   [data-region="activity"]{container-type:inline-size;container-name:activity}
-  .a-day{padding:var(--k-space-2) var(--k-space-4) var(--k-space-1);color:var(--k-text-faint);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.08em;text-transform:uppercase}
+  .a-day{padding:var(--k-space-2) var(--k-space-4) var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold)}
   .a-row{display:grid;grid-template-columns:var(--k-space-8) auto minmax(0,1fr) auto;align-items:center;column-gap:var(--k-space-2);width:100%;min-height:var(--k-hit-min);padding:0 var(--k-space-4);background:none;border:0;border-radius:var(--k-radius-sm);color:var(--k-text);font:inherit;font-size:var(--k-text-sm);text-align:left}
   .a-row:not(:has(.a-ref)){grid-template-columns:var(--k-space-8) minmax(0,1fr) auto}
   .a-row--open{cursor:pointer}
@@ -450,7 +460,7 @@
   .a-lvl--warn{color:var(--k-warning)}
   .a-lvl--success{color:var(--k-passed)}
   .a-lvl--info{color:var(--k-text-dim)}
-  .a-ref{flex:none;white-space:nowrap}
+  .a-ref{flex:none;white-space:nowrap;color:var(--k-text-dim);font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
   .a-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .a-time{flex:none;font-family:var(--k-font-mono);font-variant-numeric:tabular-nums;font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .a-more{margin:var(--k-space-2) var(--k-space-4);min-height:var(--k-hit-min)}
@@ -461,13 +471,13 @@
   .ctxitem.danger{color:var(--k-danger)}
   .ctxitem.danger .k-icon{color:var(--k-danger)}
 
-  /* Section headers (CURRENT · N / RECENTLY DONE · N): lightweight uppercase
-     labels, not cards — the list reads as one continuous scroll surface. */
+  /* Section headers (Current · N / Recently done · N): quiet sentence-case labels,
+     not cards — the list reads as one continuous scroll surface (SB-19). */
   .sec{display:flex;align-items:baseline;gap:var(--k-space-2);
     margin:var(--k-space-4) var(--k-space-4) var(--k-space-1);
-    font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);letter-spacing:.08em;
-    text-transform:uppercase;color:var(--k-text-faint)}
-  .sec-n{font-family:var(--k-font-mono);color:var(--k-text-faint);opacity:.8}
+    font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);
+    color:var(--k-text-dim)}
+  .sec-n{font-family:var(--k-font-mono);color:var(--k-text-dim)}
 
   /* Planning: a VS Code TreeView-style tree above the tickets, never mixed in.
      Compact rows; sessions (level 1) carry a twistie, a status dot, the title and
@@ -486,12 +496,11 @@
     color:var(--k-text-dim);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
   .pt-twistie[data-expanded="true"]{transform:rotate(90deg)}
   .pt-twistie.leaf{visibility:hidden}
-  .pt-dot{flex:none;width:var(--k-space-4);height:var(--k-space-4);margin:0 var(--k-space-1);border-radius:50%;background:currentColor}
-  .pt-dot--pending{background:transparent;box-shadow:inset 0 0 0 var(--k-border-w) currentColor}
-  .pt-dot--running,.pt-c-running{color:var(--k-running)}
-  .pt-dot--attention,.pt-c-attention{color:var(--k-attention)}
-  .pt-dot--passed,.pt-c-passed{color:var(--k-passed)}
-  .pt-dot--pending,.pt-c-pending{color:var(--k-pending)}
+  .pt-row>.k-status{margin:0 var(--k-space-1)}
+  .pt-c-running{color:var(--k-running)}
+  .pt-c-attention{color:var(--k-attention)}
+  .pt-c-passed{color:var(--k-passed)}
+  .pt-c-pending{color:var(--k-pending)}
   .pt-icon{flex:none}
   .pt-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pt-count{flex:none;font-size:var(--k-text-xs);color:var(--k-text-dim)}
@@ -521,9 +530,9 @@
   .ticket.done .name{font-size:var(--k-text-sm);color:var(--k-text-dim)}
   /* Older Completed is the quietest level: even tighter row, fainter title. */
   .ticket.older .row{padding-top:0;padding-bottom:0}
-  .ticket.older .name{color:var(--k-text-faint)}
+  .ticket.older .name{color:var(--k-text-dim)}
   /* Relative completion time on Recently Done rows ("4m ago"). */
-  .time{flex:0 0 auto;font-size:var(--k-text-2xs);color:var(--k-text-faint);white-space:nowrap}
+  .time{flex:0 0 auto;font-size:var(--k-text-2xs);color:var(--k-text-dim);white-space:nowrap}
   /* The completed-row marker: a check inside a ring, tinted by the shared
      status class (g-green). The CHECK SHAPE is the non-color carrier for
      Done (UI-R28) — decoration only, the section header carries the meaning,

@@ -10,11 +10,14 @@ import type { CSSProperties } from 'react';
 import type { TicketRow as Row } from '../state.js';
 import { ActButton } from './action.js';
 import { CloudLinks } from './CloudSessions.js';
-import { Icon, KarstMark } from './Icon.js';
+import { Icon } from './Icon.js';
 import { IconAct } from './IconAct.js';
-import { TicketTools } from './TicketTools.js';
+import { HoverTools } from './TicketTools.js';
+import { MenuTrigger } from './MenuTrigger.js';
 import { PriorityChip } from './PriorityChip.js';
-import { AUTOSTART_WORD, GLYPH_WORD, MAX_SUBTASK_INDENT, relTime } from './format.js';
+import { AUTOSTART_WORD, GLYPH_STATUS, MAX_SUBTASK_INDENT, relTime } from './format.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
+import { Status } from '../../shared/Status.js';
 import { useSidebar } from './SidebarContext.js';
 import { TicketBody } from './TicketBody.js';
 import { stageWord as stageWordOf } from '../../shared/ticketRefView.js';
@@ -25,6 +28,10 @@ export interface TicketRowProps {
   readonly compact?: boolean;
   readonly time?: boolean;
   readonly older?: boolean;
+  /** The roving tab stop for the tree (SB-6): this row's node id holds it. */
+  readonly stop?: string | null;
+  readonly posInSet?: number;
+  readonly setSize?: number;
 }
 
 /** Tree guides (decorative, aria-hidden): one span per ancestor indent slot, painted CSS-only. */
@@ -50,13 +57,15 @@ function SubtreeToggle({ row }: { readonly row: Row }) {
   const count = row.subtaskChildCount || 0;
   if (count <= 0) return null;
   const collapsed = collapsedSubtrees.has(row.ticketId);
-  const label = `${collapsed ? 'Show' : 'Hide'} ${count} nested sub-task${count === 1 ? '' : 's'}`;
+  const label = collapsed ? 'Show subtasks' : 'Hide subtasks';
   return (
     <button
       type="button"
       className="k-iconbtn subchev"
       data-collapse={row.ticketId}
+      tabIndex={-1}
       aria-expanded={!collapsed}
+      aria-pressed={!collapsed}
       aria-label={label}
       title={label}
       onClick={() => toggleSubtree(row.ticketId)}
@@ -66,26 +75,33 @@ function SubtreeToggle({ row }: { readonly row: Row }) {
   );
 }
 
-/** The collapsed hover strip: Session / Pause-Resume / "⋯" (archived rows: Restore / Delete). */
-function HoverStrip({ row, sessVerb }: { readonly row: Row; readonly sessVerb: string }) {
+/** Archived rows keep their two labeled actions in flow: they have no More menu. */
+function ArchivedStrip({ row }: { readonly row: Row }) {
   const id = row.ticketId;
   return (
-    <span className="rowacts">
-      {row.archived ? (
-        <>
-          <IconAct spec={{ act: 'unarchive', id }} label="Restore ticket to the active list"><Icon name="history" /></IconAct>
-          <IconAct spec={{ act: 'delete', id }} label="Delete ticket permanently" danger><Icon name="trash" /></IconAct>
-        </>
-      ) : (
-        <TicketTools row={row} sessVerb={sessVerb} />
-      )}
+    <span className="rowacts rowacts--static">
+      <IconAct spec={{ act: 'unarchive', id }} label="Restore ticket to the active list" tabIndex={-1}><Icon name="history" /></IconAct>
+      <IconAct spec={{ act: 'delete', id }} label="Delete ticket permanently" danger tabIndex={-1}><Icon name="trash" /></IconAct>
     </span>
   );
 }
 
-export function TicketRow({ row, compact = false, time = false, older = false }: TicketRowProps) {
+/**
+ * The hover strip: Session / Pause-Resume only. It appears in the narrow tier and
+ * above (SB-8); the More menu is always in flow at the row end.
+ */
+function HoverStrip({ row, sessVerb }: { readonly row: Row; readonly sessVerb: string }) {
+  return (
+    <span className="rowacts">
+      <HoverTools row={row} sessVerb={sessVerb} tabIndex={-1} />
+    </span>
+  );
+}
+
+export function TicketRow({ row, compact = false, time = false, older = false, stop = null, posInSet, setSize }: TicketRowProps) {
   const { openIds, toggleOpen } = useSidebar();
   const isOpen = openIds.has(row.ticketId);
+  const node = `t${row.ticketId}`;
   // A restored snapshot can predate stageLabel, so fall back rather than render an empty pill.
   const stageText = row.stageLabel || row.description || '—';
   // The chip states the STAGE (colored by the shared stg-* token); the full phrase is the tooltip.
@@ -103,30 +119,32 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
   const blockedBy = row.blockedBy || [];
 
   // Decorative content of the row's main click target — never another interactive
-  // control (UI-R09). Completed rows swap the karst mark + status dot for a
-  // check-in-ring (aria-hidden) and drop the stage pill; the check SHAPE is the
-  // non-color carrier (UI-R28) and `g-<glyph>` keeps the shared status color.
+  // control (UI-R09). A live row paints the shared `.k-status` marker (a shape per
+  // state, UI-R28); completed rows swap it for a check-in-ring (aria-hidden) and
+  // drop the stage pill; the check SHAPE is the non-color carrier and `g-<glyph>`
+  // keeps the shared status colour.
   const content = (
     <>
       {compact ? (
         <span className={`glyph chk g-${row.glyph}`} aria-hidden="true"><Icon name="circle-check" size={14} /></span>
       ) : (
-        <span className={`glyph g-${row.glyph}`} role="img" aria-label={glyphWord} title={row.description}>
-          <KarstMark />
-          <span className="sdot" aria-hidden="true" />
-          <span className="sdot-spin" aria-hidden="true" />
-        </span>
+        <Status kind={GLYPH_STATUS[row.glyph]} label={glyphWord} />
       )}
       <span className="k-id" title={`Ticket ${row.idLabel}`}>{row.idLabel}</span>
       {row.priorityEditable ? <PriorityChip level={row.priority} source={row.prioritySource} provider={{ label: row.providerLabel, level: row.providerPriority }} /> : null}
-      <span className="name">{row.label}</span>
+      {/* The ellipsized copy is visual only; the 1x1 `.sr-only` sibling is what assistive tech reads, so a
+          clipped title is announced once and is never silent truncation (@ui:UI-R44, SB-3). */}
+      <span className="name" title={row.label}>
+        <span aria-hidden="true">{row.label}</span>
+        <span className="sr-only">{row.label}</span>
+      </span>
       {row.subtaskParentKey && !row.subtaskDepth ? (
         <span className="parentref subtaskref" title={`Sub-task of ${row.subtaskParentKey}`}>⊂ {row.subtaskParentKey}</span>
       ) : row.parentKey ? (
         <span className="parentref" title={`Follow-up of ${row.parentKey}`}>↳ {row.parentKey}</span>
       ) : null}
       {compact ? (
-        time ? <span className="time">{relTime(row.lastActiveAt)}</span> : null
+        time ? <span className="time" title={row.lastActiveAt ?? undefined}>{relTime(row.lastActiveAt)}</span> : null
       ) : (
         stageWord ? (
           // One span, two words: CSS picks data-full or data-short by the host width (@ui:UI-R51).
@@ -143,12 +161,23 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
   const cloudCount = new Set(row.cloudSessions?.map((c) => c.provider)).size;
   return (
     <div className={cls} data-id={row.ticketId}>
-      <div className="row" style={cloudCount ? ({ '--cloud-n': cloudCount } as CSSProperties) : undefined}>
+      <div
+        className="row"
+        style={cloudCount ? ({ '--cloud-n': cloudCount } as CSSProperties) : undefined}
+        role="treeitem"
+        data-node={node}
+        tabIndex={stop === node ? 0 : -1}
+        aria-level={(row.subtaskDepth || 0) + 1}
+        aria-expanded={isOpen}
+        aria-setsize={setSize}
+        aria-posinset={posInSet}
+      >
         <Guides row={row} />
         <button
           type="button"
           className="k-iconbtn chev"
           data-toggle={row.ticketId}
+          tabIndex={-1}
           aria-expanded={isOpen}
           aria-label={toggleLabel}
           title={toggleLabel}
@@ -160,14 +189,23 @@ export function TicketRow({ row, compact = false, time = false, older = false }:
         {row.archived ? (
           <span className={`rowopen`}>{content}</span>
         ) : (
-          <ActButton spec={{ open: row.ticketId }} className={`k-btn k-btn--link k-btn--row rowopen`} title="Open ticket dashboard">
+          <ActButton spec={{ open: row.ticketId }} className={`k-btn k-btn--link k-btn--row rowopen`} title="Open ticket dashboard" tabIndex={-1}>
             {content}
           </ActButton>
         )}
         <SubtreeToggle row={row} />
-        {row.cloudSessions?.length ? <CloudLinks sessions={row.cloudSessions} ticketId={row.ticketId} /> : null}
-        {/* Only rendered while COLLAPSED — expanding moves the same quick actions into the body's tools. */}
-        {isOpen ? null : <HoverStrip row={row} sessVerb={sessVerb} />}
+        {row.cloudSessions?.length ? <CloudLinks sessions={row.cloudSessions} ticketId={row.ticketId} tabIndex={-1} /> : null}
+        {/* The always-visible More menu sits in flow at the row end (SB-8); the
+            other quick tools are an overlay that only the narrow tier shows.
+            Expanding moves the same quick actions into the body's tools. */}
+        {isOpen ? null : row.archived ? (
+          <ArchivedStrip row={row} />
+        ) : (
+          <>
+            <HoverStrip row={row} sessVerb={sessVerb} />
+            <span className="rowmore"><MenuTrigger row={row} tabIndex={-1} /></span>
+          </>
+        )}
       </div>
       {blockedBy.length ? <TicketRefs refs={blockedBy} /> : null}
       <TicketBody row={row} sessVerb={sessVerb} />

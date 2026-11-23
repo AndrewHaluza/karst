@@ -41,9 +41,11 @@ export function sessionMenuItems(sessions: readonly CloudSessionChip[]): MenuIte
 export function CloudLinks({
   sessions,
   ticketId,
+  tabIndex,
 }: {
   readonly sessions: readonly CloudSessionChip[];
   readonly ticketId?: number;
+  readonly tabIndex?: number;
 }) {
   const { menu, openMenu, closeMenu } = useSidebar();
   const groups = groupByProvider(sessions);
@@ -54,7 +56,7 @@ export function CloudLinks({
         if (providerSessions.length === 1) {
           const c = providerSessions[0]!;
           return (
-            <IconAct key={provider} spec={openSpec(c.url)} label={`Open in ${c.label}`} data-cloud="1">
+            <IconAct key={provider} spec={openSpec(c.url)} label={`Open in ${c.label}`} data-cloud="1" tabIndex={tabIndex}>
               <Icon name="cloud" />
             </IconAct>
           );
@@ -70,6 +72,7 @@ export function CloudLinks({
             className="k-iconbtn"
             data-cloud="1"
             data-menu={owner}
+            tabIndex={tabIndex}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
             aria-label={label}

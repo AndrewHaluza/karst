@@ -179,6 +179,6 @@ describe('stage text tone (fg)', () => {
   it('injects --k-attention-fg beside --k-attention', () => {
     const css = paletteCss();
     expect(css).toContain('--k-attention-fg:#f0c400;');
-    expect(css).toContain('body.vscode-light{--k-attention-fg:#6f4f02}');
+    expect(css).toContain('body.vscode-light{--k-pending-fg:#5f5f5f;--k-running-fg:#0062a3;--k-attention-fg:#6f4f02;--k-passed-fg:#0f7b4f;--k-failed-fg:#c72e0f}');
   });
 });

@@ -419,6 +419,21 @@
           "command": "karst.refreshDiffsTree",
           "when": "view == karst.diffs",
           "group": "navigation@2"
+        },
+        {
+          "command": "karst.openResources",
+          "when": "view == karst.tickets",
+          "group": "navigation@1"
+        },
+        {
+          "command": "karst.openTokenUsage",
+          "when": "view == karst.tickets",
+          "group": "navigation@2"
+        },
+        {
+          "command": "karst.openSettings",
+          "when": "view == karst.tickets",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [

@@ -1,9 +1,12 @@
 /**
  * The Tickets filter presets. Single-select shortcuts over the host's existing
  * multi-select facet state: a preset is just the facet selection it stands for,
- * so the host protocol is unchanged (`toggle-facet` only).
+ * so the host protocol is unchanged (`toggle-facet` only). A state preset's
+ * label is the shared `GLYPH_WORD` (SB-13), so the menu and the glyph name one
+ * state; the attention preset names its two parts.
  */
 import type { FacetKey } from '../facets.js';
+import { GLYPH_WORD } from '../../../model/glyph.js';
 
 export type PresetId = 'all' | 'attention' | 'running' | 'done' | 'archived';
 
@@ -14,11 +17,14 @@ export interface Preset {
   readonly facets: readonly FacetKey[];
 }
 
+/** The attention preset names both parts it filters: needs-you (amber) + failed (red). */
+export const ATTENTION_PRESET_LABEL = `${GLYPH_WORD.amber} or ${GLYPH_WORD.red.toLowerCase()}`;
+
 export const PRESETS: readonly Preset[] = [
   { id: 'all', label: 'All', facets: ['all'] },
-  { id: 'attention', label: 'Needs attention', facets: ['input', 'failed'] },
-  { id: 'running', label: 'In progress', facets: ['running'] },
-  { id: 'done', label: 'Done', facets: ['done'] },
+  { id: 'attention', label: ATTENTION_PRESET_LABEL, facets: ['input', 'failed'] },
+  { id: 'running', label: GLYPH_WORD.blue, facets: ['running'] },
+  { id: 'done', label: GLYPH_WORD.green, facets: ['done'] },
   { id: 'archived', label: 'Archived', facets: ['archived'] },
 ];
 
