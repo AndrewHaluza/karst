@@ -286,6 +286,8 @@ The AI UAT Tester (`workflow/uat/tester.ts`) records OBSERVATIONS. They are evid
 The reason prefixes (`TESTER_VERIFIER_FAILURE_PREFIX`, `TESTER_OBSERVATIONS_FAILURE_PREFIX`) live once in `uat/testerVerifier.ts` and are how the stage attributes a failed verdict — never a second copy of the string. Guards: `uat/tester.test.ts` "reports blocking observations when the threshold is set" / "never counts an observation the cap truncated away", `stages/uat.test.ts` "fails uat when a blocking Tester observation was recorded" / "passes uat when observations are advisory (threshold none)".
 
 Continued in `arch:UAT-OBS-RUNS` (partial runs, a failed service spin, the coverage record and empty runs).
+On a no-change re-run (@arch:AC-66), the tester prompt lists each blocking observation with the agent reason. The same evidence rule applies.
+
 END_DOC_BLOCK: [@arch:UAT-OBS]
 
 ## [@arch:UAT-OBS-RUNS] UAT Tester runs — partial, failed spin, coverage record, observed-nothing
@@ -366,6 +368,8 @@ END_DOC_BLOCK: [@arch:UAT-SVC-BUILD]
 The parser's half is `findings.ts`'s extraction fallback, gated on "no findings-CARRYING container was recognized" (never "nothing parsed at all"), so narration, a bare-scalar line, a provider envelope, or a tool-echo array (`["bash","-lc",…]`, T694) cannot hide a real finding. It also repairs a model's unescaped `"` in a string value and reads the report from the tail; every promoted value still passes `JSON.parse`, so a genuinely unreadable answer still blocks. Note R6b's conjunction: a run that read SOME findings is decided by R6 on what it read, not blocked on a sibling target's unreadable answer.
 
 Continued in `arch:REVIEW-SNAPSHOT` (the snapshot rule and the matching UAT and quota parks).
+On a no-change re-run (@arch:AC-66), the review prompt lists each open finding with the agent reason. The reviewer withdraws a finding only with evidence from the code at the head.
+
 END_DOC_BLOCK: [@arch:REVIEW]
 
 ## [@arch:REVIEW-SNAPSHOT] Review lanes read a worktree snapshot; UAT and quota parks

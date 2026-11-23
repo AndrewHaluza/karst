@@ -33,6 +33,7 @@ import { readRelations, readRounds, originLabel } from './stateRelations.js';
 import { buildAttach, buildArtifacts, readEvidence } from './stateEvidence.js';
 import { withDeliverWait } from '../../model/inside/deliver.js';
 import { deliverRowInput, readActionStates, shipActionViews } from './stateActions.js';
+import { fixParkView } from '../../workflow/fixParkExit.js';
 import { implSessionReading } from '../../model/implSessionReading.js';
 import { graphRunIsLive } from '../../model/inside/graph.js';
 import { buildInsideSection } from './stateInsideSection.js';
@@ -447,6 +448,7 @@ export function buildDashboardState(
     }),
     sendBack,
     rerunGate,
+    fixPark: fixParkView(store, ticketId, (s) => (s === 'review' ? displayBlocking?.review : displayBlocking?.tester)),
     resetStage,
     prFeedbackFix,
     ...shipActionViews({ ciFailure, gateFailure, rebase, undelivered, deliverAuto: withDeliverWait(deliverAuto, liveGates?.ship) }, ticket.stageCurrent),

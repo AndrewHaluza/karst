@@ -20,6 +20,11 @@ export function sandboxMarkerCommand(input: SandboxMarkerInput): string {
   return `node ${input.runDir}/${input.core}/emit-marker.cjs ${input.runDir}/events.ndjson ${input.stage}`;
 }
 
+/** The fix-stage way out when no code change is correct: the same command plus `--no-change`. */
+function noChangeSentence(command: string): string {
+  return `When no code change is correct, run \`${command} --no-change "<evidence>"\` instead; never make an empty commit.`;
+}
+
 /** The done-marker instruction for a sandboxed impl/fix session. */
 export function renderSandboxMarkerInstruction(input: SandboxMarkerInput): string {
   const command = sandboxMarkerCommand(input);
@@ -34,6 +39,7 @@ export function renderSandboxMarkerInstruction(input: SandboxMarkerInput): strin
     'A session ending does not advance the ticket on its own — you must run this marker explicitly. ' +
     `Do NOT run it while you are waiting for the user to answer a question: a stage whose agent is waiting on the user is not complete, and the ${MARKER_REFUSED}. ` +
     'The marker is also refused when no repository has changes from its base branch — at least one target must differ, so commit your work to the ticket branch first. ' +
+    (input.stage === 'fix' ? `${noChangeSentence(command)} ` : '') +
     `${PROCESS_KILL_RULE} ` +
     'Karst notes cannot be posted from the sandbox (not available in the sandbox).'
   );

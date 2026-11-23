@@ -17,6 +17,7 @@ import {
 } from './fixHostRerunRequest.js';
 import type { FailedGate } from './fixHostRerun.js';
 
+import { recordNoChangeReason, requestNoChangeRerun } from '../store/fixNoChangeRounds.js';
 import { upsertProject } from '../store/projects.js';
 
 const AT = '2026-01-01T00:00:00Z';
@@ -140,6 +141,14 @@ describe('host re-run request from a refused CLI fix marker', () => {
       expect(calls).toBe(0);
     });
   });
+  it('the sweep runs a requested no-change re-run', async () => {
+    roundId = openRound('gate-failure');
+    recordNoChangeReason(store, roundId, 'r', AT);
+    requestNoChangeRerun(store, roundId, AT);
+    const outcomes = await runRequestedHostReruns(store, PROJECT, { runGates: async (_t, g) => g.map(() => ({ exitCode: 0, summary: null })), now: () => AT });
+    expect(outcomes).toEqual([{ kind: 'passed', stage: 'uat' }]);
+  });
+
 });
 
 describe('host CLI fix marker guard with the re-run request', () => {

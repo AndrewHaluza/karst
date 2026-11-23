@@ -1,3 +1,4 @@
+import { sanitizeNoChangeReason } from '../../model/noChange.js';
 import type { HookPayload } from '../../hooks/dispatch.js';
 import type { StageKey } from '../../model/types.js';
 import { SEQ_PATTERN } from './markerReply.js';
@@ -21,7 +22,7 @@ export interface BridgeExpectation {
 
 export type BridgeAccepted =
   | { readonly kind: 'hook'; readonly payload: HookPayload }
-  | { readonly kind: 'marker'; readonly stage: MarkerStage; readonly seq?: string }
+  | { readonly kind: 'marker'; readonly stage: MarkerStage; readonly seq?: string; readonly noChange?: string }
   /** The agent read an inbox brief (`fix-12`); the host still checks it is a pending delivery of THIS ticket. */
   | { readonly kind: 'ack'; readonly ref: string };
 
@@ -116,7 +117,9 @@ export function verifyBridgeLine(line: string, expect: BridgeExpectation): Bridg
     if (stage !== current) return reject(`stage ${stage} != ${current}`);
     // `seq` names the reply file: a token or nothing (a malformed one never reaches a path).
     const seq = typeof parsed.seq === 'string' && SEQ_PATTERN.test(parsed.seq) ? parsed.seq : undefined;
-    return { ok: true, event: { kind: 'marker', stage, ...(seq !== undefined ? { seq } : {}) } };
+    // The no-change reason is untrusted agent text: only a fix marker carries it, bounded and sanitized.
+    const noChange = stage === 'fix' ? sanitizeNoChangeReason(parsed.noChange) : null;
+    return { ok: true, event: { kind: 'marker', stage, ...(seq !== undefined ? { seq } : {}), ...(noChange ? { noChange } : {}) } };
   }
   if (parsed.kind === 'ack') {
     const ref = parsed.ref;

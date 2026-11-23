@@ -103,6 +103,13 @@ const blockedState = (kind: string, resumable: boolean): DashboardState => {
   } as DashboardState;
 };
 
+/** A fix round parked by the no-change rule: the banner offers Retry gate and Accept and continue. */
+const fixParkedState = (): DashboardState =>
+  ({
+    ...populatedStateFor('uat'),
+    fixPark: { sourceStage: 'uat', trigger: 'gate-failure', reason: 'second no-change verdict on the same head', items: ['unit'] },
+  }) as DashboardState;
+
 /** A review-stalled park carrying a written suggestion in one state (T1001). */
 const stalledState = (status: 'ready' | 'failed'): DashboardState => ({
   ...blockedState('review-stalled', false),
@@ -653,6 +660,18 @@ export const COVERED: readonly ParityCase[] = [
     act: `tester-skipped-${k}`, state: () => blockedState('tester-skipped', false), sel: act(`tester-skipped-${k}`, '[data-stagekey="uat"]'),
     posts: [{ type: `tester-skipped-${k}` }], rid: true,
   })),
+  { act: 'fix-parked-retry', state: fixParkedState, sel: act('fix-parked-retry', '[data-stagekey="uat"]'), posts: [{ type: 'fix-parked-retry' }], rid: true },
+  { act: 'fix-parked-accept', state: fixParkedState, sel: act('fix-parked-accept', '[data-stagekey="uat"]'), posts: [], pendingSel: false },
+  {
+    act: 'fix-parked-accept-confirm', state: fixParkedState,
+    prep: ensureClick(act('fix-parked-accept', '[data-stagekey="uat"]'), act('fix-parked-accept-confirm', '[data-stagekey="uat"]')),
+    sel: act('fix-parked-accept-confirm', '[data-stagekey="uat"]'), posts: [{ type: 'fix-parked-accept', note: '' }], rid: true,
+  },
+  {
+    act: 'fix-parked-accept-cancel', state: fixParkedState,
+    prep: ensureClick(act('fix-parked-accept', '[data-stagekey="uat"]'), act('fix-parked-accept-cancel', '[data-stagekey="uat"]')),
+    sel: act('fix-parked-accept-cancel', '[data-stagekey="uat"]'), posts: [], pendingSel: false,
+  },
   { act: 'push-diverged-fix', state: () => blockedState('push-diverged', false), sel: act('push-diverged-fix', '[data-stagekey="uat"]'), posts: [], pendingSel: false },
   ...(['overwrite', 'integrate'] as const).map((k): ParityCase => ({
     act: `push-diverged-${k}`, state: () => blockedState('push-diverged', false),

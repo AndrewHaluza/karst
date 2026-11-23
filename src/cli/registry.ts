@@ -174,10 +174,24 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   {
     name: 'stage',
     summary: 'Fire the done marker for impl or fix (the only agent transition).',
-    input: obj({ stage: { type: 'string', enum: ['impl', 'fix'] } }, ['stage']),
+    input: obj(
+      {
+        stage: { type: 'string', enum: ['impl', 'fix'] },
+        noChange: { type: 'string', description: 'fix only: the evidence that no code change is correct' },
+      },
+      ['stage'],
+    ),
     globals: { db: true, manifest: true, ticket: true },
     writes: true,
-    toArgv: (input) => ['stage', requireString(input, 'stage'), 'pass'],
+    toArgv: (input) => {
+      const stage = requireString(input, 'stage');
+      const argv = ['stage', stage, 'pass'];
+      if (input.noChange !== undefined) {
+        if (stage !== 'fix') throw new Error('noChange is for the fix marker only');
+        argv.push('--no-change', requireString(input, 'noChange'));
+      }
+      return argv;
+    },
   },
   {
     name: 'phase',

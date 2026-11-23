@@ -9,6 +9,8 @@ import { listRecoveryRounds } from '../store/recoveryRoundsRead.js';
 import type { OperatorManifestInfo } from '../workflow/review/manifestBlock.js';
 import { getTicket } from '../store/tickets.js';
 import { makeReviewArtifactsLoader } from '../workflow/review/artifactsLoader.js';
+import { noChangeClaimFor } from '../workflow/noChangeClaim.js';
+import { reviewBlockingFloor } from '../manifest/qualityDefaults.js';
 
 /**
  * The manifest counts as changed when it was modified after the ticket was created (this covers an
@@ -53,6 +55,7 @@ export function makeReviewArtifactsBinding(deps: {
   };
   return makeReviewArtifactsLoader({
     manifestOf,
+    noChangeClaimOf: (id) => noChangeClaimFor(deps.registry, id, 'review', reviewBlockingFloor(deps.manifest()?.review)),
     intentOf: (id) => getTicket(deps.registry, id).intent,
     descriptionOf: (id) => getTicket(deps.registry, id).description,
     checksOf: (id) => {

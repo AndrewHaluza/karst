@@ -1,3 +1,4 @@
+import { noChangeEndReason } from '../model/noChange.js';
 import { markSeedRead } from './fixDeliveries.js';
 import { INTERRUPT_KEEPS_RERUN_ENDED_SQL } from './hostRerunRound.js';
 import type { Store } from './db.js';
@@ -530,12 +531,14 @@ export function completeFixExecution(store: Store, ticketId: number, endedAt: st
   if (round.fixProcessRunId !== null) {
     finishProcessRun(store, round.fixProcessRunId, 'passed', endedAt);
   }
+  // A no-change round closes with its reason (first line only) in `end_reason` (@arch:AC-66).
+  const endReason = round.noChangeReason === null ? null : noChangeEndReason(round.noChangeReason);
   const info = store.db
     .prepare(
-      `UPDATE recovery_rounds SET status = 'revalidating', end_reason = NULL
+      `UPDATE recovery_rounds SET status = 'revalidating', end_reason = ?
         WHERE id = ? AND status IN ('pending','fixing')`,
     )
-    .run(round.id);
+    .run(endReason, round.id);
   return info.changes > 0;
 }
 

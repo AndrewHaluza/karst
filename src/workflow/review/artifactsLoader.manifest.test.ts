@@ -17,4 +17,10 @@ describe('review artifacts loader — manifest', () => {
     const l = makeReviewArtifactsLoader({ ...base, intentOf: () => null, manifestOf: () => ({ path: 'p', content: 'c', changed: false }) });
     expect(await l(1)).toBeUndefined();
   });
+  it('carries the no-change claim, even with no intent', async () => {
+    const claim = { reason: 'r', items: ['[high] t'] };
+    const l = makeReviewArtifactsLoader({ ...base, intentOf: () => null, noChangeClaimOf: () => claim });
+    expect((await l(1))?.noChangeClaim).toEqual(claim);
+    expect(await makeReviewArtifactsLoader({ ...base, noChangeClaimOf: () => null })(1)).not.toHaveProperty('noChangeClaim');
+  });
 });

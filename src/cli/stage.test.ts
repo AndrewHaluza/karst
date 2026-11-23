@@ -594,4 +594,14 @@ describe('runStageCommand', () => {
       store.close();
     }
   });
+
+  it('parses --no-change for fix', () => {
+    expect(parseStageArgs(['stage', 'fix', 'pass', '--no-change', 'port window'])).toEqual({ stage: 'fix', verdict: { kind: 'passed' }, noChange: 'port window' });
+  });
+
+  it('refuses --no-change on impl, a blank reason, and a missing value', () => {
+    expect(() => parseStageArgs(['stage', 'impl', 'pass', '--no-change', 'x'])).toThrow(/fix marker only/);
+    expect(() => parseStageArgs(['stage', 'fix', 'pass', '--no-change', '  '])).toThrow(/reason/);
+    expect(() => parseStageArgs(['stage', 'fix', 'pass', '--no-change'])).toThrow(/reason/);
+  });
 });

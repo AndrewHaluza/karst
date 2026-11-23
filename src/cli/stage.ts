@@ -10,6 +10,7 @@ import { markImplementDone } from '../workflow/stages/implement.js';
 import { markFixDone } from '../workflow/fixExecution.js';
 import { assertMarkerNotWhileWaiting } from '../workflow/markerGuard.js';
 import { settleSubtaskGate } from '../workflow/subtaskGate.js';
+import { sanitizeNoChangeReason } from '../model/noChange.js';
 import { quoteArg } from '../agent/cliEnv.js';
 
 export { assertMarkerNotWhileWaiting };
@@ -71,6 +72,8 @@ export function composeStageCommand(
 export interface ParsedStage {
   stage: MarkerStage;
   verdict: { kind: 'passed' };
+  /** The agent's evidence that no code change is correct (fix marker only). */
+  noChange?: string;
 }
 
 /**
@@ -91,7 +94,12 @@ export function parseStageArgs(argv: string[]): ParsedStage {
   if (word !== 'pass') {
     throw new Error(`unknown verdict '${word ?? ''}' (the marker records 'pass' only)`);
   }
-  return { stage, verdict: { kind: 'passed' } };
+  const flagAt = argv.indexOf('--no-change', 3);
+  if (flagAt === -1) return { stage, verdict: { kind: 'passed' } };
+  if (stage !== 'fix') throw new Error('--no-change is for the fix marker only');
+  const noChange = sanitizeNoChangeReason(argv[flagAt + 1]);
+  if (noChange === null) throw new Error('--no-change needs a reason: the evidence that no code change is correct');
+  return { stage, verdict: { kind: 'passed' }, noChange };
 }
 
 /** The machine call the CLI performs — injected so the command is unit-testable. */

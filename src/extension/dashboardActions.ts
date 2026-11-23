@@ -1,6 +1,7 @@
 import type { DashboardLayout } from '../model/dashboardLayout.js';
 import { cancelReloadDrain } from './ops/reloadDrainView.js';
 import { makeTesterSkipActions } from './ops/testerSkipOps.js';
+import { makeFixParkActions } from './ops/fixParkOps.js';
 import { makePushDivergedActions } from './ops/pushDivergedOps.js';
 import { guardedHandOff } from './ops/guardedHandOff.js';
 import { nudgeSurface } from '../approaches/graph/entryPoints.js';
@@ -485,6 +486,8 @@ export function makeDashboardActions(
             return;
           }
           void toast.info(`${label()}: the ${stageLabel} stage runs again.`);
+          // A retry from a parked fix round leaves the stage running: the driver picks it up here.
+          if (state.fromFix === true) driveAfterResume(ticketId);
         } catch (e) {
           logError('retry gate failed', e);
           void toast.error(`${label()}: could not retry the stage (${reasonText(e)}).`);
@@ -614,6 +617,8 @@ export function makeDashboardActions(
     // The user's Approve/Reject on changed baselines (@arch:BASELINE-REVIEW);
     // all validation and effects live in ops/baselineDecisionOps.ts.
     ...makeTesterSkipActions({ store, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
+    // The two user exits of a parked fix round (@arch:AC-66); Task 7 routes the banner messages to them.
+    ...makeFixParkActions({ store, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: () => afterServerChange(), blockingSeverityOf: (s) => (s === 'review' ? stall.blockingSeverity() : manifest()?.uat?.testerObservations?.blockingSeverity) }),
     ...makePushDivergedActions({
       store, ticketId, notify: vscodeNotify, debug,
       runShip: (id) => void runShipSaga(id).catch((e) => logError('push-diverged overwrite: ship failed', e)),

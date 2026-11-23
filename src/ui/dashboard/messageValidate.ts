@@ -66,6 +66,7 @@ export const MAX_BASELINE_INDICES = 500;
 /** The one block the baseline decisions answer: the `BlockerKind` itself. */
 export const BASELINE_BLOCK_ID = 'baseline-review';
 export const MAX_BASELINE_REASON_CHARS = 2000;
+export { MAX_FIX_PARK_NOTE_CHARS } from './fixParkLimits.js';
 /** Bounds for the review-stall Apply text fields, checked at the webview boundary. */
 export const MAX_STALL_LABEL_CHARS = 200;
 export const MAX_STALL_TEXT_CHARS = 20_000;

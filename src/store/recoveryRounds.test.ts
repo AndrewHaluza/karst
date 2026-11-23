@@ -34,6 +34,7 @@ import {
   type RecoveryRound,
 } from './recoveryRounds.js';
 import { getTicket } from './tickets.js';
+import { recordNoChangeReason } from './fixNoChangeRounds.js';
 import { upsertProject } from './projects.js';
 import { listProcessRuns, openProcessRun } from './processRuns.js';
 import { openStageRun, listStageRuns } from './stageRuns.js';
@@ -1551,4 +1552,22 @@ describe('recovery rounds — episode scoping (T1B, root-cause fix)', () => {
   function roundFixDecisionForTest(r: RecoveryRound): 'resume' | 'exhausted' {
     return r.round < r.maxRounds ? 'resume' : 'exhausted';
   }
+});
+
+describe('completeFixExecution no-change end reason', () => {
+  it('writes the no-change end reason when the round has one', () => {
+    const store = openStore(':memory:');
+    const ticketId = createTicketFlow(store, { key: 'NC-1', title: 't', projectId: upsertProject(store, { slug: 'nc' }).id }).id;
+    const roundId = openRecoveryRound(store, {
+      ticketId, sourceStage: 'review', sourceProcessId: 'review', triggerKind: 'blocking-review-findings',
+      triggerDetail: 'x', maxRounds: 3, startedAt: '2026-01-01T00:00:00Z',
+    } as never).id;
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(roundId);
+    recordNoChangeReason(store, roundId, 'finding needs a real sbx run\nsecond line', '2026-01-01T00:00:00Z');
+    completeFixExecution(store, ticketId, '2026-01-01T00:00:01Z');
+    expect(store.db.prepare('SELECT status, end_reason FROM recovery_rounds WHERE id = ?').get(roundId)).toEqual({
+      status: 'revalidating',
+      end_reason: 'no change: finding needs a real sbx run',
+    });
+  });
 });

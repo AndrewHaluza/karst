@@ -50,29 +50,36 @@ export async function snapshotFixRoundHeads(
 }
 
 /**
- * Refuse the `stage fix pass` marker when no recorded worktree HEAD moved since the
- * round opened, unless the operator manifest file changed (it is git-ignored, so it
- * cannot be committed). No active round, no snapshot, or an unreadable HEAD → allowed.
+ * True when a recorded worktree HEAD moved since the round opened, or the operator manifest
+ * file changed (it is git-ignored, so it cannot be committed). No active round, no snapshot,
+ * or an unreadable HEAD → true (the guard never refuses on a probe it could not answer).
  */
-export async function assertFixHasNewCommit(store: Store, ticketId: number, git: GitRunner): Promise<void> {
+export async function fixRoundHasNewCommit(store: Store, ticketId: number, git: GitRunner): Promise<boolean> {
   const round = activeFixRound(store, ticketId);
-  if (round === null) return;
+  if (round === null) return true;
   const recorded = listFixRoundHeads(store, round.id);
-  if (recorded.length === 0) return;
+  if (recorded.length === 0) return true;
   for (const r of recorded) {
     const now = await headOf(git, r.worktreePath);
-    if (now === null) return;
+    if (now === null) return true;
     if (now !== r.headSha) {
       recordFixCommitSha(store, round.id, now);
-      return;
+      return true;
     }
   }
   const manifest = fixRoundManifest(store, round.id);
-  const manifestHint = manifest === null ? '' : ` (a change to the manifest at ${manifest.path})`;
   if (manifest !== null) {
     const nowSha = manifestSha(manifest.path);
-    if (nowSha !== null && nowSha !== manifest.sha) return; // manifest-only fix: no commit exists, so no fix_commit_sha
+    if (nowSha !== null && nowSha !== manifest.sha) return true; // manifest-only fix: no commit exists, so no fix_commit_sha
   }
+  return false;
+}
+
+/** Refuse the `stage fix pass` marker when `fixRoundHasNewCommit` is false. */
+export async function assertFixHasNewCommit(store: Store, ticketId: number, git: GitRunner): Promise<void> {
+  if (await fixRoundHasNewCommit(store, ticketId, git)) return;
+  const manifest = fixRoundManifest(store, activeFixRound(store, ticketId)!.id);
+  const manifestHint = manifest === null ? '' : ` (a change to the manifest at ${manifest.path})`;
   throw new Error(`cannot mark this stage done: ${NO_NEW_COMMIT_REASON}${manifestHint}`);
 }
 

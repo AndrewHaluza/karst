@@ -12,6 +12,7 @@ import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { ReviewArtifacts } from './conformance.js';
+import { NO_CHANGE_EVIDENCE_RULE } from '../noChangeClaim.js';
 import * as reviewSnapshot from '../reviewSnapshot.js';
 
 function adapter(raw: string | (() => Promise<string>)): AgentAdapter {
@@ -1435,5 +1436,29 @@ describe('findings lane: no-gates + background rules', () => {
       ticketId: 1,
     });
     expect(outcome).toEqual({ kind: 'ran', findings: [], targetCount: 1 });
+  });
+});
+
+describe('no-change claim in the findings prompt', () => {
+  const artifacts = { intent: 'I', spec: null, plan: null };
+  it('lists each open finding with the agent reason on a no-change re-run', () => {
+    const prompt = buildFindingsPrompt('repo', 'develop', 'b', undefined, undefined, undefined, undefined, 'high', {
+      ...artifacts,
+      noChangeClaim: { reason: 'needs sbx', items: ['[high] t (f.ts:1)'] },
+    });
+    expect(prompt).toContain('needs sbx');
+    expect(prompt).toContain('- [high] t (f.ts:1)');
+    expect(prompt).toContain(NO_CHANGE_EVIDENCE_RULE);
+  });
+  it('has no no-change block without a claim', () => {
+    const prompt = buildFindingsPrompt('repo', 'develop', 'b', undefined, undefined, undefined, undefined, 'high', artifacts);
+    expect(prompt).not.toContain('no-change-reason');
+  });
+  it('keeps the claim when custom instructions replace the strategy', () => {
+    const prompt = buildFindingsPrompt('repo', 'develop', 'b', 'Be strict.', undefined, undefined, undefined, 'high', {
+      ...artifacts,
+      noChangeClaim: { reason: 'needs sbx', items: [] },
+    });
+    expect(prompt).toContain('<<<no-change-reason');
   });
 });

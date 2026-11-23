@@ -134,6 +134,14 @@ describe('toArgv encoders', () => {
     expect(getCommandSpec('stage')!.toArgv!({ stage: 'fix' })).toEqual(['stage', 'fix', 'pass']);
   });
 
+  it('stage tool encodes noChange as --no-change for fix', () => {
+    const spec = getCommandSpec('stage')!;
+    expect(spec.toArgv!({ stage: 'fix', noChange: 'port window' })).toEqual(['stage', 'fix', 'pass', '--no-change', 'port window']);
+    expect(spec.toArgv!({ stage: 'fix' })).toEqual(['stage', 'fix', 'pass']);
+    expect(() => spec.toArgv!({ stage: 'impl', noChange: 'x' })).toThrow();
+    expect(() => validateCommandInput('stage', { stage: 'fix', noChange: 'r' })).not.toThrow();
+  });
+
   it('encodes context format', () => {
     expect(getCommandSpec('context')!.toArgv!({ key: 'K-1', format: 'md' })).toEqual([
       'context',

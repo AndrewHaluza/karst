@@ -1,4 +1,3 @@
-import { hostRerunSpent } from '../../store/hostRerunRound.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { listGateRuns } from '../../store/gateRuns.js';
@@ -34,7 +33,7 @@ export function fixBriefForTicket(
     latestReviewBatch(store, ticketId),
     listGateRuns(store, ticketId),
     shipRound === null ? undefined : listPrFeedbackForRound(store, ticketId, shipRound.id),
-    { hasPrototype: hasLinkedPrototype(t), hostRerunSpent: (stage) => hostRerunSpent(store, t.id, stage), markerAppended },
+    { hasPrototype: hasLinkedPrototype(t), markerAppended },
   );
   // The note of an applied stall option leads the brief (D99 path): the fix
   // agent reads the direction first, and findings on removed scope lapse.

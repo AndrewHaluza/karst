@@ -27,10 +27,10 @@ const write = async (...lines: string[]) => {
   await appendFile(paths.eventsFile, lines.map((l) => `${l}\n`).join(''));
 };
 const flush = () => new Promise((r) => setImmediate(r));
-const make = (runMarker: MarkerRunner) =>
+const make = (runMarker: MarkerRunner, stage: () => "impl" | "fix" = () => "impl") =>
   createBridgeAttachment({
     paths,
-    expect: expectation,
+    expect: { ...expectation, stage },
     dispatch: (p) => dispatched.push(p),
     runMarker,
     intervalMs: 5,
@@ -58,7 +58,7 @@ describe('createBridgeAttachment', () => {
     await write(markerLine());
     await make(run).pollOnce();
     expect(run).toHaveBeenCalledTimes(1);
-    expect(run).toHaveBeenCalledWith('impl');
+    expect(run).toHaveBeenCalledWith('impl', undefined);
     expect(dispatched).toEqual([]);
   });
   it('drops a forged other-ticket marker and logs [bridge] ... ticket 8 != 7', async () => {
@@ -166,9 +166,29 @@ describe('createBridgeAttachment', () => {
     att.start();
     await flush();
     await flush();
-    await vi.waitFor(() => expect(run).toHaveBeenCalledWith('impl'));
+    await vi.waitFor(() => expect(run).toHaveBeenCalledWith('impl', undefined));
     await att.stop();
     await vi.waitFor(async () => expect(await readFile(paths.pendingFile, 'utf8').catch(() => 'gone')).toBe('gone'));
+  });
+  it('start() retries a persisted marker with its noChange, and an old file still loads', async () => {
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(paths.pendingFile, '..'), { recursive: true });
+    await writeFile(paths.pendingFile, JSON.stringify({ stage: 'fix', noChange: 'r' }));
+    const run = okRunner();
+    const att = make(run, () => "fix");
+    att.start();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledWith('fix', { noChange: 'r' }));
+    await att.stop();
+  });
+  it('a pending file without noChange runs with no options', async () => {
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(paths.pendingFile, '..'), { recursive: true });
+    await writeFile(paths.pendingFile, JSON.stringify({ stage: 'fix' }));
+    const run = okRunner();
+    const att = make(run, () => "fix");
+    att.start();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledWith('fix', undefined));
+    await att.stop();
   });
   it('a failed marker run also frees the slot', async () => {
     const run = vi.fn<MarkerRunner>(() => Promise.reject(new Error('x')));

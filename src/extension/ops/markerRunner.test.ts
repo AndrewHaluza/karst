@@ -15,6 +15,11 @@ describe('createMarkerRunner', () => {
     );
     expect(result).toEqual({ code: 0, stderr: '' });
   });
+  it('adds --no-change to the CLI argv', async () => {
+    const spawn = vi.fn<MarkerSpawn>(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    await createMarkerRunner(facts, spawn)('fix', { noChange: 'port window' });
+    expect(spawn.mock.calls[0]![1]).toEqual(expect.arrayContaining(['stage', 'fix', 'pass', '--no-change', 'port window']));
+  });
   it('syncs BEFORE the stage CLI for a sandboxed ticket (T700)', async () => {
     const order: string[] = [];
     const spawn: MarkerSpawn = async () => { order.push('cli'); return { stdout: '', stderr: '', exitCode: 0 }; };

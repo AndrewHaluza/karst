@@ -3,6 +3,8 @@ import type { StageKey } from '../model/types.js';
 import { getStage, setStage } from '../store/stages.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { nowIso } from '../model/time.js';
+import { parkedFixRound } from '../store/fixNoChangeRounds.js';
+import { retryParkedFixRound } from './fixParkExit.js';
 
 /**
  * Whether a gate stage is eligible for a retry right now.
@@ -20,7 +22,8 @@ import { nowIso } from '../model/time.js';
  * signal — only a running row WITHOUT one is genuinely mid-run.
  */
 export type RetryGateState =
-  | { available: true; stage: StageKey }
+  /** `fromFix`: the ticket rests at a parked fix round and `stage` is the round source (@arch:AC-66). */
+  | { available: true; stage: StageKey; fromFix?: true }
   | { available: false; reason: RetryGateUnavailableReason };
 
 export type RetryGateUnavailableReason = 'not-gate-stage' | 'in-flight' | 'not-current';
@@ -39,6 +42,12 @@ export function retryGateState(store: Store, ticketId: number): RetryGateState {
     .get(ticketId) as { stage_current: string } | undefined;
   if (!ticket) return { available: false, reason: 'not-gate-stage' };
   const current = ticket.stage_current as StageKey;
+  if (current === 'fix') {
+    const round = parkedFixRound(store, ticketId);
+    return round === null
+      ? { available: false, reason: 'not-gate-stage' }
+      : { available: true, stage: round.sourceStage, fromFix: true };
+  }
   if (!GATE_STAGES.includes(current)) return { available: false, reason: 'not-gate-stage' };
   if (isInFlight(store, ticketId, current)) return { available: false, reason: 'in-flight' };
   return { available: true, stage: current };
@@ -69,6 +78,14 @@ export function retryGateStage(
     .prepare('SELECT stage_current FROM tickets WHERE id = ?')
     .get(ticketId) as { stage_current: string } | undefined;
   if (!ticket) return { ok: false, reason: 'ticket not found' };
+  if (ticket.stage_current === 'fix') {
+    // A parked fix round: the retry returns the ticket to the round's source stage.
+    if (parkedFixRound(store, ticketId)?.sourceStage !== stageKey) {
+      return { ok: false, reason: 'stage is not the source of the parked fix round' };
+    }
+    const result = retryParkedFixRound(store, ticketId, { now });
+    return result.ok ? { ok: true } : { ok: false, reason: result.reason };
+  }
   if (ticket.stage_current !== stageKey) {
     return { ok: false, reason: 'stage is not current' };
   }

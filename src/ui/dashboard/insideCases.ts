@@ -231,6 +231,8 @@ const USAGE_PARK = {
   resumable: false,
 };
 
+const fixParkPatch = (fixPark: NonNullable<DashboardState['fixPark']>) => (s: DashboardState): DashboardState => ({ ...s, fixPark });
+
 const parkPatch = (blocked: NonNullable<DashboardState['currentStage']>['blocked']) => (s: DashboardState): DashboardState => ({
   ...s,
   currentStage: s.currentStage ? { ...s.currentStage, blocked } : s.currentStage,
@@ -504,6 +506,27 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       parkPatch({ kind: 'tester-skipped', reason: 'tester observed nothing — uat:host probe not run; unit tests only', at: t(25), resumable: false }),
     ),
   },
+  // A parked fix round (@arch:AC-66): the banner offers Retry gate and Accept and continue.
+  {
+    stage: 'uat',
+    id: 'fix-parked-gate',
+    state: fromFacts('uat', loopFacts('uat', 'failed', { stageCurrent: 'fix' }), fixParkPatch({
+      sourceStage: 'uat',
+      trigger: 'gate-failure',
+      reason: 'the agent found no change to make, and the re-run of the failed gates did not close the round — test (web) exited 1. A code change from this session cannot fix this failure.',
+      items: ['test (web)', 'visual (web)'],
+    })),
+  },
+  {
+    stage: 'uat',
+    id: 'fix-parked-tester',
+    state: fromFacts('uat', loopFacts('uat', 'failed', { stageCurrent: 'fix' }), fixParkPatch({
+      sourceStage: 'uat',
+      trigger: 'blocking-tester-observations',
+      reason: 'second no-change verdict on the same head (no change: the migrations are already applied on the shared database)',
+      items: ['[high] migration 0042 is not applied on the host database', '[medium] the seed step logs a warning'],
+    })),
+  },
   {
     stage: 'uat',
     id: 'bypassed',
@@ -573,6 +596,16 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     stage: 'review',
     id: 'menu-retry-send-back',
     state: fromFacts('review', { cells: { review: { status: 'failed' } }, gateRuns: [LONG_GATE] }, menuPatch(true)),
+  },
+  {
+    stage: 'review',
+    id: 'fix-parked-review',
+    state: fromFacts('review', loopFacts('review', 'failed', { stageCurrent: 'fix' }), fixParkPatch({
+      sourceStage: 'review',
+      trigger: 'blocking-review-findings',
+      reason: 'second no-change verdict on the same head (no change: the finding needs a real sandbox run to confirm)',
+      items: ['[high] sandbox egress stays open after the run (src/agent/sbx.ts:88)', '[medium] the timeout is not configurable (src/agent/sbx.ts:120)'],
+    })),
   },
   { stage: 'review', id: 'rounds-12', state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(12, 'opened by Review blocking findings · 1m 0s · no fix attempts left')) },
   { stage: 'review', id: 'long-attempt-note', state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(2, `${LONG_SENTENCE} ${LONG_WORDS}`)) },

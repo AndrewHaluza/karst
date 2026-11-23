@@ -736,6 +736,9 @@
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
   ],
+  "src/model/noChange.ts": [
+    "arch:AC-66"
+  ],
   "src/model/notifyText.ratchet.test.ts": [
     "arch:NTF-00",
     "arch:NTF-09"
@@ -1004,6 +1007,12 @@
   ],
   "src/store/fixDeliveries.ts#upsertFixDelivery": [
     "arch:V77"
+  ],
+  "src/store/fixNoChangeRounds.ts": [
+    "arch:AC-66"
+  ],
+  "src/store/fixRoundAcceptances.ts": [
+    "arch:AC-66"
   ],
   "src/store/graph/**": [
     "arch:GRAPHRUN"
@@ -1285,6 +1294,12 @@
   ],
   "src/workflow/dismissPr.ts#undismissTicketPr": [
     "arch:GH-06"
+  ],
+  "src/workflow/fixNoChange.ts": [
+    "arch:AC-66"
+  ],
+  "src/workflow/fixParkExit.ts": [
+    "arch:AC-66"
   ],
   "src/workflow/gates/capabilityGap.ts": [
     "arch:GATE-CAPABILITY"

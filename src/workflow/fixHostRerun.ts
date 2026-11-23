@@ -4,6 +4,8 @@ import { activeFixRound } from '../store/recoveryRounds.js';
 import { listGateRuns, type GateRun } from '../store/gateRuns.js';
 import { finishProcessRun } from '../store/processRuns.js';
 import { roundById } from '../store/recoveryRounds.js';
+import { claimNoChangeRerun } from '../store/fixNoChangeRounds.js';
+import { noChangeEndReason } from '../model/noChange.js';
 import { claimHostRerun, closeRoundPassed, hostRerunPassedBefore, markHostRerunFailed, parkRoundOutOfFixing } from '../store/hostRerunRound.js';
 import { parkFixStage } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
@@ -57,7 +59,7 @@ export interface HostRerunDeps {
 
 /** The one-sentence way out, named in the marker reply and the park verdict. */
 export const HOST_RERUN_WAY_OUT =
-  'a code change from this session cannot fix this failure — stop the session; the user resets the stage (Reset stage) or fixes the environment and retries the gate';
+  'a code change from this session cannot fix this failure — stop the session; the user fixes the environment and clicks Retry gate, or clicks Accept and continue';
 
 export interface RerunFailure {
   gateName: string;
@@ -126,14 +128,14 @@ async function rerunAll(deps: HostRerunDeps, ticketId: number, gates: readonly F
 }
 
 /** Return the ticket to the source stage and close the round, atomically. */
-function returnToSource(store: Store, ticketId: number, roundId: number, stage: StageKey, at: string): void {
+function returnToSource(store: Store, ticketId: number, roundId: number, stage: StageKey, reason: string, at: string): void {
   const cleared = { verdict: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null } as const;
   store.db.transaction(() => {
     const fixRunId = roundById(store, roundId)?.fixProcessRunId ?? null;
-    if (fixRunId !== null) finishProcessRun(store, fixRunId, 'interrupted', at, HOST_RERUN_RESULT_KIND, null, HOST_RERUN_PASSED_REASON);
+    if (fixRunId !== null) finishProcessRun(store, fixRunId, 'interrupted', at, HOST_RERUN_RESULT_KIND, null, reason);
     setStage(store, ticketId, stage, { status: 'running', startedAt: at, ...cleared });
     setStage(store, ticketId, 'fix', { status: 'pending', startedAt: null, attempt: 0, artifactPath: null, ...cleared });
-    closeRoundPassed(store, roundId, HOST_RERUN_PASSED_REASON, at);
+    closeRoundPassed(store, roundId, reason, at);
     setStageCurrent(store, ticketId, stage);
     setAgentState(store, ticketId, 'idle');
   })();
@@ -175,7 +177,8 @@ export async function hostRerunFailedGates(
   const failed = failedGatesOf(listGateRuns(store, ticketId), round.sourceStage);
   if (failed.length === 0) return { kind: 'not-applicable' };
   const now = deps.now ?? nowIso;
-  if (!claimHostRerun(store, round.id, now())) {
+  const claimed = round.noChangeReason !== null ? claimNoChangeRerun(store, round.id, now()) : claimHostRerun(store, round.id, now());
+  if (!claimed) {
     if (!park) return { kind: 'already-used' };
     parkRound(store, ticketId, round.id, `no new commit, and the host already re-ran the failed gates — ${HOST_RERUN_WAY_OUT}`, now());
     return { kind: 'already-used' };
@@ -183,7 +186,8 @@ export async function hostRerunFailedGates(
 
   const failures = await rerunAll(deps, ticketId, failed, round.sourceStage);
   if (failures.length === 0) {
-    returnToSource(store, ticketId, round.id, round.sourceStage, now());
+    const closeReason = round.noChangeReason !== null ? noChangeEndReason(round.noChangeReason) : HOST_RERUN_PASSED_REASON;
+    returnToSource(store, ticketId, round.id, round.sourceStage, closeReason, now());
     await notifyPassed(deps, ticketId, round.sourceStage, round.id);
     return { kind: 'passed', stage: round.sourceStage };
   }
@@ -193,7 +197,10 @@ export async function hostRerunFailedGates(
     return { kind: 'failed', failures };
   }
   const detail = describeFailures(failures);
-  parkRound(store, ticketId, round.id, `no new commit, and the host re-run did not close the round — ${detail}. ${HOST_RERUN_WAY_OUT}`, now());
+  const lead = round.noChangeReason !== null
+    ? 'the agent found no change to make, and the re-run of the failed gates did not close the round'
+    : 'no new commit, and the host re-run did not close the round';
+  parkRound(store, ticketId, round.id, `${lead} — ${detail}. ${HOST_RERUN_WAY_OUT}`, now());
   return { kind: 'failed', failures };
 }
 

@@ -65,6 +65,8 @@ export interface RecoveryRound {
   interruptCount: number;
   /** v95: the HEAD the fix round committed; null = not recorded. */
   fixCommitSha: string | null;
+  /** v137: the agent's no-change reason; null = none. */
+  noChangeReason: string | null;
 }
 
 interface RecoveryRoundRow {
@@ -87,6 +89,7 @@ interface RecoveryRoundRow {
   ended_at: string | null;
   interrupt_count: number;
   fix_commit_sha: string | null;
+  no_change_reason: string | null;
 }
 
 const SOURCE_PROCESS_IDS: readonly string[] = ['gates', 'tester', 'review', 'pr-review', 'ci'];
@@ -139,6 +142,7 @@ function rowToRound(r: RecoveryRoundRow): RecoveryRound {
     endedAt: r.ended_at,
     interruptCount: r.interrupt_count,
     fixCommitSha: r.fix_commit_sha,
+    noChangeReason: r.no_change_reason,
   };
 }
 
@@ -146,7 +150,7 @@ const ROUND_SELECT =
   `SELECT id, ticket_id, source_stage, source_process_id, source_stage_run_id,
           source_process_run_id, trigger_kind, trigger_detail, episode, round, max_rounds,
           fix_process_run_id, uat_revalidation_stage_run_id,
-          review_revalidation_stage_run_id, status, started_at, ended_at, interrupt_count, fix_commit_sha
+          review_revalidation_stage_run_id, status, started_at, ended_at, interrupt_count, fix_commit_sha, no_change_reason
      FROM recovery_rounds`;
 
 export function roundById(store: Store, id: number): RecoveryRound | undefined {

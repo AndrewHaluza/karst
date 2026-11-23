@@ -548,7 +548,8 @@ process.stdin.on('end', () => {
 
 /**
  * The marker emitter the sandboxed agent runs instead of an HTTP marker call:
- * `node <runDir>/<core>/emit-marker.cjs <events.ndjson> <impl|fix>`.
+ * `node <runDir>/<core>/emit-marker.cjs <events.ndjson> <impl|fix>`, or
+ * `... <events.ndjson> fix --no-change "<reason>"` (adds `noChange` to the line; any other use of the flag is a usage error, exit 1).
  *
  * 1. Refuses (exit 1, NOTHING written to events.ndjson) when the working tree has
  *    uncommitted changes, or when `git status` itself fails (safe.directory or
@@ -566,10 +567,13 @@ export const MARKER_EMIT = String.raw`const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const cp = require('node:child_process');
-const [eventsPath, stage] = process.argv.slice(2);
+const [eventsPath, stage, ...extra] = process.argv.slice(2);
 const ticketDir = eventsPath ? path.basename(path.dirname(eventsPath)) : '';
-if (!eventsPath || (stage !== 'impl' && stage !== 'fix') || !/^\d+$/.test(ticketDir)) {
-  process.stderr.write('usage: emit-marker.cjs <dir>/<ticket>/events.ndjson <impl|fix>\n');
+// The optional --no-change flag belongs to the fix marker only and needs a reason.
+const noChangeFlag = extra.length > 0;
+const noChange = noChangeFlag && extra.length === 2 && extra[0] === '--no-change' && stage === 'fix' && extra[1].trim() !== '' ? extra[1] : undefined;
+if (!eventsPath || (stage !== 'impl' && stage !== 'fix') || !/^\d+$/.test(ticketDir) || (noChangeFlag && noChange === undefined)) {
+  process.stderr.write('usage: emit-marker.cjs <dir>/<ticket>/events.ndjson <impl|fix> | emit-marker.cjs <dir>/<ticket>/events.ndjson fix --no-change "<reason>"\n');
   process.exit(1);
 }
 const status = cp.spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
@@ -583,7 +587,7 @@ if (status.stdout.trim() !== '') {
   process.exit(1);
 }
 const seq = crypto.randomBytes(8).toString('hex');
-fs.appendFileSync(eventsPath, JSON.stringify({ v: 1, kind: 'marker', ticket: Number(ticketDir), stage, seq }) + '\n');
+fs.appendFileSync(eventsPath, JSON.stringify({ v: 1, kind: 'marker', ticket: Number(ticketDir), stage, seq, ...(noChange !== undefined ? { noChange } : {}) }) + '\n');
 const resultFile = path.join(path.dirname(eventsPath), 'results', seq + '.json');
 const waitMs = Number(process.env.KARST_MARKER_WAIT_MS) > 0 ? Number(process.env.KARST_MARKER_WAIT_MS) : ${MARKER_WAIT_MS};
 const deadline = Date.now() + waitMs;

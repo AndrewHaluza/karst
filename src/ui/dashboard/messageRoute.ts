@@ -189,6 +189,10 @@ export function routeAction(
       return actions.testerSkippedRerun();
     case 'tester-skipped-accept':
       return actions.testerSkippedAccept();
+    case 'fix-parked-retry':
+      return actions.fixParkedRetry();
+    case 'fix-parked-accept':
+      return actions.fixParkedAccept(msg.note);
     case 'push-diverged-overwrite':
       return actions.pushDivergedOverwrite();
     case 'push-diverged-integrate':

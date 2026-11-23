@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openRecoveryRound } from '../store/recoveryRoundsWrite.js';
 import { recordFixRoundManifest } from '../store/fixRoundHeads.js';
+import { recordNoChangeReason } from '../store/fixNoChangeRounds.js';
+import { recordFindings } from '../store/reviewFindings.js';
 import { describe, it, expect } from 'vitest';
 import type { Manifest } from '../manifest/types.js';
 import { openStore, type Store } from '../store/db.js';
@@ -174,5 +176,25 @@ describe('makeReviewArtifactsBinding — operator manifest', () => {
     const later = new Date(Date.now() + 60_000);
     utimesSync(path, later, later);
     expect((await b(id))?.operatorManifest?.changed).toBe(true);
+  });
+});
+
+describe('makeReviewArtifactsBinding — no-change claim', () => {
+  it('carries the reason and the open blocking findings of a review round that revalidates with a no-change reason', async () => {
+    const registry = openStore(':memory:');
+    const id = ticket(registry);
+    const at = '2026-01-01T00:00:00Z';
+    const roundId = openRecoveryRound(registry, {
+      ticketId: id, sourceStage: 'review', sourceProcessId: 'review', triggerKind: 'blocking-review-findings',
+      triggerDetail: 'x', maxRounds: 3, startedAt: at,
+    } as never).id;
+    recordNoChangeReason(registry, roundId, 'needs a real run', at);
+    registry.db.prepare("UPDATE recovery_rounds SET status = 'revalidating' WHERE id = ?").run(roundId);
+    recordFindings(registry, { ticketId: id, attempt: 1, runAt: at, findings: [
+      { severity: 'high', repo: '', file: 'f.ts', line: 7, title: 'egress open', detail: 'd', source: 'agent' },
+    ] });
+    const load = makeReviewArtifactsBinding({ registry, artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => undefined, createStore: fakeFactory({}).createStore });
+    const a = await load(id);
+    expect(a?.noChangeClaim).toEqual({ reason: 'needs a real run', items: ['[high] egress open (f.ts:7)'] });
   });
 });

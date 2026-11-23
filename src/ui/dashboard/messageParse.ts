@@ -9,7 +9,7 @@ type Msg<K extends WebviewMessage['type']> = Extract<WebviewMessage, { type: K }
 import {
   isAgentProcessId, isFiniteNumber, isStageKey, isGateStage, isConsoleStage, storedPath, storedSha,
   MAX_GATE_NAME_CHARS, MAX_ENV_TEXT_CHARS, MAX_ACTION_ID_CHARS, MAX_ARTIFACT_ID_CHARS, MAX_BASELINE_INDICES, MAX_SERVER_LOG_COPY_CHARS,
-  BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_STALL_LABEL_CHARS, MAX_STALL_TEXT_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS, MAX_TICKET_MARKDOWN_CHARS,
+  BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_FIX_PARK_NOTE_CHARS, MAX_STALL_LABEL_CHARS, MAX_STALL_TEXT_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS, MAX_TICKET_MARKDOWN_CHARS,
 } from './messageValidate.js';
 /**
  * Narrow an untrusted webview message to a `WebviewMessage`, validating BOTH the
@@ -318,6 +318,11 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'tester-skipped-rerun' };
     case 'tester-skipped-accept':
       return { type: 'tester-skipped-accept' };
+    case 'fix-parked-retry':
+      return { type: 'fix-parked-retry' };
+    // Bounded at the boundary; a blank note is allowed (the note is optional).
+    case 'fix-parked-accept':
+      return typeof m.note === 'string' && m.note.length <= MAX_FIX_PARK_NOTE_CHARS ? { type: 'fix-parked-accept', note: m.note } : null;
     case 'push-diverged-overwrite':
       return { type: 'push-diverged-overwrite' };
     case 'push-diverged-integrate':

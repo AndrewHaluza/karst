@@ -5,10 +5,11 @@ import { isMarkerStage, type MarkerStage } from '../markerStage.js';
 import type { BridgePaths } from './bridgeDir.js';
 import { createBridgePoller, type BridgePoller } from './bridgePoller.js';
 import { verifyBridgeLine, type BridgeExpectation } from './bridgeVerifier.js';
-import { createMarkerFlow, type MarkerFlowDeps, type MarkerFailure, type QueuedMarker, type MarkerOutcome, type PendingMarkerStore } from './markerFlow.js';
+import { createMarkerFlow, type MarkerFlowDeps, type MarkerFailure, type MarkerOptions, type QueuedMarker, type MarkerOutcome, type PendingMarkerStore } from './markerFlow.js';
+import { sanitizeNoChangeReason } from '../../model/noChange.js';
 import { writeMarkerReply } from './markerReply.js';
 
-export type MarkerRunner = (stage: MarkerStage) => Promise<MarkerOutcome>;
+export type MarkerRunner = (stage: MarkerStage, options?: MarkerOptions) => Promise<MarkerOutcome>;
 
 export interface BridgeAttachmentDeps {
   readonly paths: BridgePaths;
@@ -45,14 +46,17 @@ function filePendingStore(file: string): PendingMarkerStore {
     load: async () => {
       try {
         const parsed: unknown = JSON.parse(await readFile(file, 'utf8'));
-        const stage = (parsed as { stage?: unknown } | null)?.stage;
-        return typeof stage === 'string' && isMarkerStage(stage) ? stage : undefined;
+        const record = parsed as { stage?: unknown; noChange?: unknown } | null;
+        const stage = record?.stage;
+        if (typeof stage !== 'string' || !isMarkerStage(stage)) return undefined;
+        const noChange = stage === 'fix' ? sanitizeNoChangeReason(record?.noChange) : null;
+        return { stage, ...(noChange ? { noChange } : {}) };
       } catch {
         return undefined;
       }
     },
-    save: async (stage) => {
-      await writeFile(`${file}.tmp`, JSON.stringify({ stage }));
+    save: async (stage, options) => {
+      await writeFile(`${file}.tmp`, JSON.stringify({ stage, ...(options?.noChange ? { noChange: options.noChange } : {}) }));
       await rename(`${file}.tmp`, file);
     },
     clear: () => rm(file, { force: true }),
@@ -125,7 +129,7 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
       if (verdict.event.kind === 'hook') deps.dispatch(verdict.event.payload);
       else if (verdict.event.kind === 'ack') deps.onAck?.(verdict.event.ref);
       else {
-        const { stage, seq } = verdict.event;
+        const { stage, seq, noChange } = verdict.event;
         if (seq !== undefined) {
           if (handled.has(seq)) {
             log(`ticket ${id} marker ${stage} seq ${seq} already handled: skipped`);
@@ -133,7 +137,7 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
           }
           await handled.add(seq);
         }
-        void flow.handle(stage, seq).catch((err: unknown) => log(`ticket ${id} marker failed: ${err instanceof Error ? err.message : String(err)}`));
+        void flow.handle(stage, seq, noChange === undefined ? undefined : { noChange }).catch((err: unknown) => log(`ticket ${id} marker failed: ${err instanceof Error ? err.message : String(err)}`));
       }
     },
   });

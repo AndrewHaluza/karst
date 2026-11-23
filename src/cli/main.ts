@@ -11,7 +11,9 @@ import { parseContextArgs, runContextCommand } from './context.js';
 import { parseFixBriefArgs, runFixBriefCommand } from './fixBriefCommand.js';
 import { parseConflictBriefArgs, runConflictBriefCommand } from './conflictBriefCommand.js';
 import { parseStatsArgs, runStatsCommand } from './stats.js';
-import { runStageCommand } from './stage.js';
+import { parseStageArgs, runStageCommand } from './stage.js';
+import { applyNoChangeMarker, type NoChangeOutcome } from '../workflow/fixNoChange.js';
+import { NO_CHANGE_RERUN_PENDING } from '../model/noChange.js';
 import { assertTicketHasChanges } from '../workflow/emptyWorkGuard.js';
 import { assertFixHasNewCommitOrRequestRerun, MARKER_VIA_BRIDGE_ENV } from '../workflow/fixHostRerunRequest.js';
 import { assertUiParityFresh } from '../workflow/uiParityGuard.js';
@@ -819,6 +821,15 @@ export function checklistVerifyServices(
   return inSetupSession(env) && manifest ? setupVerifyServices(db, manifest) : undefined;
 }
 
+/** The `--no-change` reason of a stage argv; a parse error is left for `runCli` to report. */
+function safeParseNoChange(rest: string[]): string | undefined {
+  try {
+    return parseStageArgs(rest).noChange;
+  } catch {
+    return undefined;
+  }
+}
+
 async function assertMarkerHasWork(
   db: string,
   manifestPath: string,
@@ -826,6 +837,7 @@ async function assertMarkerHasWork(
   verbose: boolean,
   stage: 'impl' | 'fix',
   viaBridge: boolean,
+  noChange: string | undefined,
 ): Promise<void> {
   let manifest: Manifest;
   try {
@@ -844,7 +856,15 @@ async function assertMarkerHasWork(
       defaultGitRunner,
       verbose ? (m: string) => process.stderr.write(`${m}\n`) : undefined,
     );
-    if (stage === 'fix') await assertFixHasNewCommitOrRequestRerun(store, found.id, defaultGitRunner, undefined, { viaBridge });
+    if (stage === 'fix') {
+      const outcome: NoChangeOutcome =
+        noChange === undefined ? { kind: 'not-applicable' } : await applyNoChangeMarker(store, found.id, noChange, defaultGitRunner, { viaBridge });
+      if (outcome.kind === 'refused') throw new Error(`cannot mark this stage done: ${outcome.message}`);
+      if (outcome.kind === 'rerun-via-bridge') throw new Error(`cannot mark this stage done: ${NO_CHANGE_RERUN_PENDING}`);
+      if (outcome.kind === 'rerun-requested') throw new Error(`cannot mark this stage done: ${outcome.message}`);
+      if (outcome.kind === 'not-applicable') await assertFixHasNewCommitOrRequestRerun(store, found.id, defaultGitRunner, undefined, { viaBridge });
+      // 'proceed': the reason is stored and the normal marker runs (fix → uat, round revalidating).
+    }
     // A parity probe that cannot run (timeout, spawn error) is not a verdict: the marker goes through.
     try {
       await assertUiParityFresh(store, found.id, defaultGitRunner, runParityVitest);
@@ -994,7 +1014,8 @@ export async function runCliAsync(
   // base. The probe is async, the marker itself is not: check first, then hand
   // the unchanged argv to the synchronous path.
   if (rest[0] === 'stage' && (rest[1] === 'impl' || rest[1] === 'fix') && db && ticket && manifestPath) {
-    await assertMarkerHasWork(db, manifestPath, ticket, verbose === true, rest[1], env[MARKER_VIA_BRIDGE_ENV] === '1');
+    const noChange = rest[1] === 'fix' ? safeParseNoChange(rest) : undefined;
+    await assertMarkerHasWork(db, manifestPath, ticket, verbose === true, rest[1], env[MARKER_VIA_BRIDGE_ENV] === '1', noChange);
   }
   if (rest[0] === 'base') {
     if (!db) throw new Error('missing --db <path>');

@@ -23,6 +23,7 @@ import type { TicketEnvOverrides } from '../../store/ticketEnvOverrides.js';
 import type { ResetStageState } from '../../workflow/resetStage.js';
 import type { SendBackState } from '../../workflow/sendBack.js';
 import type { RetryGateState } from '../../workflow/retryGate.js';
+import type { FixParkView } from '../../workflow/fixParkExit.js';
 import type { PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import type { PathContext } from '../worktreePath.js';
 import type { TicketRefView } from '../shared/ticketRefView.js';
@@ -432,6 +433,11 @@ export interface DashboardState {
    * The webview renders the retry option in the stage menu when available.
    */
   rerunGate: RetryGateState;
+  /**
+   * The parked fix round the banner offers "Retry gate" and "Accept and continue" for,
+   * host-derived (`workflow/fixParkExit.ts`); null when no round is parked.
+   */
+  fixPark: FixParkView | null;
   /** "Reset stage" availability (T831), host-derived (`workflow/resetStage.ts`) in the same snapshot. */
   resetStage: ResetStageState;
   /**

@@ -27,8 +27,6 @@ export function hasLinkedPrototype(ticket: {
 export interface RenderFixBriefOptions {
   /** The ticket has a linked prototype (ui:UI-R39-REJECT per-region checklist rule). */
   readonly hasPrototype?: boolean;
-  /** True when the failed stage's round already used its host re-run (ran or requested). */
-  readonly hostRerunSpent?: (stageKey: StageKey) => boolean;
   /** The caller appends the done-marker text, which already states PROCESS_KILL_RULE: the brief omits its copy. */
   readonly markerAppended?: boolean;
 }
@@ -107,17 +105,11 @@ function gateCommandLines(stageKey: StageKey, runs: readonly GateRun[]): string[
   return ['', FIX_GATE_LIST_HEADER, ...lines];
 }
 
-/** Said once in a gate-failure brief: a refused marker the host re-run cannot clear is a valid stop. */
-export const FIX_REFUSED_STOP_RULE =
-  'If the done marker is refused with no new commit and the host re-run still fails, stop and wait for the user — that is a valid stopping point.';
-
-/** Said once in a non-review gate-failure brief: an environment failure needs no change, only the marker. */
-export const FIX_NO_FAULT_RULE =
-  'If the failure output shows no fault in the ticket code (a timeout, a server that did not start, a port window) and you change no file, call the done marker now. The host re-runs the gate.';
-
-/** Said instead of FIX_NO_FAULT_RULE once the round's host re-run already ran: the marker cannot re-run the gate. */
-export const FIX_NO_FAULT_SPENT_RULE =
-  'The host re-run of this round already ran and still failed. If you find no fault in the ticket code, say what you found and stop for the user.';
+/** Said once in every gate fix brief (uat, review): the only correct exit when no code change is right. */
+export const FIX_NO_CHANGE_RULE =
+  'If no code change is correct (the failure output shows no fault in the ticket code, or a finding or observation is not a defect), never make an empty commit. ' +
+  'Call the done marker with a no-change reason that gives your evidence: add `noChange: "<evidence>"` to the MCP `stage` call, or add `--no-change "<evidence>"` to the marker command. ' +
+  'The host then re-runs the failed gates, or runs review or the tester again with your reason. A second no-change on the same head parks the round for the user.';
 
 /** Leads a failed gate row with no environment signature: the ticket needs a change. */
 export const TICKET_FAILURE_LABEL = 'ticket failure';
@@ -206,10 +198,7 @@ export function renderFixBrief(
     // stop only what it started (`kill $!`), never a process-wide `pkill`.
     ...(options?.markerAppended ? [] : ['', PROCESS_KILL_RULE]),
   ];
-  if (!isPrFeedback) lines.push('', FIX_REFUSED_STOP_RULE);
-  if (!isPrFeedback && gate.stageKey !== 'review') {
-    lines.push('', options?.hostRerunSpent?.(gate.stageKey) ? FIX_NO_FAULT_SPENT_RULE : FIX_NO_FAULT_RULE);
-  }
+  if (!isPrFeedback) lines.push('', FIX_NO_CHANGE_RULE);
   if (gate.stageKey === 'review') lines.push('', REVIEW_SWEEP_RULE);
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
   if (options?.hasPrototype && (!gate.verdict || !gate.verdict.includes('@ui:UI-R39-REJECT'))) {

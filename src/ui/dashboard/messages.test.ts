@@ -98,6 +98,8 @@ function actions(): DashboardActions {
     baselineReject: vi.fn(),
     testerSkippedRerun: vi.fn(),
     testerSkippedAccept: vi.fn(),
+    fixParkedRetry: vi.fn(),
+    fixParkedAccept: vi.fn(),
     pushDivergedOverwrite: vi.fn(),
     pushDivergedIntegrate: vi.fn(),
     requestStageLog: vi.fn(),
@@ -1053,6 +1055,24 @@ describe('inside-action', () => {
     expect(a.baselineApprove).toHaveBeenCalledWith('baseline-review', [0, 2]);
     routeAction({ type: 'baseline-reject', blockId: 'baseline-review', index: 1, reason: 'wrong' }, a);
     expect(a.baselineReject).toHaveBeenCalledWith('baseline-review', 1, 'wrong');
+  });
+
+  it('routes the two parked fix round messages', () => {
+    const a = actions();
+    routeAction({ type: 'fix-parked-retry' }, a);
+    expect(a.fixParkedRetry).toHaveBeenCalledTimes(1);
+    routeAction({ type: 'fix-parked-accept', note: 'known limit' }, a);
+    routeAction({ type: 'fix-parked-accept', note: '' }, a);
+    expect(a.fixParkedAccept).toHaveBeenNthCalledWith(1, 'known limit');
+    expect(a.fixParkedAccept).toHaveBeenNthCalledWith(2, '');
+  });
+
+  it('drops a fix-parked-accept with a non-string or an over-long note', () => {
+    const a = actions();
+    for (const note of [5, null, undefined, 'x'.repeat(2001)]) routeAction({ type: 'fix-parked-accept', note }, a);
+    expect(a.fixParkedAccept).not.toHaveBeenCalled();
+    routeAction({ type: 'fix-parked-accept', note: 'x'.repeat(2000) }, a);
+    expect(a.fixParkedAccept).toHaveBeenCalledTimes(1);
   });
 
   it('routes baseline-approve-all with the block id only, and drops a wrong block', () => {

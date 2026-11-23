@@ -15,6 +15,20 @@ const hook = (o: Record<string, unknown> = {}) =>
 const marker = (o: Record<string, unknown> = {}) =>
   JSON.stringify({ v: 1, kind: 'marker', ticket: 7, stage: 'impl', ...o });
 
+describe('marker noChange', () => {
+  const fixExpect = expectOf({ stage: () => 'fix' });
+  it('accepts a fix marker with a bounded, sanitized noChange', () => {
+    const v = verifyBridgeLine(marker({ stage: 'fix', seq: 'abc123', noChange: ' port\u0000 window ' }), fixExpect);
+    expect(v).toMatchObject({ ok: true, event: { kind: 'marker', stage: 'fix', seq: 'abc123', noChange: 'port window' } });
+  });
+  it('drops noChange on an impl marker and a non-string noChange', () => {
+    const impl = verifyBridgeLine(marker({ noChange: 'r' }), expectOf());
+    const num = verifyBridgeLine(marker({ stage: 'fix', noChange: 5 }), fixExpect);
+    expect(impl.ok && impl.event).not.toHaveProperty('noChange');
+    expect(num.ok && num.event).not.toHaveProperty('noChange');
+  });
+});
+
 const payloadOf = (v: ReturnType<typeof verifyBridgeLine>): Record<string, unknown> => {
   if (!v.ok || v.event.kind !== 'hook') throw new Error('expected an accepted hook');
   return v.event.payload as unknown as Record<string, unknown>;
