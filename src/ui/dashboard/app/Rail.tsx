@@ -5,9 +5,9 @@
  * React owns the stage selection (`stageSelection.ts`), shared with the Inside block beside it: a pick re-points
  * the strip in the same turn. `ViewPersistence` writes it with the rest of the view state.
  *
- * The track measures rather than positions: after every render and on resize it picks one of three
- * degradation classes (`snug`, `tight`, `bare`) and positions nothing, so a measurement taken before layout can
- * only under-degrade for a frame. The classes are written on the node, never through `className`.
+ * The track measures rather than positions: after every render and on resize it picks one of four
+ * degradation classes (`snug`, `short`, `tight`, `bare`) and positions nothing, so a measurement taken before layout
+ * can only under-degrade for a frame. The classes are written on the node, never through `className`.
  */
 import { memo, useEffect, useLayoutEffect, useRef } from 'react';
 import { useOps, useSelection } from './DashboardAppContext.js';
@@ -20,14 +20,17 @@ import { useSlice } from './useSlice.js';
 import './Rail.css';
 import './RailRing.css';
 
-/** Three steps, measured: each drops something a segment merely ANNOTATES, never the name or the action of the current one. */
+/** Four steps, measured: each drops something a segment merely ANNOTATES, never the name or the action of the current one. */
 function place(track: HTMLElement | null): void {
   const lane = track?.firstElementChild as HTMLElement | null | undefined;
   if (!track || !lane) return;
   const over = (): boolean => lane.scrollWidth > lane.clientWidth + 1;
-  track.classList.remove('snug', 'tight', 'bare');
+  track.classList.remove('snug', 'short', 'tight', 'bare');
   if (!over()) return;
   track.classList.add('snug');
+  if (!over()) return;
+  // The current label shortens to the stage key before the other names go (RD-LADDERS).
+  track.classList.add('short');
   if (!over()) return;
   track.classList.add('tight');
   if (over()) track.classList.add('bare');

@@ -49,6 +49,9 @@ describe('ArtifactView — captured files in the one index', () => {
   it('Reveal folder and Purge files… post once each from the index header', () => {
     const h = mountOverlays(withStored());
     openIndex(h);
+    expect(must('[data-act="stored-artifact-reveal"]').className).toBe('k-btn k-btn--ghost k-btn--sm');
+    // Purge removes every stored revision: the shared danger treatment, never the ghost one (UI-R10b).
+    expect(must('[data-act="stored-artifact-purge"]').className).toBe('k-btn k-btn--danger k-btn--sm');
     fireEvent.click(must('[data-act="stored-artifact-reveal"]'));
     fireEvent.click(must('[data-act="stored-artifact-purge"]'));
     expect(h.send.storedArtifactReveal.mock.calls).toEqual([['req-1']]);

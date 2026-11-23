@@ -371,3 +371,19 @@ export function blockingReasonsTitle(readiness: PrMergeReadiness): string {
 export function blockingCount(readiness: PrMergeReadiness): number {
   return readiness.reasons.filter(isBlocking).length;
 }
+
+/** The facts that decide whether the readiness block shows its blocked box. */
+export interface BlockedBoxInput {
+  readonly status: string;
+  readonly dismissed: boolean;
+  readonly readiness: PrMergeReadiness;
+}
+
+/**
+ * Whether the blocked box shows: the PR is live (not merged, not dismissed), it is not ready, and at least one reason
+ * blocks. `PrReadiness` renders the box from it and the Merge button points its accessible description at it, so the
+ * button can never describe a box that is not on screen (DB-16, UI-R17).
+ */
+export function showsBlockedBox(p: BlockedBoxInput): boolean {
+  return p.status !== 'merged' && !p.dismissed && !p.readiness.ready && p.readiness.reasons.some(isBlocking);
+}

@@ -84,7 +84,7 @@ describe('Rail.css — colour and legibility', () => {
   });
 });
 
-describe('Rail.css — the lane and its three measured steps', () => {
+describe('Rail.css — the lane and its four measured steps', () => {
   it('keeps the lane scrollable, never clipped', () => {
     // overflow:hidden is what turned an over-wide track into an INVISIBLE defect: the current segment's own action
     // button was clipped away with nothing to say so.
@@ -93,12 +93,28 @@ describe('Rail.css — the lane and its three measured steps', () => {
     expect(RAIL).not.toMatch(/\.railwrap\{[^}]*overflow-x:auto/);
   });
 
-  it('degrades in three measured steps, each of which drops something', () => {
-    for (const step of ['snug', 'tight', 'bare']) {
+  it('degrades in four measured steps, each of which drops something', () => {
+    for (const step of ['snug', 'short', 'tight', 'bare']) {
       const rules = RAIL.match(new RegExp(`\\.track\\.${step}[^{]*\\{[^}]*\\}`, 'g')) ?? [];
       expect(rules.length, `no .track.${step} rule`).toBeGreaterThan(0);
       expect(rules.some((r) => /display:none|min-width:0|padding/.test(r)), `.track.${step} drops nothing`).toBe(true);
     }
+  });
+
+  it('shortens the CURRENT name to its stage key before the other names go (RD-LADDERS)', () => {
+    const short = RAIL.indexOf('.track.short .seg.cur .nm .full{display:none}');
+    const tight = RAIL.indexOf('.track.tight .seg:not(.cur) .nm{display:none}');
+    expect(short).toBeGreaterThan(-1);
+    expect(tight).toBeGreaterThan(short);
+    expect(RAIL).toMatch(/\.track\.short \.seg\.cur \.nm \.abbr\{display:inline\}/);
+    // The never-collapse rule holds: the current label stays visible in one of its two forms.
+    expect(RAIL).not.toMatch(/\.track\.(?:snug|short|tight|bare)[^{]*\{[^}]*\.seg\.cur \.nm\{[^}]*display:none/);
+  });
+
+  it('paints a pending CURRENT stage with body text, not the faint untravelled colour (UI-R29)', () => {
+    const pending = RAIL.indexOf('.track .seg.pending{color:var(--k-text-faint)}');
+    expect(pending).toBeGreaterThan(-1);
+    expect(RAIL.indexOf('.track .seg.cur.pending{color:var(--k-text)}')).toBeGreaterThan(pending);
   });
 
   it('never hides the current segment’s name or its action, at any step', () => {
@@ -174,11 +190,16 @@ describe('BlockedBanner.css — the banner moved with its markup', () => {
     expect(BANNER).not.toMatch(/\.fault\.waiting/);
   });
 
-  it('leaves the decision-state words with the artifact view, because it lists baselines too', () => {
-    for (const rule of ['.blstate.approved', '.blstate.rejected', '.blstate.pending', '.blline{']) expect(ARTIFACT_VIEW).toContain(rule);
+  it('leaves the decision-state words with the artifact view, because it lists baselines too', () => {    for (const rule of ['.blstate.approved', '.blstate.rejected', '.blstate.pending', '.blline{']) expect(ARTIFACT_VIEW).toContain(rule);
     const rules = BANNER.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(rules).not.toContain('.blstate');
     expect(rules).not.toContain('.blline');
+  });
+});
+
+describe('ArtifactView.css — the artifact row body (DB-K3)', () => {
+  it('stacks the row title above its summary in a column', () => {
+    expect(ARTIFACT_VIEW).toMatch(/\.artrow \.artrow-body\{display:flex;flex-direction:column;min-width:0;flex:1\}/);
   });
 });
 

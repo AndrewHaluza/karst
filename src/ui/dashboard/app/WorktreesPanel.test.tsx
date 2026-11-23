@@ -107,11 +107,13 @@ describe('WorktreesPanel — rendering', () => {
     expect(one('show-changes').disabled).toBe(false);
   });
 
-  it('shows the empty state and disables the changes button when the ticket has no worktrees', () => {
+  it('shows the empty state and draws no changes button when the ticket has no worktrees (DB-19, UI-R19)', () => {
     mount(stateWith([]));
     expect(document.querySelector('#worktrees .ehead')!.textContent).toBe('No worktrees.');
     expect(document.querySelector('#worktrees .esub')!.textContent).toBe('Implement creates one per repository in scope.');
-    expect(one('show-changes').disabled).toBe(true);
+    // A disabled icon button cannot take the focus, so its title-only reason is unreachable: it is not rendered.
+    expect(document.querySelector('#wtChanges')).toBeNull();
+    expect(document.querySelector('[data-act="show-changes"]')).toBeNull();
   });
 
   it('shows a branch every row shares once in the header, with a copy button, and not on the rows', () => {

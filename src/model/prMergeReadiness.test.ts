@@ -7,6 +7,7 @@ import {
   NO_AUTOFIX,
   NO_OFFERS,
   prMergeReadiness,
+  showsBlockedBox,
   type AutofixInput,
   type ReadinessOffers,
   type ReadinessPr,
@@ -358,6 +359,19 @@ describe('blocking helpers', () => {
     expect(blockingCount(r)).toBe(2);
     expect(blockingReasonsTitle(r)).toBe('Required checks failing — 1 of 3 required failing · 1 optional pending · Behind develop — the branch is out of date');
   });
+  it('shows the blocked box only on a live, not-ready PR with a blocking reason (DB-16)', () => {
+    const blocked = read(pr({ reviewDecision: 'CHANGES_REQUESTED' }));
+    expect(showsBlockedBox({ status: 'open', dismissed: false, readiness: blocked })).toBe(true);
+    expect(showsBlockedBox({ status: 'merged', dismissed: false, readiness: blocked })).toBe(false);
+    expect(showsBlockedBox({ status: 'open', dismissed: true, readiness: blocked })).toBe(false);
+    const ready = read(pr({ canMerge: true, mergeBlock: 'clean', reviewDecision: 'APPROVED' }), check());
+    expect(ready.ready).toBe(true);
+    expect(showsBlockedBox({ status: 'open', dismissed: false, readiness: ready })).toBe(false);
+    const notesOnly = read(pr({ canMerge: true, mergeBlock: 'unknown', checks: { ...passing, failed: 1, failing: [{ name: 'lint', url: null, required: false }], required: { total: 3, failed: 0, pending: 0 } } }));
+    expect(notesOnly.reasons.every((r) => r.state === 'note')).toBe(true);
+    expect(showsBlockedBox({ status: 'open', dismissed: false, readiness: notesOnly })).toBe(false);
+  });
+
   describe('optional-only failing checks', () => {
     const optional: PrChecks = {
       ...failing,

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
-import { blockedWith, installRuntimeDoubles, mount, one, pr, refreshBtn, REPO, settled, stateWith, URL } from './fixtures/prsPanelKit.js';
+import { blockedBy, blockedWith, installRuntimeDoubles, mount, one, pr, refreshBtn, REPO, settled, stateWith, URL } from './fixtures/prsPanelKit.js';
 
 installRuntimeDoubles();
 
@@ -307,6 +307,37 @@ describe('PrsPanel — send-ci-failure (pending until the next settling state pu
     h.emit({ type: 'state', state: ciState() });
     expect(ciBtns().every((b) => !b.disabled)).toBe(true);
     expect(settled).toEqual([['menu-1', null, 'The ticket was not moved.']]);
+  });
+});
+
+describe('PrsPanel — the blocked box describes the Merge button (DB-16, UI-R17)', () => {
+  it('drops the inline reason when the box shows, and points the button at the box', () => {
+    mount(stateWith([pr({ readiness: blockedBy(['checks', 'bad']) })]));
+    expect(document.querySelector('.pmreason')).toBeNull();
+    const box = document.querySelector('.prblock')!;
+    expect(box.id).toBeTruthy();
+    expect(box.textContent).toContain('Merge blocked');
+    const b = mergeOf();
+    expect(b.disabled).toBe(true);
+    expect(b.getAttribute('aria-describedby')).toBe(box.id);
+    // The one-line title stays: it never replaces the box.
+    expect(b.title).toBe('awaiting review');
+  });
+
+  it('points at the folded box too', () => {
+    mount(stateWith([pr({ readiness: blockedBy(['checks', 'bad'], ['conflicts', 'warn']) })]));
+    const box = document.querySelector('details.prblock-fold')!;
+    expect(box.id).toBeTruthy();
+    expect(document.querySelector('.pmreason')).toBeNull();
+    expect(mergeOf().getAttribute('aria-describedby')).toBe(box.id);
+  });
+
+  it('keeps the inline reason when no box shows, and describes the button with it', () => {
+    mount(stateWith([pr()]));
+    expect(document.querySelector('.prblock')).toBeNull();
+    const inline = document.querySelector('.pmreason')!;
+    expect(inline.textContent).toBe('awaiting review');
+    expect(mergeOf().getAttribute('aria-describedby')).toBe(inline.id);
   });
 });
 

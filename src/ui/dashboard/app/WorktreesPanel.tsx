@@ -161,18 +161,21 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
       summaryMono
       bodyId="worktrees"
       actions={
-        <button
-          id="wtChanges"
-          className="k-iconbtn iconbtn"
-          data-act="show-changes"
-          type="button"
-          aria-label="Show ticket changes"
-          title="Show ticket changes"
-          disabled={worktrees !== null && worktrees.length === 0}
-          onClick={showChanges}
-        >
-          <Icon name="git-compare" size={13} />
-        </button>
+        // DB-19: with no worktree there is nothing to show, and a disabled button is not focusable, so its title-only
+        // reason is unreachable (UI-R19). Before the first snapshot the control stays: the answer is not known yet.
+        worktrees !== null && worktrees.length === 0 ? null : (
+          <button
+            id="wtChanges"
+            className="k-iconbtn iconbtn"
+            data-act="show-changes"
+            type="button"
+            aria-label="Show ticket changes"
+            title="Show ticket changes"
+            onClick={showChanges}
+          >
+            <Icon name="git-compare" size={13} />
+          </button>
+        )
       }
     >
       {worktrees === null ? null : worktrees.length === 0 ? (

@@ -26,7 +26,7 @@ describe('Ship preview — when it shows', () => {
     cleanupInside();
     const waiting = shipPreviewStateFor('ready');
     mountInside(waiting, { persisted: { sel: 'impl', shipWait: `${waiting.ticketId}:confirm` } });
-    expect(text(must('#inside-title'))).toBe('Inside impl');
+    expect(text(must('#inside-title'))).toBe('Inside Implementation');
     expect(q('[data-region="ship-preview"]')).toBeNull();
   });
 

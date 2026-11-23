@@ -41,7 +41,7 @@ body.art-nav .stepper,body.art-nav .grid{display:none}
   border-radius:var(--k-radius-md);background:var(--k-surface);cursor:pointer;color:var(--k-text)}
 .artrow:hover{background:var(--k-surface-hover)}
 .artrow:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
-.artrow .artrow-body{min-width:0;flex:1}
+.artrow .artrow-body{display:flex;flex-direction:column;min-width:0;flex:1}
 .artrow-title{font-size:var(--k-text-md);font-weight:var(--k-weight-medium);color:var(--k-text)}
 .artrow-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-1)}
 .artrow .arw{margin-left:auto;color:var(--k-text-faint);flex:none}

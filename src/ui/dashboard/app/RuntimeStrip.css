@@ -87,6 +87,12 @@
   min-width: 0;
 }
 
+/* The sandbox detail is a SAFETY fact ("protected" / "unprotected"): it stays visible at every width, shrinking to
+   its ellipsis and carrying the full text in its title (UI-R44). It used to be hidden at <=699, which hid the fact. */
+.rs-sub--sandbox {
+  min-width: 0;
+}
+
 .rs-sub--ok {
   color: var(--k-success);
 }
@@ -374,9 +380,6 @@
   }
   .rs-cell:not(.rs-more) {
     position: static;
-  }
-  .rs-sub--sandbox {
-    display: none;
   }
   .rs-note {
     flex-wrap: wrap;

@@ -159,6 +159,21 @@ describe('Inside CSS — the container queries', () => {
     expect(tight).toMatch(/#inside \.evidence-row,#inside \.gate-row,#inside \.finding,#inside \.done-line\{/);
   });
 
+  it('gives the auto-fix chip and the actions menu their own header tracks (DB-1, UI-R43)', () => {
+    // The chip was auto-placed: it wrapped the clock onto an implicit second row and overlapped the title.
+    expect(CSS).toMatch(/#inside \.inside-head\.has-autofix\{grid-template-columns:auto minmax\(0,1fr\) auto auto\}/);
+    expect(CSS).toMatch(/#inside \.inside-head\.has-autofix\.has-actions\{grid-template-columns:auto minmax\(0,1fr\) auto auto auto\}/);
+    // The two-class selectors outrank the ≤699 rules, so each tier restates them: title and menu on row one, the chip
+    // in its own cell, the clock at full width.
+    const narrow = containerBlock('699px');
+    expect(narrow).toMatch(/#inside \.inside-head\.has-autofix\.has-actions\{grid-template-columns:minmax\(0,auto\) minmax\(0,1fr\) auto auto\}/);
+    expect(narrow).toMatch(/#inside \.inside-head\.has-autofix\.has-actions \.stageMenuWrap\{grid-column:4;grid-row:1\}/);
+    expect(narrow).toMatch(/#inside \.inside-meta\{grid-column:1\/-1/);
+    const tight = containerBlock('399px');
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.autofix-chipwrap\{grid-column:1\/-1;grid-row:3/);
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.inside-meta\{grid-column:1\/-1;grid-row:4\}/);
+  });
+
   it('never introduces whole-component horizontal scrolling at the tiers (B7)', () => {
     for (const w of ['999px', '699px', '399px']) {
       expect(containerBlock(w), `@container (max-width: ${w}) scrolls horizontally`).not.toMatch(/overflow-x:\s*(?:scroll|auto)/);

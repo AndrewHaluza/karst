@@ -79,7 +79,7 @@ exports[`dashboard region parity (DOM contract) > artView #artView · index > ar
     <div.dh-actions>
       <span.sa-bar>
         <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-reveal" title="Check out the latest files read-only and show the folder" type="button"> "Reveal folder"
-        <button.k-btn.k-btn--ghost.k-btn--sm data-act="stored-artifact-purge" title="Delete every stored revision for this ticket" type="button"> "Purge files…"
+        <button.k-btn.k-btn--danger.k-btn--sm data-act="stored-artifact-purge" title="Delete every stored revision for this ticket" type="button"> "Purge files…"
     <kbd.dh-esc aria-hidden="true"> "Esc"
   <section.artgroup aria-label="Implement artifacts">
     <div.artgroup-title> "Implement"
@@ -289,13 +289,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -365,13 +368,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -441,13 +447,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -519,13 +528,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -595,13 +607,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -671,13 +686,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -747,13 +765,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -823,13 +844,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.shipWait role="status" title="Waiting for 2 repos to be merged">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -899,13 +923,16 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
   <div.headerActions>
     <span#toast.toast aria-live="polite">
     <span#shipWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Waiting to merge"
     <span#subtaskWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span#subtaskWaitText> "Waiting on sub-tasks"
     <span#pauseWait.hidden.shipWait role="status">
-      <span.attentionMark aria-hidden="true"> "❚❚"
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
       <span> "Execution paused"
       <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
     <div.menuWrap>
@@ -996,7 +1023,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
 "<div#inside>
   <section.inside aria-labelledby="inside-title">
     <div.inside-head title="Implementation">
-      <span#inside-title.inside-title> "Inside impl"
+      <span#inside-title.inside-title> "Inside Implementation"
       <span.inside-live>
       <span.inside-meta> "started <clock> · <dur> <dur> elapsed"
     <div.ledger>
@@ -1092,7 +1119,7 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
 "<div#inside>
   <section.inside aria-labelledby="inside-title">
     <div.inside-head title="Implementation">
-      <span#inside-title.inside-title> "Inside impl"
+      <span#inside-title.inside-title> "Inside Implementation"
       <span.inside-live>
       <span.inside-meta> "completed"
     <div.ledger>
@@ -1220,8 +1247,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · implementati
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview blocked > inside · ship preview blocked 1`] = `
 "<div#inside>
   <section.inside aria-labelledby="inside-title" data-region="inside-ship">
-    <div.inside-head title="Ship">
-      <span#inside-title.inside-title> "Inside ship"
+    <div.has-autofix.inside-head title="Ship">
+      <span#inside-title.inside-title> "Inside Ship"
       <span.inside-live>
       <span.autofix-chipwrap>
         <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
@@ -1394,8 +1421,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview loading > inside · ship preview loading 1`] = `
 "<div#inside>
   <section.inside aria-labelledby="inside-title" data-region="inside-ship">
-    <div.inside-head title="Ship">
-      <span#inside-title.inside-title> "Inside ship"
+    <div.has-autofix.inside-head title="Ship">
+      <span#inside-title.inside-title> "Inside Ship"
       <span.inside-live>
       <span.autofix-chipwrap>
         <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
@@ -1569,8 +1596,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
 exports[`dashboard region parity (DOM contract) > inside #inside · ship preview ready > inside · ship preview ready 1`] = `
 "<div#inside>
   <section.inside aria-labelledby="inside-title" data-region="inside-ship">
-    <div.inside-head title="Ship">
-      <span#inside-title.inside-title> "Inside ship"
+    <div.has-autofix.inside-head title="Ship">
+      <span#inside-title.inside-title> "Inside Ship"
       <span.inside-live>
       <span.autofix-chipwrap>
         <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
@@ -1828,7 +1855,7 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/web" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
           <button.k-btn.k-btn--primary.k-btn--sm.mgbtn data-act="merge-pr" data-repo="fixture:/repos/web" title="Merge PR #421 into main — cannot be undone" type="button"> "Merge"
       <div.krow-sub>
-        <div.prblock data-state="blocked">
+        <div#_r_0_.prblock data-state="blocked">
           <div.prblock-head>
             <svg.k-icon aria-hidden="true">
             <b> "Merge blocked"
@@ -1873,10 +1900,9 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/api" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
-          <span#_r_1_.pmreason> "merge conflicts"
-          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_1_" disabled title="merge conflicts" type="button"> "Merge"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_2_" disabled title="merge conflicts" type="button"> "Merge"
       <div.krow-sub>
-        <div.prblock data-state="blocked">
+        <div#_r_2_.prblock data-state="blocked">
           <div.prblock-head>
             <svg.k-icon aria-hidden="true">
             <b> "Merge blocked"
@@ -1908,8 +1934,8 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="undismiss-pr" data-repo="fixture:/repos/docs" title="Wait on this pull request again" type="button"> "Undo dismiss"
-          <span#_r_2_.pmreason> "awaiting review"
-          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_2_" disabled title="awaiting review" type="button"> "Merge"
+          <span#_r_5_.pmreason> "awaiting review"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_5_" disabled title="awaiting review" type="button"> "Merge"
       <div.krow-sub>"
 `;
 
@@ -1943,10 +1969,9 @@ exports[`dashboard region parity (DOM contract) > prs #prs · one open PR awaiti
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>
         <span.pacts>
-          <span#_r_0_.pmreason> "awaiting review"
           <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_0_" disabled title="awaiting review" type="button"> "Merge"
       <div.krow-sub>
-        <div.prblock data-state="blocked">
+        <div#_r_0_.prblock data-state="blocked">
           <div.prblock-head>
             <svg.k-icon aria-hidden="true">
             <b> "Merge blocked"
@@ -2105,7 +2130,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
-          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <span.rs-sub.rs-sub--sandbox title="isolated git clone · allowlist proxy"> "isolated git clone · allowlist proxy"
           <svg.k-icon aria-hidden="true">
         <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
           <div.rs-pop-h>
@@ -2184,7 +2209,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — unprotected · worktree" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "Host"
-          <span.rs-sub.rs-sub--sandbox.rs-sub--warn> "unprotected · worktree"
+          <span.rs-sub.rs-sub--sandbox.rs-sub--warn title="unprotected · worktree"> "unprotected · worktree"
           <svg.k-icon aria-hidden="true">
         <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
           <div.rs-pop-h>
@@ -2247,7 +2272,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — protected · worktree" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "Host"
-          <span.rs-sub.rs-sub--ok.rs-sub--sandbox> "protected · worktree"
+          <span.rs-sub.rs-sub--ok.rs-sub--sandbox title="protected · worktree"> "protected · worktree"
           <svg.k-icon aria-hidden="true">
         <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
           <div.rs-pop-h>
@@ -2307,7 +2332,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — unprotected · worktree" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "Host"
-          <span.rs-sub.rs-sub--sandbox.rs-sub--warn> "unprotected · worktree"
+          <span.rs-sub.rs-sub--sandbox.rs-sub--warn title="unprotected · worktree"> "unprotected · worktree"
           <svg.k-icon aria-hidden="true">
         <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
           <div.rs-pop-h>
@@ -2367,7 +2392,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
-          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <span.rs-sub.rs-sub--sandbox title="isolated git clone · allowlist proxy"> "isolated git clone · allowlist proxy"
           <svg.k-icon aria-hidden="true">
         <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
           <div.rs-pop-h>
@@ -2446,7 +2471,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
-          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <span.rs-sub.rs-sub--sandbox title="isolated git clone · allowlist proxy"> "isolated git clone · allowlist proxy"
           <svg.k-icon aria-hidden="true">
         <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
           <div.rs-pop-h>
@@ -2531,7 +2556,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
-          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <span.rs-sub.rs-sub--sandbox title="isolated git clone · allowlist proxy"> "isolated git clone · allowlist proxy"
           <svg.k-icon aria-hidden="true">
         <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
           <div.rs-pop-h>
@@ -2610,7 +2635,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
-          <span.rs-sub.rs-sub--sandbox> "isolated git clone · allowlist proxy"
+          <span.rs-sub.rs-sub--sandbox title="isolated git clone · allowlist proxy"> "isolated git clone · allowlist proxy"
           <svg.k-icon aria-hidden="true">
         <div.rs-pop.rs-pop--sandbox aria-label="Sandbox details" role="dialog">
           <div.rs-pop-h>

@@ -16,6 +16,8 @@ const when = (iso: string): string => {
 };
 
 const GHOST = 'k-btn k-btn--ghost k-btn--sm';
+/** Purging removes every stored revision for the ticket: it is irreversible, so it carries the danger treatment (UI-R10b). */
+const DANGER = 'k-btn k-btn--danger k-btn--sm';
 
 function OpenButton({ path, sha, label, title }: { readonly path: string; readonly sha: string; readonly label: string; readonly title: string }) {
   const send = useDashboardSend();
@@ -89,7 +91,7 @@ export function CapturedActions() {
       <button type="button" className={GHOST} data-act="stored-artifact-reveal" title="Check out the latest files read-only and show the folder" onClick={reveal}>
         Reveal folder
       </button>
-      <button type="button" className={GHOST} data-act="stored-artifact-purge" title="Delete every stored revision for this ticket" onClick={purge}>
+      <button type="button" className={DANGER} data-act="stored-artifact-purge" title="Delete every stored revision for this ticket" onClick={purge}>
         Purge files…
       </button>
     </span>

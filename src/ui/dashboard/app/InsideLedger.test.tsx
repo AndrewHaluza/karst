@@ -119,8 +119,28 @@ describe('Ledger — rows', () => {
     expect(tails[3]!.querySelector('.agent-id, .identity-note')).toBeNull();
   });
 
-  it('draws the provider mark from the injected identity runtime, and degrades to text when it has none', () => {
-    const g = globalThis as unknown as { agentIconHtml?: (p: string) => string };
+  it('drops the repeated profile and model text when a row ran the strip’s own agent session, keeping the mark (DB-20, UI-R10c)', () => {
+    const x = { provider: 'claude', providerLabel: 'Claude Code', model: 'm', modelLabel: 'Model A' };
+    const session = { provider: 'claude', providerLabel: 'Claude Code', modelId: 'm', modelLabel: 'Model A', effort: null, canSwitch: true };
+    const state = insideState({
+      stageCurrent: 'uat',
+      agentSession: session,
+      views: { uat: view('uat', { processes: [proc('a', { execution: x }), proc('b', { execution: { ...x, provider: 'codex', providerLabel: 'Codex', modelLabel: 'Model B' } })] }) },
+    });
+    mountInside(state);
+    const tails = all('.op-tail');
+    expect(tails[0]!.querySelector('.agent-core')).toBeNull();
+    expect(tails[0]!.querySelector('.agent-model')).toBeNull();
+    expect(tails[0]!.querySelector('.agent-sep')).toBeNull();
+    const mark = tails[0]!.querySelector('.agent-mark')!;
+    expect(mark.getAttribute('aria-label')).toBe('Claude Code');
+    expect(mark.getAttribute('data-tip')).toBe('Claude Code · Model A');
+    // A row that ran something else keeps its text: only the session's own identity is the duplicate.
+    expect(text(tails[1]!.querySelector('.agent-core'))).toBe('Codex');
+    expect(text(tails[1]!.querySelector('.agent-model'))).toBe('Model B');
+  });
+
+  it('draws the provider mark from the injected identity runtime, and degrades to text when it has none', () => {    const g = globalThis as unknown as { agentIconHtml?: (p: string) => string };
     g.agentIconHtml = (p) => (p === 'claude' ? '<span class="agenticon" aria-hidden="true"><svg></svg></span>' : '');
     try {
       const x = (provider: string) => ({ provider, providerLabel: provider, model: null, modelLabel: '' });
