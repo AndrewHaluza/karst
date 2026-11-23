@@ -11,44 +11,21 @@
     body {
       margin: 0;
       padding: var(--k-space-7);
-      /* Rebuilt from token steps rather than left as a raw length — close to
-         the panel's prior 220px floor, not exact, since it is a layout
-         constraint (the smallest this view stays usable at), not a design
-         value with a token of its own. */
-      min-width: calc(var(--k-space-9) * 8);
       color: var(--k-text);
       background: var(--k-bg);
       font: var(--vscode-font-weight) var(--k-text-base)/var(--k-leading-normal) var(--k-font-ui);
     }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--k-space-6);
-      padding-bottom: var(--k-space-6);
-      border-bottom: var(--k-border-w) solid var(--k-border);
-    }
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: var(--k-space-3);
-    }
-    /* The tree/list switcher, the same shape as usage's range selector: two
-       `.k-chip` toggle buttons; `aria-pressed` carries the engaged mode
-       (UI-R26). "Tree" is the default (folders first, then files); "List" is
-       the flat all-files view. */
-    .view-toggle { display: flex; gap: var(--k-space-2); }
-    h1 {
-      margin: 0;
-      font-size: var(--k-text-xl);
-      font-weight: var(--k-weight-semibold);
-      letter-spacing: -0.01em;
-    }
+    /* The page title, subtitle and actions are the shared .k-pagehead
+       primitive (DF-17); only the summary's numeric type stays local. The
+       ticket label and the host summary share one subtitle line, and only
+       #summary is the live region. */
+    /* The ticket label and the summary are siblings in one paragraph. Inline,
+       the summary's box unions both of its wrapped lines and overlaps the
+       label's box at the 320 px tier (a real sibling-overlap failure). An
+       inline-block moves the whole summary onto the next line instead. */
     #summary {
-      margin-top: var(--k-space-1);
-      color: var(--k-text-dim);
+      display: inline-block;
       font-family: var(--k-font-mono);
-      font-size: var(--k-text-sm);
       font-variant-numeric: tabular-nums;
     }
     .filter { display: block; margin-block: var(--k-space-6); }
@@ -141,6 +118,7 @@
       font-size: var(--k-text-xs);
       font-weight: var(--k-weight-semibold);
       letter-spacing: 0.055em;
+      text-transform: uppercase;
     }
     .group > summary span {
       min-width: 2ch;
@@ -156,9 +134,12 @@
          undocumented opacity-of-a-token concept. */
       border-top: var(--k-border-w) solid var(--k-border);
     }
+    /* Three columns only: the hash, the subject (which wraps inside its own
+       column) and the count, which stays at the end of the subject row at
+       every tier (DF-25). The chevron is absolutely positioned. */
     .commit > summary {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       gap: var(--k-space-3);
       align-items: baseline;
       padding: var(--k-space-3) var(--k-space-4) var(--k-space-3) var(--k-space-8);
@@ -178,16 +159,16 @@
       user-select: text;
       cursor: text;
     }
-    /* Row action, shown on hover like VS Code's own list rows — and on focus, so
-       it is reachable without a pointer. It carries the FULL hash, not the
-       abbreviation on screen. Appearance (background/border/padding/radius) is
-       entirely the .k-iconbtn primitive's; only the show-on-hover visibility is
-       screen-local layout. */
+    /* Row action beside author · date (DF-10): shown on the commit's hover and
+       on focus, so it is reachable without a pointer. It carries the FULL hash,
+       not the abbreviation on screen. Appearance (background/border/padding/
+       radius) is entirely the .k-iconbtn primitive's; only the show-on-hover
+       visibility is screen-local layout. */
     .copy-hash {
-      align-self: center;
+      flex: none;
       opacity: 0;
     }
-    .commit > summary:hover .copy-hash,
+    .commit:hover .copy-hash,
     .copy-hash:focus-visible,
     .copy-hash[data-copied] { opacity: 1; }
     .commit > summary > span {
@@ -197,10 +178,22 @@
       font-variant-numeric: tabular-nums;
     }
     .commit-meta {
+      display: flex;
+      align-items: center;
+      gap: var(--k-space-3);
       padding: 0 var(--k-space-4) var(--k-space-3) var(--k-space-8);
       color: var(--k-text-dim);
       font-size: var(--k-text-md);
       overflow-wrap: anywhere;
+    }
+    /* One line per file (DF-5): the row button takes the free column and the
+       actions keep the end column instead of wrapping onto a line of their
+       own. */
+    .file-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--k-space-2);
     }
     /* A real interactive treatment from the ghost button variant plus the row
        modifier (full width, left-aligned, and a success flash that is the row's
@@ -217,20 +210,30 @@
       gap: var(--k-space-3);
       margin-top: var(--k-space-1);
     }
-    /* The primitive's own ::before spinner is a flex-model leading icon; on a
-       grid row it would otherwise insert itself as a THIRD column ahead of the
-       status cell. Pin it into the status's cell instead, where the status
-       glyph — which it temporarily stands in for — already lives. */
-    .file[aria-busy="true"]::before { grid-column: 1; grid-row: 1; justify-self: end; }
+    /* The primitive's own ::before spinner is a flex-model leading icon, so on
+       a grid row it would insert itself as a third column. It overlays the
+       status cell instead, where the status glyph — which it temporarily
+       stands in for — already lives, so status then path stay the grid's two
+       natural columns (DF-19). */
+    .file[aria-busy="true"]::before {
+      position: absolute;
+      top: 50%;
+      left: var(--k-space-6);
+      transform: translateY(-50%);
+    }
     .file[aria-busy="true"] .status { visibility: hidden; }
     .file-path {
-      grid-column: 2;
+      min-width: 0;
       overflow-wrap: anywhere;
       font-family: var(--k-font-mono);
     }
+    /* List mode (DF-6): the directory part stays dim, the name carries the
+       text colour; a rename is `old` on one line and `→ new` on the next. */
+    .file-dir { color: var(--k-text-dim); }
+    .file-path--rename { display: grid; gap: 0; }
+    .file-old,
+    .file-new { display: block; min-width: 0; overflow-wrap: anywhere; }
     .status {
-      grid-column: 1;
-      grid-row: 1;
       min-width: 2ch;
       font-family: var(--k-font-mono);
       font-weight: var(--k-weight-semibold);
@@ -246,22 +249,22 @@
     .status-added { color: var(--k-success); }
     .status-modified { color: var(--k-attention-fg); }
     .status-deleted { color: var(--k-danger); }
-    .status-renamed { color: var(--k-text-dim); }
+    .status-renamed { color: var(--k-text-dim); font-weight: bolder; }
     /* File row actions — small icon buttons shown on hover like the commit
-       copy-hash button. Full-width grid so the actions sit at the end. */
+       copy-hash button. The hit area comes entirely from .k-iconbtn (DF-20);
+       no local padding or minimum-size override. */
     .file-actions {
       display: flex;
       gap: var(--k-space-1);
       opacity: 0;
     }
+    /* The actions belong to the row's keyboard focus as well as its hover
+       (DF-9): they are tabindex="-1", so revealing them on :focus-within
+       keeps them reachable with a pointer without adding tab stops. */
     .file-row:hover .file-actions,
-    .file-actions:focus-within { opacity: 1; }
-    .file-actions button {
-      padding: 0;
-      min-width: auto;
-      font-size: var(--k-text-md);
-      line-height: 1;
-    }
+    .file-row:focus-within .file-actions { opacity: 1; }
+    /* "Show all files" sits under the limited group, aligned with its rows. */
+    .show-all { margin: var(--k-space-2) 0 var(--k-space-3) var(--k-space-8); }
     /* Directory rows (tree mode): a native <details>/<summary> disclosure
        (UI-R09), so aria-expanded and keyboard operation come from the browser.
        Indentation is recursive — every nesting level adds one --k-space-5 to
@@ -292,31 +295,37 @@
       padding-left: var(--k-space-5);
       border-left: var(--k-border-w) solid var(--k-border);
     }
+    /* Deep trees stop indenting after three levels (DF-21): past that point the
+       row is indented far enough, and the extra padding is what used to scroll
+       the tight tier sideways. */
+    .dir-body .dir-body .dir-body .dir-body { padding-left: 0; }
+    /* A worktree that failed to inspect: the same row shell as the others, one
+       title line, the reason in dim monospace, and the recovery beside it
+       (DF-15). */
     .error {
-      padding-bottom: var(--k-space-5);
+      padding: var(--k-space-4) var(--k-space-5) var(--k-space-5);
       border-left-color: var(--k-danger);
     }
-    .error h2 {
+    .error-title {
       margin: 0;
-      padding: var(--k-space-4) var(--k-space-5);
-      background: var(--k-surface);
-      font-size: var(--k-text-lg);
+      color: var(--k-text);
     }
-    .error p {
-      margin: var(--k-space-5) var(--k-space-5) var(--k-space-1);
-      color: var(--k-danger);
+    .error-reason {
+      display: block;
+      margin-top: var(--k-space-2);
+      color: var(--k-text-dim);
+      font-family: var(--k-font-mono);
+      font-size: var(--k-text-md);
       overflow-wrap: anywhere;
     }
-    .error small {
-      display: block;
-      margin-inline: var(--k-space-5);
-      color: var(--k-text-dim);
-    }
+    .error .k-btn { margin-top: var(--k-space-4); }
     .clean-state {
       text-align: left;
       border-style: solid;
       border-left: calc(var(--k-border-w) * 3) solid var(--k-success);
     }
+    /* The empty state's one action sits under its hint, like the usage page's. */
+    .k-empty .k-btn { margin-top: var(--k-space-5); }
     /* The canonical visually-hidden-but-announced clip pattern needs exactly a
        1x1px box; --k-border-w is the one token that is legitimately 1px, so it
        is reused here rather than left as a raw length. */
@@ -331,22 +340,23 @@
       white-space: nowrap;
       border: 0;
     }
-    @media (max-width: 440px) {
+    @media (max-width: 699px) {
       /* A viewport breakpoint, not a design value: @media conditions cannot
-         read a custom property at all, so no --k-* token applies here — this
-         440px has no token-based alternative. */
+         read a custom property at all, so no --k-* token applies here — 699px
+         is the narrow tier edge (@ui:RD-TIERS). */
       body { padding: var(--k-space-5); }
-      header { align-items: flex-start; }
       .repo > summary { grid-template-columns: 1fr; gap: var(--k-space-1); }
       .repo > summary > span:last-child { text-align: left; }
       .group { margin-right: var(--k-space-3); margin-left: var(--k-space-4); }
-      .commit > summary {
-        grid-template-columns: auto minmax(0, 1fr) auto;
-      }
-      /* The count drops under the subject; the copy action stays on the hash's
-         own row, where the thing it copies is. */
-      .commit > summary > span { grid-column: 2; grid-row: 2; }
+      /* The count stays on the subject row at every width (DF-25); only the
+         meta line needs the tighter padding. */
       .commit-meta { padding-left: var(--k-space-8); }
+    }
+    @media (max-width: 399px) {
+      /* The tight tier (399px and below): author and date may wrap onto their
+         own line, and the remaining indents tighten once more. */
+      .commit-meta { flex-wrap: wrap; padding-left: var(--k-space-6); }
+      .group { margin-left: var(--k-space-3); }
     }
     @media (prefers-reduced-motion: reduce) {
       .chev, .copy-hash { transition: none; }
@@ -355,55 +365,113 @@
   <style>/*KARST_PALETTE*/</style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>Ticket changes</h1>
-      <div id="summary" aria-live="polite"></div>
-    </div>
-    <div class="header-actions">
-      <div class="view-toggle">
-        <button id="viewTree" type="button" class="k-chip" aria-pressed="true">Tree</button>
-        <button id="viewFlat" type="button" class="k-chip" aria-pressed="false">List</button>
+  <header class="k-pagehead">
+    <div class="k-pagehead-main">
+      <div>
+        <h1 class="k-pagehead-title">Ticket changes</h1>
+        <p class="k-pagehead-sub"><span id="ticketLabel"></span><span id="summary" aria-live="polite"></span></p>
       </div>
-      <button id="refresh" type="button" class="k-btn k-btn--secondary">Refresh</button>
+    </div>
+    <div class="k-pagehead-actions">
+      <div class="k-segmented" role="radiogroup" aria-label="View">
+        <button id="viewTree" type="button" class="k-btn k-btn--sm k-btn--secondary" role="radio" aria-checked="true">Tree</button>
+        <button id="viewFlat" type="button" class="k-btn k-btn--sm k-btn--ghost" role="radio" aria-checked="false">List</button>
+      </div>
+      <button id="refresh" type="button" class="k-btn k-btn--secondary k-btn--sm">Refresh</button>
     </div>
   </header>
   <label class="filter">
     <span class="sr">Filter files or commits</span>
     <input id="filter" type="search" class="k-input" placeholder="Filter files or commits…" />
   </label>
+  <!-- The tree itself is not a live region (DF-7): re-rendering it would read
+       every row on each refresh. A filter's result count is the one thing worth
+       announcing, and it stays silent when no filter is active. -->
+  <p id="filterCount" class="sr" role="status" aria-live="polite"></p>
   <div id="notice" role="status" hidden></div>
-  <main id="repos" aria-live="polite"></main>
+  <main id="repos"></main>
   <script>
   /*KARST_DS_JS*/
 
     const vscode = acquireVsCodeApi();
     const summary = document.getElementById('summary');
+    const ticketLabel = document.getElementById('ticketLabel');
     const refresh = document.getElementById('refresh');
     const filter = document.getElementById('filter');
     const repos = document.getElementById('repos');
     const notice = document.getElementById('notice');
     const viewTree = document.getElementById('viewTree');
     const viewFlat = document.getElementById('viewFlat');
+    const filterCount = document.getElementById('filterCount');
+    // Shared Tabler glyphs (DF-13, DF-20): the runtime injects karstIcon(), so
+    // every name here is a catalog entry and no hand-rolled sprite is possible.
+    viewTree.insertAdjacentHTML('afterbegin', karstIcon('list-tree', 16));
+    viewFlat.insertAdjacentHTML('afterbegin', karstIcon('layout-list', 16));
+    refresh.insertAdjacentHTML('afterbegin', karstIcon('refresh', 16));
     const restored = vscode.getState();
     let lastState = restored?.state || null;
     // Panel identity for a window reload: the host names the ticket on its first
     // message (and every state carries it); the serializer reads it back from
     // the saved state. An additive key — the other keys keep their shape.
     let panelTicketId = Number.isInteger(restored?.karstPanel?.ticketId) ? restored.karstPanel.ticketId : null;
-    let loading = Boolean(restored?.loading);
+    // Loading until the host says otherwise (DF-12): a panel with no restored
+    // state has not heard from the host yet, so "No worktrees" would be a lie.
+    let loading = restored ? Boolean(restored.loading) : true;
     // Tree is the default (folders first, then files); the List chip switches
     // to the flat all-files view. Persisted so a panel reload keeps the user's
     // choice.
     let viewMode = restored?.viewMode === 'flat' ? 'flat' : 'tree';
-    // Only deviations from the default (everything expanded) are recorded, so
-    // the set stays bounded by what the user actually collapsed.
-    const collapsedDirs = new Set();
+    // One map for every disclosure (repo, group, commit, directory) that the
+    // user has deviated from its default on (DF-8), so a refresh keeps the open
+    // rows the reader was looking at. Saved in getState; an entry is the row's
+    // own open flag.
+    let openState = restored?.openState && typeof restored.openState === 'object' && !Array.isArray(restored.openState)
+      ? { ...restored.openState }
+      : {};
     // The filter forces the flat list while it is active (VS Code source
     // control does the same): a matching file hidden inside a collapsed
     // directory would otherwise be invisible, and non-matching siblings would
     // show in the same worktree row.
     let activeNeedle = '';
+    // Groups the reader expanded past GROUP_ROW_LIMIT (DF-11); session-only.
+    const showAllGroups = new Set();
+    // One keystroke is one render, and a burst of typing is one render at rest
+    // (DF-11). A named constant keeps the debounce explainable.
+    const FILTER_DEBOUNCE_MS = 150;
+    // A group renders this many rows before the rest hides behind one button.
+    const GROUP_ROW_LIMIT = 200;
+    // The roving-tabindex set (DF-9): disclosure summaries and file rows, in
+    // document order. Action buttons are tabindex="-1" and never enter it.
+    const FOCUS_ROWS = '#repos summary, #repos .file';
+    let filterTimer = null;
+    let rovingIndex = 0;
+
+    /** The disclosure's stable key: `data-key`, or a directory's `data-dir`. */
+    function detailsKey(details) {
+      return details?.dataset?.key ?? details?.dataset?.dir;
+    }
+
+    function openByKey(key, fallback) {
+      return key in openState ? Boolean(openState[key]) : fallback;
+    }
+
+    /** The single setState shape (DF-8): snapshot, flags and the open map. */
+    function persist() {
+      vscode.setState({
+        state: lastState,
+        loading,
+        viewMode,
+        openState,
+        ...(panelTicketId !== null ? { karstPanel: { ticketId: panelTicketId } } : {}),
+      });
+    }
+
+    function setDetailsOpen(details, open) {
+      details.open = open;
+      const key = detailsKey(details);
+      if (key !== undefined) openState[key] = open;
+      persist();
+    }
 
     const esc = karstEsc;
     const includes = (value, needle) => String(value ?? '').toLowerCase().includes(needle);
@@ -432,20 +500,86 @@
     const STATUS_LABEL = { added: 'Added', modified: 'Modified', deleted: 'Deleted', renamed: 'Renamed' };
     const CHEV = '<span class="chev" aria-hidden="true">›</span>';
 
-    function fileRow(file, isStaged) {
-      const shown = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
-      const label = STATUS_LABEL[file.status] || 'Modified';
-      const actions = `<span class="file-actions">`
-        + `<button type="button" class="k-iconbtn" data-open-file="${esc(file.changeId)}" aria-label="Open file" title="Open file">↗</button>`
-        + `<button type="button" class="k-iconbtn" data-discard="${esc(file.changeId)}" aria-label="Discard changes" title="Discard changes">↩</button>`
-        + (isStaged ? `<button type="button" class="k-iconbtn" data-unstage="${esc(file.changeId)}" aria-label="Unstage" title="Unstage">⊖</button>` : '')
+    /** The list-mode split: a dim directory part and the file's own name. */
+    function splitPath(path) {
+      const cut = path.lastIndexOf('/');
+      return cut < 0
+        ? { dir: '', name: path }
+        : { dir: path.slice(0, cut + 1), name: path.slice(cut + 1) };
+    }
+
+    function listPath(path) {
+      const parts = splitPath(path);
+      return (parts.dir ? `<span class="file-dir">${esc(parts.dir)}</span>` : '') + esc(parts.name);
+    }
+
+    // Tree mode shows the leaf (the directory row already names the path); list
+    // mode dims the directory part. A rename is two lines (DF-6).
+    function filePathHtml(file, mode) {
+      const display = (path) => (mode === 'list' ? listPath(path) : esc(splitPath(path).name));
+      if (!file.oldPath) return `<span class="file-path">${display(file.path)}</span>`;
+      return `<span class="file-path file-path--rename">`
+        + `<span class="file-old">${display(file.oldPath)}</span>`
+        + `<span class="file-new">→ ${display(file.path)}</span>`
         + `</span>`;
+    }
+
+    // A row action is a pointer target, not a tab stop (DF-9): focus stays on
+    // the row, and the button names its keyboard shortcut in the tooltip and in
+    // aria-keyshortcuts.
+    function rowAction(kind, changeId, label, glyph, danger, shortcut) {
+      return `<button type="button" class="k-iconbtn${danger ? ' k-iconbtn--danger' : ''}" data-${kind}="${esc(changeId)}"`
+        + ` tabindex="-1" aria-label="${esc(label)}" aria-keyshortcuts="${esc(shortcut)}"`
+        + ` title="${esc(label)} (${esc(shortcut)})">${glyph}</button>`;
+    }
+
+    // A row offers only actions that can work on its group (DF-4): a committed
+    // file is not a pending change, a staged file cannot be cleaned from the
+    // worktree, and a deleted file has nothing to open.
+    function fileActions(file, group, fullPath) {
+      const buttons = [];
+      if (file.status !== 'deleted') {
+        buttons.push(group === 'commit'
+          ? rowAction('open-file', file.changeId, 'Open current file', karstIcon('external-link', 16), false, 'O')
+          : rowAction('open-file', file.changeId, 'Open file', karstIcon('external-link', 16), false, 'O'));
+      }
+      if (group === 'staged') {
+        buttons.push(rowAction('unstage', file.changeId, 'Unstage', karstIcon('minus', 16), false, 'U'));
+      }
+      if (group === 'unstaged' || group === 'untracked') {
+        buttons.push(rowAction(
+          'discard',
+          file.changeId,
+          `Discard changes to ${fullPath}`,
+          karstIcon('arrow-back-up', 16),
+          true,
+          'Delete',
+        ));
+      }
+      return `<span class="file-actions">${buttons.join('')}</span>`;
+    }
+
+    function fileRow(file, group, display) {
+      const where = group || 'unstaged';
+      const mode = display === 'list' ? 'list' : 'tree';
+      const fullPath = file.oldPath ? `${file.oldPath} → ${file.path}` : file.path;
+      const label = STATUS_LABEL[file.status] || 'Modified';
+      const rename = file.status === 'renamed' && file.oldPath
+        ? ` title="Renamed from ${esc(file.oldPath)}"`
+        : '';
+      // In tree mode the visible label is the leaf name, so the full path rides
+      // in the row's title AND in an explicitly hidden span: `title` is pointer
+      // help, not the accessible name. Enter opens the diff from the focused
+      // row (DF-9); the action keys live on the action buttons.
+      const full = mode === 'tree' ? `<span class="sr">Full path: ${esc(fullPath)}</span>` : '';
       return `<div class="file-row">`
-        + `<button type="button" class="k-btn k-btn--ghost k-btn--row file" data-change-id="${esc(file.changeId)}">`
-        + `<span class="file-path">${esc(shown)}</span>`
-        + `<span class="status status-${esc(file.status)}" role="img" aria-label="${esc(label)}">${STATUS[file.status] || 'M'}</span>`
+        + `<button type="button" class="k-btn k-btn--ghost k-btn--row file" data-change-id="${esc(file.changeId)}"`
+        + ` aria-keyshortcuts="Enter" title="${esc(fullPath)}">`
+        + `<span class="status status-${esc(file.status)}" role="img" aria-label="${esc(label)}"${rename}>${STATUS[file.status] || 'M'}</span>`
+        + filePathHtml(file, mode)
+        + full
         + `</button>`
-        + actions
+        + fileActions(file, where, fullPath)
         + `</div>`;
     }
 
@@ -461,27 +595,44 @@
       return dir.files.length + childTotal;
     }
 
-    function dirHtml(dir, groupKey, parentPath, isStaged) {
-      const path = parentPath ? `${parentPath}/${dir.name}` : dir.name;
+    // A directory whose only child is another directory is one row, not a
+    // staircase (DF-6): walk down while there is exactly one child and no files
+    // of its own, then name the row by the whole joined path.
+    function foldDirChain(dir, parentPath) {
+      let node = dir;
+      let path = parentPath ? `${parentPath}/${dir.name}` : dir.name;
+      while (node.files.length === 0 && node.children.size === 1) {
+        const child = [...node.children.values()][0];
+        node = child;
+        path = `${path}/${child.name}`;
+      }
+      return { node, path };
+    }
+
+    function dirHtml(dir, groupKey, parentPath, group) {
+      const folded = foldDirChain(dir, parentPath);
+      const node = folded.node;
+      const path = folded.path;
       const key = `${groupKey}:${path}`;
-      const open = !collapsedDirs.has(key);
-      const subdirs = [...dir.children.values()].sort((a, b) => compareNames(a.name, b.name));
-      const files = [...dir.files].sort((a, b) => compareNames(a.path, b.path));
+      const open = openByKey(key, true);
+      const subdirs = [...node.children.values()].sort((a, b) => compareNames(a.name, b.name));
+      const files = [...node.files].sort((a, b) => compareNames(a.path, b.path));
       const count = files.length + subdirs.reduce((total, child) => total + dirCount(child), 0);
+      const name = parentPath ? path.slice(parentPath.length + 1) : path;
       return `<details class="dir" data-dir="${esc(key)}"${open ? ' open' : ''}>`
-        + `<summary>${CHEV}<span class="dir-name">${esc(dir.name)}</span>`
-        + `<span class="dir-count">${count}</span></summary>`
+        + `<summary>${CHEV}<span class="dir-name">${esc(name)}</span>`
+        + `<span class="dir-count" title="Files: ${count}" aria-label="Files: ${count}">${count}</span></summary>`
         + `<div class="dir-body">`
-        + subdirs.map((child) => dirHtml(child, groupKey, path, isStaged)).join('')
-        + files.map((f) => fileRow(f, isStaged)).join('')
+        + subdirs.map((child) => dirHtml(child, groupKey, path, group)).join('')
+        + files.map((file) => fileRow(file, group, 'tree')).join('')
         + `</div></details>`;
     }
 
-    function treeHtml(files, groupKey, isStaged) {
+    function treeHtml(files, groupKey, group) {
       const root = { name: '', children: new Map(), files: [] };
       for (const file of files) {
         const parts = file.path.split('/');
-        const leaf = parts.pop() ?? '';
+        parts.pop();
         let node = root;
         for (const part of parts) {
           let child = node.children.get(part);
@@ -491,90 +642,186 @@
           }
           node = child;
         }
-        // The full path stays on the row: fileRow renders a rename as
-        // `old → new`, which needs both parts. Sorting by full path is the
-        // same as sorting by leaf within one directory.
         node.files.push(file);
       }
       const subdirs = [...root.children.values()].sort((a, b) => compareNames(a.name, b.name));
       const filesAtRoot = [...root.files].sort((a, b) => compareNames(a.path, b.path));
-      return subdirs.map((dir) => dirHtml(dir, groupKey, '', isStaged)).join('')
-        + filesAtRoot.map((f) => fileRow(f, isStaged)).join('');
+      return subdirs.map((dir) => dirHtml(dir, groupKey, '', group)).join('')
+        + filesAtRoot.map((file) => fileRow(file, group, 'tree')).join('');
     }
 
-    function filesList(files, groupKey, isStaged) {
-      if (viewMode !== 'tree' || activeNeedle) return files.map((f) => fileRow(f, isStaged)).join('');
-      return treeHtml(files, groupKey, isStaged);
+    /**
+     * One group's rows (DF-11): the first GROUP_ROW_LIMIT files, then a single
+     * ghost button that reveals the rest. A 1,500-file group is a real ticket
+     * state, not a stress test, and building every row on each keystroke made
+     * the panel unusable. `showKey` is the group's stable disclosure key, so
+     * expanding one worktree's group never expands another's.
+     */
+    function filesList(files, groupKey, group, showKey) {
+      const limitKey = showKey ?? groupKey;
+      const limited = showAllGroups.has(limitKey) ? files : files.slice(0, GROUP_ROW_LIMIT);
+      const rows = (viewMode !== 'tree' || activeNeedle)
+        ? limited.map((file) => fileRow(file, group, 'list')).join('')
+        : treeHtml(limited, groupKey, group);
+      if (limited.length === files.length) return rows;
+      return rows
+        + `<button type="button" class="k-btn k-btn--ghost k-btn--sm show-all" data-show-all="${esc(limitKey)}">`
+        + `Show all files (${files.length})</button>`;
     }
 
-    function pendingGroup(label, files, key, isStaged) {
+    function pendingGroup(label, files, key, group, worktreeLabel) {
       if (!files.length) return '';
-      return `<details class="group" open><summary>${CHEV}${esc(label)}`
-        + `<span>${files.length}</span></summary>${filesList(files, key || label, isStaged)}</details>`;
+      const detailsKeyValue = `group:${worktreeLabel ?? ''}:${key ?? label}`;
+      const open = openByKey(detailsKeyValue, true);
+      return `<details class="group" data-key="${esc(detailsKeyValue)}"${open ? ' open' : ''}>`
+        + `<summary>${CHEV}${esc(label)}`
+        + `<span title="Files: ${files.length}" aria-label="Files: ${files.length}">${files.length}</span></summary>`
+        + `${filesList(files, key || label, group, detailsKeyValue)}</details>`;
     }
 
-    const COPY_GLYPH = '⧉';
+    const COPY_GLYPH = karstIcon('copy', 16);
 
     // No literal space between the hash and the subject: they are separate grid
     // items, so the gap is the layout's, and a stray text node would print as a
-    // second one after the hash.
+    // second one after the hash. The copy action sits in the meta line, never
+    // inside the summary (no nested interactive control). The count stays in
+    // the summary's third column at every width (DF-25). The time is a real
+    // `<time>` with the ISO instant in datetime/title and the reader's locale in
+    // the text (DF-16).
     function commitRow(commit, index) {
-      return `<details class="commit"${index === 0 ? ' open' : ''}>`
+      const fileCount = commit.files.length;
+      const key = `commit:${commit.hash}`;
+      const open = openByKey(key, index === 0);
+      return `<details class="commit" data-key="${esc(key)}"${open ? ' open' : ''}>`
         + `<summary>${CHEV}<code data-hash>${esc(commit.shortHash)}</code>${esc(commit.subject)}`
+        + `<span title="Files: ${fileCount}" aria-label="Files: ${fileCount}">${fileCount}</span></summary>`
+        + `<div class="commit-meta">${esc(commit.author)} · `
+        + `<time datetime="${esc(commit.authoredAt)}" title="${esc(commit.authoredAt)}">${esc(commit.authoredLabel)}</time>`
         + `<button type="button" class="k-iconbtn copy-hash" data-copy-hash="${esc(commit.hash)}"`
-        + ` aria-label="Copy commit hash" title="Copy commit hash">${COPY_GLYPH}</button>`
-        + `<span>${commit.files.length}</span></summary>`
-        + `<div class="commit-meta">${esc(commit.author)} · ${esc(commit.authoredAt)}</div>`
-        + `${filesList(commit.files, `commit:${commit.hash}`)}</details>`;
+        + ` aria-label="Copy commit hash" title="Copy commit hash">${COPY_GLYPH}</button></div>`
+        + `${filesList(commit.files, key, 'commit', key)}</details>`;
     }
 
     function worktreeRow(worktree) {
       if (worktree.error) {
-        return `<section class="repo error"><h2>${esc(worktree.label)}</h2>`
-          + `<p>${esc(worktree.error)}</p>`
-          + `<small>Refresh to try this repository again.</small></section>`;
+        return `<section class="repo error">`
+          + `<p class="error-title">Could not read this worktree.</p>`
+          + `<small class="error-reason">${esc(worktree.label)}: ${esc(worktree.error)}</small>`
+          + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-refresh>`
+          + `${karstIcon('refresh', 16)}Refresh</button></section>`;
       }
       const pending = worktree.staged.length + worktree.unstaged.length + worktree.untracked.length;
       const changed = worktree.commits.length + pending > 0;
-      const subtitle = `${worktree.branch || 'detached'} ↔ ${worktree.baseRef || 'unknown base'}`;
-      return `<details class="repo"${changed ? ' open' : ''}>`
+      const subtitle = `${worktree.branch || 'detached'} · base ${worktree.baseRef || 'unknown base'}`;
+      const commitCount = worktree.commits.length;
+      const repoKey = `repo:${worktree.label}`;
+      const commitsKey = `group:${worktree.label}:commits`;
+      return `<details class="repo" data-key="${esc(repoKey)}"${openByKey(repoKey, changed) ? ' open' : ''}>`
         + `<summary>${CHEV}<span><strong>${esc(worktree.label)}</strong>`
         + `<small>${esc(subtitle)}</small></span>`
         + `<span>${esc(worktree.countText)}</span>`
         + `</summary>`
-        + `${worktree.commits.length
-          ? `<details class="group" open><summary>${CHEV}COMMITS<span>${worktree.commits.length}</span></summary>`
+        + `${commitCount
+          ? `<details class="group" data-key="${esc(commitsKey)}"${openByKey(commitsKey, true) ? ' open' : ''}>`
+            + `<summary>${CHEV}Commits`
+            + `<span title="Files: ${commitCount}" aria-label="Files: ${commitCount}">${commitCount}</span></summary>`
             + `${worktree.commits.map(commitRow).join('')}</details>`
           : ''}`
-        + pendingGroup('STAGED CHANGES', worktree.staged, 'staged', true)
-        + pendingGroup('CHANGES', worktree.unstaged, 'unstaged', false)
-        + pendingGroup('UNTRACKED FILES', worktree.untracked, 'untracked', false)
+        + pendingGroup('Staged changes', worktree.staged, 'staged', 'staged', worktree.label)
+        + pendingGroup('Changes', worktree.unstaged, 'unstaged', 'unstaged', worktree.label)
+        + pendingGroup('Untracked files', worktree.untracked, 'untracked', 'untracked', worktree.label)
         + `</details>`;
     }
 
+    /** How many file rows the visible worktrees hold (the filter's "Files: n"). */
+    function visibleFileCount(worktrees) {
+      return worktrees.reduce((total, worktree) => total
+        + worktree.commits.reduce((count, commit) => count + commit.files.length, 0)
+        + worktree.staged.length + worktree.unstaged.length + worktree.untracked.length, 0);
+    }
+
+    /**
+     * The row the reader is on before a render replaces the tree (DF-8): its
+     * stable disclosure key, its file changeId, and its position among the
+     * focusable rows. All three are read before `innerHTML` destroys the nodes.
+     */
+    function captureFocus() {
+      const active = document.activeElement;
+      if (!active || typeof active.closest !== 'function') return null;
+      // A row action button lives inside `.file-row` but carries no id of its
+      // own; the row it acts on is the file button beside it.
+      const actionRow = active.closest('.file-row');
+      const fileButton = actionRow?.querySelector?.('[data-change-id]') ?? active.closest('[data-change-id]');
+      const details = active.closest('[data-key]');
+      const changeId = fileButton?.dataset?.changeId ?? null;
+      const key = fileButton ? null : (details?.dataset?.key ?? null);
+      if (!key && !changeId) return null;
+      const rows = [...repos.querySelectorAll(FOCUS_ROWS)];
+      return { key, changeId, index: rows.indexOf(fileButton ?? active) };
+    }
+
+    /**
+     * Focus return (DF-8): the same `data-key` or `data-change-id`, else the row
+     * that now sits in the same place — a discarded file leaves the next row
+     * focused rather than dropping the reader at the top of the page.
+     */
+    function restoreFocus(focus) {
+      if (!focus) return;
+      const rows = [...repos.querySelectorAll(FOCUS_ROWS)];
+      let target = null;
+      if (focus.key) {
+        const details = [...repos.querySelectorAll('[data-key]')].find((node) => node.dataset.key === focus.key);
+        if (details) target = String(details.tagName).toLowerCase() === 'details' ? details.querySelector('summary') : details;
+      }
+      if (!target && focus.changeId) {
+        target = [...repos.querySelectorAll('[data-change-id]')]
+          .find((node) => node.dataset.changeId === focus.changeId) ?? null;
+      }
+      if (!target) target = rows[Math.min(focus.index, rows.length - 1)] ?? null;
+      target?.focus?.();
+    }
+
+    /** The roving tabindex (DF-9): exactly one row is a tab stop at a time. */
+    function applyRoving() {
+      const rows = [...repos.querySelectorAll(FOCUS_ROWS)];
+      if (!rows.length) return;
+      if (rovingIndex >= rows.length) rovingIndex = rows.length - 1;
+      if (rovingIndex < 0) rovingIndex = 0;
+      rows.forEach((row, index) => row.setAttribute('tabindex', index === rovingIndex ? '0' : '-1'));
+    }
+
     function render(state, isLoading) {
+      const focus = captureFocus();
       lastState = state;
       loading = isLoading;
       const needle = filter.value.trim().toLowerCase();
       activeNeedle = needle;
-      summary.textContent = state ? state.summaryText : 'No worktrees';
+      // The shared page header carries the ticket before the host summary
+      // (DF-17); only #summary is the live region, so the ticket label sits
+      // outside it and a refresh does not re-announce the ticket name.
+      ticketLabel.textContent = state && state.ticketLabel ? `${state.ticketLabel} · ` : '';
+      summary.textContent = state ? state.summaryText : (loading ? 'Loading…' : 'No worktrees');
       const visible = state
         ? state.worktrees.filter((worktree) => !needle || worktreeMatches(worktree, needle))
         : [];
+      filterCount.textContent = needle ? `Files: ${visibleFileCount(visible)}` : '';
       const allClean = state && state.worktrees.length > 0
         && state.commitCount === 0 && state.pendingCount === 0
         && state.worktrees.every((worktree) => !worktree.error);
       const rows = visible.map(worktreeRow).join('');
       if (visible.length) {
         repos.innerHTML = (allClean
-          ? '<div class="k-empty clean-state"><div class="k-empty-title">All ticket worktrees are clean. There are no commits or pending files to diff.</div></div>'
+          ? '<div class="k-empty clean-state"><div class="k-empty-title">No changes yet.</div>'
+            + '<div class="k-empty-hint">The worktrees have no commits and no pending files.</div></div>'
           : '') + rows;
       } else if (needle) {
         repos.innerHTML = '<div class="k-empty"><div class="k-empty-title">No changes match this filter. Clear the filter to see all repositories.</div></div>';
       } else if (loading) {
         repos.innerHTML = '<div class="k-empty"><div class="k-empty-title">Loading ticket worktrees…</div></div>';
       } else {
-        repos.innerHTML = '<div class="k-empty"><div class="k-empty-title">No ticket worktrees. Create or attach worktrees, then refresh.</div></div>';
+        repos.innerHTML = '<div class="k-empty"><div class="k-empty-title">This ticket has no worktrees yet.</div>'
+          + '<div class="k-empty-hint">Karst creates them when the ticket session starts.</div>'
+          + '<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-open-ticket>Open ticket</button></div>';
       }
       // No text swap (UI-R18): "Refresh" stays "Refresh"; aria-busy plus the
       // primitive's own spinner carries the pending meaning instead.
@@ -582,12 +829,22 @@
       refresh.setAttribute('aria-busy', loading ? 'true' : 'false');
       const stateTicketId = lastState && Number.isInteger(lastState.ticketId) ? lastState.ticketId : null;
       if (stateTicketId !== null) panelTicketId = stateTicketId;
-      vscode.setState({ state: lastState, loading, viewMode, ...(panelTicketId !== null ? { karstPanel: { ticketId: panelTicketId } } : {}) });
+      restoreFocus(focus);
+      applyRoving();
+      persist();
+    }
+
+    // The selected option is --secondary, the other --ghost (DF-13); the
+    // shared .k-segmented frame is what makes the pair read as one control.
+    function setViewOption(button, selected) {
+      button.setAttribute('aria-checked', selected ? 'true' : 'false');
+      button.classList.toggle('k-btn--secondary', selected);
+      button.classList.toggle('k-btn--ghost', !selected);
     }
 
     function applyViewToggle() {
-      viewTree.setAttribute('aria-pressed', viewMode === 'tree' ? 'true' : 'false');
-      viewFlat.setAttribute('aria-pressed', viewMode === 'flat' ? 'true' : 'false');
+      setViewOption(viewTree, viewMode === 'tree');
+      setViewOption(viewFlat, viewMode === 'flat');
     }
 
     // Purely presentational: nothing posts to the host, so no pending state
@@ -603,20 +860,112 @@
       render(lastState, loading);
     });
     // The `toggle` event does not bubble, so the listener is on the capture
-    // phase. Only directory rows carry data-dir; repo/group/commit disclosures
-    // keep their native (re-render-reset) behaviour.
+    // phase. Every disclosure (repo, group, commit, directory) has a stable key
+    // and records its state, so a re-render keeps the rows the reader opened
+    // (DF-8). The row itself carries `data-key`; a directory carries `data-dir`.
     document.addEventListener('toggle', (event) => {
       const details = event.target;
-      if (!details || details.dataset?.dir === undefined) return;
-      if (details.open) collapsedDirs.delete(details.dataset.dir);
-      else collapsedDirs.add(details.dataset.dir);
+      const key = detailsKey(details);
+      if (key === undefined) return;
+      openState[key] = Boolean(details.open);
+      persist();
     }, true);
 
-    refresh.addEventListener('click', () => {
+    function requestRefresh() {
       render(lastState, true);
       vscode.postMessage({ type: 'refresh' });
+    }
+
+    refresh.addEventListener('click', requestRefresh);
+    // One render per settled keystroke (DF-11), not one per character.
+    filter.addEventListener('input', () => {
+      if (filterTimer !== null) clearTimeout(filterTimer);
+      filterTimer = setTimeout(() => {
+        filterTimer = null;
+        render(lastState, loading);
+      }, FILTER_DEBOUNCE_MS);
     });
-    filter.addEventListener('input', () => render(lastState, loading));
+
+    // Roving tabindex (DF-9): focus moves between the rows with the arrow keys;
+    // exactly one row stays in the tab order so the tree is one tab stop.
+    document.addEventListener('focusin', (event) => {
+      const row = event.target?.closest?.(FOCUS_ROWS);
+      if (!row) return;
+      const rows = [...repos.querySelectorAll(FOCUS_ROWS)];
+      const index = rows.indexOf(row);
+      if (index < 0) return;
+      rovingIndex = index;
+      rows.forEach((candidate, position) => candidate.setAttribute('tabindex', position === index ? '0' : '-1'));
+    });
+
+    /**
+     * A row action from the keyboard (DF-9) enters pending on the row itself:
+     * the host's action-result settles that same element (UI-R13), exactly as a
+     * click settles the row it was made on.
+     */
+    function sendRowAction(row, type) {
+      if (karstIsPending(row) || row.disabled) return;
+      const requestId = karstRequestId();
+      karstBeginPending(row, requestId);
+      vscode.postMessage({ type, changeId: row.dataset.changeId, requestId });
+    }
+
+    document.addEventListener('keydown', (event) => {
+      const row = event.target?.closest?.(FOCUS_ROWS);
+      if (!row) return;
+      const rows = [...repos.querySelectorAll(FOCUS_ROWS)];
+      const index = rows.indexOf(row);
+      const moveTo = (target) => {
+        if (!target) return;
+        event.preventDefault();
+        target.focus();
+      };
+      switch (event.key) {
+        case 'ArrowDown': moveTo(rows[index + 1]); return;
+        case 'ArrowUp': moveTo(rows[index - 1]); return;
+        case 'Home': moveTo(rows[0]); return;
+        case 'End': moveTo(rows[rows.length - 1]); return;
+        case 'ArrowRight': {
+          const details = row.closest('details');
+          if (details && !details.open) {
+            event.preventDefault();
+            setDetailsOpen(details, true);
+          } else {
+            moveTo(rows[index + 1]);
+          }
+          return;
+        }
+        case 'ArrowLeft': {
+          const details = row.closest('details');
+          if (details && details.open) {
+            event.preventDefault();
+            setDetailsOpen(details, false);
+          } else {
+            moveTo(rows[index - 1]);
+          }
+          return;
+        }
+        default:
+          break;
+      }
+      // A summary keeps its native Enter/Space toggle; these keys belong to a
+      // focused file row.
+      if (!row.dataset?.changeId) return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        sendRowAction(row, 'open-diff');
+      } else if (event.key === 'o' || event.key === 'O') {
+        event.preventDefault();
+        sendRowAction(row, 'open-file');
+      } else if (event.key === 'Delete') {
+        event.preventDefault();
+        // The shortcut mirrors the row button: no button, no action (DF-4).
+        if (row.closest('.file-row')?.querySelector('[data-discard]')) sendRowAction(row, 'discard');
+      } else if (event.key === 'u' || event.key === 'U') {
+        event.preventDefault();
+        if (row.closest('.file-row')?.querySelector('[data-unstage]')) sendRowAction(row, 'unstage');
+      }
+    });
     // Optimistic (UI-R15): the host owns the clipboard write, and this is the
     // one legitimate case for showing success before it is confirmed — a
     // failed copy is silently recoverable by clicking again, so the
@@ -627,13 +976,13 @@
     const COPIED_MS = 1200; // matches --k-dur-flash-copy
     function flashCopied(button) {
       if (button.dataset.flash) clearTimeout(Number(button.dataset.flash));
-      button.textContent = '✓';
+      button.innerHTML = karstIcon('check', 16);
       button.classList.add('is-success'); // tier 3 (confirm): in-place check, no colour change
       button.dataset.copied = '1';
       button.setAttribute('aria-label', 'Copied');
       if (typeof karstToast === 'function') karstToast('success', 'Copied');
       button.dataset.flash = String(setTimeout(() => {
-        button.textContent = COPY_GLYPH;
+        button.innerHTML = COPY_GLYPH;
         button.classList.remove('is-success');
         delete button.dataset.copied;
         button.setAttribute('aria-label', 'Copy commit hash');
@@ -641,11 +990,42 @@
       }, COPIED_MS));
     }
 
+    /**
+     * Uniform row-action send (DF-2, DF-22): every action carries a requestId
+     * and enters pending on its own button, so the host's action-result settles
+     * exactly that control. A repeat click while pending is dropped (UI-R12).
+     */
+    function beginAction(button) {
+      if (karstIsPending(button) || button.disabled) return false;
+      const requestId = karstRequestId();
+      karstBeginPending(button, requestId);
+      return requestId;
+    }
+
     document.addEventListener('click', (event) => {
+      // The empty state's way forward (DF-14): open the ticket in the
+      // dashboard, which is the only surface that can create its worktrees.
+      if (event.target.closest('[data-open-ticket]')) {
+        event.preventDefault();
+        vscode.postMessage({ type: 'open-ticket' });
+        return;
+      }
+      // DF-11: reveal the rest of a large group.
+      const showAll = event.target.closest('[data-show-all]');
+      if (showAll) {
+        event.preventDefault();
+        showAllGroups.add(showAll.dataset.showAll);
+        render(lastState, loading);
+        return;
+      }
+      // The inline recovery of a worktree that failed to load (DF-15).
+      if (event.target.closest('[data-refresh]')) {
+        event.preventDefault();
+        requestRefresh();
+        return;
+      }
       const copy = event.target.closest('[data-copy-hash]');
       if (copy) {
-        // The button sits inside a <summary>: without this the copy would also
-        // collapse the commit it belongs to.
         event.preventDefault();
         vscode.postMessage({ type: 'copy-hash', hash: copy.dataset.copyHash });
         flashCopied(copy);
@@ -654,19 +1034,25 @@
       const openFileBtn = event.target.closest('[data-open-file]');
       if (openFileBtn) {
         event.preventDefault();
-        vscode.postMessage({ type: 'open-file', changeId: openFileBtn.dataset.openFile });
+        const requestId = beginAction(openFileBtn);
+        if (requestId === false) return;
+        vscode.postMessage({ type: 'open-file', changeId: openFileBtn.dataset.openFile, requestId });
         return;
       }
       const discardBtn = event.target.closest('[data-discard]');
       if (discardBtn) {
         event.preventDefault();
-        vscode.postMessage({ type: 'discard', changeId: discardBtn.dataset.discard });
+        const requestId = beginAction(discardBtn);
+        if (requestId === false) return;
+        vscode.postMessage({ type: 'discard', changeId: discardBtn.dataset.discard, requestId });
         return;
       }
       const unstageBtn = event.target.closest('[data-unstage]');
       if (unstageBtn) {
         event.preventDefault();
-        vscode.postMessage({ type: 'unstage', changeId: unstageBtn.dataset.unstage });
+        const requestId = beginAction(unstageBtn);
+        if (requestId === false) return;
+        vscode.postMessage({ type: 'unstage', changeId: unstageBtn.dataset.unstage, requestId });
         return;
       }
       // A drag that ends on the hash is a selection, not a click on the
@@ -686,10 +1072,7 @@
       // dropped while pending (UI-R12), watchdog-guarded (UI-R14), and settled
       // by the host's action-result (UI-R13) instead of the native toast being
       // the only thing that ever said anything.
-      if (karstIsPending(row) || row.disabled) return;
-      const requestId = karstRequestId();
-      karstBeginPending(row, requestId);
-      vscode.postMessage({ type: 'open-diff', changeId: row.dataset.changeId, requestId });
+      sendRowAction(row, 'open-diff');
     });
     window.addEventListener('message', (event) => {
       const msg = event.data;

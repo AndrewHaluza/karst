@@ -35,6 +35,7 @@ function makeSnapshot(views: WorktreeChangesView[]): TicketChangesSnapshot {
   return {
     state: {
       ticketId: 1,
+      ticketLabel: 'T1',
       worktreeCount: views.length,
       commitCount,
       pendingCount,
@@ -42,6 +43,7 @@ function makeSnapshot(views: WorktreeChangesView[]): TicketChangesSnapshot {
       summaryText: diffsSummaryText(views.length, commitCount, pendingCount),
     },
     targets: new Map(),
+    files: new Map(),
   };
 }
 
@@ -77,6 +79,7 @@ describe('buildScmGroups', () => {
             subject: 'feat: commit',
             author: 'author',
             authoredAt: '2024-01-01T00:00:00Z',
+            authoredLabel: 'date',
             files: [makeChangedFileView({ changeId: 'c', status: 'modified', path: 'c.ts' })],
           },
         ],
@@ -125,6 +128,7 @@ describe('buildScmGroups', () => {
             subject: 'first',
             author: 'author',
             authoredAt: '2024-01-01T00:00:00Z',
+            authoredLabel: 'date',
             files: [makeChangedFileView({ changeId: '1', status: 'modified', path: 'a.ts' })],
           },
           {
@@ -133,6 +137,7 @@ describe('buildScmGroups', () => {
             subject: 'second',
             author: 'author',
             authoredAt: '2024-01-02T00:00:00Z',
+            authoredLabel: 'date',
             files: [makeChangedFileView({ changeId: '2', status: 'modified', path: 'b.ts' })],
           },
         ],
@@ -152,6 +157,7 @@ describe('buildScmGroups', () => {
       subject: 'feat: same commit',
       author: 'author',
       authoredAt: '2024-01-01T00:00:00Z',
+      authoredLabel: 'date',
       files: [makeChangedFileView({ changeId: label, status: 'modified' as const, path: 'src/app.ts' })],
     });
     const views = specs.map((spec) => makeWorktreeChangesView({ label: spec.label, commits: [commit(spec.label)] }));
@@ -173,6 +179,7 @@ describe('buildScmGroups', () => {
             subject: 'empty commit',
             author: 'author',
             authoredAt: '2024-01-01T00:00:00Z',
+            authoredLabel: 'date',
             files: [],
           },
           {
@@ -181,6 +188,7 @@ describe('buildScmGroups', () => {
             subject: 'with file',
             author: 'author',
             authoredAt: '2024-01-02T00:00:00Z',
+            authoredLabel: 'date',
             files: [makeChangedFileView({ changeId: '1', status: 'added', path: 'src/a.ts' })],
           },
         ],

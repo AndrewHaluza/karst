@@ -393,7 +393,7 @@ describe('parseTicketFormMessage', () => {
       suggestSignals: () => {}, saveSignals: () => {}, setRepos: () => {}, setBaseRef: () => {},
       setApproach: () => {}, setAgent: () => {}, setModel: () => {}, setEffort: () => {},
       setProvider: () => {}, setPreset: () => {}, setType: () => {}, setBackend: () => {}, analyze: () => {}, attachPick: async () => {},
-      usageLimitParkPick: () => {}, usageLimitParkRetry: () => {}, usageLimitParkDismiss: () => {},
+      usageLimitParkPick: () => {}, usageLimitParkRetry: () => {}, usageLimitParkDismiss: () => {}, usageLimitCarryStop: () => {},
       attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
       attachBriefAttachment: async () => {}, openSettings: () => {},
       openTicketLink: () => {}, createProviderTicket: () => {}, requestState: () => {},
@@ -461,6 +461,7 @@ describe('routeTicketFormAction', () => {
       usageLimitParkPick: vi.fn(),
       usageLimitParkRetry: vi.fn(),
       usageLimitParkDismiss: vi.fn(),
+      usageLimitCarryStop: vi.fn(),
       attachPick: vi.fn(),
       attachBytes: vi.fn(),
       detachAttachment: vi.fn(),
@@ -502,6 +503,15 @@ describe('routeTicketFormAction', () => {
     expect(actions.usageLimitParkPick).toHaveBeenCalledWith(1);
     expect(actions.usageLimitParkRetry).toHaveBeenCalledWith(2);
     expect(actions.usageLimitParkDismiss).toHaveBeenCalledWith(3);
+  });
+
+  it('parses and routes usage-limit-carry-stop with a row id only (T1313)', () => {
+    expect(parseTicketFormMessage({ type: 'usage-limit-carry-stop', parkId: 4 })).toEqual({ type: 'usage-limit-carry-stop', parkId: 4 });
+    expect(parseTicketFormMessage({ type: 'usage-limit-carry-stop', parkId: -1 })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'usage-limit-carry-stop' })).toBeNull();
+    const actions = spyActions();
+    routeTicketFormAction({ type: 'usage-limit-carry-stop', parkId: 4 }, actions);
+    expect(actions.usageLimitCarryStop).toHaveBeenCalledWith(4);
   });
 
   it('routes each valid message to its action', () => {
@@ -621,6 +631,7 @@ describe('attachment messages', () => {
       usageLimitParkPick: vi.fn(),
       usageLimitParkRetry: vi.fn(),
       usageLimitParkDismiss: vi.fn(),
+      usageLimitCarryStop: vi.fn(),
       openTicketLink: vi.fn(),
       createProviderTicket: vi.fn(),
       retryRelationWriteback: vi.fn(),

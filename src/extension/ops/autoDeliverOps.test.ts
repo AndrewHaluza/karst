@@ -14,6 +14,7 @@ import {
   CONFLICT_ROUND_STALL_MS,
   createConflictRounds,
   verifyMergeResolved,
+  shipGateFailureTail,
   type AutoDeliverDeps,
   type ResolvedRound,
   rerunSkippedGates,
@@ -28,9 +29,15 @@ import {
   endConflictRoundOnDeliver,
 } from './autoDeliverOps.js';
 import type { DeliverTargets } from '../../workflow/deliverState.js';
+import type { ShipGateReport } from './shipGatesOps.js';
 
 const OPEN: DeliverTargets = { available: true, prs: [{ repo: 'karst', number: 7, branch: 'feat/x', cwd: '/wt' }] };
 const ROUND: ResolvedRound = { repo: 'karst', baseSha: 'b4se', files: ['a.ts'] };
+
+/** A failed ship gate run: every gate named here failed, on the round's repo. */
+const failedRun = (...gates: Array<[string, string]>): ShipGateReport => ({
+  reason: 'r: gate failed', failed: gates.map(([name, output]) => ({ name, repo: 'karst', output })),
+});
 
 function rig(over: Partial<AutoDeliverDeps> = {}) {
   const rounds = createConflictRounds();
@@ -44,7 +51,7 @@ function rig(over: Partial<AutoDeliverDeps> = {}) {
     agentActive: () => false,
     ensureSynced: async () => ({ ok: true }),
     verifyMerge: async () => null,
-    runGates: async () => null,
+    runGates: async () => ({ reason: null, failed: [] }),
     blocked: async () => undefined,
     runShip: async () => { log.push('ship'); },
     reprobe: async () => undefined,
@@ -71,7 +78,7 @@ describe('autoDeliverAfterConflict', () => {
   it('pushes when the merge with the moved base passes, and the check runs after the ship gates (D541)', async () => {
     const order: string[] = [];
     const { deps, log } = rig({
-      runGates: async () => { order.push('gates'); return null; },
+      runGates: async () => { order.push('gates'); return { reason: null, failed: [] }; },
       checkBase: async () => { order.push('base'); return null; },
     });
     await autoDeliverAfterConflict(deps);
@@ -81,7 +88,7 @@ describe('autoDeliverAfterConflict', () => {
 
   it('does not run the base check when a ship gate failed (D541)', async () => {
     let checked = false;
-    const { deps } = rig({ runGates: async () => 'r: gate "test" failed', checkBase: async () => { checked = true; return null; } });
+    const { deps } = rig({ runGates: async () => ({ reason: 'r: gate "test" failed', failed: [] }), checkBase: async () => { checked = true; return null; } });
     await autoDeliverAfterConflict(deps);
     expect(checked).toBe(false);
   });
@@ -107,7 +114,7 @@ describe('autoDeliverAfterConflict', () => {
     const { deps, log } = rig({
       targets: () => ({ available: true, prs }),
       verifyMerge: async (pr) => { verified.push(pr.cwd); return null; },
-      runGates: async (all) => { gated = all.length; return null; },
+      runGates: async (all) => { gated = all.length; return { reason: null, failed: [] }; },
     });
     await autoDeliverAfterConflict(deps);
     expect(verified).toEqual(['/wt', '/wt']);
@@ -150,7 +157,7 @@ describe('autoDeliverAfterConflict', () => {
 
   it('pushes nothing when a gate fails; failure is shown; stays armed for a retry', async () => {
     const runShip = vi.fn();
-    const { deps, rounds, log } = rig({ runGates: async () => 'typecheck failed', runShip });
+    const { deps, rounds, log } = rig({ runGates: async () => ({ reason: 'typecheck failed', failed: [] }), runShip });
     await autoDeliverAfterConflict(deps);
     expect(runShip).not.toHaveBeenCalled();
     expect(log.some((l) => l.startsWith('error:') && l.includes('typecheck failed'))).toBe(true);
@@ -316,12 +323,63 @@ describe('isConflictRoundStalled (the stall clock starts at the receipt, @arch:A
     const { deps, rounds } = rig({
       runGates: async () => {
         seen.push(isConflictRoundStalled(rounds, 1, receipt('2026-11-17T20:00:00.000Z'), T0 + CONFLICT_ROUND_STALL_MS * 3));
-        return null;
+        return { reason: null, failed: [] };
       },
     });
     expect(isConflictRoundStalled(rounds, 1, receipt('2026-11-17T20:00:00.000Z'), T0 + CONFLICT_ROUND_STALL_MS * 3)).toBe(true);
     await autoDeliverAfterConflict(deps);
     expect(seen).toEqual([false]);
+  });
+
+  // T1315: the gates of a delivery can run longer than the stall time. The clock counts from the end of that delivery.
+  it('starts the clock at the end of the last delivery, not at the receipt', () => {
+    const rounds = createConflictRounds();
+    rounds.arm(9, ROUND);
+    const oldReceipt = receipt(new Date(Date.now() - 25 * 60_000).toISOString());
+    expect(isConflictRoundStalled(rounds, 9, oldReceipt, Date.now())).toBe(true);
+    rounds.markDelivered(9);
+    expect(isConflictRoundStalled(rounds, 9, oldReceipt, Date.now() + 300)).toBe(false);
+    expect(isConflictRoundStalled(rounds, 9, oldReceipt, Date.now() + CONFLICT_ROUND_STALL_MS + 1)).toBe(true);
+  });
+
+  it('a new round forgets the delivery end and the refusal of the round before it', () => {
+    const rounds = createConflictRounds();
+    expect(rounds.armedAt(9)).toBeNull();
+    rounds.arm(9, ROUND);
+    expect(rounds.armedAt(9)).toEqual(expect.any(Number));
+    rounds.markDelivered(9);
+    rounds.refuse(9, { repo: ROUND.repo, tail: 'gate "unit" failed', sha: null });
+    expect(rounds.deliveredAt(9)).not.toBeNull();
+    rounds.arm(9, ROUND);
+    expect(rounds.deliveredAt(9)).toBeNull();
+    expect(rounds.refusal(9)).toBeNull();
+  });
+
+  it('a disarm drops the round and everything recorded with it', () => {
+    const rounds = createConflictRounds();
+    rounds.arm(9, ROUND);
+    rounds.markDelivered(9);
+    rounds.refuse(9, { repo: ROUND.repo, tail: 'the base check failed', sha: 'abc' });
+    rounds.disarm(9);
+    expect(rounds.armed(9)).toBeNull();
+    expect(rounds.armedAt(9)).toBeNull();
+    expect(rounds.deliveredAt(9)).toBeNull();
+    expect(rounds.refusal(9)).toBeNull();
+  });
+
+  it('is false for a receipt that is not a date', () => {
+    const rounds = createConflictRounds();
+    rounds.arm(9, ROUND);
+    expect(isConflictRoundStalled(rounds, 9, receipt('not a date'), Date.now() + CONFLICT_ROUND_STALL_MS * 10)).toBe(false);
+  });
+
+  it('records the end of the auto-deliver on the round, so a refused push is not stalled in the same tick', async () => {
+    const { deps, rounds } = rig({
+      runGates: async () => ({ reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: 'AssertionError' }] }),
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.deliveredAt(1)).not.toBeNull();
+    expect(isConflictRoundStalled(rounds, 1, receipt(new Date(Date.now() - CONFLICT_ROUND_STALL_MS * 5).toISOString()), Date.now() + 300)).toBe(false);
   });
 });
 
@@ -330,9 +388,9 @@ describe('manual Deliver takes over an in-flight auto-deliver (T1018)', () => {
 
   it('aborts the gate run, disarms the round, writes one note, and the auto-deliver never pushes', async () => {
     let seenSignal: AbortSignal | undefined;
-    let release!: (v: string | null) => void;
+    let release!: (v: { reason: string | null; failed: never[] }) => void;
     const { deps, rounds, log } = rig({
-      runGates: (_prs, signal) => { seenSignal = signal; return new Promise((r) => { release = r; signal.addEventListener('abort', () => r('r: gate run was stopped')); }); },
+      runGates: (_prs, signal) => { seenSignal = signal; return new Promise((r) => { release = r; signal.addEventListener('abort', () => r({ reason: 'r: gate run was stopped', failed: [] })); }); },
     });
     const auto = autoDeliverAfterConflict(deps);
     await vi.waitFor(() => expect(seenSignal).toBeDefined());
@@ -345,7 +403,7 @@ describe('manual Deliver takes over an in-flight auto-deliver (T1018)', () => {
     expect(notes).toHaveLength(1);
     expect(notes[0]![0]).toBe('Autopilot: delivery taken over by a manual Deliver; failed: unit; skipped: visual, docs');
     await auto;
-    release(null);
+    release({ reason: null, failed: [] });
     expect(log.filter((l) => l === 'ship')).toHaveLength(0);
     expect(log.some((l) => l.startsWith('error:'))).toBe(false);
     expect(isAutoDelivering(1)).toBe(false);
@@ -561,7 +619,7 @@ describe('rerunSkippedGates (after a manual Deliver took over)', () => {
     const re = rerigRerun({ ticketId: 1, key: 'T1', runGates: (_g, s) => new Promise<RerunResult>((r) => { signalOf = s; release = r; }) });
     const running = rerunSkippedGates(re.deps);
     let started = false;
-    const { deps } = rig({ runGates: async () => { started = true; return null; } });
+    const { deps } = rig({ runGates: async () => { started = true; return { reason: null, failed: [] }; } });
     const auto = autoDeliverAfterConflict(deps);
     await new Promise((r) => setTimeout(r, 5));
     expect(signalOf.aborted).toBe(true);
@@ -575,7 +633,7 @@ describe('rerunSkippedGates (after a manual Deliver took over)', () => {
 
   it('refuses a re-run while an auto-deliver runs its gates, and logs why', async () => {
     let hold!: () => void;
-    const gates = new Promise<null>((r) => { hold = () => r(null); });
+    const gates = new Promise<{ reason: null; failed: never[] }>((r) => { hold = () => r({ reason: null, failed: [] }); });
     const { deps } = rig({ runGates: () => gates });
     const auto = autoDeliverAfterConflict(deps);
     const re = rerigRerun({ ticketId: 1, key: 'T1' });
@@ -593,7 +651,7 @@ describe('the drain (@arch:DRAIN-01)', () => {
   it('starts no auto-deliver while draining, leaves the round armed and logs the reason', async () => {
     setDeliverDrain(() => true);
     const { deps, rounds, log } = rig();
-    const runGates = vi.fn(async () => null);
+    const runGates = vi.fn(async () => ({ reason: null, failed: [] }));
     await autoDeliverAfterConflict({ ...deps, runGates });
     expect(runGates).not.toHaveBeenCalled();
     expect(rounds.armed(1)).not.toBeNull();
@@ -603,7 +661,7 @@ describe('the drain (@arch:DRAIN-01)', () => {
   it('starts the auto-deliver again once the drain ends', async () => {
     setDeliverDrain(() => false);
     const { deps } = rig();
-    const runGates = vi.fn(async () => null);
+    const runGates = vi.fn(async () => ({ reason: null, failed: [] }));
     await autoDeliverAfterConflict({ ...deps, runGates });
     expect(runGates).toHaveBeenCalled();
   });
@@ -624,7 +682,7 @@ describe('the drain (@arch:DRAIN-01)', () => {
   it('lists the ticket of a running auto-deliver, also before it opens its run row', async () => {
     expect(liveDeliverTickets()).toEqual([]);
     let during: number[] = [];
-    const { deps } = rig({ runGates: async () => { during = liveDeliverTickets(); return null; } });
+    const { deps } = rig({ runGates: async () => { during = liveDeliverTickets(); return { reason: null, failed: [] }; } });
     await autoDeliverAfterConflict(deps);
     expect(during).toEqual([1]);
     expect(liveDeliverTickets()).toEqual([]);
@@ -636,7 +694,7 @@ describe('the drain (@arch:DRAIN-01)', () => {
     let insideAtPush: boolean | null = null;
     let inFlightDuring = -1;
     const { deps } = rig({
-      runGates: async () => { drain.begin(); inFlightDuring = drain.inFlight(); return null; },
+      runGates: async () => { drain.begin(); inFlightDuring = drain.inFlight(); return { reason: null, failed: [] }; },
       runShip: async () => { insideAtPush = drain.insideRun(); return { kind: 'delivered' } as never; },
     });
     await autoDeliverAfterConflict(deps);
@@ -657,6 +715,224 @@ describe('the drain (@arch:DRAIN-01)', () => {
     expect(inside).toBe(true);
   });
 
+});
+
+describe('the environment re-run of the ship gates (T1315)', () => {
+  const ENV = 'base check skipped: some vitest failures are not parseable';
+
+  it('re-runs only the failed gates once and pushes when every failure carried an environment signature', async () => {
+    const only: Array<readonly string[] | undefined> = [];
+    const { deps, rounds, log } = rig({
+      runGates: async (_prs, _signal, names) => {
+        only.push(names);
+        return names === undefined ? failedRun(['unit', ENV]) : { reason: null, failed: [] };
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(only).toEqual([undefined, ['unit']]);
+    expect(log).toContain('ship');
+    expect(rounds.armed(1)).toBeNull();
+    expect(log.some((l) => l.includes('auto-deliver: re-running the failed gates once, every failure carried an environment signature: unit (the base check could not parse the vitest failures)'))).toBe(true);
+  });
+
+  it('re-runs only the repo that failed, never the repo whose gates already passed', async () => {
+    const prs = [
+      { repo: 'other', number: 3, branch: 'b', cwd: '/o' },
+      { repo: 'karst', number: 7, branch: 'feat/x', cwd: '/wt' },
+    ];
+    const asked: string[][] = [];
+    const { deps, log } = rig({
+      targets: () => ({ available: true, prs }),
+      runGates: async (gated, _signal, names) => {
+        asked.push(gated.map((p) => p.repo));
+        return names === undefined ? failedRun(['unit', ENV]) : { reason: null, failed: [] };
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(asked).toEqual([['other', 'karst'], ['karst']]);
+    expect(log).toContain('ship');
+  });
+
+  it('reads the signature from the stored summary when the output is gone', async () => {
+    const only: Array<readonly string[] | undefined> = [];
+    const { deps, log } = rig({
+      runGates: async (_prs, _signal, names) => {
+        only.push(names);
+        return names === undefined
+          ? { reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: '', summary: 'environment signature: a gate or test timeout\ntest: 1 failed' }] }
+          : { reason: null, failed: [] };
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(only).toEqual([undefined, ['unit']]);
+    expect(log).toContain('ship');
+  });
+
+  it('refuses a real failure with no re-run', async () => {
+    const calls: number[] = [];
+    const { deps, rounds, log } = rig({
+      runGates: async () => {
+        calls.push(1);
+        return failedRun(['unit', 'AssertionError: expected 1 to be 2']);
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(calls).toHaveLength(1);
+    expect(log).not.toContain('ship');
+    expect(rounds.armed(1)).not.toBeNull();
+  });
+
+  it('refuses a mixed failure with no re-run: one signed gate does not make the round an environment fault', async () => {
+    const calls: number[] = [];
+    const { deps, log } = rig({
+      runGates: async () => {
+        calls.push(1);
+        return failedRun(['unit', ENV], ['typecheck', 'src/a.ts(2,3): error TS2322']);
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(calls).toHaveLength(1);
+    expect(log).not.toContain('ship');
+  });
+
+  it('refuses with no re-run when the run named no failed gate (a gate that could not run)', async () => {
+    const calls: number[] = [];
+    const { deps, log } = rig({
+      runGates: async () => {
+        calls.push(1);
+        return { reason: 'r: gate "docs" could not run (refused by the host boundary)', failed: [] };
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(calls).toHaveLength(1);
+    expect(log).not.toContain('ship');
+  });
+
+  it('re-runs EVERY signed failed gate, and names them one by one in the log', async () => {
+    const only: Array<readonly string[] | undefined> = [];
+    const { deps, log } = rig({
+      runGates: async (_prs, _signal, names) => {
+        only.push(names);
+        return names === undefined
+          ? failedRun(['unit', ENV], ['visual', 'not a screenshot mismatch'])
+          : { reason: null, failed: [] };
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(only).toEqual([undefined, ['unit', 'visual']]);
+    expect(log.some((l) => l.includes('every failure carried an environment signature: unit (the base check could not parse the vitest failures), visual (a failure that is not a screenshot mismatch)'))).toBe(true);
+    expect(log).toContain('ship');
+  });
+
+  it('refuses with no re-run when a repo after the failing one never gated', async () => {
+    const calls: number[] = [];
+    const { deps, log } = rig({
+      runGates: async () => {
+        calls.push(1);
+        return { ...failedRun(['unit', ENV], ['visual', 'not a screenshot mismatch']), incomplete: true };
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(calls).toHaveLength(1);
+    expect(log).not.toContain('ship');
+    expect(log.some((l) => l.includes('the failed gates are not re-run, a repo after the failing one never gated: unit (the base check could not parse the vitest failures), visual (a failure that is not a screenshot mismatch)'))).toBe(true);
+  });
+
+  it('refuses and pushes nothing when the re-run fails too', async () => {
+    const only: Array<readonly string[] | undefined> = [];
+    const { deps, rounds, log } = rig({
+      runGates: async (_prs, _signal, names) => {
+        only.push(names);
+        return failedRun(['unit', ENV]);
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(only).toEqual([undefined, ['unit']]);
+    expect(log).not.toContain('ship');
+    expect(rounds.armed(1)).not.toBeNull();
+    expect(log.some((l) => l.startsWith('error:Resolved merge not delivered: a ship-stage gate failed'))).toBe(true);
+  });
+});
+
+describe('the refused delivery of a verified merge (T1315)', () => {
+  const ENV = 'exceeded the test timeout';
+  const SHA = '2cc2990' + 'a'.repeat(33);
+
+  it('records the gate and the merge commit the manual Deliver pushes', async () => {
+    const { deps, rounds } = rig({
+      runGates: async () => ({ reason: 'r: gate "unit" failed (exit 1)', failed: [{ name: 'unit', repo: 'karst', output: `1 failed: ${ENV}` }] }),
+      mergeSha: async () => SHA,
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: SHA });
+    // The round stays armed for the manual Deliver and for the park the engine writes: a refusal is not a disarm.
+    expect(rounds.armed(1)).not.toBeNull();
+  });
+
+  it('leaves the sha unread when the host has no merge-sha seam', async () => {
+    const { deps, rounds } = rig({
+      runGates: async () => ({ reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: 'x' }] }),
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: null });
+  });
+
+  it('words the tail of a run that named no gate', () => {
+    expect(shipGateFailureTail({ reason: 'r: gate run was stopped', failed: [] })).toBe('a ship gate failed');
+    expect(shipGateFailureTail({ reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'r', output: '' }] })).toBe('gate "unit" failed');
+  });
+
+  it('records the base check as the refusal when only the moved base failed', async () => {
+    const { deps, rounds } = rig({
+      checkBase: async () => 'fails when merged with origin/develop abc; CI tests this merge',
+      mergeSha: async () => SHA,
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'the base check failed', sha: SHA });
+  });
+
+  it('records no refusal when the merge is unfinished (the stall path owns that round)', async () => {
+    const { deps, rounds } = rig({ verifyMerge: async () => 'the worktree has uncommitted changes' });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toBeNull();
+  });
+
+  it('records no refusal while a manual Deliver took over', async () => {
+    const calls: Array<readonly string[] | undefined> = [];
+    const { deps, rounds } = rig({
+      runGates: async (_prs, _signal, names) => {
+        calls.push(names);
+        takeOverAutoDeliver(1, { rounds, recordTakeOver: () => ({ failed: [], skipped: [] }), note: () => undefined, key: 'T1' });
+        return { reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: 'x' }] };
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toBeNull();
+    expect(calls).toEqual([undefined]);
+  });
+
+  it('starts no environment re-run behind a manual Deliver that took over', async () => {
+    const calls: Array<readonly string[] | undefined> = [];
+    const { deps, log } = rig({
+      runGates: async (_prs, _signal, names) => {
+        calls.push(names);
+        takeOverAutoDeliver(1, { rounds: createConflictRounds(), recordTakeOver: () => ({ failed: [], skipped: [] }), note: () => undefined, key: 'T1' });
+        return failedRun(['unit', 'exceeded the test timeout']);
+      },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(calls).toEqual([undefined]);
+    expect(log).not.toContain('ship');
+  });
+
+  it('leaves no sha when git cannot read the merge commit', async () => {
+    const { deps, rounds } = rig({
+      runGates: async () => ({ reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: 'x' }] }),
+      mergeSha: async () => { throw new Error('git is gone'); },
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: null });
+  });
 });
 
 describe('conflictRoundEnded (T1287)', () => {
@@ -742,7 +1018,7 @@ describe('conflictRoundEnded (T1287)', () => {
     const running = rig({
       ticketId: id,
       rounds,
-      runGates: async () => { await gate; return null; },
+      runGates: async () => { await gate; return { reason: null, failed: [] }; },
     });
     const run = autoDeliverAfterConflict(running.deps);
     await vi.waitFor(() => expect(isAutoDelivering(id)).toBe(true));
@@ -757,7 +1033,7 @@ describe('conflictRoundEnded (T1287)', () => {
 
 describe('endConflictRoundOnDeliver (T1287)', () => {
   it('a refused auto-deliver keeps the round; the later manual deliver of the merge ends it with one line', async () => {
-    const { deps, rounds, log } = rig({ runGates: async () => 'gate "docs" failed (exit 1)' });
+    const { deps, rounds, log } = rig({ runGates: async () => ({ reason: 'gate "docs" failed (exit 1)', failed: [] }) });
     await autoDeliverAfterConflict(deps);
     expect(rounds.armed(1)).not.toBeNull();
     expect(endConflictRoundOnDeliver(rounds, 1, 'T1', (m) => log.push(`log:${m}`))).toBe(true);

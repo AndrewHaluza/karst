@@ -43,7 +43,8 @@ describe('planningInstructions', () => {
   });
 
   it('never references the registry, the manifest path or the retired create verb', () => {
-    for (const banned of ['KARST_DB', 'KARST_MANIFEST', '--db', '--manifest', 'draft create', '--session', '-file']) {
+    // '--file' is allowed: structured input (commandInput.ts) is the long-text propose path.
+    for (const banned of ['KARST_DB', 'KARST_MANIFEST', '--db', '--manifest', 'draft create', '--session']) {
       expect(text).not.toContain(banned);
     }
   });
@@ -91,10 +92,13 @@ describe('planningArtifactsDir', () => {
     expect(PLANNING_ARTIFACTS_ENV).toBe('KARST_ARTIFACTS');
   });
 
-  it('names the artifacts dir once, by absolute path, as the only place for session files', () => {
+  it('names the artifacts dir once as the place for session files, and once in the --file propose line', () => {
     const text = planningInstructions({ sessionId: 7, title: 'T', manifest, artifactsDir: '/s/7/artifacts' });
     expect(text).toContain('$KARST_ARTIFACTS (/s/7/artifacts)');
-    expect(text.match(/\/s\/7\/artifacts/g)).toHaveLength(1);
+    expect(text.match(/\/s\/7\/artifacts/g)).toHaveLength(2);
+    expect(text).toContain(
+      'For long text, write the JSON object to /s/7/artifacts/draft.json ("$KARST_ARTIFACTS/draft.json") and run: node "$KARST_CLI" draft propose --file "$KARST_ARTIFACTS/draft.json"',
+    );
     expect(planningInstructions({ sessionId: 7, title: 'T', manifest })).not.toContain('KARST_ARTIFACTS');
   });
 });
@@ -219,5 +223,52 @@ describe('planningInstructions pre-proposal checklist', () => {
     expect(text).toMatch(/never call prototype layout "illustrative"/);
     expect(text.indexOf('If the work changes a webview')).toBeLessThan(text.indexOf('When the user agrees on the work'));
     expect(text).toMatch(/5\. If the work changes a webview/);
+  });
+});
+
+describe('planningInstructions draft contract', () => {
+  const plain = planningInstructions({ sessionId: 1, title: 't', manifest });
+  const withDir = planningInstructions({ sessionId: 1, title: 't', manifest, artifactsDir: '/a b/artifacts' });
+
+  it('never recommends a heredoc', () => {
+    for (const t of [plain, withDir]) expect(t).not.toContain('<<');
+  });
+
+  it('names a generic --file path without an artifacts dir', () => {
+    expect(plain).toContain('For long text, write the JSON object to a file and run: node "$KARST_CLI" draft propose --file <path>');
+  });
+
+  it('double-quotes the artifacts path, even with a space in it', () => {
+    expect(withDir).toContain('/a b/artifacts/draft.json');
+    expect(withDir).toContain('--file "$KARST_ARTIFACTS/draft.json"');
+    expect(withDir).not.toMatch(/--file \$KARST_ARTIFACTS/);
+  });
+
+  it('states the handoff, and names KARST_ARTIFACTS only with an artifacts dir', () => {
+    expect(plain).toContain('never this conversation or a plan file you wrote):');
+    expect(withDir).toContain('never this conversation or a plan file you wrote, also in $KARST_ARTIFACTS):');
+  });
+
+  it('gives each field one role and forbids inversion and duplication', () => {
+    for (const t of [plain, withDir]) {
+      expect(t).toContain('- "description" is the self-contained execution spec');
+      expect(t).toMatch(/ticket prompt and the UAT criteria/);
+      expect(t).toMatch(/exact ordered edits/);
+      expect(t).toMatch(/split work over ~10k chars into drafts linked by "dependsOn"/);
+      expect(t).toMatch(/acceptance criteria/);
+      expect(t).toMatch(/Never a vague blurb or a path to a local plan file/);
+      expect(t).toContain('- "summary" holds the decisions reached, the options rejected with reasons, and the key risks');
+      expect(t).toContain('NOT a copy of "description" and NOT where the implementation plan lives');
+      expect(t).toContain('- "constraints" holds bare @arch:KEY / @ui:KEY tokens');
+    }
+  });
+
+  it('asks the planner to read warnings and revise in place', () => {
+    expect(plain).toContain('After each propose, read the returned "warnings" or the host rejection error');
+    expect(plain).toMatch(/revise the draft in place with "id"/);
+  });
+
+  it('asks for bare design-key tokens in the checklist', () => {
+    expect(plain).toContain('4. Cite what you relied on in the draft\'s "constraints" as bare tokens');
   });
 });

@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { StaleDiffTargetError, type DiffTarget } from './git.js';
+import { StaleDiffTargetError, type DiffTarget, type FileChangeStatus } from './git.js';
+import type { GitActionResult } from './gitActions.js';
 import type { ChangesHostMessage } from './messages.js';
 import { TicketChangesManager, type ChangesPanel, type ChangesPanelHost } from './panel.js';
-import { diffsSummaryText, worktreeCountText, type TicketChangesSnapshot, type TicketChangesState } from './snapshot.js';
+import {
+  diffsSummaryText,
+  worktreeCountText,
+  type SnapshotFileEntry,
+  type SnapshotFileGroup,
+  type TicketChangesSnapshot,
+  type TicketChangesState,
+} from './snapshot.js';
 
 class FakePanel implements ChangesPanel {
   revealed = 0;
@@ -49,9 +57,17 @@ function target(path: string): DiffTarget {
   };
 }
 
-function snapshot(ticketId: number, changeId: string, diffTarget: DiffTarget): TicketChangesSnapshot {
+function snapshot(
+  ticketId: number,
+  changeId: string,
+  diffTarget: DiffTarget,
+  repoPath = '/worktrees/repository',
+  group: SnapshotFileGroup = 'staged',
+): TicketChangesSnapshot {
+  const row = { changeId, status: 'modified' as const, path: diffTarget.displayPath, oldPath: null, absolutePath: `${repoPath}/${diffTarget.displayPath}` };
   const state: TicketChangesState = {
     ticketId,
+    ticketLabel: `T${ticketId}`,
     worktreeCount: 1,
     commitCount: 0,
     pendingCount: 1,
@@ -61,14 +77,18 @@ function snapshot(ticketId: number, changeId: string, diffTarget: DiffTarget): T
       branch: 'ticket/changes',
       baseRef: 'main',
       commits: [],
-      staged: [{ changeId, status: 'modified', path: diffTarget.displayPath, oldPath: null, absolutePath: `/worktrees/repository/${diffTarget.displayPath}` }],
-      unstaged: [],
-      untracked: [],
+      staged: group === 'staged' ? [row] : [],
+      unstaged: group === 'unstaged' ? [row] : [],
+      untracked: group === 'untracked' ? [row] : [],
       error: null,
       countText: worktreeCountText(0, 1),
     }],
   };
-  return { state, targets: new Map([[changeId, diffTarget]]) };
+  const files: Map<string, SnapshotFileEntry> = new Map([[
+    changeId,
+    { repoPath, path: diffTarget.displayPath, status: 'modified', group },
+  ]]);
+  return { state, targets: new Map([[changeId, diffTarget]]), files };
 }
 
 function makeHost(): { host: ChangesPanelHost; panels: FakePanel[] } {
@@ -921,38 +941,264 @@ describe('TicketChangesManager', () => {
       expect(warn).toHaveBeenCalled();
     });
 
-    it('discard calls the injected discardChanges with the changeId', async () => {
+    /**
+     * DF-22: a failed Open file used to be invisible. The handler now returns
+     * its promise, so the dispatch seam can report the failure as a real
+     * `action-result` instead of acked-and-forgotten.
+     */
+    it('reports a rejected Open file as an action-result failure', async () => {
       const loaded = snapshot(41, 'current:1', target('src/current.ts'));
       const { host, panels } = makeHost();
-      const discardChanges = vi.fn();
-      const manager = new TicketChangesManager(
-        host, (id) => `Changes ${id}`, async () => loaded, async () => {}, () => {},
-        () => {}, () => {}, undefined, () => {}, discardChanges,
-      );
+      const openFile = vi.fn(async () => { throw new Error('The file is gone'); });
+      const manager = makeManager(host, async () => loaded, { openFile });
 
       manager.open(41);
       await settle();
-      panels[0]!.emit({ type: 'discard', changeId: 'current:1' });
+      panels[0]!.emit({ type: 'open-file', changeId: 'current:1', requestId: 'req-open' });
       await settle();
 
-      expect(discardChanges).toHaveBeenCalledWith('current:1');
+      expect(openFile).toHaveBeenCalledWith('/worktrees/repository/src/current.ts');
+      expect(panels[0]!.posted).toContainEqual({
+        type: 'action-result',
+        requestId: 'req-open',
+        ok: false,
+        message: 'The file is gone',
+      });
     });
 
-    it('unstage calls the injected unstageFile with the changeId', async () => {
+    interface GitActionDeps {
+      warn?: (message: string) => void;
+      openFile?: (absolutePath: string) => void | Promise<void>;
+      confirmDiscard?: (path: string, status: FileChangeStatus) => Promise<boolean>;
+      discard?: (
+        repoPath: string,
+        path: string,
+        status: FileChangeStatus,
+      ) => Promise<GitActionResult>;
+      unstage?: (repoPath: string, path: string) => Promise<GitActionResult>;
+      openDashboard?: (ticketId: number) => void | Promise<void>;
+    }
+
+    /**
+     * Build a manager with the git tail filled in: confirm answers `true` and
+     * both git adapters succeed unless a test says otherwise, so only the
+     * behaviour under test is a mock the test names.
+     */
+    function makeManager(
+      host: ChangesPanelHost,
+      load: (ticketId: number, signal: AbortSignal) => Promise<TicketChangesSnapshot>,
+      deps: GitActionDeps = {},
+    ): TicketChangesManager {
+      return new TicketChangesManager(
+        host,
+        (id) => `Changes ${id}`,
+        load,
+        async () => {},
+        deps.warn ?? (() => {}),
+        () => {},
+        () => {},
+        undefined,
+        deps.openFile ?? (() => {}),
+        deps.confirmDiscard ?? (async () => true),
+        deps.discard ?? (async () => ({ ok: true })),
+        deps.unstage ?? (async () => ({ ok: true })),
+        deps.openDashboard,
+      );
+    }
+
+    /**
+     * DF-1/DF-2 (decision Q7): the webview never discards on its own. The host
+     * asks first, and a declined question does nothing at all — no git call, no
+     * refresh, no toast — while still taking the row out of pending.
+     */
+    it('a declined Discard runs no git call and no refresh, and acks the row', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, 'unstaged');
+      const { host, panels } = makeHost();
+      const confirmDiscard = vi.fn(async () => false);
+      const discard = vi.fn(async () => ({ ok: true }));
+      const load = vi.fn(async () => loaded);
+      const manager = makeManager(host, load, { confirmDiscard, discard });
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'discard', changeId: 'current:1', requestId: 'req-cancel' });
+      await settle();
+
+      expect(confirmDiscard).toHaveBeenCalledWith('src/current.ts', 'modified');
+      expect(discard).not.toHaveBeenCalled();
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(panels[0]!.posted.filter((m) => m.type === 'loading')).toHaveLength(1);
+      expect(panels[0]!.posted).toContainEqual({ type: 'action-result', requestId: 'req-cancel', ok: true });
+    });
+
+    it('a confirmed Discard runs git on the snapshot path, then refreshes the panel', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, 'unstaged');
+      const { host, panels } = makeHost();
+      const discard = vi.fn(async () => ({ ok: true }));
+      const load = vi.fn(async () => loaded);
+      const manager = makeManager(host, load, { discard });
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'discard', changeId: 'current:1', requestId: 'req-ok' });
+      await settle();
+
+      expect(discard).toHaveBeenCalledExactlyOnceWith(
+        '/worktrees/repository',
+        'src/current.ts',
+        'modified',
+      );
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(panels[0]!.posted.filter((m) => m.type === 'loading')).toHaveLength(2);
+      expect(panels[0]!.posted).toContainEqual({ type: 'action-result', requestId: 'req-ok', ok: true });
+    });
+
+    it('a failed Discard reports the git reason and keeps the state it had', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, 'unstaged');
+      const { host, panels } = makeHost();
+      const discard = vi.fn(async () => ({ ok: false, error: 'index.lock exists' }));
+      const load = vi.fn(async () => loaded);
+      const manager = makeManager(host, load, { discard });
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'discard', changeId: 'current:1', requestId: 'req-fail' });
+      await settle();
+
+      expect(panels[0]!.posted).toContainEqual({
+        type: 'action-result',
+        requestId: 'req-fail',
+        ok: false,
+        message: 'Could not discard the changes (index.lock exists).',
+      });
+      expect(load).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * DF-3: two panels, two snapshots. The second load used to overwrite one
+     * window-wide value, so a Discard in the FIRST panel acted on the SECOND
+     * panel's repository (or did nothing at all).
+     */
+    it('a Discard in one panel uses that panel own snapshot after another panel loaded', async () => {
+      const load = vi.fn(async (id: number) => (id === 41
+        ? snapshot(41, 'a:1', target('src/a.ts'), '/wt/a', 'unstaged')
+        : snapshot(42, 'b:1', target('src/b.ts'), '/wt/b', 'unstaged')));
+      const { host, panels } = makeHost();
+      const discard = vi.fn(async () => ({ ok: true }));
+      const manager = makeManager(host, load, { discard });
+
+      manager.open(41);
+      await settle();
+      manager.open(42);
+      await settle();
+      panels[0]!.emit({ type: 'discard', changeId: 'a:1' });
+      await settle();
+
+      expect(discard).toHaveBeenCalledExactlyOnceWith('/wt/a', 'src/a.ts', 'modified');
+    });
+
+    it('a crafted Discard for an id the session never loaded refreshes instead of reaching git', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, 'unstaged');
+      const { host, panels } = makeHost();
+      const warn = vi.fn();
+      const discard = vi.fn(async () => ({ ok: true }));
+      const load = vi.fn(async () => loaded);
+      const manager = makeManager(host, load, { warn, discard });
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'discard', changeId: 'forged:1' });
+      await settle();
+
+      expect(warn).toHaveBeenCalledWith('That file is stale. Refreshing ticket changes…');
+      expect(discard).not.toHaveBeenCalled();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it('Discard on a commit or staged row never reaches git or the confirmation', async () => {
+      for (const group of ['commit', 'staged'] as const) {
+        const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, group);
+        const { host, panels } = makeHost();
+        const confirmDiscard = vi.fn(async () => true);
+        const discard = vi.fn(async () => ({ ok: true }));
+        const manager = makeManager(host, async () => loaded, { confirmDiscard, discard });
+
+        manager.open(41);
+        await settle();
+        panels[0]!.emit({ type: 'discard', changeId: 'current:1', requestId: `req-${group}` });
+        await settle();
+
+        expect(confirmDiscard).not.toHaveBeenCalled();
+        expect(discard).not.toHaveBeenCalled();
+      }
+    });
+
+    it('Unstage on an unstaged, untracked or commit row never reaches git', async () => {
+      for (const group of ['commit', 'unstaged', 'untracked'] as const) {
+        const loaded = snapshot(41, 'current:1', target('src/current.ts'), undefined, group);
+        const { host, panels } = makeHost();
+        const unstage = vi.fn(async () => ({ ok: true }));
+        const manager = makeManager(host, async () => loaded, { unstage });
+
+        manager.open(41);
+        await settle();
+        panels[0]!.emit({ type: 'unstage', changeId: 'current:1', requestId: `req-${group}` });
+        await settle();
+
+        expect(unstage).not.toHaveBeenCalled();
+      }
+    });
+
+    it('a successful Unstage runs git on the snapshot path, then refreshes', async () => {
       const loaded = snapshot(41, 'current:1', target('src/current.ts'));
       const { host, panels } = makeHost();
-      const unstageFile = vi.fn();
-      const manager = new TicketChangesManager(
-        host, (id) => `Changes ${id}`, async () => loaded, async () => {}, () => {},
-        () => {}, () => {}, undefined, () => {}, () => {}, unstageFile,
-      );
+      const unstage = vi.fn(async () => ({ ok: true }));
+      const load = vi.fn(async () => loaded);
+      const manager = makeManager(host, load, { unstage });
 
       manager.open(41);
       await settle();
       panels[0]!.emit({ type: 'unstage', changeId: 'current:1' });
       await settle();
 
-      expect(unstageFile).toHaveBeenCalledWith('current:1');
+      expect(unstage).toHaveBeenCalledExactlyOnceWith('/worktrees/repository', 'src/current.ts');
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it('a failed Unstage reports the git reason', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const unstage = vi.fn(async () => ({ ok: false, error: 'not in the index' }));
+      const load = vi.fn(async () => loaded);
+      const manager = makeManager(host, load, { unstage });
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'unstage', changeId: 'current:1', requestId: 'req-unstage' });
+      await settle();
+
+      expect(panels[0]!.posted).toContainEqual({
+        type: 'action-result',
+        requestId: 'req-unstage',
+        ok: false,
+        message: 'Could not unstage the file (not in the index).',
+      });
+      expect(load).toHaveBeenCalledTimes(1);
+    });
+
+    /** DF-14: the empty state's action, aimed at the panel's own ticket. */
+    it('open-ticket opens the panel ticket in the dashboard', async () => {
+      const loaded = snapshot(41, 'current:1', target('src/current.ts'));
+      const { host, panels } = makeHost();
+      const openDashboard = vi.fn();
+      const manager = makeManager(host, async () => loaded, { openDashboard });
+
+      manager.open(41);
+      await settle();
+      panels[0]!.emit({ type: 'open-ticket' });
+      await settle();
+
+      expect(openDashboard).toHaveBeenCalledExactlyOnceWith(41);
     });
   });
 });

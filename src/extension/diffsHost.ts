@@ -4,9 +4,10 @@ import { addArtifactForTicket } from '../artifacts/forTicket.js';
 import { OUTPUT_KINDS } from '../manifest/types.js';
 import type { OutputKind } from '../manifest/types.js';
 import { listTickets } from '../store/tickets.js';
-import type { DiffTarget, WorktreeSpec } from '../ui/diffs/git.js';
+import type { DiffTarget, FileChangeStatus, WorktreeSpec } from '../ui/diffs/git.js';
+import { discardConfirmText, type GitActionResult } from '../ui/diffs/gitActions.js';
 import type { TicketChangesSnapshot } from '../ui/diffs/snapshot.js';
-import { diffsTicketChoices, diffsTicketScope } from '../ui/diffs/ticketChoices.js';
+import { diffsTicketArg, diffsTicketChoices, diffsTicketScope } from '../ui/diffs/ticketChoices.js';
 import { diffNodeChangeId } from '../ui/diffs/treeModel.js';
 import { DiffTreeController } from '../ui/diffs/treeController.js';
 import { DIFFS_VIEW_ID, DiffTreeProvider, makeDiffTreeHost } from '../ui/diffs/treeHost.js';
@@ -21,8 +22,8 @@ export interface DiffsHostDeps {
   openDiff: (target: DiffTarget, viewColumn: number | undefined) => Promise<void>;
   logError: (message: string, error: unknown) => void;
   labelFor: (ticketId: number) => string;
-  discard: (repoPath: string, path: string, status: string) => Promise<{ ok: boolean; error?: string }>;
-  unstage: (repoPath: string, path: string) => Promise<{ ok: boolean; error?: string }>;
+  discard: (repoPath: string, path: string, status: FileChangeStatus) => Promise<GitActionResult>;
+  unstage: (repoPath: string, path: string) => Promise<GitActionResult>;
   /** `<globalStorage>/artifacts` — where 'Add to artifacts' commits. */
   artifactsRoot: string;
   debug: (message: string) => void;
@@ -66,6 +67,20 @@ export async function pickDiffsTicket(
   return choices[items.indexOf(picked)]?.ticketId;
 }
 
+/**
+ * The ONE Discard confirmation (DF-1, decision Q7).
+ *
+ * The panel and the SCM tree both ask through this function, so the wording and
+ * the button are the same wherever the user starts the action. No "Cancel" item
+ * is passed: the VS Code modal adds it, and Cancel, Esc and closing the dialog
+ * all resolve `undefined` — which is a "no".
+ */
+export async function confirmDiscard(path: string, status: FileChangeStatus): Promise<boolean> {
+  const { message, action } = discardConfirmText(path, status);
+  const choice = await ask.warn(message, { modal: true }, action);
+  return choice === action;
+}
+
 export function wireDiffsTree(deps: DiffsHostDeps): DiffTreeController {
   let controller: DiffTreeController;
   const roots = () => controller.roots();
@@ -85,14 +100,7 @@ export function wireDiffsTree(deps: DiffsHostDeps): DiffTreeController {
     },
     discard: deps.discard,
     unstage: deps.unstage,
-    confirmDiscard: async (path) => {
-      const choice = await ask.warn(
-        `Discard changes in ${path}? This cannot be undone.`,
-        { modal: true },
-        'Discard Changes',
-      );
-      return choice === 'Discard Changes';
-    },
+    confirmDiscard,
     pickArtifactKind: async () => {
       const picked = await vscode.window.showQuickPick([...OUTPUT_KINDS], {
         title: 'Karst: add to artifacts',
@@ -119,7 +127,14 @@ export function wireDiffsTree(deps: DiffsHostDeps): DiffTreeController {
     if (changeId !== undefined) await controller.addToArtifacts(changeId);
   });
 
-  const selectCommand = vscode.commands.registerCommand('karst.selectDiffsTicket', async () => {
+  // Section 11 step 1: an optional ticket id opens that ticket directly (a
+  // probe, a key binding); no argument keeps the quick pick.
+  const selectCommand = vscode.commands.registerCommand('karst.selectDiffsTicket', async (arg?: unknown) => {
+    const named = diffsTicketArg(arg);
+    if (named !== undefined) {
+      await controller.show(named);
+      return;
+    }
     const picked = await pickDiffsTicket(deps.store, deps.projectId(), controller.selectedTicket());
     if (picked === undefined) return;
     await controller.show(picked);

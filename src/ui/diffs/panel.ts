@@ -2,8 +2,10 @@ import type { RestoredPanel } from '../shared/restoredPanel.js';
 import type { LogError } from '../../logging/logger.js';
 import type { FileChangeStatus } from './gitParsers.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
+import { reasonText } from '../../model/notifyText.js';
 import { diffViewColumn } from './diffColumn.js';
 import { StaleDiffTargetError, type DiffTarget } from './git.js';
+import type { GitActionResult } from './gitActions.js';
 import {
   parseChangesMessage,
   routeChangesAction,
@@ -11,7 +13,7 @@ import {
   type ChangesHostMessage,
   type ChangesWebviewMessage,
 } from './messages.js';
-import type { TicketChangesSnapshot } from './snapshot.js';
+import type { SnapshotFileEntry, SnapshotFileGroup, TicketChangesSnapshot } from './snapshot.js';
 import { findChangedFile } from './snapshot.js';
 
 /** The subset of a webview panel used by the ticket changes manager. */
@@ -58,6 +60,9 @@ function abortError(): Error {
  * One changes panel per ticket. A new load replaces the current snapshot only
  * if it is still the newest request for the live panel session.
  */
+/** The groups whose rows offer Discard: pending worktree changes only (DF-4). */
+const DISCARD_GROUPS: ReadonlySet<SnapshotFileGroup> = new Set(['unstaged', 'untracked']);
+
 export class TicketChangesManager {
   private readonly sessions = new Map<number, PanelSession>();
 
@@ -82,8 +87,26 @@ export class TicketChangesManager {
      */
     private readonly onViewActivated?: (ticketId: number, active: boolean) => void,
     private readonly openFile: (absolutePath: string) => void | Promise<void> = () => {},
-    private readonly discardChanges: (changeId: string) => void | Promise<void> = () => {},
-    private readonly unstageFile: (changeId: string) => void | Promise<void> = () => {},
+    /**
+     * Ask before a destructive row action. The default REFUSES: a panel wired
+     * without the host's modal must never run `git clean`/`git restore` on a
+     * click alone (DF-1, decision Q7).
+     */
+    private readonly confirmDiscard: (
+      path: string,
+      status: FileChangeStatus,
+    ) => Promise<boolean> = async () => false,
+    private readonly discard: (
+      repoPath: string,
+      path: string,
+      status: FileChangeStatus,
+    ) => Promise<GitActionResult> = async () => ({ ok: true }),
+    private readonly unstage: (
+      repoPath: string,
+      path: string,
+    ) => Promise<GitActionResult> = async () => ({ ok: true }),
+    /** `karst.openDashboard` for the empty state's action (DF-14). */
+    private readonly openDashboard: (ticketId: number) => void | Promise<void> = () => {},
   ) {}
 
   open(ticketId: number): void {
@@ -146,8 +169,9 @@ export class TicketChangesManager {
         refresh: () => this.refresh(ticketId, session),
         openDiff: (changeId) => this.openTarget(ticketId, session, changeId),
         openFile: (changeId) => this.openChangedFile(ticketId, session, changeId),
-        discard: (changeId) => this.discardChanges(changeId),
-        unstage: (changeId) => this.unstageFile(changeId),
+        discard: (changeId) => this.discardFile(ticketId, session, changeId),
+        unstage: (changeId) => this.unstageChangedFile(ticketId, session, changeId),
+        openTicket: () => this.openDashboard(ticketId),
         copyHash: (hash) => this.copyHash(hash),
       };
       void reportAction(requestId, (m) => panel.postMessage(m), () => this.runAction(msg, actions));
@@ -269,6 +293,73 @@ export class TicketChangesManager {
       return;
     }
     return this.openFile(file.absolutePath);
+  }
+
+  /**
+   * The host-only facts of one row (DF-3). A `changeId` that is not in THIS
+   * session's snapshot is stale — the webview may still be showing an older
+   * tree — so the row action refreshes instead of guessing at a path.
+   */
+  private fileEntry(
+    ticketId: number,
+    session: PanelSession,
+    changeId: string,
+  ): SnapshotFileEntry | null {
+    if (!this.isLive(ticketId, session)) return null;
+    const entry = session.snapshot?.files.get(changeId);
+    if (!entry) {
+      this.warn('That file is stale. Refreshing ticket changes…');
+      this.refresh(ticketId, session);
+      return null;
+    }
+    return entry;
+  }
+
+  /**
+   * Discard one row's changes — AFTER the host's confirmation (DF-1, Q7).
+   *
+   * A declined confirmation resolves without a throw: nothing was asked to
+   * happen, so nothing is pending. `reportAction` acks the request, the row
+   * leaves its pending state, and there is no git call, no refresh and no
+   * toast. A crash reached through the confirmation is a real failure and is
+   * left to propagate.
+   */
+  private async discardFile(
+    ticketId: number,
+    session: PanelSession,
+    changeId: string,
+  ): Promise<void> {
+    const entry = this.fileEntry(ticketId, session, changeId);
+    if (!entry) return;
+    // Discard only exists for a pending worktree change (DF-4). The webview
+    // hides the button, but a keyboard shortcut or a forged message can still
+    // name a commit or staged row, so the host enforces the group itself.
+    if (!DISCARD_GROUPS.has(entry.group)) return;
+    if (!(await this.confirmDiscard(entry.path, entry.status))) return;
+    // The modal can outlive the panel it was opened from.
+    if (!this.isLive(ticketId, session)) return;
+    const result = await this.discard(entry.repoPath, entry.path, entry.status);
+    if (!result.ok) {
+      throw new Error(`Could not discard the changes (${reasonText(result.error)}).`);
+    }
+    this.refresh(ticketId, session);
+  }
+
+  /** Unstage one staged row, then refresh so the row moves out of the group (DF-2). */
+  private async unstageChangedFile(
+    ticketId: number,
+    session: PanelSession,
+    changeId: string,
+  ): Promise<void> {
+    const entry = this.fileEntry(ticketId, session, changeId);
+    if (!entry) return;
+    // Only a staged row can be unstaged (DF-4); see discardFile.
+    if (entry.group !== 'staged') return;
+    const result = await this.unstage(entry.repoPath, entry.path);
+    if (!result.ok) {
+      throw new Error(`Could not unstage the file (${reasonText(result.error)}).`);
+    }
+    this.refresh(ticketId, session);
   }
 
   private async openTarget(ticketId: number, session: PanelSession, changeId: string): Promise<void> {

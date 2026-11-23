@@ -13,7 +13,7 @@ import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { checkBaseMoved } from './baseMovedCheck.js';
 import { remedyBaseMoved } from './baseMovedRemedy.js';
 import { readLastGreenBase, seedMergedState } from './baseMovedHost.js';
-import { runShipGates } from './shipGatesOps.js';
+import { runShipGates, runShipGatesReport } from './shipGatesOps.js';
 import { autoDeliverAfterConflict, conflictRounds, verifyMergeResolved } from './autoDeliverOps.js';
 import { sendCiFailureToAgent } from './ciFailureOps.js';
 import { OPEN_SYNC_DIFF } from './sandboxLifecycleOps.js';
@@ -29,7 +29,7 @@ vi.mock('./rebaseOnBaseOps.js', () => ({ rebaseOnBase: vi.fn(async () => true) }
 vi.mock('./baseMovedCheck.js', () => ({ checkBaseMoved: vi.fn() }));
 vi.mock('./baseMovedRemedy.js', () => ({ remedyBaseMoved: vi.fn() }));
 vi.mock('./baseMovedHost.js', async (orig) => ({ ...(await orig<typeof import('./baseMovedHost.js')>()), readLastGreenBase: vi.fn(), seedMergedState: vi.fn() }));
-vi.mock('./shipGatesOps.js', async (orig) => ({ ...(await orig<typeof import('./shipGatesOps.js')>()), runShipGates: vi.fn() }));
+vi.mock('./shipGatesOps.js', async (orig) => ({ ...(await orig<typeof import('./shipGatesOps.js')>()), runShipGates: vi.fn(), runShipGatesReport: vi.fn() }));
 vi.mock('./autoDeliverOps.js', async (orig) => ({ ...(await orig<typeof import('./autoDeliverOps.js')>()), autoDeliverAfterConflict: vi.fn(), verifyMergeResolved: vi.fn() }));
 vi.mock('./ciFailureOps.js', async (orig) => ({ ...(await orig<typeof import('./ciFailureOps.js')>()), sendCiFailureToAgent: vi.fn() }));
 vi.mock('./baseMovedFailureOps.js', async (orig) => ({ ...(await orig<typeof import('./baseMovedFailureOps.js')>()), sendGateFailureToAgent: vi.fn() }));
@@ -443,10 +443,21 @@ describe('autoDeliverAction wiring', () => {
     await autoDeliverAction(i, extra);
     const signal = new AbortController().signal;
     await deps().runGates([{ cwd: '/w' }] as never, signal);
-    const [prs, g] = vi.mocked(runShipGates).mock.calls[0]! as unknown as [unknown[], Record<string, unknown>];
+    const [prs, g] = vi.mocked(runShipGatesReport).mock.calls[0]! as unknown as [unknown[], Record<string, unknown>];
     expect(prs).toEqual([{ cwd: '/w' }]);
     expect(g).toMatchObject({ signal, onProgress: i.afterServerChange, evidence: { store, ticketId: id } });
+    expect(g.only).toBeUndefined();
     await expect((g.headSha as (c: string) => Promise<string | null>)('/w')).resolves.toBe(SHA);
+    // The merge commit the refusal names is the merged HEAD of the PR worktree (T1315).
+    await expect(deps().mergeSha!({ repo: 'r', number: null, branch: 'b', cwd: '/w' } as never)).resolves.toBe(SHA);
+  });
+
+  it('re-runs only the named gates when the environment re-run asks for them', async () => {
+    const i = input();
+    await autoDeliverAction(i, extra);
+    await deps().runGates([{ cwd: '/w' }] as never, new AbortController().signal, ['unit']);
+    const [, g] = vi.mocked(runShipGatesReport).mock.calls[0]! as unknown as [unknown[], Record<string, unknown>];
+    expect(g.only).toEqual(['unit']);
   });
 
   it('checks the base and verifies the merge through the shared helpers', async () => {

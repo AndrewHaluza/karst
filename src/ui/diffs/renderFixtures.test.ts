@@ -99,8 +99,39 @@ describe('diffs render fixtures', () => {
     expect(one.state.worktrees[0]!.countText).toBe('1 commit · clean');
   });
 
+  it('clean has commits and nothing pending, with the clean count text', () => {
+    const clean = fixtures.find((f) => f.scenario === 'clean')!;
+    expect(clean.state.pendingCount).toBe(0);
+    expect(clean.state.commitCount).toBeGreaterThan(0);
+    expect(clean.state.worktrees.every((w) => w.countText.endsWith('· clean'))).toBe(true);
+    expect(clean.state.worktrees.every((w) => w.error === null)).toBe(true);
+  });
+
+  it('many carries 1,500 pending files in one worktree (DF-11)', () => {
+    const many = fixtures.find((f) => f.scenario === 'many')!;
+    expect(many.state.worktrees).toHaveLength(1);
+    expect(many.state.pendingCount).toBe(1500);
+    expect(many.state.worktrees[0]!.untracked).toHaveLength(1500);
+    expect(new Set(many.state.worktrees[0]!.untracked.map((f) => f.changeId)).size).toBe(1500);
+  });
+
+  it('populated has a deleted file, so the missing "Open file" renders (DF-23)', () => {
+    const populated = fixtures.find((f) => f.scenario === 'populated')!;
+    const files = populated.state.worktrees.flatMap((w) => [...w.staged, ...w.unstaged, ...w.untracked]);
+    expect(files.some((f) => f.status === 'deleted')).toBe(true);
+  });
+
+  it('every commit carries both the raw instant and its display label (DF-16)', () => {
+    for (const f of fixtures) {
+      for (const commit of f.state.worktrees.flatMap((w) => w.commits)) {
+        expect(commit.authoredAt, f.scenario).toBeTruthy();
+        expect(commit.authoredLabel, f.scenario).not.toBe(commit.authoredAt);
+      }
+    }
+  });
+
   it('DIFFS_SCENARIOS type covers every DiffsScenario member', () => {
     const check: readonly DiffsScenario[] = DIFFS_SCENARIOS;
-    expect(check.length).toBe(5);
+    expect(check).toHaveLength(7);
   });
 });

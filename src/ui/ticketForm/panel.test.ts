@@ -107,7 +107,7 @@ function recordingFactory(
       analyze: () => {},
       usageLimitParkPick: () => {},
       usageLimitParkRetry: () => {},
-      usageLimitParkDismiss: () => {},
+      usageLimitParkDismiss: () => {}, usageLimitCarryStop: () => {},
       attachPick: async () => {},
       attachBytes: async () => {},
       detachAttachment: async () => {},

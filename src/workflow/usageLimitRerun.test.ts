@@ -118,6 +118,10 @@ describe('dismissUsageLimitPark', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const res = dismissUsageLimitPark(store, park, { artifactDir });
@@ -179,6 +183,10 @@ describe('dismissUsageLimitPark', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const manifest: Manifest = {
@@ -289,6 +297,10 @@ describe('dismissUsageLimitPark', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const res = dismissUsageLimitPark(store, park, {
@@ -353,6 +365,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
     const adapter = {
       requiredBinary: 'fake',
@@ -407,6 +423,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
     const adapter = {
       requiredBinary: 'fake',
@@ -487,6 +507,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const mockAdapter: AgentAdapter = {
@@ -633,6 +657,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const mockAdapter: AgentAdapter = {
@@ -885,6 +913,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: '2026-10-13T10:05:00.000Z',
       resolution: 'dismiss',
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const mockAdapter: AgentAdapter = {
@@ -1025,6 +1057,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     // The sibling observation is already durable from the run that made it —
@@ -1221,6 +1257,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const mockAdapter: AgentAdapter = {
@@ -1307,6 +1347,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const mockAdapter: AgentAdapter = {
@@ -1386,6 +1430,10 @@ describe('rerunParkedStage', () => {
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
+      resetAt: null,
+      carryProvider: null,
+      carryModel: null,
+      carryUntil: null,
     };
 
     const mockAdapter: AgentAdapter = {

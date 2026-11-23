@@ -1051,6 +1051,9 @@ const withLongTitle = (corpus: () => ViewCorpus): (() => ViewCorpus) => () => {
   };
 };
 
+/** T1312: a Planning session starts collapsed; a draft-row shot opens its session first (view state, never posted). */
+const openPlan = (sessionId: number): readonly string[] => [`.pt-twistie[data-plan-toggle="${sessionId}"]`];
+
 const sidebarVariants = (): Variant[] => {
   const s = fixtureCorpus.bind(null, 'sidebar', sidebarRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
   /** One tier family: the same page at 300, 320 and 460 px in dark, light and hc (@ui:RD-TIERS). */
@@ -1067,12 +1070,12 @@ const sidebarVariants = (): Variant[] => {
     variant('sidebar', 'attention-one', s('all-sections'), { width: SIDEBAR_WIDTH, skipLayout: true }),
     sidebarVariant('empty', s('empty')),
     sidebarVariant('loading', LOADING),
-    sidebarVariant('error', s('hostile')),
+    sidebarVariant('error', s('hostile'), { clicks: openPlan(91) }),
     // SB-2: the host build throws: the error line above the panes, and the pane skeleton below, never an empty list.
     sidebarVariant('host-error', LOADING, { replies: [{ type: 'error', message: 'fixture: the ticket store could not be read' }] }),
     sidebarVariant('long-content', withLongTitle(s('multi-facet'))),
-    sidebarVariant('planning-deps', s('planning-deps')),
-    sidebarVariant('priority', s('priority')),
+    sidebarVariant('planning-deps', s('planning-deps'), { clicks: openPlan(17) }),
+    sidebarVariant('priority', s('priority'), { clicks: openPlan(17) }),
     sidebarVariant('queue-empty', openQueue(s('empty'))),
     sidebarVariant('queue-populated', openQueue(s('queue'))),
     sidebarVariant('queue-long-content', openQueue(s('queue-long'))),
@@ -1084,7 +1087,7 @@ const sidebarVariants = (): Variant[] => {
     ...tiers('activity', openActivity(s('activity'))),
     sidebarVariant('subtasks', s('subtasks')),
     // SB-5: the stage pill reads the short key at 300/320 and the full word at 460 (@ui:UI-R49, UI-R51).
-    ...tiers('stage-chip', s('planning-deps')),
+    ...tiers('stage-chip', s('planning-deps'), { clicks: openPlan(17) }),
     ...tiers('waits-on', s('waits-on')),
     ...tiers('planning-artifacts', s('planning-artifacts'), { hover: '[data-node="s95"] .pt-row' }),
     // UI-R28/UI-R28b: every state family's expanded row with its shape, at the floor, the tight step and the full word.
@@ -1153,14 +1156,24 @@ const resourcesVariants = (): Variant[] => {
 
 const diffsVariants = (): Variant[] => {
   const d = fixtureCorpus.bind(null, 'diffs', diffsRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
+  const populated = d('populated');
   return [
     variant('diffs', 'populated', () => getCorpus('diffs'), { baseline: 'diffs', themes: ALL_THEMES }),
     // T1298: one worktree with one commit and no pending changes — the singular count texts.
     variant('diffs', 'one-commit', d('one-commit'), { skipLayout: true }),
     variant('diffs', 'empty', d('empty')),
+    variant('diffs', 'clean', d('clean')),
     variant('diffs', 'loading', LOADING),
     variant('diffs', 'error', d('error')),
+    variant('diffs', 'refresh-failed', () => ({
+      messages: [...populated().messages, { type: 'error', message: 'git exited with code 128' }],
+    })),
+    // DF-11: 1,500 files, 200 rows rendered per group until "Show all files".
+    variant('diffs', 'many-files', d('many')),
     variant('diffs', 'long-content', d('hostile')),
+    // DF-21: the narrow (400-699) and tight (<=399) tiers, where the header actions wrap and the indents stop.
+    variant('diffs', 'diffs-narrow', () => getCorpus('diffs'), { width: 500 }),
+    variant('diffs', 'diffs-tight', () => getCorpus('diffs'), { width: 360 }),
   ];
 };
 

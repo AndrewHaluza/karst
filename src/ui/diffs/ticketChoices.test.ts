@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffsTicketChoices, diffsTicketScope } from './ticketChoices.js';
+import { diffsTicketArg, diffsTicketChoices, diffsTicketScope } from './ticketChoices.js';
 
 function row(id: number, stageCurrent: string | null, key: string | null = `K-${id}`, title: string | null = `Ticket ${id}`) {
   return { id, key, title, stageCurrent };
@@ -50,6 +50,31 @@ describe('diffsTicketChoices', () => {
 
   it('returns an empty array for empty input', () => {
     expect(diffsTicketChoices([], null)).toEqual([]);
+  });
+});
+
+/**
+ * Section 11 step 1: the SCM tree probe could not open a ticket, because the
+ * command always waited on the quick pick. A positive integer command argument
+ * now names the ticket; no argument keeps the picker.
+ */
+describe('diffsTicketArg', () => {
+  it('takes a positive integer command argument as the ticket to show', () => {
+    expect(diffsTicketArg(2)).toBe(2);
+    expect(diffsTicketArg(1316)).toBe(1316);
+  });
+
+  it('returns undefined when the command had no argument, so the picker still runs', () => {
+    expect(diffsTicketArg(undefined)).toBeUndefined();
+  });
+
+  it('rejects anything that is not a positive integer id', () => {
+    expect(diffsTicketArg(0)).toBeUndefined();
+    expect(diffsTicketArg(-3)).toBeUndefined();
+    expect(diffsTicketArg(2.5)).toBeUndefined();
+    expect(diffsTicketArg(Number.NaN)).toBeUndefined();
+    expect(diffsTicketArg('2')).toBeUndefined();
+    expect(diffsTicketArg(null)).toBeUndefined();
   });
 });
 

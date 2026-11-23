@@ -170,7 +170,7 @@ describe('page header primitive conformance (@ui:11.22)', () => {
    * enforced from the moment a panel opts in. An empty `it.each` table fails
    * in Vitest, so the list is iterated inside one test instead.
    */
-  const PAGEHEAD_PANELS: readonly string[] = ['usage'];
+  const PAGEHEAD_PANELS: readonly string[] = ['usage', 'diffs'];
 
   it('gives every adopting panel one page header and one page title', () => {
     expect(Array.isArray(PAGEHEAD_PANELS)).toBe(true);

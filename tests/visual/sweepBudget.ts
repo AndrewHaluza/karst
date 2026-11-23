@@ -34,7 +34,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1293 inside-uat-gates-wait-and-run (one gate waits for a slot, one runs in the other lane), @ui:UI-R57: 4 width tiers (+4 screenshots) and their layout runs (+8).
   dashboard: { screenshots: 616, layout: 730 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
-  diffs: { screenshots: 8, layout: 25 },
+  // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
+  //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21
+  //   opens the 400/399/320 tier probes for all 8 diffs pages (5 x 3 existing pages = +15).
+  diffs: { screenshots: 13, layout: 64 },
   gettingStarted: { screenshots: 8, layout: 30 },
   resources: { screenshots: 10, layout: 40 },
   // T1298 search-one-match (the single-match text from the new host reply pair), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the page adds no layout.

@@ -495,7 +495,7 @@ describe('extension activation', () => {
   it('wires the resolved Tester and Review processes and the verifier runner into the driver', () => {
     const source = readExtensionSources();
 
-    expect(source).toContain("uatTester: (id) => processFor(id, 'uat-tester')");
+    expect(source).toContain("uatTester: (id, override) => processFor(id, 'uat-tester', override)");
     expect(source).toContain("reviewProcess: (id) => processFor(id, 'review')");
     expect(source).toContain('runVerifier: runProcess');
     expect(source).toContain('resolveProcessAssignment(');

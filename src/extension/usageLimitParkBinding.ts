@@ -23,6 +23,7 @@ import {
   type ExclusiveRunner,
 } from './ops/usageLimitParkOps.js';
 import { makeReviewArtifactsBinding } from './reviewArtifactsBinding.js';
+import type { CarryChoice } from '../workflow/carriedPick.js';
 
 export type { UsageLimitParkActions };
 
@@ -72,7 +73,19 @@ export function makeUsageLimitAgentModelPicker(catalog: () => ModelCatalog) {
   };
 }
 
+/**
+ * T1313 (@arch:AC-65): the carry step after the core → model pick. A separate
+ * picker so the interactive binding (AC-42), which shares the two-step picker,
+ * keeps its one-shot behaviour.
+ */
+export function makeUsageLimitCarryPicker() {
+  return async (items: CarryChoice[]): Promise<CarryChoice | undefined> =>
+    vscode.window.showQuickPick(items, { title: 'Use this pick for' });
+}
+
 export interface UsageLimitParkBindingDeps {
+  /** The quota module's reset instant for a core (@arch:AC-65), when it has one. */
+  quotaResetFor?: (provider: string) => string | null;
   store: Store;
   notify: Notify;
   catalog: () => ModelCatalog;
@@ -183,6 +196,9 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
           const picked = await vscode.window.showQuickPick(items, { title: 'Pick model' });
           return picked;
         },
+        // @arch:AC-65: the third step, one-shot first (the default).
+        pickCarry: makeUsageLimitCarryPicker(),
+        quotaResetFor: deps.quotaResetFor,
         adapterFor: deps.adapterFor,
         assignmentFor: deps.assignmentFor,
         artifactDir: () => deps.artifactDirFor(ticketId),

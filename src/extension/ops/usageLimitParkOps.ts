@@ -24,6 +24,7 @@ import {
   rerunParkedStage,
   dismissUsageLimitPark,
 } from '../../workflow/usageLimitRerun.js';
+import { askCarry, type CarryPickDeps } from '../../workflow/carriedPick.js';
 
 export interface QuickPickChoice {
   label: string;
@@ -165,7 +166,7 @@ export interface UsageLimitActionCommonDeps {
   ) => Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
-export interface UsageLimitPickDeps extends UsageLimitActionCommonDeps {
+export interface UsageLimitPickDeps extends UsageLimitActionCommonDeps, CarryPickDeps {
   catalog: ModelCatalog;
   pickCore: (items: QuickPickCoreChoice[]) => Promise<QuickPickCoreChoice | undefined>;
   pickModel: (items: QuickPickModelChoice[]) => Promise<QuickPickModelChoice | undefined>;
@@ -187,6 +188,9 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
   const pickedModel = await deps.pickModel(modelChoices);
   if (!pickedModel) return;
 
+  const carry = await askCarry(deps, park, { provider: pickedCore.id, model: pickedModel.model });
+  if (carry === undefined) return;
+
   const manifest = deps.manifest?.();
   const run = (signal: AbortSignal | undefined) =>
     rerunParkedStage({
@@ -195,6 +199,7 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
       provider: pickedCore.id,
       model: pickedModel.model,
       resolution: 'pick',
+      ...(carry ? { carry } : {}),
       // Built only if the claim wins (inside `rerunParkedStage`), so a racing
       // window never constructs an adapter it will not use.
       buildAdapter: deps.adapterFor,
@@ -360,6 +365,8 @@ export interface UsageLimitParkActionsDeps {
   runExclusive?: ExclusiveRunner;
   pickCore: (items: QuickPickCoreChoice[]) => Promise<QuickPickCoreChoice | undefined>;
   pickModel: (items: QuickPickModelChoice[]) => Promise<QuickPickModelChoice | undefined>;
+  pickCarry?: CarryPickDeps['pickCarry'];
+  quotaResetFor?: CarryPickDeps['quotaResetFor'];
   adapterFor: (provider: AgentProvider, model: string | null) => AgentAdapter;
   artifactDir: () => string;
   cwd?: () => string;
@@ -422,6 +429,8 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         runExclusive: deps.runExclusive,
         pickCore: deps.pickCore,
         pickModel: deps.pickModel,
+        pickCarry: deps.pickCarry,
+        quotaResetFor: deps.quotaResetFor,
         adapterFor: deps.adapterFor,
         artifactDir: deps.artifactDir(),
         cwd: deps.cwd?.(),

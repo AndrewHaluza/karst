@@ -36,14 +36,21 @@ export const USAGE_EXTRA_WIDTHS: readonly number[] = [360];
  */
 export const INSIDE_EXTRA_WIDTHS: readonly number[] = [400, 399, 320];
 
+/**
+ * Views that prove the tight tier end to end (@ui:RD-TIERS): the gate opens both sides of the 400 px boundary and
+ * the 320 floor for every variant of these views, not only the Inside dashboard targets.
+ */
+export const TIER_GATE_VIEWS: ReadonlySet<string> = new Set(['diffs']);
+
 const INSIDE_VARIANT_PREFIX = 'inside-';
 
 /**
- * The widths the gate opens for one target. Token usage adds the 360 tight floor; only an `inside-*`
- * dashboard variant adds the tight probes.
+ * The widths the gate opens for one target. Token usage adds the 360 tight floor; a tier-gate view (diffs) and an
+ * `inside-*` dashboard variant add the tight probes.
  */
 export function layoutWidthsFor(view: string, variantId: string): readonly number[] {
   if (view === 'usage') return [...LAYOUT_WIDTHS, ...USAGE_EXTRA_WIDTHS];
+  if (TIER_GATE_VIEWS.has(view)) return [...LAYOUT_WIDTHS, ...INSIDE_EXTRA_WIDTHS];
   return view === 'dashboard' && variantId.startsWith(INSIDE_VARIANT_PREFIX) ? [...LAYOUT_WIDTHS, ...INSIDE_EXTRA_WIDTHS] : LAYOUT_WIDTHS;
 }
 
