@@ -32,6 +32,14 @@ describe('restoreView queue filters', () => {
   });
 });
 
+describe('restoreView activity level', () => {
+  it('restores the level and defaults an unknown one to all (SB-9)', () => {
+    expect(restoreView({ activityLevel: 'problems' }).activityLevel).toBe('problems');
+    expect(restoreView({ activityLevel: 'junk' }).activityLevel).toBe('all');
+    expect(restoreView(undefined).activityLevel).toBe('all');
+  });
+});
+
 describe('presets', () => {
   it('maps each preset to its own selection and back', () => {
     for (const p of PRESETS) expect(activePreset(p.facets)?.id).toBe(p.id);

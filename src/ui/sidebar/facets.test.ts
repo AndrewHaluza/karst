@@ -10,6 +10,7 @@ import {
 } from './facets.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 import type { StageKey } from '../../model/types.js';
+import { GLYPH_WORD } from '../../model/glyph.js';
 
 function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
   return {
@@ -84,6 +85,17 @@ const stage = (key: StageKey, status: TicketWithStages['stages'][number]['status
   blockedAt: null,
 });
 
+describe('FACETS labels', () => {
+  it('reads each state facet label from GLYPH_WORD; failed is "Failed", not "Blocked" (SB-13)', () => {
+    const label = (key: string) => FACETS.find((f) => f.key === key)!.label;
+    expect(label('running')).toBe(GLYPH_WORD.blue);
+    expect(label('input')).toBe(GLYPH_WORD.amber);
+    expect(label('failed')).toBe(GLYPH_WORD.red);
+    expect(label('done')).toBe(GLYPH_WORD.green);
+    expect(label('failed')).toBe('Failed');
+  });
+});
+
 describe('facetOf', () => {
   it('running current stage => running (in progress)', () => {
     expect(facetOf(ticket({ stageCurrent: 'impl', stages: [stage('impl', 'running')] }))).toBe('running');
@@ -93,7 +105,7 @@ describe('facetOf', () => {
     expect(facetOf(ticket({ agentState: 'waiting', stageCurrent: 'scope', stages: [stage('scope', 'pending')] }))).toBe('input');
   });
 
-  it('failed current stage => failed (blocked)', () => {
+  it('failed current stage => failed (the red "Failed" state)', () => {
     expect(facetOf(ticket({ stageCurrent: 'uat', stages: [stage('uat', 'failed')] }))).toBe('failed');
   });
 
@@ -106,7 +118,7 @@ describe('facetOf', () => {
   });
 
   // "Needs you" had no members before this: the only ticket that is genuinely
-  // blocked on the user — one parked at ship — filed itself under "In progress".
+  // blocked on the user — one parked at ship — filed itself under "Running".
   it('parked at ship => input (needs you), with no agent waiting', () => {
     expect(facetOf(ticket({ stageCurrent: 'ship', agentState: 'idle', stages: [stage('ship', 'pending')] }))).toBe('input');
   });

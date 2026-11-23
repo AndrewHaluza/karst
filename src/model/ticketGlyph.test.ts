@@ -49,6 +49,19 @@ describe('tester-skipped block', () => {
   });
 });
 
+describe('unmapped-repository block', () => {
+  it('reads Needs you (amber) at uat and review, because the user edits karst.yml and Resumes (RD-5)', () => {
+    for (const stageKey of ['uat', 'review'] as const) {
+      const t = ticket({
+        stageCurrent: stageKey,
+        stages: [{ stageKey, status: 'running', blockedKind: 'unmapped-repository' } as never],
+      });
+      expect(needsUser(t)).toBe(true);
+      expect(ticketGlyph(t)).toBe('amber');
+    }
+  });
+});
+
 describe('base-moved-failed block', () => {
   it('reads Needs you (amber) at ship', () => {
     const t = ticket({

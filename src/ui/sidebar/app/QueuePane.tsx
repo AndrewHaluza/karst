@@ -8,6 +8,7 @@
 import type { QueueRowView } from '../state.js';
 import { Icon } from './Icon.js';
 import { Pane } from './Pane.js';
+import { PaneEmpty } from './PaneEmpty.js';
 import { PriorityChip } from './PriorityChip.js';
 import { priorityMenuItem } from './priority.js';
 import { TicketRefs } from './TicketRefs.js';
@@ -179,12 +180,13 @@ export function QueuePane() {
       sub={rows.length ? <QueueFilterChips rows={rows} /> : null}
     >
       {!rows.length ? (
-        <div className="pane-empty" data-region="queue">{QUEUE_EMPTY_TEXT}</div>
+        <PaneEmpty title={QUEUE_EMPTY_TEXT} region="queue" />
       ) : shown === 0 ? (
-        <div className="pane-empty" data-region="queue">
-          {QUEUE_NO_MATCH_TEXT}{' '}
-          <button type="button" className="k-link q-clear-all" data-queue-clear-all="1" onClick={clear}>Clear filters</button>
-        </div>
+        <PaneEmpty
+          title={QUEUE_NO_MATCH_TEXT}
+          region="queue"
+          action={<button type="button" className="k-link q-clear-all" data-queue-clear-all="1" onClick={clear}>Clear filters</button>}
+        />
       ) : (
         <div className="q-list" data-region="queue">
           {items.map((it, i) =>

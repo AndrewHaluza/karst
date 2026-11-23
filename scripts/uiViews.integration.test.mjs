@@ -94,6 +94,8 @@ const PAGE_VIEW_OF_FILE = {
   'status.visual.ts': () => 'dashboard',
   'stagePalette.visual.ts': () => 'dashboard',
   'subtasks.visual.ts': () => 'dashboard',
+  // Every test in the sidebar spec opens a sidebar page, whatever its own title says.
+  'sidebar.visual.ts': () => 'sidebar',
   'catalog.visual.ts': () => null,
   'buildFixture.visual.ts': () => null,
   'corpora.visual.ts': () => null,

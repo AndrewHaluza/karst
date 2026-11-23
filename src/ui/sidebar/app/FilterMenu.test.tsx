@@ -32,7 +32,17 @@ afterEach(() => {
 function openAt(top: number): HTMLElement {
   const { container } = render(
     <SidebarProvider bridge={bridge}>
-      <FilterMenu />
+      <FilterMenu
+        options={[{ id: 'all', label: 'All' }, { id: 'running', label: 'Running' }]}
+        value="all"
+        filtered={false}
+        onChange={() => undefined}
+        label="Filter tickets"
+        menuLabel="Ticket filter"
+        triggerAttr="data-filter-menu"
+        optionAttr="data-preset"
+        dotAttr="data-filter-dot"
+      />
     </SidebarProvider>,
   );
   const button = container.querySelector<HTMLButtonElement>('[data-filter-menu]')!;

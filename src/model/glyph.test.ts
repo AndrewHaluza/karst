@@ -1,6 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { glyphFor } from './glyph.js';
+import { glyphFor, GLYPH_WORD, type Glyph } from './glyph.js';
 import type { StageStatus, AgentState } from './types.js';
+
+const GLYPHS: readonly Glyph[] = ['gray', 'blue', 'amber', 'green', 'red'];
+
+describe('GLYPH_WORD', () => {
+  it('names every glyph once, with one word per state (SB-13)', () => {
+    expect(Object.keys(GLYPH_WORD).sort()).toEqual([...GLYPHS].sort());
+    expect(GLYPH_WORD).toEqual({
+      gray: 'Pending',
+      blue: 'Running',
+      amber: 'Needs you',
+      green: 'Done',
+      red: 'Failed',
+    });
+  });
+
+  it('gives each state a distinct word, so no two states share a name', () => {
+    const words = GLYPHS.map((g) => GLYPH_WORD[g]);
+    expect(new Set(words).size).toBe(GLYPHS.length);
+  });
+
+  it('calls the red state Failed, never Blocked (a block is amber, @arch:BLOCKED)', () => {
+    expect(GLYPH_WORD.red).toBe('Failed');
+    expect(Object.values(GLYPH_WORD)).not.toContain('Blocked');
+  });
+});
 
 describe('glyphFor', () => {
   // waiting wins over everything — needs-you is the highest-priority signal.

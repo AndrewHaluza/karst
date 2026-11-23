@@ -225,12 +225,22 @@ Under the search box sit two panes, **Planning** and **Tickets**
 rendered, even when empty: a chevron toggle button (`aria-expanded`), title,
 count and the pane's actions (`+` reuses the `plan-create` / `create` messages;
 Planning also has Collapse all and a "show archived" toggle). Each body scrolls on
-its own; Planning is capped at about 40% while open, Tickets takes the rest, and
-a collapsed pane hands its height to the other. The toolbar keeps only resources,
-token usage and settings. The facet chip row is gone: a funnel menu
+its own; every open pane sizes to its content, Tickets is the one pane that takes
+the remaining height, Planning is capped at about 40% while open, and a collapsed
+pane hands its height to the other. An open Activity pane keeps at least three rows
+(`min-height:calc(3 * var(--k-hit-min))`) and never shrinks. A pane whose count is
+0 folds to its header by default; its empty text shows only after the user opens
+it. On a cold start (no restored snapshot, before the first host `state`) every
+open pane paints three skeleton bars instead of the empty text, and a host build
+failure shows one fixed line, "Karst cannot read the tickets.", with a Retry that
+posts `refresh`. The webview has no toolbar row: the resource monitor, token usage
+and settings handoffs are `view/title` menu entries of `karst.tickets`. A collapsed
+ticket row keeps its More menu in flow at the row end; Session and Pause/Resume
+appear on hover only from the narrow tier (400 px) up, and the stage pill is never
+hidden for them. The facet chip row is gone: a funnel menu
 (`FilterMenu.tsx`, `menuitemradio`, a dot when a preset other than All is active)
-in the Tickets header offers single-select presets (All, Needs attention =
-`input`+`failed`, In progress, Done, Archived). A preset is a facet selection, so
+in the Tickets header offers single-select presets (All, Needs you or failed =
+`input`+`failed`, Running, Done, Archived). A preset is a facet selection, so
 the host protocol is unchanged: the view posts `toggle-facet` `all` (reset) and
 then each facet. A selection no preset names (only reachable from an old
 persisted state) shows the dot and no checked item. "N need you · M failed" ("1 needs you" for one input; a zero part is hidden) sits
@@ -254,6 +264,11 @@ level only, and the host validates both. The urgent and high chips share one tin
 is dim text. The
 approved layout is `docs/ui/prototypes/queue-pane.html` (section 2). The menu list
 opens inline, not as a flyout, because the menu window scrolls and would clip it.
+The Queue pane, its row layout and its filters are in `@ui:SIDEBAR-QUEUE`.
+END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
+
+## [@ui:SIDEBAR-QUEUE] Sidebar Queue pane and filters
+
 A third pane, **Queue** (`QueuePane.tsx` on `Pane.tsx`), sits between Planning and
 Tickets and shows the one computed order of `@arch:QUEUE-ORDER`. It is collapsed
 by default (pure view state, never posted) and has no actions. Open, it takes at
@@ -291,7 +306,7 @@ filter (the row and all it waits on or that wait on it, transitively) as the chi
 of hidden rows. When no row matches the pane says `No queue items match.` with a
 Clear filters link. The filters are `queueFilters` in the webview `view` state: they
 survive a reload and are never posted.
-END_DOC_BLOCK: [@ui:SIDEBAR-PANES]
+END_DOC_BLOCK: [@ui:SIDEBAR-QUEUE]
 
 ## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926, T972, T1021, T1301, T1313)
 
