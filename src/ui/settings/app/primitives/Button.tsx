@@ -9,6 +9,7 @@
  * plain "unavailable" button (UI-R17).
  */
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
+import { TablerIcon } from './TablerIcon.js';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'text';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -35,6 +36,11 @@ export interface ButtonProps
   busy?: boolean;
   /** Visible spinner (tier 2): pass `useHostMutation().spinning`. Passing it reserves the leading icon slot so width never changes (UI-R18). */
   spinning?: boolean;
+  /**
+   * A leading Tabler glyph. It IS the spinner slot: while `spinning` the glyph hides and the
+   * spinner draws in its place, so the width never changes and no empty slot is reserved (UI-R18).
+   */
+  icon?: string;
   className?: string;
   children: ReactNode;
   /**
@@ -50,6 +56,7 @@ export function Button({
   size = 'md',
   busy = false,
   spinning,
+  icon,
   disabled = false,
   className,
   type = 'button',
@@ -57,7 +64,7 @@ export function Button({
   ref,
   ...rest
 }: ButtonProps) {
-  const classes = ['k-btn', VARIANT_CLASS[variant], SIZE_CLASS[size], spinning === undefined ? null : 'k-btn--slot', spinning ? 'is-spinning' : null, className]
+  const classes = ['k-btn', VARIANT_CLASS[variant], SIZE_CLASS[size], icon ? 'k-btn--icon' : spinning === undefined ? null : 'k-btn--slot', spinning ? 'is-spinning' : null, className]
     .filter((c): c is string => Boolean(c))
     .join(' ');
   return (
@@ -69,6 +76,11 @@ export function Button({
       disabled={disabled || busy}
       aria-busy={busy ? true : undefined}
     >
+      {icon ? (
+        <span className="k-btn-icon">
+          <TablerIcon name={icon} size={14} />
+        </span>
+      ) : null}
       {children}
     </button>
   );

@@ -5,10 +5,14 @@
  */
 import type { SharedRowView } from '../serversState.js';
 import { Button } from '../../settings/app/primitives/Button.js';
+import { IconButton } from '../../settings/app/primitives/IconButton.js';
+import { TablerIcon } from '../../settings/app/primitives/TablerIcon.js';
 import { KEPT_RUNNING_CHIP, SERVER_VERB_LABEL } from '../../../model/serverStatusText.js';
 import { useResourcesApp } from './ResourcesAppContext.js';
 import { isTransient, StatusMark, useCopied, useVerb, VerbNote } from './serverBits.js';
 import { ServersEmpty } from './ServersEmpty.js';
+
+const VERB_ICON = { start: 'player-play', restart: 'refresh', stop: 'player-stop', open: 'external-link' } as const;
 
 type SharedVerb = 'start' | 'restart' | 'stop' | 'pin' | 'open' | 'copy';
 
@@ -46,18 +50,16 @@ function SharedRow({ row, onLogs }: { row: SharedRowView; onLogs: () => void }) 
   const failed = row.status === 'failed';
   const locked = verb.locked || isTransient(row.status);
   const copyLabel = row.openable ? SERVER_VERB_LABEL.copyUrl : SERVER_VERB_LABEL.copyAddress;
-  const btn = (v: SharedVerb, label: string, aria: string, variant: 'secondary' | 'ghost' = 'secondary') => (
-    <Button
-      variant={variant}
-      size="sm"
+  const btn = (v: 'start' | 'restart' | 'stop' | 'open', aria: string) => (
+    <IconButton
+      label={aria}
       busy={verb.busyOn(v)}
       spinning={verb.spinningOn(v)}
       disabled={locked}
-      aria-label={aria}
       onClick={() => verb.run(v)}
     >
-      {label}
-    </Button>
+      <TablerIcon name={VERB_ICON[v]} />
+    </IconButton>
   );
   return (
     <li className="srow" data-service={row.service}>
@@ -74,44 +76,40 @@ function SharedRow({ row, onLogs }: { row: SharedRowView; onLogs: () => void }) 
         <Dependents row={row} />
       </div>
       <div className="srow-actions">
-        <Button
-          variant="ghost"
-          size="sm"
+        <IconButton
+          label={`Keep ${row.service} running`}
           aria-pressed={row.pinned}
-          aria-label={`Keep ${row.service} running`}
           busy={verb.busyOn('pin')}
           spinning={verb.spinningOn('pin')}
           disabled={locked}
           onClick={() => verb.run('pin')}
         >
-          {SERVER_VERB_LABEL.keepRunning}
-        </Button>
+          <TablerIcon name={'pin'} />
+        </IconButton>
         {running ? (
           <>
-            {btn('restart', 'Restart', `Restart ${row.service}`)}
-            {btn('stop', 'Stop', `Stop ${row.service}`)}
-            {row.openable && btn('open', 'Open', `Open ${row.service} at ${row.address}`, 'ghost')}
+            {btn('restart', `Restart ${row.service}`)}
+            {btn('stop', `Stop ${row.service}`)}
+            {row.openable && btn('open', `Open ${row.service} at ${row.address}`)}
             {row.reachable && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="scopy"
+              <IconButton
+                label={`${copyLabel} ${row.service}`}
+                data-copied={copy.copied ? "true" : undefined}
                 busy={verb.busyOn('copy')}
                 spinning={verb.spinningOn('copy')}
                 disabled={locked}
-                aria-label={`${copyLabel} ${row.service}`}
                 onClick={() => verb.run('copy')}
               >
-                {copy.copied ? SERVER_VERB_LABEL.copied : copyLabel}
-              </Button>
+                <TablerIcon name={copy.copied ? 'check' : 'copy'} />
+              </IconButton>
             )}
           </>
         ) : (
-          <>{btn('start', 'Start', `Start ${row.service}`)}</>
+          <>{btn('start', `Start ${row.service}`)}</>
         )}
-        <Button variant="ghost" size="sm" disabled={locked} aria-label={`Logs for ${row.service}`} onClick={onLogs}>
-          Logs
-        </Button>
+        <IconButton label={`Logs for ${row.service}`} disabled={locked} onClick={onLogs}>
+          <TablerIcon name="terminal-2" />
+        </IconButton>
       </div>
       {(failed ? row.reason : '') !== '' ? (
         <p className="srow-reason" role="status">

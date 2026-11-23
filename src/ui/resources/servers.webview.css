@@ -82,7 +82,6 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 .dep-done{color:var(--k-text-faint)}
 .srow-actions{display:flex;gap:var(--k-space-2);flex-wrap:wrap;justify-content:flex-end}
 /* "Copy URL" and "Copied" keep the same width, so the row does not shift (UI-R18). */
-.scopy{min-width:calc(var(--k-space-9) * 3)}
 .rownote{grid-column:1 / -1;color:var(--k-danger);font-size:var(--k-text-sm);overflow-wrap:anywhere}
 .group > .rownote{padding:var(--k-space-3) var(--k-space-6)}
 /* Why a row is failed: the host's reason, beside the danger mark (RS-2). */
@@ -112,7 +111,9 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
   padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);color:var(--k-text-dim)}
 .chip-branch{font-family:var(--k-font-mono)}
 .chip-kept{color:var(--k-success);border-color:var(--k-success)}
-.srow-actions .k-btn[aria-pressed="true"]{border-color:var(--k-link);color:var(--k-link)}
+.srow-actions [aria-pressed="true"]{border-color:var(--k-link);color:var(--k-link)}
+/* A glyph island is a line box otherwise: it would be 1px taller than its wrapper (containment). */
+.k-iconbtn .icon-island,.k-btn-icon .icon-island{display:inline-flex;line-height:0}
 
 /* footer: legend + project-wide actions */
 .sfooter{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-6);flex-wrap:wrap;
@@ -137,7 +138,6 @@ h2.ghead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);margin:
 }
 @container (max-width: 399px) {
   .srow{padding:var(--k-space-4)}
-  .srow-actions .k-btn{flex:1 1 auto}
   .ghead-ticket,.tickets > h2.ghead{padding:var(--k-space-4)}
 }
 @media (prefers-reduced-motion: reduce) {

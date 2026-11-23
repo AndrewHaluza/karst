@@ -70,11 +70,12 @@ function Footer({ state }: { state: ServersState }) {
     <footer className="sfooter" data-region="footer">
       <Legend />
       <div className="sfooter-actions">
-        <Button variant="secondary" busy={logs.busy} spinning={logs.spinning} disabled={logs.disabled} onClick={() => logs.trigger()}>
+        <Button variant="secondary" icon="terminal-2" busy={logs.busy} spinning={logs.spinning} disabled={logs.disabled} onClick={() => logs.trigger()}>
           Karst output
         </Button>
         <Button
           variant="secondary"
+          icon="player-stop"
           busy={idle.busy}
           spinning={idle.spinning}
           disabled={idle.disabled || why !== null}

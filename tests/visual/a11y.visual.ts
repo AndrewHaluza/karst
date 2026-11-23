@@ -29,11 +29,11 @@ const HAS_PENDING_STATE: readonly ViewId[] = ['usage', 'resources'];
  * with aria-busy, else the first status node") would land on something that
  * cannot move. Resources' status nodes are a visually-hidden live region and a
  * hidden pane's note, so the probe would pass without measuring anything; its
- * real pending-capable controls are the buttons that reserve the spinner slot
- * (`.k-btn--slot`), which is exactly what UI-R18 says must not shift on busy.
+ * real pending-capable controls are the row icon buttons and the icon-led buttons, whose
+ * glyph is the spinner slot (`.k-iconbtn`, `.k-btn--icon`): UI-R18 says they must not shift on busy.
  */
 const PENDING_PROBE: Partial<Record<ViewId, string>> = {
-  resources: 'button.k-btn--slot',
+  resources: 'button.k-iconbtn, button.k-btn--icon',
 };
 
 /**

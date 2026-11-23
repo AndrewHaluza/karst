@@ -5,9 +5,13 @@
  */
 import type { ServerRowView, TicketGroupView } from '../serversState.js';
 import { Button } from '../../settings/app/primitives/Button.js';
+import { IconButton } from '../../settings/app/primitives/IconButton.js';
+import { TablerIcon } from '../../settings/app/primitives/TablerIcon.js';
 import { useResourcesApp } from './ResourcesAppContext.js';
 import { isTransient, StatusMark, useCopied, useVerb, VerbNote } from './serverBits.js';
 import { ServersEmpty } from './ServersEmpty.js';
+
+const VERB_ICON = { start: 'player-play', restart: 'refresh', stop: 'player-stop' } as const;
 
 type RowVerb = 'start' | 'restart' | 'stop' | 'open' | 'copy';
 
@@ -30,18 +34,16 @@ function TicketRow({ row, ticketKey, onLogs }: { row: ServerRowView; ticketKey: 
   // transient, not a crash (RS-3).
   const locked = verb.locked || isTransient(row.status);
   const failed = row.status === 'failed';
-  const btn = (v: RowVerb, label: string, aria: string, variant: 'secondary' | 'ghost' = 'secondary') => (
-    <Button
-      variant={variant}
-      size="sm"
+  const btn = (v: 'start' | 'restart' | 'stop', aria: string) => (
+    <IconButton
+      label={aria}
       busy={verb.busyOn(v)}
       spinning={verb.spinningOn(v)}
       disabled={locked}
-      aria-label={aria}
       onClick={() => verb.run(v)}
     >
-      {label}
-    </Button>
+      <TablerIcon name={VERB_ICON[v]} />
+    </IconButton>
   );
   const copyLabel = row.openable ? 'Copy URL' : 'Copy address';
   return (
@@ -69,30 +71,28 @@ function TicketRow({ row, ticketKey, onLogs }: { row: ServerRowView; ticketKey: 
       <div className="srow-actions">
         {row.status === 'running' ? (
           <>
-            {btn('restart', 'Restart', `Restart ${target}`)}
-            {btn('stop', 'Stop', `Stop ${target}`)}
+            {btn('restart', `Restart ${target}`)}
+            {btn('stop', `Stop ${target}`)}
             {row.reachable && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="scopy"
+              <IconButton
+                label={`${copyLabel} ${target}`}
+                data-copied={copy.copied ? "true" : undefined}
                 busy={verb.busyOn('copy')}
                 spinning={verb.spinningOn('copy')}
                 disabled={locked}
-                aria-label={`${copyLabel} ${target}`}
                 onClick={() => verb.run('copy')}
               >
-                {copy.copied ? 'Copied' : copyLabel}
-              </Button>
+                <TablerIcon name={copy.copied ? 'check' : 'copy'} />
+              </IconButton>
             )}
           </>
         ) : (
           <>
-            {btn('start', 'Start', `Start ${target}`)}
+            {btn('start', `Start ${target}`)}
             {failed && (
-              <Button variant="ghost" size="sm" disabled={locked} aria-label={`Logs for ${target}`} onClick={onLogs}>
-                Logs
-              </Button>
+              <IconButton label={`Logs for ${target}`} disabled={locked} onClick={onLogs}>
+                <TablerIcon name="terminal-2" />
+              </IconButton>
             )}
           </>
         )}
@@ -136,6 +136,7 @@ function TicketGroup({ group }: { group: TicketGroupView }) {
             spinning={verb.spinningOn('logs')}
             disabled={verb.locked}
             aria-label={`Logs for ${group.key}`}
+            icon="terminal-2"
             onClick={() => verb.run('logs')}
           >
             Logs
@@ -148,6 +149,7 @@ function TicketGroup({ group }: { group: TicketGroupView }) {
             disabled={verb.locked || group.running === 0}
             aria-label={`Stop all servers of ${group.key}`}
             aria-describedby={countId}
+            icon="player-stop"
             onClick={() => verb.run('stop-all')}
           >
             Stop all

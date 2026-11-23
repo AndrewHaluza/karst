@@ -37,7 +37,7 @@ function Shell() {
           </div>
         </div>
         <div className="k-pagehead-actions">
-          <Button variant="secondary" busy={refresh.busy} spinning={refresh.spinning} disabled={refresh.disabled} onClick={() => refresh.trigger()}>
+          <Button variant="secondary" icon="refresh" busy={refresh.busy} spinning={refresh.spinning} disabled={refresh.disabled} onClick={() => refresh.trigger()}>
             Refresh
           </Button>
         </div>

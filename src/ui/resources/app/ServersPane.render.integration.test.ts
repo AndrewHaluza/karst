@@ -16,9 +16,11 @@ async function mount(scenario: string, hash = '#servers'): Promise<RenderedResou
 const q = (page: RenderedResources, selector: string) => page.handle.queryAll<HTMLElement>(`#panel-servers ${selector}`);
 const one = (page: RenderedResources, selector: string) => q(page, selector)[0]!;
 const sharedRow = (page: RenderedResources, service: string) => one(page, `.srow[data-service="${service}"]`);
+// A text button is named by its text; an icon-only row verb by the first word of its aria-label ("Restart api" -> "Restart").
+const verbName = (b: Element): string => b.textContent?.trim() || (b.getAttribute('aria-label') ?? '').split(' ')[0]!;
 const btn = (root: Element, label: string) =>
-  [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === label)!;
-const names = (root: Element) => [...root.querySelectorAll('button')].map((b) => b.textContent?.trim());
+  [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => verbName(b) === label)!;
+const names = (root: Element) => [...root.querySelectorAll('button')].map(verbName);
 
 describe('Servers tab — structure', () => {
   it('lays out toolbar, main and footer regions in stacking order', async () => {
@@ -64,10 +66,10 @@ describe('Servers tab — structure', () => {
 
   it('offers the right verbs per state; the pin keeps a stable name and exposes aria-pressed', async () => {
     const page = await mount('servers-mixed');
-    expect(names(sharedRow(page, 'api'))).toEqual(['Keep running', 'Restart', 'Stop', 'Open', 'Copy URL', 'Logs']);
-    expect(names(sharedRow(page, 'db'))).toEqual(['Keep running', 'Start', 'Logs']);
-    expect(btn(sharedRow(page, 'api'), 'Keep running').getAttribute('aria-pressed')).toBe('true');
-    expect(btn(sharedRow(page, 'web'), 'Keep running').getAttribute('aria-pressed')).toBe('false');
+    expect(names(sharedRow(page, 'api'))).toEqual(['Keep', 'Restart', 'Stop', 'Open', 'Copy', 'Logs']);
+    expect(names(sharedRow(page, 'db'))).toEqual(['Keep', 'Start', 'Logs']);
+    expect(btn(sharedRow(page, 'api'), 'Keep').getAttribute('aria-pressed')).toBe('true');
+    expect(btn(sharedRow(page, 'web'), 'Keep').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('Ticket stacks: key/title/stage, running count, Stop all, Logs, ticket rows', async () => {
@@ -216,11 +218,11 @@ describe('Servers tab — verbs, pending and results', () => {
 
   it('the pin toggle posts the NEW value', async () => {
     const page = await mount('servers-mixed');
-    await page.click(btn(sharedRow(page, 'web'), 'Keep running'));
+    await page.click(btn(sharedRow(page, 'web'), 'Keep'));
     expect(page.last('shared-pin')).toMatchObject({ repo: 'web', pinned: true });
-    await page.click(btn(sharedRow(page, 'api'), 'Keep running'));
+    await page.click(btn(sharedRow(page, 'api'), 'Keep'));
     await page.answer(page.all('shared-pin')[0]!.requestId!, true);
-    await page.click(btn(sharedRow(page, 'api'), 'Keep running'));
+    await page.click(btn(sharedRow(page, 'api'), 'Keep'));
     expect(page.last('shared-pin')).toMatchObject({ repo: 'api', pinned: false });
   });
 
@@ -238,7 +240,7 @@ describe('Servers tab — verbs, pending and results', () => {
     await page.click(row.querySelector('.saddr-link')!);
     expect(page.last('server-open')).toMatchObject({ serverId: 900110 });
     await page.answer(page.last('server-open')!.requestId!, true);
-    await page.click(btn(row, 'Copy URL'));
+    await page.click(btn(row, 'Copy'));
     expect(page.last('server-copy')).toMatchObject({ serverId: 900110 });
     await page.click(btn(group, 'Stop all'));
     expect(page.last('ticket-stop-all')).toMatchObject({ ticketId: 900200 });
@@ -421,20 +423,21 @@ describe('Servers tab — a verb in flight (RS-3)', () => {
 });
 
 describe('Servers tab — verbs that do not reflow (RS-16)', () => {
-  it('Copy reads "Copied" after the host answers, at the same width, then returns to its label (RS-16)', async () => {
+  it('Copy is an icon button that flags "copied" after the host answers, keeping its name and size (RS-16)', async () => {
     const page = await mount('servers-mixed');
     const row = sharedRow(page, 'api');
-    const copy = row.querySelector<HTMLButtonElement>('.scopy')!;
-    expect(copy.textContent).toBe('Copy URL');
-    expect(copy.className).toContain('scopy');
-    await page.click(copy);
-    // Pending keeps the label (UI-R18): the width is what stays stable.
-    expect(row.querySelector('.scopy')!.textContent).toBe('Copy URL');
+    const copy = () => row.querySelector<HTMLButtonElement>('button[aria-label^="Copy"]')!;
+    const label = copy().getAttribute('aria-label');
+    expect(copy().textContent).toBe('');
+    expect(copy().hasAttribute('data-copied')).toBe(false);
+    await page.click(copy());
+    expect(copy().getAttribute('aria-label')).toBe(label);
     await page.answer(page.last('server-copy')!.requestId!, true);
-    expect(row.querySelector('.scopy')!.textContent).toBe('Copied');
+    expect(copy().getAttribute('data-copied')).toBe('true');
     await new Promise((resolve) => setTimeout(resolve, 1_600));
     await page.settle();
-    expect(row.querySelector('.scopy')!.textContent).toBe('Copy URL');
+    expect(copy().hasAttribute('data-copied')).toBe(false);
+    expect(copy().getAttribute('aria-label')).toBe(label);
   });
 
   it('a TCP row copies its address instead of opening it (RS-14)', async () => {
@@ -444,8 +447,8 @@ describe('Servers tab — verbs that do not reflow (RS-16)', () => {
     const shared = base.shared.map((r) => (r.service === 'web' ? { ...r, openable: false } : r));
     await page.receive({ type: 'servers', state: { ...base, shared } });
     const web = sharedRow(page, 'web');
-    expect(names(web)).toContain('Copy address');
+    expect(web.querySelector('button[aria-label^="Copy address"]')).not.toBeNull();
+    expect(web.querySelector('button[aria-label^="Copy URL"]')).toBeNull();
     expect(names(web)).not.toContain('Open');
-    expect(names(web)).not.toContain('Copy URL');
   });
 });

@@ -179,7 +179,7 @@ function Disk({ state }: { state: ResourcesState }) {
     <Panel title="Worktree disk" count={rows.length}>
       <div className="pbody">
         <div className="measure-row">
-          <Button variant="secondary" busy={measure.busy} spinning={measure.spinning} disabled={measure.disabled} onClick={() => measure.trigger()}>
+          <Button variant="secondary" icon="refresh" busy={measure.busy} spinning={measure.spinning} disabled={measure.disabled} onClick={() => measure.trigger()}>
             Measure
           </Button>
           <span className="meta" id="diskHint">{rows.length ? 'measured on demand, cached 60 minutes' : 'measured only while this panel is open'}</span>
