@@ -48,6 +48,7 @@ export async function driveReplanDrain(
   // and must start nothing.
   if (!inReplanDrain(db, graphRunId)) return;
   const draining = drainingRevisionNumber(db, graphRunId);
+  // Stryker disable next-line ConditionalExpression: `inReplanDrain` above already needs a draining newest revision, so this guard only narrows the type.
   if (draining === undefined) return;
   // A planner row of ANY status (also `stale` or `cancelled`) means this drain
   // was already planned: reconcile owns its relaunch, and no live node can

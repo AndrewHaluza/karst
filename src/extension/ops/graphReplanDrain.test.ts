@@ -138,6 +138,20 @@ describe('driveReplanDrain', () => {
     expect(events).toEqual([]);
   });
 
+  it('does nothing for a running run whose newest revision is draining', async () => {
+    revision('draining');
+    runStatus('running');
+    await driveReplanDrain(deps(), graphRunId);
+    expect(events).toEqual([]);
+  });
+
+  it('does nothing when an active revision stands next to a draining one', async () => {
+    revision('draining', 1);
+    revision('active', 2);
+    await driveReplanDrain(deps(), graphRunId);
+    expect(events).toEqual([]);
+  });
+
   it('does nothing when the run is gone', async () => {
     revision('draining');
     await driveReplanDrain(deps(), graphRunId + 1);
