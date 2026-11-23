@@ -244,6 +244,9 @@
   "src/approaches/fetch.ts#installApproach": [
     "arch:APP-01"
   ],
+  "src/approaches/graph/coordinator/abandonedNodes.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
   "src/approaches/graph/coordinator/autoRecovery.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
@@ -256,8 +259,20 @@
   "src/approaches/graph/coordinator/replanDrain.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/approaches/graph/integration/changeSetCapture.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
+  "src/approaches/graph/integration/claimEvidence.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
   "src/approaches/graph/workspace/depsPlan.ts": [
     "arch:GRAPHDEPS"
+  ],
+  "src/approaches/graph/workspace/preserve.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
+  "src/approaches/graph/workspace/preserveBestEffort.ts": [
+    "arch:GRAPH-AUTORECOVERY"
   ],
   "src/approaches/graph/workspace/workspaceDeps.ts": [
     "arch:GRAPHDEPS"
@@ -487,6 +502,12 @@
   "src/extension/autopilotBinding.ts": [
     "arch:AP-00",
     "arch:AP-04"
+  ],
+  "src/extension/graphClaimEvidenceBinding.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
+  "src/extension/graphPreserveBinding.ts": [
+    "arch:GRAPH-AUTORECOVERY"
   ],
   "src/extension/ops/autoDeliverOps.ts": [
     "arch:AP-01"
