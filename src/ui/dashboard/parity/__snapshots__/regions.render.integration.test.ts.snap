@@ -2126,7 +2126,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <div#agentSwitchPicker>
             <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
       <span.rs-vsep aria-hidden="true">
-      <div.rs-cell>
+      <div.rs-cell.rs-cell--sandbox>
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
@@ -2205,7 +2205,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <div#agentSwitchPicker>
             <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
       <span.rs-vsep aria-hidden="true">
-      <div.rs-cell>
+      <div.rs-cell.rs-cell--sandbox>
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — unprotected · worktree" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "Host"
@@ -2268,7 +2268,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <div#agentSwitchPicker>
             <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
       <span.rs-vsep aria-hidden="true">
-      <div.rs-cell>
+      <div.rs-cell.rs-cell--sandbox>
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — protected · worktree" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "Host"
@@ -2328,7 +2328,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <div#agentSwitchPicker>
             <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
       <span.rs-vsep aria-hidden="true">
-      <div.rs-cell>
+      <div.rs-cell.rs-cell--sandbox>
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — unprotected · worktree" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "Host"
@@ -2388,7 +2388,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <div#agentSwitchPicker>
             <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
       <span.rs-vsep aria-hidden="true">
-      <div.rs-cell>
+      <div.rs-cell.rs-cell--sandbox>
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
@@ -2467,7 +2467,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <div#agentSwitchPicker>
             <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
       <span.rs-vsep aria-hidden="true">
-      <div.rs-cell>
+      <div.rs-cell.rs-cell--sandbox>
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
@@ -2552,7 +2552,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <div#agentSwitchPicker>
             <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
       <span.rs-vsep aria-hidden="true">
-      <div.rs-cell>
+      <div.rs-cell.rs-cell--sandbox>
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
@@ -2631,7 +2631,7 @@ exports[`dashboard region parity (DOM contract) > runtime [data-region="runtime"
             <div#agentSwitchPicker>
             <div.fieldHelp> "Agent core, model and effort changes are staged. Closing this menu takes no action."
       <span.rs-vsep aria-hidden="true">
-      <div.rs-cell>
+      <div.rs-cell.rs-cell--sandbox>
         <button.rs-dd aria-expanded="false" aria-haspopup="dialog" title="Sandbox details — isolated git clone · allowlist proxy" type="button">
           <svg.k-icon aria-hidden="true">
           <span.rs-name> "sbx"
