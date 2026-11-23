@@ -1331,6 +1331,47 @@ describe('dispatchHook — marker-miss telemetry (PROMPT-15)', () => {
     expect(tracker.nudge(id)).toBeNull();
   });
 
+  describe('Stop nudge with a fixing round that has a verdict or a re-run request (T1325)', () => {
+    function liveFixRound(): { ticketId: number; roundId: number } {
+      const ticketId = ticketAt();
+      const round = openRecoveryRound(store, {
+        ticketId, sourceStage: 'uat', sourceProcessId: 'gates',
+        sourceStageRunId: null, sourceProcessRunId: null,
+        triggerKind: 'gate-failure', triggerDetail: 'exit 1', maxRounds: 3,
+        startedAt: '2026-08-01T11:55:00.000Z',
+      });
+      beginLiveFixExecution(store, { ticketId, roundId: round.id, startedAt: '2026-08-01T12:01:00.000Z' });
+      return { ticketId, roundId: round.id };
+    }
+
+    const stopWithWork = (ticketId: number, tracker: TurnTracker): void => {
+      tracker.recordToolUse(ticketId, 'Edit');
+      dispatchHook(store, { hook_event_name: 'Stop', cwd: WT }, undefined, undefined, () => 'claude', undefined, undefined, tracker);
+    };
+
+    it.each([
+      ['a recorded no-change verdict', 'no_change_reason'],
+      ['a requested no-change re-run', 'no_change_rerun_requested_at'],
+      ['a requested host re-run', 'host_rerun_requested_at'],
+    ])('sets no nudge for %s', (_label, column) => {
+      const { ticketId } = liveFixRound();
+      store.db.prepare(`UPDATE recovery_rounds SET ${column} = 'x' WHERE ticket_id = ?`).run(ticketId);
+      const tracker = new TurnTracker();
+      stopWithWork(ticketId, tracker);
+      expect(tracker.nudge(ticketId)).toBeNull();
+      // The marker is still pending: only the nudge is withheld.
+      expect(getTicket(store, ticketId).agentState).toBe('waiting');
+    });
+
+    it('still sets the nudge for a round whose only stamp is the pre-brief re-run (host_rerun_at)', () => {
+      const { ticketId } = liveFixRound();
+      store.db.prepare("UPDATE recovery_rounds SET host_rerun_at = '2026-08-01T12:00:00.000Z' WHERE ticket_id = ?").run(ticketId);
+      const tracker = new TurnTracker();
+      stopWithWork(ticketId, tracker);
+      expect(tracker.nudge(ticketId)).toMatchObject({ stage: 'fix', key: expect.any(Number) });
+    });
+  });
+
   it('detects denied marker when Bash is the last tool before Stop with pending marker', () => {
     const id = ticketAt();
     runningImplRun(id);

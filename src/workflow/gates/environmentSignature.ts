@@ -10,8 +10,6 @@ import { MAX_GATE_SUMMARY_CHARS, summarizeGateFailure } from '../../model/gateSu
 /** The line that leads a stored failure summary when the gate output has a signature. */
 export const ENVIRONMENT_SIGNATURE_PREFIX = 'environment signature:';
 
-const MORE_THAN_CAP = 'more than 40 failing screenshots (the host environment is suspect)';
-
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 
@@ -25,7 +23,8 @@ const SIGNATURES: readonly { pattern: RegExp; reason: string }[] = [
   { pattern: /no free window of/i, reason: 'no free port window' },
   { pattern: /base check skipped: some vitest failures are not parseable/i, reason: 'the base check could not parse the vitest failures' },
   { pattern: /not (?:a )?screenshot mismatch/i, reason: 'a failure that is not a screenshot mismatch' },
-  { pattern: /screenshots fail \(cap \d+\)/i, reason: MORE_THAN_CAP },
+  // A run above the base-check cap names too many screenshots for a per-screenshot base
+  // check; it is a ticket failure that needs the agent, never an environment fault (T1325).
 ];
 
 /** The gate runner's own timeout line (`src/workflow/gates/run.ts`). */
