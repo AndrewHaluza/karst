@@ -8,9 +8,14 @@ import {
   allFailuresParsed,
   cacheKey,
   classifyFailures,
+  classifyFileRerun,
   classifyRerun,
+  failingFilesFromOutput,
   flakeNotice,
+  hasUnhandledError,
+  isCleanRerun,
   planFlakeRerun,
+  planUnparseableFlakeRerun,
   driftNotice,
   failingTestIds,
   fileOfId,
@@ -141,6 +146,145 @@ describe('flake re-run', () => {
     const plan = planFlakeRerun(ids);
     expect(plan.kind).toBe('skip');
     expect(plan.reason).toContain(`flake re-run skipped: ${FLAKE_FILE_CAP + 1} files`);
+  });
+});
+
+describe('hasUnhandledError', () => {
+  it('sees an unhandled rejection or error section, ANSI or not', () => {
+    expect(hasUnhandledError('⎯⎯ Unhandled Rejection ⎯⎯\nError: leaked\n')).toBe(true);
+    expect(hasUnhandledError('⎯⎯ Unhandled Error ⎯⎯\nboom\n')).toBe(true);
+    expect(hasUnhandledError('     Errors  1 error\n')).toBe(true);
+    expect(hasUnhandledError('\u001b[31m     Errors  1 error\u001b[39m\n')).toBe(true);
+  });
+  it('is false for a clean summary and for a plain assertion failure', () => {
+    expect(hasUnhandledError(' Test Files  1 failed (1)\n      Tests  1 failed (1)\n')).toBe(false);
+    expect(hasUnhandledError('')).toBe(false);
+  });
+});
+
+describe('failingFilesFromOutput', () => {
+  it('reads the test file of FAIL and × test ids, with and without a project prefix', () => {
+    const out = [
+      ' FAIL  src/a.test.ts > suite > a 3ms',
+      ' FAIL  |unit| src/b.test.ts > b',
+      ' × src/c.test.ts > c 6ms',
+      ' × |integration| src/d.test.ts > d',
+    ].join('\n');
+    expect(failingFilesFromOutput(out)).toEqual(['src/a.test.ts', 'src/b.test.ts', 'src/c.test.ts', 'src/d.test.ts']);
+  });
+  it('reads file-level failures and ignores labels that name no test file', () => {
+    const out = [
+      ' FAIL  src/c.test.ts',
+      ' FAIL  src/d.test.ts [ src/d.test.ts ]',
+      ' FAIL  |unit| src/e.test.ts',
+      ' × src/f.test.ts (1 test | 1 failed)',
+      ' FAIL  x',
+      ' × flips',
+    ].join('\n');
+    expect(failingFilesFromOutput(out)).toEqual(['src/c.test.ts', 'src/d.test.ts', 'src/e.test.ts', 'src/f.test.ts']);
+  });
+  it('reads test files from unhandled-error stack frames, never sources or dependencies', () => {
+    const out = [
+      '⎯⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯',
+      'Error: leaked',
+      ' ❯ src/d.test.ts:12:5',
+      ' at fn (/repo/src/e.test.ts:10:2)',
+      ' at file:///repo/scripts/f.test.mjs:4:1',
+      ' ❯ src/d.ts:12:5',
+      ' ❯ node_modules/x/src/g.test.ts:1:1',
+      ' ❯ node:internal/process/task:1:1',
+      '⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯',
+      ' Test Files  1 failed (1)',
+    ].join('\n');
+    expect(failingFilesFromOutput(out, '/repo')).toEqual(['src/d.test.ts', 'src/e.test.ts', 'scripts/f.test.mjs']);
+  });
+  it('dedupes in first-seen order', () => {
+    const out = [
+      ' FAIL  src/a.test.ts > suite > a',
+      '⎯⎯ Unhandled Rejection ⎯⎯',
+      ' ❯ ./src/b.test.ts:3:4',
+      ' ❯ src/a.test.ts:9:9',
+    ].join('\n');
+    expect(failingFilesFromOutput(out)).toEqual(['src/a.test.ts', 'src/b.test.ts']);
+  });
+});
+
+describe('planUnparseableFlakeRerun', () => {
+  const FAIL_UNHANDLED = [
+    ' FAIL  src/workflow/gates/runList.test.ts > lists > flips 5ms',
+    ' Test Files  1 failed (3)',
+    '      Tests  1 failed | 5 passed (6)',
+    '⎯⎯ Unhandled Rejection ⎯⎯',
+    'Error: leaked',
+    ' ❯ src/workflow/gates/runList.test.ts:12:5',
+  ].join('\n');
+  it('still plans the alone re-run for the FAIL line beside an unhandled rejection', () => {
+    expect(planUnparseableFlakeRerun(FAIL_UNHANDLED)).toEqual({ kind: 'run', files: ['src/workflow/gates/runList.test.ts'] });
+  });
+  it('plans nothing when the output names no failing test file', () => {
+    const out = [' Test Files  1 failed (1)', '      Tests  1 failed (1)', '     Errors  1 error'].join('\n');
+    const plan = planUnparseableFlakeRerun(out);
+    expect(plan.kind).toBe('skip');
+    expect(plan.reason).toBe('flake re-run skipped: no failing test files');
+  });
+  it('never re-runs on GitHub Actions', () => {
+    const plan = planUnparseableFlakeRerun(FAIL_UNHANDLED, { env: { GITHUB_ACTIONS: 'true' } });
+    expect(plan.kind).toBe('skip');
+    expect(plan.reason).toBe('flake re-run skipped: GitHub Actions never excuses a failure');
+  });
+  it('reads the file of an unhandled-error stack when there is no FAIL line', () => {
+    const out = ['     Errors  1 error', '⎯⎯ Unhandled Error ⎯⎯', ' ❯ src/d.test.ts:12:5'].join('\n');
+    expect(planUnparseableFlakeRerun(out, { cwd: null })).toEqual({ kind: 'run', files: ['src/d.test.ts'] });
+  });
+  it('plans nothing above the file cap', () => {
+    const out = Array.from({ length: FLAKE_FILE_CAP + 1 }, (_, i) => ` FAIL  src/f${i}.test.ts`).join('\n');
+    const plan = planUnparseableFlakeRerun(out);
+    expect(plan.kind).toBe('skip');
+    expect(plan.reason).toContain(`flake re-run skipped: ${FLAKE_FILE_CAP + 1} files`);
+  });
+  it('plans nothing when fewer files than the reported failed files could be read', () => {
+    const out = [' FAIL  src/a.test.ts', ' Test Files  2 failed (2)'].join('\n');
+    const plan = planUnparseableFlakeRerun(out);
+    expect(plan.kind).toBe('skip');
+    expect(plan.reason).toBe('flake re-run skipped: only 1 of 2 failed test files could be read');
+  });
+});
+
+describe('isCleanRerun and classifyFileRerun', () => {
+  const CLEAN = [' Test Files  1 passed (1)', '      Tests  2 passed (2)'].join('\n');
+  const cleanRun = { status: 0, out: CLEAN };
+  it('a clean alone run is flaky, no breaks', () => {
+    expect(isCleanRerun(cleanRun)).toBe(true);
+    expect(classifyFileRerun(['src/a.test.ts'], new Map([['src/a.test.ts', cleanRun]]))).toEqual({ flaky: ['src/a.test.ts'], breaks: [] });
+  });
+  it('an unhandled error or an error line is a break even at status 0', () => {
+    const sum = (extra) => [' Test Files  1 passed (1)', '      Tests  1 passed (1)', extra].join('\n');
+    expect(isCleanRerun({ status: 0, out: sum('⎯⎯ Unhandled Rejection ⎯⎯') })).toBe(false);
+    expect(isCleanRerun({ status: 0, out: sum('     Errors  1 error') })).toBe(false);
+    expect(classifyFileRerun(['src/a.test.ts'], new Map([['src/a.test.ts', { status: 0, out: sum('     Errors  1 error') }]])).breaks).toEqual(['src/a.test.ts']);
+  });
+  it('a nonzero status, no summary, a hang or a signal is a break', () => {
+    expect(isCleanRerun({ status: 1, out: CLEAN })).toBe(false);
+    expect(isCleanRerun({ status: 0, out: 'boom' })).toBe(false);
+    expect(isCleanRerun({ ...cleanRun, hung: true })).toBe(false);
+    expect(isCleanRerun({ ...cleanRun, signaled: true })).toBe(false);
+  });
+  it('splits a mixed re-run into flaky and breaks', () => {
+    const alone = new Map([
+      ['src/a.test.ts', cleanRun],
+      ['src/b.test.ts', { status: 1, out: ' FAIL  src/b.test.ts > b' }],
+    ]);
+    expect(classifyFileRerun(['src/a.test.ts', 'src/b.test.ts'], alone)).toEqual({ flaky: ['src/a.test.ts'], breaks: ['src/b.test.ts'] });
+  });
+  it('a file with no re-run result is a break', () => {
+    expect(classifyFileRerun(['src/a.test.ts'], new Map())).toEqual({ flaky: [], breaks: ['src/a.test.ts'] });
+  });
+});
+
+describe('classifyRerun unhandled errors', () => {
+  it('an unhandled error on the alone run breaks the id even at status 0', () => {
+    const r = { status: 0, failed: new Set(), unhandled: true };
+    expect(classifyRerun([ID_A], new Map([['src/a.test.ts', r]])).breaks).toEqual([ID_A]);
   });
 });
 

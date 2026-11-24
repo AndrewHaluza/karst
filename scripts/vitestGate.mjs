@@ -9,7 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { changedSince, git as gitFn, mergeBase } from './gateScope.mjs';
 import { alwaysFiles } from './gateAlways.mjs';
 import { firstPassEnabled, isCleanRun, loadPassInput, planScope, gitDirOf, scopeLine, snapshotTree, stateKey, writeState } from './gateState.mjs';
-import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyRerun, failingTestIds, flakeNotice, planFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines, slowestLines } from './vitestDrift.mjs';
+import { alertLine, allFailuresParsed, cacheKey, classifyFailures, classifyFileRerun, classifyRerun, failingTestIds, flakeNotice, hasUnhandledError, planFlakeRerun, planUnparseableFlakeRerun, fileOfId, planBaseCheck, ranTests, reportLines, slowestLines } from './vitestDrift.mjs';
 
 const git = gitFn;
 
@@ -18,7 +18,7 @@ const IDLE_MS = Number(process.env.KARST_GATE_IDLE_MS) || 10 * 60_000;
 
 const skip = (reason, ids) => {
   console.error(`base check skipped: ${reason}`);
-  return ids;
+  return { kind: 'ids', ids };
 };
 
 /** Directories from `from` up to the filesystem root. */
@@ -133,15 +133,17 @@ async function redAtBase(cwd, sha, args, files) {
 
 async function judge(cwd, args, output) {
   const ids = failingTestIds(output);
-  if (!allFailuresParsed(output, ids)) {
-    console.error('base check skipped: some vitest failures are not parseable test ids (file-level, unhandled or uncounted)');
-    return null;
-  }
-  // GitHub Actions enforces: a red develop push must fail the job. null keeps the vitest status,
-  // and also skips the flake re-run, so nothing is excused as base drift or flake.
+  // GitHub Actions enforces: a red develop push must fail the job. It stops before
+  // every excuse, so nothing is excused as base drift or flake.
   if (process.env.GITHUB_ACTIONS === 'true') {
     console.error('base check skipped: GitHub Actions never excuses a failure as base drift');
-    return null;
+    return { kind: 'stop' };
+  }
+  // The parse check guards the base-drift verdict (a cached red base), not the flake
+  // re-run: a re-run at HEAD caches nothing, so an unparseable output still re-runs.
+  if (!allFailuresParsed(output, ids)) {
+    console.error('base check skipped: some vitest failures are not parseable test ids (file-level, unhandled or uncounted)');
+    return { kind: 'unparseable' };
   }
   const { sha, tried } = await mergeBase(cwd);
   if (sha === null) return skip(`no merge base for ${tried.join(', ')}`, ids);
@@ -151,7 +153,7 @@ async function judge(cwd, args, output) {
   const plan = planBaseCheck(ids, touched);
   if (plan.kind !== 'run') {
     console.error(`base check skipped: ${plan.reason}`);
-    return ids;
+    return { kind: 'ids', ids };
   }
   const common = (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']))?.trim();
   if (!common) return skip('no git common dir', ids);
@@ -169,7 +171,7 @@ async function judge(cwd, args, output) {
   // Printed on every drift pass: the host dedupes per (project, base sha) when it writes the bulletin note,
   // so a note that failed to land is retried by the next ticket instead of being lost.
   if (verdict.drift.length > 0) console.error(alertLine(sha, verdict.drift));
-  return verdict.breaks;
+  return { kind: 'ids', ids: verdict.breaks };
 }
 
 /** Re-run each remaining failing file once, alone, at the ticket HEAD; true when none of them still fails. */
@@ -183,9 +185,31 @@ async function flakeCheck(cwd, args, ids) {
   for (const file of plan.files) {
     console.error(`re-running ${file} alone to rule out a flake`);
     const r = await run(args[0], [...args.slice(1), file], cwd);
-    alone.set(file, { status: r.status, failed: new Set(failingTestIds(r.out)) });
+    alone.set(file, { status: r.status, failed: new Set(failingTestIds(r.out)), unhandled: hasUnhandledError(r.out) });
   }
   const { flaky, breaks } = classifyRerun(ids, alone);
+  if (flaky.length > 0) console.error(flakeNotice(flaky));
+  return breaks.length === 0;
+}
+
+/**
+ * The same flake check for an output the ids do not fully describe: re-run each
+ * test FILE the failure names, once, alone, at HEAD. A file that passes cleanly
+ * (no failed test, no unhandled error) is flaky; the gate passes only when every
+ * re-run is clean.
+ */
+async function flakeCheckUnparseable(cwd, args, output) {
+  const plan = planUnparseableFlakeRerun(output, { env: process.env, cwd });
+  if (plan.kind !== 'run') {
+    console.error(plan.reason);
+    return false;
+  }
+  const alone = new Map();
+  for (const file of plan.files) {
+    console.error(`re-running ${file} alone to rule out a flake`);
+    alone.set(file, await run(args[0], [...args.slice(1), file], cwd));
+  }
+  const { flaky, breaks } = classifyFileRerun(plan.files, alone);
   if (flaky.length > 0) console.error(flakeNotice(flaky));
   return breaks.length === 0;
 }
@@ -252,9 +276,17 @@ async function main() {
     process.exit(code);
   };
   if (first.status === 0) finish(0);
-  const remaining = await judge(cwd, args, first.out).catch(() => null);
-  if (remaining === null || remaining.length === 0) finish(remaining === null ? first.status : 0);
-  const ok = await flakeCheck(cwd, args, remaining).catch(() => false);
+  const judged = await judge(cwd, args, first.out).catch(() => ({ kind: 'stop' }));
+  if (judged.kind === 'stop') finish(first.status);
+  if (judged.kind === 'ids') {
+    if (judged.ids.length === 0) finish(0);
+    const ok = await flakeCheck(cwd, args, judged.ids).catch(() => false);
+    finish(ok ? 0 : first.status);
+  }
+  // Unparseable: the ids cannot carry a drift verdict, but a single-file re-run at HEAD
+  // still tells a flake from a break. An unfinished run (hung or signaled) is never excused.
+  if (first.hung || first.signaled) finish(first.status);
+  const ok = await flakeCheckUnparseable(cwd, args, first.out).catch(() => false);
   finish(ok ? 0 : first.status);
 }
 

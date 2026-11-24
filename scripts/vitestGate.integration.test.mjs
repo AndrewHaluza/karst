@@ -144,6 +144,59 @@ describe('vitestGate flake re-run', () => {
     expect(run.stderr).not.toContain('NOTICE: flaky:');
     expect(run.status).not.toBe(0);
   }, 120_000);
+
+  // fails its assertion and leaks an unhandled rejection on the first run, passes cleanly on every later run
+  const FLAKY_LEAK = [
+    "import {it,expect} from 'vitest';",
+    "import {existsSync,writeFileSync} from 'node:fs';",
+    "it('flips', () => {",
+    "  const seen = existsSync('marker');",
+    "  writeFileSync('marker', '1');",
+    "  if (!seen) Promise.reject(new Error('leaked'));",
+    "  expect(seen).toBe(true);",
+    "});",
+  ].join('\n');
+  // leaks an unhandled rejection on every run; fails its assertion only on the first run
+  const LEAKS_ALWAYS = [
+    "import {it,expect} from 'vitest';",
+    "import {existsSync,writeFileSync} from 'node:fs';",
+    "it('leaks', () => {",
+    "  const seen = existsSync('marker');",
+    "  writeFileSync('marker', '1');",
+    "  Promise.reject(new Error('leaked'));",
+    "  expect(seen).toBe(true);",
+    "});",
+  ].join('\n');
+
+  it('still re-runs the failing file alone when the first run also leaks an unhandled rejection', () => {
+    const dir = flakyRepo(FLAKY_LEAK);
+    const run = gate(dir);
+    rmSync(dir, { recursive: true, force: true });
+    expect(run.stderr).toContain('base check skipped: some vitest failures are not parseable');
+    expect(run.stderr).toContain('re-running flaky.test.mjs alone');
+    expect(run.stderr).toContain('NOTICE: flaky: flaky.test.mjs (passed when re-run alone)');
+    expect(run.status).toBe(0);
+  }, 120_000);
+
+  it('fails when the alone re-run still leaks an unhandled rejection', () => {
+    const dir = flakyRepo(LEAKS_ALWAYS);
+    const run = gate(dir);
+    rmSync(dir, { recursive: true, force: true });
+    expect(run.stderr).toContain('base check skipped: some vitest failures are not parseable');
+    expect(run.stderr).toContain('re-running flaky.test.mjs alone');
+    expect(run.stderr).not.toContain('NOTICE: flaky:');
+    expect(run.status).not.toBe(0);
+  }, 120_000);
+
+  it('never re-runs an unparseable failure on GitHub Actions', () => {
+    const dir = flakyRepo(FLAKY_LEAK);
+    const run = gate(dir, 'develop', { GITHUB_ACTIONS: 'true' });
+    rmSync(dir, { recursive: true, force: true });
+    expect(run.stderr).toContain('base check skipped: GitHub Actions never excuses');
+    expect(run.stderr).not.toContain('re-running');
+    expect(run.stderr).not.toContain('NOTICE: flaky:');
+    expect(run.status).not.toBe(0);
+  }, 120_000);
 });
 
 describe('vitestGate CI mode', () => {
