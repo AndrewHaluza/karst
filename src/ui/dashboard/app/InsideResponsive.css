@@ -106,6 +106,11 @@
   #inside .inside-head.has-autofix .inside-meta,#inside .inside-head.has-autofix.has-actions .inside-meta{grid-column:3;grid-row:1;white-space:nowrap}
   #inside .inside-head.has-autofix.has-actions .stageMenuWrap{grid-column:4;grid-row:1}
   #inside .inside-head.has-autofix .inside-live{grid-column:1/-1;grid-row:2}
+  /* The live line takes its own full row under the title, and its status glyph stays beside the label (it sat alone
+     on a line above the wrapped label). */
+  #inside .inside-head .inside-live{grid-column:1/-1;grid-row:2;align-items:flex-start}
+  #inside .inside-live .glyph{flex:none}
+  #inside .inside-live strong{flex:1 1 0}
   /* A main button ("Send CI failure") fills the row: the menu takes row one with the title, and the chip and the clock
      share row two. */
   #inside .inside-head.has-autofix.has-main{grid-template-columns:minmax(0,1fr) auto}
