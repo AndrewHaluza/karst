@@ -170,13 +170,16 @@ describe('Inside CSS — the container queries', () => {
     expect(narrow).toMatch(/#inside \.inside-head\.has-autofix\.has-actions \.stageMenuWrap\{grid-column:4;grid-row:1\}/);
     expect(narrow).toMatch(/#inside \.inside-meta\{grid-column:1\/-1/);
     const tight = containerBlock('399px');
-    expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.autofix-chipwrap(,[^{]+)?\{grid-column:2;grid-row:1/);
-    expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.inside-meta\{grid-column:1\/-1;grid-row:3\}/);
+    // At the floor the header is one row: title, chip, clock, then the menu. The live line takes row two.
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.autofix-chipwrap(,[^{]+)?\{grid-column:2;grid-row:1;justify-self:end/);
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.inside-meta(,[^{]+)?\{grid-column:3;grid-row:1/);
     // The narrow tier names `.has-autofix.has-actions`, which outranks the plain rules: the tight tier must name it too.
-    expect(tight).toMatch(/#inside \.inside-head\.has-autofix\.has-actions \.stageMenuWrap\{grid-column:2;grid-row:1\}/);
-    expect(tight).toMatch(/#inside \.inside-head\.has-autofix\.has-actions\{grid-template-columns:minmax\(0,1fr\) auto\}/);
-    // No header action: the chip shares row one with the title. With one, it keeps its own row.
-    expect(tight).toMatch(/#inside \.inside-head\.has-autofix\.has-actions \.autofix-chipwrap\{grid-column:1\/-1;grid-row:3/);
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix\.has-actions \.stageMenuWrap\{grid-column:4;grid-row:1\}/);
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix\.has-actions\{grid-template-columns:auto minmax\(0,1fr\) auto auto\}/);
+    // A main button fills the row: the chip and the clock share row two.
+    expect(tight).toMatch(/\.has-autofix\.has-main \.autofix-chipwrap\{grid-column:1;grid-row:2/);
+    // The chip drops "default" and the clock drops its start time here.
+    expect(tight).toMatch(/\.autofix-default,[^{]*\.clock-start\{display:none\}/);
   });
 
   it('never introduces whole-component horizontal scrolling at the tiers (B7)', () => {
