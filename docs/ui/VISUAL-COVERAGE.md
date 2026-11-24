@@ -203,7 +203,7 @@ Keys are `<project>|<spec file>::<title>` (`scripts/visualLedger.mjs`). A flaky 
 
 **Theme filter before scheduling.** A test runs only in the projects that record it: `tests/visual/projectFilter.ts` gives each screenshot project a `testIgnore` for spec files of other projects and a `grepInvert` on the `@NOT-<PROJECT>` tag of `pages.visual.ts`. No test is listed and then skipped, so a shard does not pay for skips. Test titles, ids and baseline paths do not change.
 
-**No karst UAT gate for `test:visual`.** The gate was intentionally omitted because `test:visual` always exits non-zero on macOS (container-authored baselines vs. macOS font rendering), and karst's gate system treats any non-zero exit as a failure — creating an unrecoverable loop. CI's `visual` job is the authoritative run.
+**No karst UAT gate for the host `test:visual`.** (The `visual` UAT gate runs `test:visual:docker`.) The host gate was intentionally omitted because `test:visual` always exits non-zero on macOS (container-authored baselines vs. macOS font rendering), and karst's gate system treats any non-zero exit as a failure — creating an unrecoverable loop. CI's `visual` job is the authoritative run.
 
 **Fresh fixture pages.** `tests/visual/serve.mjs` clears and writes the pages at each start, for the views in `KARST_VISUAL_FIXTURE_VIEWS` (`@ui:FIXTURE-SCOPE`).
 END_DOC_BLOCK: [@ui:RUNNING-SWEEP]
