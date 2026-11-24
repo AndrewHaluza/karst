@@ -39,6 +39,7 @@ import {
   sha256Hex,
 } from './driver.js';
 import { runCompletionPipeline, type CompletionPipelineDeps } from './integration/pipeline.js';
+import { recordClaimEvidence } from './integration/claimEvidence.js';
 import { beginReplanPlannerRun, electReplan } from './coordinator/replan.js';
 import { flipOnEndQuiescence } from './coordinator/completion.js';
 import { reconcileGraphRun, type ReconcileGraphRunDeps, type ReconcileGraphRunResult } from './coordinator/reconcile.js';
@@ -49,6 +50,7 @@ import { earliestNodeRunOutcomeForGraphRun, nodeRunIdsInStatusesForGraphRun } fr
 import { blockGraphStage, markGraphAwaitingImplMarker } from '../../workflow/graphMarkerGuard.js';
 import { runGraphCommand } from '../../cli/graph.js';
 import { runCoordinatorTick } from './coordinator/sweep.js';
+import { driveReplanDrain } from '../../extension/ops/graphReplanDrain.js';
 import { activationDomainKeys, type AllowlistCommandAccess } from './coordinator/conflicts.js';
 import type { ActivationDomain } from './coordinator/leases.js';
 import type { BaseHead } from '../../store/graph/nodeRuns.js';
@@ -242,7 +244,7 @@ export class TestTransport {
       pid: 9000 + request.nodeRunId,
       cwd: request.cwd,
       generation: request.generation,
-      ownerNonce: 'nonce',
+      ownerNonce: request.ownerNonce,
       startedAt: this.h.startedAt(),
       processRunId: null,
       providerSessionId: null,
@@ -467,7 +469,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
         gitOk(cwd, ['config', 'user.name', 'E2E']);
         nodeWorkspaces.set(nodeRunId, cwd);
       }
-      return { kind: 'created', paths: [{ repoName: 'api', cwd, domainKey: 'd' }] };
+      return { kind: 'created', paths: [{ repoName: 'api', cwd, domainKey: 'd' }], restored: false };
     },
     sessionNamingOf: (_graphRunId, runId, kind) => ({ name: `Karst ${kind} ${runId}` }),
     cliNodeCompletionCommand: () => 'node "/dist/cli/main.js" node complete',
@@ -769,9 +771,14 @@ async function launchRepairPlanner(
   if (launched.kind !== 'launched') throw new Error(`repair planner did not launch: ${launched.kind}`);
 }
 
-/** Allocate the elected replan planner run and start its session (the host's
- *  `relaunchReplanPlannerHost` + `launchReplanPlannerHost`). */
-async function launchElectedReplanPlanner(h: Harness, graphRunId: number): Promise<void> {
+/** Allocate the replan planner run and start its session (the host's
+ *  `relaunchReplanPlannerHost` + `launchReplanPlannerHost`). A drain that is not
+ *  quiescent yet, or already planned, comes back as the allocator's refusal —
+ *  the host seam logs it and defers to a later tick. */
+async function beginAndLaunchReplanPlanner(
+  h: Harness,
+  graphRunId: number,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const begun = beginReplanPlannerRun(
     {
       db: h.store.db,
@@ -785,7 +792,7 @@ async function launchElectedReplanPlanner(h: Harness, graphRunId: number): Promi
     },
     { graphRunId },
   );
-  if (!begun.ok) throw new Error(`replan planner not allocated: ${begun.reason}`);
+  if (!begun.ok) return { ok: false, reason: begun.reason };
   const prompt = plannerPromptOf(h, graphRunId, [
     `Replan the graph (superseding revision ${begun.launch.priorRevisionNumber}). The replan reasons are under the artifact root: ${begun.launch.reasonsSnapshotPath}.`,
   ]);
@@ -800,6 +807,24 @@ async function launchElectedReplanPlanner(h: Harness, graphRunId: number): Promi
     repo: 'api',
   });
   if (launched.kind !== 'launched') throw new Error(`replan planner did not launch: ${launched.kind}`);
+  return { ok: true };
+}
+
+/** The election path: the allocator must succeed. */
+async function launchElectedReplanPlanner(h: Harness, graphRunId: number): Promise<void> {
+  const begun = await beginAndLaunchReplanPlanner(h, graphRunId);
+  if (!begun.ok) throw new Error(`replan planner not allocated: ${begun.reason}`);
+}
+
+/** The host's `driveCompletingNodes`: run the completion pipeline for every
+ *  completing node in ascending node-run order (the deterministic integration
+ *  order), then settle the run. */
+async function driveCompletingNodes(h: Harness, graphRunId: number): Promise<void> {
+  for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(h.store.db, graphRunId, ['completing'])) {
+    await runCompletionPipeline(h.pipelineDeps, { graphRunId, nodeRunId });
+  }
+  await recordClaimEvidence(h.pipelineDeps, graphRunId);
+  await settleRun(h, graphRunId);
 }
 
 /** The host's `settleGraphRun`: a blocked node blocks the run (or elects a
@@ -846,7 +871,8 @@ async function settleRun(h: Harness, graphRunId: number): Promise<void> {
  * ONE pass of the extension host's coordinator loop for a graph run
  * (`runGraphCoordinatorTick` + `driveGraphRunContinuation`):
  *  - `planning`: judge the submitted plan; a repair request re-prompts the planner.
- *  - `draining`: judge the submitted replan; a repair request re-prompts it.
+ *  - `draining`: drive the nodes still live in the drain, then judge the
+ *    submitted replan; a repair request re-prompts it.
  *  - `running`: claim tokens, drive ready nodes, drive `completing` nodes
  *    through the completion pipeline; settle (blocked / replan / END) before and after.
  * The agent's work between ticks goes through the REAL CLI verbs. Returns the
@@ -861,21 +887,37 @@ export async function tickGraphRun(h: Harness, graphRunId: number): Promise<stri
       await launchRepairPlanner(h, graphRunId, accepted.plannerRunId, accepted.attempt);
     }
   } else if (status === 'draining') {
+    // The host's draining continuation: a node still live in a replan drain
+    // completes and integrates, then the drain's planner is allocated.
+    await driveReplanDrain(
+      {
+        db,
+        driveCompletingNodes: (id) => driveCompletingNodes(h, id),
+        // The host logs an allocator refusal and retries on a later tick.
+        relaunchReplanPlanner: async (id) => {
+          await beginAndLaunchReplanPlanner(h, id);
+        },
+      },
+      graphRunId,
+    );
     const accepted = acceptSubmittedReplan(h.deps, graphRunId);
     if (accepted.kind === 'repair-requested') {
       await launchRepairPlanner(h, graphRunId, accepted.plannerRunId, accepted.attempt);
     }
     if (accepted.kind === 'accepted') await claimAndDrive(h, graphRunId);
   } else if (status === 'running') {
-    // Host order (`runGraphCoordinatorTick`): settle FIRST (a `replan` request
+    // Host order (`runGraphCoordinatorTick`): the claim evidence of a `blocked`
+    // node, then settle before the sweep (a `replan` request
     // elects before the sweep can read its blocked node run as a fault), then
     // the sweep, then the continuation drives completing nodes and settles again.
+    await recordClaimEvidence(h.pipelineDeps, graphRunId);
     await settleRun(h, graphRunId);
     if (graphRunStatus(db, graphRunId) === 'running') {
       await claimAndDrive(h, graphRunId);
       for (const nodeRunId of nodeRunIdsInStatusesForGraphRun(db, graphRunId, ['completing'])) {
         await runCompletionPipeline(h.pipelineDeps, { graphRunId, nodeRunId });
       }
+      await recordClaimEvidence(h.pipelineDeps, graphRunId);
       await settleRun(h, graphRunId);
     }
   }

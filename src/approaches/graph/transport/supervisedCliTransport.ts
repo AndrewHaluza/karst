@@ -278,6 +278,15 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         shellPath: built.command,
         shellArgs: built.args,
         env: { ...built.env, ...request.graphEnv },
+        ...(request.identity
+          ? {
+              identity: {
+                provider: request.identity.provider,
+                model: request.identity.model ?? null,
+                agentName: request.identity.profile,
+              },
+            }
+          : {}),
         ...(request.sessionIconPath ? { iconPath: request.sessionIconPath } : {}),
       });
       const pid = (await terminal.processId()) ?? null;

@@ -244,6 +244,9 @@
   "src/approaches/fetch.ts#installApproach": [
     "arch:APP-01"
   ],
+  "src/approaches/graph/coordinator/abandonedNodes.ts": [
+    "arch:GRAPH-PRESERVE"
+  ],
   "src/approaches/graph/coordinator/autoRecovery.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
@@ -253,8 +256,23 @@
   "src/approaches/graph/coordinator/replan.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/approaches/graph/coordinator/replanDrain.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
+  "src/approaches/graph/integration/changeSetCapture.ts": [
+    "arch:GRAPH-PRESERVE"
+  ],
+  "src/approaches/graph/integration/claimEvidence.ts": [
+    "arch:GRAPH-PRESERVE"
+  ],
   "src/approaches/graph/workspace/depsPlan.ts": [
     "arch:GRAPHDEPS"
+  ],
+  "src/approaches/graph/workspace/preserve.ts": [
+    "arch:GRAPH-PRESERVE"
+  ],
+  "src/approaches/graph/workspace/preserveBestEffort.ts": [
+    "arch:GRAPH-PRESERVE"
   ],
   "src/approaches/graph/workspace/workspaceDeps.ts": [
     "arch:GRAPHDEPS"
@@ -485,6 +503,15 @@
     "arch:AP-00",
     "arch:AP-04"
   ],
+  "src/extension/graphClaimEvidenceBinding.ts": [
+    "arch:GRAPH-PRESERVE"
+  ],
+  "src/extension/graphPreserveBinding.ts": [
+    "arch:GRAPH-PRESERVE"
+  ],
+  "src/extension/keepAwakeBinding.ts": [
+    "arch:KEEPAWAKE"
+  ],
   "src/extension/ops/autoDeliverOps.ts": [
     "arch:AP-01"
   ],
@@ -571,6 +598,9 @@
   "src/extension/ops/graphRecoveryDispatch.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/extension/ops/graphReplanDrain.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
   "src/extension/ops/hostUserUat.ts#hasRunningHostPlacedServices": [
     "arch:AC-58"
   ],
@@ -579,6 +609,9 @@
   ],
   "src/extension/ops/hostUserUat.ts#resetHostServices": [
     "arch:AC-58"
+  ],
+  "src/extension/ops/keepAwake.ts": [
+    "arch:KEEPAWAKE"
   ],
   "src/extension/ops/mergeAllOps.ts#mergeAllOp": [
     "arch:GH-09"
@@ -817,6 +850,9 @@
   "src/resolver/blockedPorts.ts#isBlockedPort": [
     "arch:PORTS"
   ],
+  "src/runtime/awakeDeadline.ts#startAwakeDeadline": [
+    "arch:SLEEP-CLOCK"
+  ],
   "src/runtime/branchName.ts#renderBranchName": [
     "arch:RENDERERS"
   ],
@@ -903,6 +939,15 @@
   ],
   "src/runtime/serviceLaunch.ts#serviceLaunch": [
     "arch:CONTAINER"
+  ],
+  "src/runtime/sleepLedger.ts#createSleepLedger": [
+    "arch:SLEEP-CLOCK"
+  ],
+  "src/runtime/sleepLedger.ts#defaultSleepLedger": [
+    "arch:SLEEP-CLOCK"
+  ],
+  "src/runtime/sleepLedger.ts#startSleepLedger": [
+    "arch:SLEEP-CLOCK"
   ],
   "src/runtime/slug.ts#worktreeSlug": [
     "arch:ENTRIES"

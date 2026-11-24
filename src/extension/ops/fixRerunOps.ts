@@ -75,6 +75,8 @@ export interface GateRerunDeps {
   readonly git?: GitRunner;
   /** Re-drive the source stage after a passing re-run; without it the fix watchdog finds the stage ~5 min later. */
   readonly redrive?: (ticketId: number) => void;
+  /** Drive the ticket when the host opened the next fix round after a still-failing gate (T1330). */
+  readonly onNextRound?: (ticketId: number) => void;
   /** The manifest, for the baseline-review check of the gate pass record (@arch:BASELINE-REVIEW). */
   readonly manifest?: () => Manifest | undefined;
   /** Test seam for the working-tree fingerprint. */
@@ -352,6 +354,7 @@ function rerunDepsOf(deps: GateRerunDeps): HostRerunDeps {
       }
       deps.redrive?.(ticketId);
     },
+    ...(deps.onNextRound ? { onNextRound: deps.onNextRound } : {}),
   };
 }
 
@@ -379,6 +382,21 @@ export function preBriefRerunFor(deps: GateRerunDeps): (ticketId: number) => Pro
 export interface RequestedRerunSweepDeps extends GateRerunDeps {
   readonly projectId: () => number | undefined;
   readonly debug?: (message: string) => void;
+  /**
+   * A check at the start of each tick and once more after the outcomes (the host park warning,
+   * `@arch:AC-66`). It runs before the drain return, so a park still shows while a replan drains.
+   * A throw goes to `debug` and never escapes.
+   */
+  readonly onTick?: () => void;
+}
+
+/** Run the tick check; its failure must never stop the sweep or escape it. */
+function runTickCheck(onTick: (() => void) | undefined, debug?: (message: string) => void): void {
+  try {
+    onTick?.();
+  } catch (err) {
+    debug?.(`[fix-rerun] park warning check failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**
@@ -389,6 +407,7 @@ export function makeRequestedRerunSweep(deps: RequestedRerunSweepDeps): () => Pr
   const rerunDeps = rerunDepsOf(deps);
   let running = false;
   return async () => {
+    runTickCheck(deps.onTick, deps.debug);
     const projectId = deps.projectId();
     if (running || projectId === undefined || deps.drain?.isDraining()) return;
     running = true;
@@ -401,5 +420,6 @@ export function makeRequestedRerunSweep(deps: RequestedRerunSweepDeps): () => Pr
     } finally {
       running = false;
     }
+    runTickCheck(deps.onTick, deps.debug);
   };
 }

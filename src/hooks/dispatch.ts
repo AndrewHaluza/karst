@@ -325,8 +325,19 @@ function pendingMarkerKey(
 ): { stage: 'impl' | 'fix'; key: number } | null {
   const run = currentImplementationRun(store, ticketId);
   if (run?.status === 'running') return { stage: 'impl', key: run.id };
+  // T1325: a round that already holds a verdict (a no-change reason) or a requested re-run is
+  // not a round whose marker the agent still owes — the host owns what happens next. The
+  // pre-brief re-run stamps `host_rerun_at` BEFORE the agent starts, so that stamp alone must
+  // still nudge (a real missing marker); only the REQUEST excludes the round.
   const round = store.db
-    .prepare("SELECT id FROM recovery_rounds WHERE ticket_id = ? AND status = 'fixing' ORDER BY id DESC LIMIT 1")
+    .prepare(
+      `SELECT id FROM recovery_rounds
+        WHERE ticket_id = ? AND status = 'fixing'
+          AND no_change_reason IS NULL
+          AND no_change_rerun_requested_at IS NULL
+          AND host_rerun_requested_at IS NULL
+        ORDER BY id DESC LIMIT 1`,
+    )
     .get(ticketId) as { id: number } | undefined;
   return round === undefined ? null : { stage: 'fix', key: round.id };
 }

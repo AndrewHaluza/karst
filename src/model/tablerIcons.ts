@@ -86,6 +86,9 @@ export const TABLER_ICONS: Record<string, string> = {
   'chevron-down': '<path d="M6 9l6 6l6 -6"/>',
   'chevron-left': '<path d="M15 6l-6 6l6 6"/>',
   'chevron-right': '<path d="M9 6l6 6l-6 6"/>',
+  // The Getting Started to-do mark (GS-2): one outline circle, so done, to-do and
+  // missing differ by SHAPE, not only by colour (@ui:UI-R28).
+  circle: '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/>',
   'circle-check':
     '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/><path d="M9 12l2 2l4 -4"/>',
   'circle-x': '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/><path d="M10 10l4 4m0 -4l-4 4"/>',

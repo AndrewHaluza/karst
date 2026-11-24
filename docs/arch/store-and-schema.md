@@ -106,9 +106,8 @@ goes through a named read helper next to the full-row reads (`graphRunById`,
 `latestGraphRunForTicket`, `nodeRunsForGraphRun`,
 `countNodeRunsForRevisionNode`, `countOtherNodeRunsInStatuses`,
 `countNodeRunsInStatusesExcludingOutcome`, `nodeRunsInStatusesForRevision`,
-`maxLaunchFailStreakInStatuses`, `nodeRunLaunchFailStreakForGraphRun`,
-`drainingRevisionNodeRunsInStatuses`, `nextVisitNumber`,
-`plannerRunCompileAttempt`, `submittedPlannerRunForGraphRun`, … — and call sites narrow with
+`maxLaunchFailStreakInStatuses`, `drainingRevisionNodeRunsInStatuses`,
+`nextVisitNumber`, `plannerRunCompileAttempt`, … — and call sites narrow with
 `Pick<GraphRunRow, …>` / `Pick<NodeRunRow, …>` / `Pick<PlannerRunRow, …>` rather
 than declaring their own drifting row interfaces. A new column or status is
 therefore added to the store module and the schema, never to a repo-wide grep.
@@ -119,7 +118,11 @@ The host closes a graph terminal tab only after a proven success (`approaches/gr
 
 The agent identity snapshot is part of the same boundary: `approach_graph_runs.agent_identity` changes only through `setGraphRunAgentIdentity` and is read through `graphRunAgentIdentity`. The bootstrap writes it; a user switch (`approaches/graph/modelChange.ts`) replaces it in one transaction. Every planner, replan, node, retry and autorecovery launch of the run reads it, and a NULL snapshot (a pre-v133 run) resolves live. A switch never stops a running session. The Settings or ticket question calls `switchGraphRunModels`.
 
-The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
+The automatic recovery count is part of the same boundary: `auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
+
+`heldLeasesForScheduler` joins `approach_node_runs` for liveness; a `ready` run is live.
+
+The claim evidence of a `blocked` node reads `blockedNodeRunsWithoutCategory`. The host reads a clone through `workspacesForNode`.
 
 A compiled bootstrap plan runs at once: plan acceptance moves the run `planning → running` and the coordinator tick starts it, with no human confirm gate (T1174). The status `awaiting-confirmation` is legacy. It stays in the CHECK on `approach_graph_runs.status`, and the v127 migration moves any such row to `running`. The manifest key `limits.confirmGeneratedGraph` is retired: the loader drops it in memory with one deprecation warning and never rewrites the file on load. An explicit, consented setup manifest proposal does write it: the host write removes the key, and the proposal counts as a change when the write removes a key (`manifestRemovedKeys`), even when the loaded manifest is the same. A setup `change` proposal never writes `.karst/` (`setup/karstGuard.ts`).
 
@@ -311,7 +314,7 @@ Two creation points, one writer `upsertFixDelivery`: the LIVE path (`deliverLive
 
 The hook pointer takes the OLDEST unread row of the ticket (`nextUnreadDelivery`, any kind). The `--ack` read serves the unread row pointed at most recently, else the oldest (`ackTargetDelivery`), so it reads the row the pointer named and an unread fix row and an unread conflict row never steal each other's receipt.
 
-Every transition is a conditional UPDATE claim (`… WHERE col IS NULL`): `armed_at` (hook may point), `enqueued_at` (a typed line in flight), `pointed_at` (the pointer reached the agent), `repointed_at` (typed re-send), `pointer_failed_at` (unbuildable pointer, needs-you once), `read_at` + `delivered_via` (`pointer` from `--ack`, `seed` from `confirmFixLaunch` 'confirmed' in the same transaction). Two windows or a reload never double-act. `rearmFixDelivery` is a compare-and-swap on the old `launch_id` (NULL-safe). Delivery is `extension/ops/fixDeliveryOps.ts` (live path, eligibility) and `fixDeliverySweep.ts` (typed first send, re-arm, 60 s armed fallback, typed re-send at 5 min, needs-you at 15 min); see `@arch:MAILBOX` for the shared per-core route.
+Every transition is a conditional UPDATE claim (`… WHERE col IS NULL`): `armed_at` (hook may point), `enqueued_at` (a typed line in flight; also refused once `pointed_at` is set, so a hook that pointed first wins and one delivery never gets two first pointers), `pointed_at` (the pointer reached the agent), `repointed_at` (typed re-send), `pointer_failed_at` (unbuildable pointer, needs-you once), `read_at` + `delivered_via` (`pointer` from `--ack`, `seed` from `confirmFixLaunch` 'confirmed' in the same transaction). Two windows or a reload never double-act. `rearmFixDelivery` is a compare-and-swap on the old `launch_id` (NULL-safe). Delivery is `extension/ops/fixDeliveryOps.ts` (live path, eligibility) and `fixDeliverySweep.ts` (typed first send, re-arm, 60 s armed fallback, typed re-send at 5 min, needs-you at 15 min); see `@arch:MAILBOX` for the shared per-core route. `deliverLiveFix` sends the typed pointer IMMEDIATELY at arm when the push-route session is `idle` (exact `agent_state`), no fix launch intent is pending and the row is the ticket's oldest unread one; the 60 s armed fallback in `fixDeliverySweep.ts` remains for every other state (`running`, `waiting`, `none`, `not-started`) and for an immediate send that returned `unavailable`/`held` or was dropped.
 END_DOC_BLOCK: [@arch:V77]
 
 ## [@arch:V82] Usage-limit parks (v82)

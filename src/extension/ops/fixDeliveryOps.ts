@@ -58,6 +58,12 @@ export interface FixDeliveryHost {
   currentLaunchId: (ticketId: number) => string | undefined;
   /** agent_state === 'running' — mid-turn. Read by the sweep and the live path only. */
   isRunning: (ticketId: number) => boolean;
+  /**
+   * agent_state === 'idle' EXACTLY. A `waiting` agent shows a prompt (typed text
+   * could answer it), `none`/`not-started` have no session and `running` is
+   * mid-turn: only `idle` takes the typed pointer at arm.
+   */
+  isIdle: (ticketId: number) => boolean;
   /** Type the fix pointer for a delivery into the ticket's live terminal. */
   sendPointer: (ticketId: number, deliveryId: number, hooks: NudgeHooks) => TypedSendResult;
   /** Surface the ticket as needing a human; idempotent. */
@@ -194,11 +200,14 @@ export interface DeliverLiveFixInput {
 }
 
 /**
- * Deliver a fix round into a LIVE session: store the snapshot, then arm it (push
- * route, the hook points at the next turn end) or type the pointer (typed route,
- * only while the agent is not mid-turn; otherwise the sweep sends it on the
- * first idle tick). Returns false when nothing could deliver it; the row is then
- * superseded so no sweep ever points at an interrupted round.
+ * Deliver a fix round into a LIVE session: store the snapshot, then arm it and, on
+ * an IDLE push-route session, type the pointer in the same call (a push route
+ * normally lets the turn-end hook point, but an idle agent has no next turn end);
+ * on the typed route type the pointer right away instead, only while the agent is
+ * not mid-turn. Nothing is typed at arm into a `running` or `waiting` agent: there
+ * the hook (push) or the sweep's first idle tick (typed) sends it. Returns false
+ * when nothing could deliver it; the row is then superseded so no sweep ever
+ * points at an interrupted round.
  */
 export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput): boolean {
   const at = host.now();
@@ -220,6 +229,22 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
   host.debug(`[driver] fix delivery ${formatFixBriefNumber(id)}: stored for ticket ${input.ticketId}, route ${route}`);
   if (isPushRoute(route)) {
     claimArmed(host.store, id, at);
+    // An IDLE push-route session has no next turn end to fire the hook: type the
+    // pointer now. An older unread row keeps the pointer, and a launch still
+    // starting keeps its seed. Never supersede here: `unavailable`/`held` leave
+    // the row armed for the sweep's 60 s fallback.
+    // The upsert above clears `read_at`/`superseded_at`, so the oldest unread row
+    // always exists; it is THIS row only when no older unread row is waiting.
+    const pointerRow = nextUnreadDelivery(host.store, input.ticketId)!;
+    if (
+      host.isIdle(input.ticketId) &&
+      !hasPendingFixIntent(host.store, row.launchId) &&
+      pointerRow.id === row.id
+    ) {
+      const sent = sendTypedPointer(host, row, 'first');
+      if (sent === 'pointer-null') failPointer(host, row);
+      else host.debug(`[driver] fix delivery ${formatFixBriefNumber(id)}: idle push session for ticket ${input.ticketId}, immediate pointer ${sent}`);
+    }
     return true;
   }
   // Typed route: never type into a running turn — the sweep (rule 0) sends the

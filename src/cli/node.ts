@@ -161,11 +161,13 @@ type NodeRunRow = Pick<
   'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status' | 'generation' | 'capability_hash'
 >;
 
-/** The pinned node definition from the active revision, or undefined. */
+/** The pinned node definition from the node run's own revision, or undefined.
+ *  The revision is `active`, or `draining`: a node that is live when a replan
+ *  election drains its revision still reports its outcome. */
 function pinnedNode(store: Store, nodeRun: NodeRunRow): ApproachNode | undefined {
   const revision = store.db
     .prepare(
-      'SELECT canonical_graph FROM approach_graph_revisions WHERE id = ? AND status = \'active\'',
+      "SELECT canonical_graph FROM approach_graph_revisions WHERE id = ? AND status IN ('active', 'draining')",
     )
     .get(nodeRun.revision_id) as { canonical_graph: string } | undefined;
   if (!revision) return undefined;
@@ -338,7 +340,7 @@ export function runNodeCommand(
     parsed.verb === 'replan' && hasQualifyingPrecondition(store, nodeRun.id);
   const reason =
     parsed.verb === 'replan' && !replanHonored
-      ? sanitizeEvidence(`replan requested without an observable precondition; treated as blocked${parsed.reason ? `: ${parsed.reason}` : ''}`)
+      ? sanitizeEvidence(`replan requested without an observable precondition; treated as blocked (the host checks the workspace of the node against its declared write claims)${parsed.reason ? `: ${parsed.reason}` : ''}`)
       : parsed.reason;
   if (parsed.verb === 'replan' && !replanHonored) outcome = 'blocked';
 

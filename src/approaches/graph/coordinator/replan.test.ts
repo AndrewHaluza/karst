@@ -459,6 +459,97 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
     expect(reasons.claimViolations).toEqual([]);
   });
 
+  describe('preservedWork (T1323)', () => {
+    interface PreservedRow {
+      node: string;
+      patchPath: string;
+      paths: string[];
+    }
+
+    /** Begin the planner run and read `preservedWork` from its reasons file. */
+    function preservedOf(ctx: Ctx, overrides: Partial<ReplanLaunchDeps>): PreservedRow[] {
+      const writes: { relativePath: string; bytes: Uint8Array }[] = [];
+      const result = beginReplanPlannerRun(
+        launchDeps(ctx, {
+          ...overrides,
+          writeSnapshot: (_g, relativePath, bytes) => {
+            writes.push({ relativePath, bytes });
+          },
+        }),
+        { graphRunId: ctx.graphRunId },
+      );
+      expect(result.ok).toBe(true);
+      const write = writes.find((w) => w.relativePath.startsWith('reasons/'));
+      return (JSON.parse(new TextDecoder().decode(write!.bytes)) as { preservedWork: PreservedRow[] }).preservedWork;
+    }
+
+    it('names the node, the patch and the paths of a cancelled node', () => {
+      const ctx = electedCtx();
+      nodeRun(ctx, 91, 'writer', 'cancelled');
+      const asked: number[] = [];
+      const rows = preservedOf(ctx, {
+        preservedWorkOf: (graphRunId) => {
+          asked.push(graphRunId);
+          return [{ nodeRunId: 91, patchPath: 'preserved/91/api.patch', paths: ['b.ts'] }];
+        },
+      });
+      expect(asked).toEqual([ctx.graphRunId]);
+      expect(rows).toEqual([{ node: 'writer', patchPath: 'preserved/91/api.patch', paths: ['b.ts'] }]);
+    });
+
+    it('leaves out a completed node, an unknown node run and a node run of another revision', () => {
+      const ctx = electedCtx();
+      nodeRun(ctx, 91, 'writer', 'cancelled');
+      nodeRun(ctx, 92, 'done', 'completed');
+      nodeRun(ctx, 93, 'old', 'cancelled');
+      const other = Number(
+        ctx.db
+          .prepare(
+            `INSERT INTO approach_graph_revisions
+               (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+             VALUES (?, 99, '{}', 'fp-old', 'superseded', ?)`,
+          )
+          .run(ctx.graphRunId, ctx.now).lastInsertRowid,
+      );
+      ctx.db.prepare('UPDATE approach_node_runs SET revision_id = ? WHERE id = 93').run(other);
+      const rows = preservedOf(ctx, {
+        preservedWorkOf: () =>
+          [91, 92, 93, 999].map((nodeRunId) => ({
+            nodeRunId,
+            patchPath: `preserved/${nodeRunId}/api.patch`,
+            paths: [],
+          })),
+      });
+      expect(rows.map((r) => r.node)).toEqual(['writer']);
+    });
+
+    it('bounds the entries to 10 and the paths of an entry to 20', () => {
+      const ctx = electedCtx();
+      const ids = Array.from({ length: 12 }, (_, i) => 100 + i);
+      for (const id of ids) nodeRun(ctx, id, `n${id}`, 'cancelled');
+      const paths = Array.from({ length: 25 }, (_, i) => `f${i}.ts`);
+      const rows = preservedOf(ctx, {
+        preservedWorkOf: () =>
+          ids.map((nodeRunId) => ({ nodeRunId, patchPath: `preserved/${nodeRunId}/api.patch`, paths })),
+      });
+      expect(rows.map((r) => r.node)).toEqual(ids.slice(0, 10).map((id) => `n${id}`));
+      expect(rows[0]!.paths).toEqual(paths.slice(0, 20));
+    });
+
+    it('writes an empty list without the dependency, and when the read throws', () => {
+      expect(preservedOf(electedCtx(), {})).toEqual([]);
+      const logs: string[] = [];
+      const rows = preservedOf(electedCtx(), {
+        debug: (message) => logs.push(message),
+        preservedWorkOf: () => {
+          throw new Error('disk gone');
+        },
+      });
+      expect(rows).toEqual([]);
+      expect(logs.some((l) => l.includes('disk gone'))).toBe(true);
+    });
+  });
+
   it('allocates exactly one replan planner run with the next counter once the drain quiesces', () => {
     const ctx = electedCtx();
     const deps = launchDeps(ctx);
@@ -612,6 +703,45 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
       .get() as { n: number };
     expect(replanRuns.n).toBe(0);
   });
+
+  it('waits for a live node to complete, then allocates the planner', () => {
+    const ctx = electedCtx();
+    nodeRun(ctx, 52, 'a', 'running');
+    const begin = (): ReturnType<typeof beginReplanPlannerRun> =>
+      beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    for (const status of ['running', 'completing', 'integrating']) {
+      ctx.db.prepare('UPDATE approach_node_runs SET status = ? WHERE id = 52').run(status);
+      expect(begin(), status).toEqual({ ok: false, reason: 'not-quiescent' });
+    }
+    ctx.db
+      .prepare("UPDATE approach_node_runs SET status = 'completed', outcome = 'complete' WHERE id = 52")
+      .run();
+    expect(begin().ok).toBe(true);
+  });
+
+  it.each(['output-artifact-missing', 'artifact-unsafe'])(
+    'does not wait on a node parked %s (termination is proven before the park)',
+    (status) => {
+      const ctx = electedCtx();
+      nodeRun(ctx, 53, 'a', status);
+      ctx.db
+        .prepare("UPDATE approach_node_runs SET outcome = 'complete', failure_category = ? WHERE id = 53")
+        .run(status);
+      expect(beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId }).ok).toBe(true);
+    },
+  );
+
+  it.each(['termination-unknown', 'launch-unknown', 'failed-to-launch', 'stale'])(
+    'still waits on a node in status %s',
+    (status) => {
+      const ctx = electedCtx();
+      nodeRun(ctx, 54, 'a', status);
+      expect(beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId })).toEqual({
+        ok: false,
+        reason: 'not-quiescent',
+      });
+    },
+  );
 
   it('is a no-op once the run has left draining (a concurrent replan landed N+1)', () => {
     const ctx = electedCtx();

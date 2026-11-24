@@ -5,6 +5,7 @@
 // TICKET'S BREAK. Pure functions only; scripts/vitestGate.mjs does the git work.
 
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 
 const DEP_FILES = new Set(['package.json', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml']);
 
@@ -29,6 +30,15 @@ export function failingTestIds(output) {
 export const ranTests = (output) => /^\s*Test Files\s.*\b(?:passed|failed)\b/m.test(output.replace(ANSI, ''));
 
 /**
+ * Whether vitest reported an unhandled rejection/error (its own section, or the
+ * `Errors N error(s)` count), which makes the printed ids an incomplete account.
+ */
+export function hasUnhandledError(output) {
+  const text = output.replace(ANSI, '');
+  return /^\s*(?:Unhandled )?Errors?\s+\d+/m.test(text) || /Unhandled (?:Rejection|Error)/.test(text);
+}
+
+/**
  * Whether the parsed ids cover EVERY failure vitest reported (summary counts, no
  * file-level or unhandled errors). If not, a drift verdict on the ids must not pass the gate.
  */
@@ -41,7 +51,7 @@ export function allFailuresParsed(output, ids) {
   const tests = count('Tests');
   const files = count('Test Files');
   if (tests === null || files === null) return false;
-  if (/^\s*(?:Unhandled )?Errors?\s+\d+/m.test(text) || /Unhandled (?:Rejection|Error)/.test(text)) return false;
+  if (hasUnhandledError(text)) return false;
   return tests === ids.length && files <= new Set(ids.map(fileOfId)).size;
 }
 
@@ -104,15 +114,15 @@ export function planFlakeRerun(ids, cap = FLAKE_FILE_CAP) {
 }
 
 /**
- * Split the ids by the alone re-runs. `alone` maps file -> { status, failed: Set of ids that failed again }.
- * A file that passed alone (status 0) is flaky; otherwise its ids that fail again (all of them when none parse) are breaks.
+ * Split the ids by the alone re-runs. `alone` maps file -> { status, failed: Set of ids that failed again, unhandled? }.
+ * A file that passed alone (status 0, no unhandled error) is flaky; otherwise its ids that fail again (all of them when none parse) are breaks.
  */
 export function classifyRerun(ids, alone) {
   const flaky = [];
   const breaks = [];
   for (const id of ids) {
     const r = alone.get(fileOfId(id));
-    const again = r && r.status !== 0 && (r.failed.size === 0 || r.failed.has(id));
+    const again = r && (r.unhandled || (r.status !== 0 && (r.failed.size === 0 || r.failed.has(id))));
     (again || !r ? breaks : flaky).push(id);
   }
   return { flaky, breaks };
@@ -120,6 +130,102 @@ export function classifyRerun(ids, alone) {
 
 /** The one-line flake notice. */
 export const flakeNotice = (ids) => `NOTICE: flaky: ${ids.join('; ')} (passed when re-run alone)`;
+
+/** A path vitest can re-run as a test file: a test/spec module outside node_modules and the node core. */
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const isTestFile = (path) => !path.startsWith('node:') && !path.includes('node_modules/') && TEST_FILE.test(path);
+
+/** Strip `file://`, make an absolute path inside `cwd` relative to it, and a leading `./`. */
+function normalizeFile(path, cwd) {
+  let out = path.replace(/^file:\/\//, '');
+  if (cwd !== null && out.startsWith('/')) {
+    const root = resolve(cwd);
+    if (out.startsWith(`${root}/`)) out = out.slice(root.length + 1);
+  }
+  return out.replace(/^\.\//, '');
+}
+
+const FAIL_HEAD = /^\s*FAIL\b/;
+const TEST_FILES_HEAD = /^\s*Test Files\s/;
+const UNHANDLED_ENTER = /Unhandled (?:Rejection|Errors?)/i;
+const SECTION_DIVIDER = /⎯{3,}.*(?:Failed Tests|Failed Suites)/i;
+const FRAME = /^\s*(?:at|❯)\s+(.*)$/;
+const PAREN_PATH = /\(([^()]+?):\d+(?::\d+)?\)/;
+// A bare frame is `path:line[:col]` or Vitest's named form `name path:line[:col]`
+// (`❯ leak scripts/a.test.mjs:3:18`): take the test-file path token, never the name.
+const BARE_PATH = /(?:^|\s)(\S*\.(?:test|spec)\.[cm]?[jt]sx?):\d+(?::\d+)?$/;
+
+/**
+ * The test files a failed vitest run names: the file of every FAIL/× line, plus
+ * the test-file stack frames of an unhandled-error section. Deduped, first seen first.
+ * Used when the ids are not all parseable, so the flake re-run still gets a target.
+ */
+export function failingFilesFromOutput(output, cwd = null) {
+  const files = [];
+  const push = (path) => {
+    const file = normalizeFile(path.trim(), cwd);
+    if (isTestFile(file) && !files.includes(file)) files.push(file);
+  };
+  let inUnhandled = false;
+  for (const raw of output.replace(ANSI, '').split(/\r?\n/)) {
+    if (FAIL_HEAD.test(raw) || TEST_FILES_HEAD.test(raw) || SECTION_DIVIDER.test(raw)) inUnhandled = false;
+    const m = FAIL_LINE.exec(raw.trim());
+    if (m) {
+      // `file > suite > test` names its file; a file-level line names it first (`FAIL  src/c.test.ts [ … ]`).
+      if (m[1].includes(' > ')) push(fileOfId(m[1]));
+      else push(m[1].replace(/^\|[^|]*\|\s*/, '').split(/\s+/)[0] ?? '');
+      continue;
+    }
+    if (UNHANDLED_ENTER.test(raw)) {
+      inUnhandled = true;
+      continue;
+    }
+    if (!inUnhandled) continue;
+    const frame = FRAME.exec(raw);
+    if (frame === null) continue;
+    const paren = PAREN_PATH.exec(frame[1]);
+    const path = paren ? paren[1] : BARE_PATH.exec(frame[1])?.[1];
+    if (path !== undefined) push(path);
+  }
+  return files;
+}
+
+/**
+ * The unparseable-output flake re-run plan: the files named in the output, one
+ * alone re-run each. A skip carries its printed reason. Never on GitHub Actions,
+ * never when a reported failing file could not be read, never above the cap.
+ */
+export function planUnparseableFlakeRerun(output, { env = {}, cap = FLAKE_FILE_CAP, cwd = null } = {}) {
+  if (env.GITHUB_ACTIONS === 'true') return { kind: 'skip', reason: 'flake re-run skipped: GitHub Actions never excuses a failure' };
+  // A run with no Test Files summary aborted before it could account for its files, so a
+  // partial read is not the full failing set and must never be excused as flaky.
+  if (!ranTests(output)) return { kind: 'skip', reason: 'flake re-run skipped: no Test Files summary, so the run did not finish' };
+  const files = failingFilesFromOutput(output, cwd);
+  if (files.length === 0) return { kind: 'skip', reason: 'flake re-run skipped: no failing test files' };
+  const reported = /^\s*Test Files\s+(?:(\d+) failed)?/m.exec(output.replace(ANSI, ''));
+  const failed = reported ? Number(reported[1] ?? 0) : null;
+  if (failed !== null && files.length < failed) {
+    return { kind: 'skip', reason: `flake re-run skipped: only ${files.length} of ${failed} failed test files could be read` };
+  }
+  if (files.length > cap) return { kind: 'skip', reason: `flake re-run skipped: ${files.length} files fail (cap ${cap}), a real break` };
+  return { kind: 'run', files };
+}
+
+/** Whether an alone re-run is clean: exit 0, ran the suites, no failed test, no unhandled error. */
+export function isCleanRerun({ status, out, hung = false, signaled = false }) {
+  return status === 0 && !hung && !signaled && ranTests(out) && failingTestIds(out).length === 0 && allFailuresParsed(out, []);
+}
+
+/** Split failing FILES by their alone re-runs: a clean re-run is flaky, everything else is a break. */
+export function classifyFileRerun(files, alone) {
+  const flaky = [];
+  const breaks = [];
+  for (const file of files) {
+    const r = alone.get(file);
+    (r && isCleanRerun(r) ? flaky : breaks).push(file);
+  }
+  return { flaky, breaks };
+}
 
 /** Most entries in the slowest-tests summary. */
 export const SLOWEST_CAP = 5;

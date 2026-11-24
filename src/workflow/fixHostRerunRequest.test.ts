@@ -112,18 +112,20 @@ describe('host re-run request from a refused CLI fix marker', () => {
       });
     });
 
-    it('parks the fix stage with the gate names and summaries when a gate is still red', async () => {
+    it('opens the next round when a gate is still red, and does not re-run it on the next tick', async () => {
       roundId = openRound('gate-failure');
       requestHostRerun(store, ticketId, AT);
-      const outcomes = await runRequestedHostReruns(store, PROJECT, {
-        runGates: async (_id: number, gs: readonly FailedGate[]) => gs.map(() => ({ exitCode: 1, summary: 'ENOTEMPTY' })),
-        now: () => '2026-01-02T00:00:00Z',
-      });
-      expect(outcomes.map((o) => o.kind)).toEqual(['failed']);
-      expect(activeFixRound(store, ticketId)).toBeNull();
+      const runGates = async (_id: number, gs: readonly FailedGate[]) => gs.map(() => ({ exitCode: 1, summary: 'ENOTEMPTY' }));
+      const outcomes = await runRequestedHostReruns(store, PROJECT, { runGates, now: () => '2026-01-02T00:00:00Z' });
+      expect(outcomes.map((o) => o.kind)).toEqual(['next-round']);
+      expect(activeFixRound(store, ticketId)?.round).toBe(2);
       const row = store.db.prepare('SELECT status, end_reason FROM recovery_rounds WHERE id = ?').get(roundId) as Record<string, string>;
-      expect(row.status).toBe('interrupted');
-      expect(row.end_reason).toMatch(/unit \(web\): ENOTEMPTY/);
+      expect(row.status).toBe('failed');
+      expect(row.end_reason).toMatch(/gates still fail:.*unit \(web\): ENOTEMPTY/);
+      // The new round has no request of its own, so the next tick does not gate it.
+      let calls = 0;
+      await runRequestedHostReruns(store, PROJECT, { runGates: async (_id, gs) => (calls++, gs.map(() => ({ exitCode: 0, summary: null }))), now: () => '2026-01-02T00:01:00Z' });
+      expect(calls).toBe(0);
     });
 
     it('ignores a requested round of another project', async () => {

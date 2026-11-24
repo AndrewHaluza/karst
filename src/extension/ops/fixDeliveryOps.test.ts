@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setStageCurrent } from '../../store/tickets.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
-import { getFixDelivery, currentConflictDelivery, currentFixDelivery, claimArmed, claimPointerFailed, claimRead, upsertFixDelivery } from '../../store/fixDeliveries.js';
+import { getFixDelivery, currentConflictDelivery, currentFixDelivery, claimArmed, claimPointed, claimPointerFailed, claimRead, upsertFixDelivery } from '../../store/fixDeliveries.js';
 import { recordSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
 import { closeStaleDeliveries, ackFixDeliveryRef, deliverLiveFix, eligibleFixDelivery, failPointer, sendTypedPointer } from './fixDeliveryOps.js';
 import { makeHarness, type Harness } from '../../store/fixtures/fixDeliveryHarness.js';
@@ -92,6 +92,103 @@ describe('fixDeliveryOps', () => {
       expect(currentFixDelivery(h.store, h.ticketId)!.launchId).toBeNull();
     });
 
+    it('push route, idle: arms and types the pointer in the same call', () => {
+      h.state.idle = true;
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const row = currentFixDelivery(h.store, h.ticketId)!;
+      expect(row.armedAt).not.toBeNull();
+      expect(row.enqueuedAt).not.toBeNull();
+      expect(row.pointedAt).toBeNull();
+      expect(h.sent).toHaveLength(1);
+      expect(h.sent[0]!.deliveryId).toBe(row.id);
+      const lines = vi.mocked(h.host.debug).mock.calls.map((c) => String(c[0]));
+      expect(
+        lines.some(
+          (l) =>
+            l.includes(`fix delivery #${row.id}`) &&
+            l.includes(`ticket ${h.ticketId}`) &&
+            l.includes('idle push session') &&
+            l.includes('immediate pointer queued'),
+        ),
+      ).toBe(true);
+      h.sent[0]!.hooks.onTyped!();
+      expect(getFixDelivery(h.store, row.id)!.pointedAt).not.toBeNull();
+    });
+
+    it('push route, running: arms only, nothing typed', () => {
+      h.state.running = true;
+      h.state.idle = false;
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const row = currentFixDelivery(h.store, h.ticketId)!;
+      expect(row.armedAt).not.toBeNull();
+      expect(row.enqueuedAt).toBeNull();
+      expect(h.sent).toEqual([]);
+    });
+
+    it.each(['waiting', 'none', 'not-started'] as const)('push route, %s (not running, not idle): arms only', () => {
+      h.state.running = false;
+      h.state.idle = false;
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const row = currentFixDelivery(h.store, h.ticketId)!;
+      expect(row.armedAt).not.toBeNull();
+      expect(row.enqueuedAt).toBeNull();
+      expect(h.sent).toEqual([]);
+    });
+
+    it('push route, idle but the fix launch intent is still pending: arms only', () => {
+      h.state.idle = true;
+      recordSessionLaunchIntent(h.store, {
+        ticketId: h.ticketId,
+        launchId: 'L1',
+        purpose: 'fix',
+        provider: 'claude',
+        reason: 'fix',
+        sessionOrigin: 'new',
+        recoveryRoundId: h.openRound(),
+        at: '2026-01-01T00:00:00Z',
+      } as never);
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const row = currentFixDelivery(h.store, h.ticketId)!;
+      expect(row.armedAt).not.toBeNull();
+      expect(row.enqueuedAt).toBeNull();
+      expect(h.sent).toEqual([]);
+    });
+
+    it('push route, idle but an OLDER unread row waits for the pointer: arms only', () => {
+      const older = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'C', at: h.host.now(), kind: 'conflict', repo: 'api' });
+      claimArmed(h.store, older, h.host.now());
+      h.state.idle = true;
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const row = currentFixDelivery(h.store, h.ticketId)!;
+      expect(row.id).not.toBe(older);
+      expect(row.armedAt).not.toBeNull();
+      expect(row.enqueuedAt).toBeNull();
+      expect(h.sent).toEqual([]);
+    });
+
+    it.each(['unavailable', 'held'] as const)('push route, idle, the send is %s: the row stays armed, never superseded', (result) => {
+      h.state.idle = true;
+      h.state.sendResult = result;
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const row = currentFixDelivery(h.store, h.ticketId)!;
+      expect(row.armedAt).not.toBeNull();
+      expect(row.supersededAt).toBeNull();
+      expect(row.enqueuedAt).toBeNull();
+      expect(row.pointerFailedAt).toBeNull();
+      const lines = vi.mocked(h.host.debug).mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => l.includes('idle push session') && l.includes(`immediate pointer ${result}`))).toBe(true);
+    });
+
+    it('push route, idle, the pointer cannot be built: fails the pointer once', () => {
+      h.state.idle = true;
+      h.state.sendResult = 'pointer-null';
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const row = currentFixDelivery(h.store, h.ticketId)!;
+      expect(row.pointerFailedAt).not.toBeNull();
+      expect(row.enqueuedAt).toBeNull();
+      expect(h.needsYou).toHaveLength(1);
+    });
+
     it('typed route, idle: claims enqueued and types the pointer; typing claims pointed', () => {
       h.state.route = 'typed';
       expect(deliverLiveFix(h.host, input())).toBe(true);
@@ -102,6 +199,34 @@ describe('fixDeliveryOps', () => {
       expect(row.pointedAt).toBeNull();
       h.sent[0]!.hooks.onTyped!();
       expect(getFixDelivery(h.store, row.id)!.pointedAt).not.toBeNull();
+    });
+
+    it('typed route, idle agent_state: unchanged (the typed route does not consult it)', () => {
+      h.state.route = 'typed';
+      h.state.idle = true;
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      const row = currentFixDelivery(h.store, h.ticketId)!;
+      expect(row.armedAt).toBeNull();
+      expect(row.enqueuedAt).not.toBeNull();
+      expect(h.sent).toHaveLength(1);
+    });
+
+    it('typed route, idle agent_state but running: still held for the sweep', () => {
+      h.state.route = 'typed';
+      h.state.idle = true;
+      h.state.running = true;
+      expect(deliverLiveFix(h.host, input())).toBe(true);
+      expect(h.sent).toEqual([]);
+      expect(currentFixDelivery(h.store, h.ticketId)!.enqueuedAt).toBeNull();
+    });
+
+    it('a conflict row on a push route, idle: typed at arm like a fix row', () => {
+      h.state.idle = true;
+      expect(deliverLiveFix(h.host, input({ kind: 'conflict', repo: 'api', body: 'C' }))).toBe(true);
+      const row = currentConflictDelivery(h.store, h.ticketId, 'api')!;
+      expect(row.armedAt).not.toBeNull();
+      expect(row.enqueuedAt).not.toBeNull();
+      expect(h.sent).toHaveLength(1);
     });
 
     it('typed route: a dropped line frees the in-flight claim', () => {
@@ -251,6 +376,21 @@ describe('fixDeliveryOps', () => {
       expect(getFixDelivery(h.store, id)!.repointedAt).not.toBeNull();
       h.sent[0]!.hooks.onDropped!();
       expect(getFixDelivery(h.store, id)!.enqueuedAt).toBeNull();
+    });
+
+    it('after the immediate idle send, no hook pointer is eligible', () => {
+      h.state.idle = true;
+      deliverLiveFix(h.host, input());
+      expect(h.sent).toHaveLength(1);
+      expect(eligibleFixDelivery(h.host, h.ticketId)).toBeNull();
+    });
+
+    it('a hook that pointed first makes the first typed send race: never a second pointer', () => {
+      const id = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'b', at: 'a' });
+      claimArmed(h.store, id, 'a');
+      claimPointed(h.store, id, 'a');
+      expect(sendTypedPointer(h.host, getFixDelivery(h.store, id)!, 'first')).toBe('raced');
+      expect(h.sent).toEqual([]);
     });
   });
 

@@ -223,6 +223,33 @@ describe('fixDeliverySweep', () => {
     });
   });
 
+  describe('immediate send to an idle push session (T1335)', () => {
+    it('types at arm, and the 60 s armed fallback never sends a second pointer', () => {
+      h.state.idle = true;
+      const id = deliver();
+      expect(h.sent).toHaveLength(1);
+      expect(row(id).enqueuedAt).not.toBeNull();
+      h.advance(ARMED_FIX_TIMEOUT_MS + 1);
+      sweep();
+      expect(h.sent).toHaveLength(1);
+    });
+
+    it('a dropped immediate line leaves the row armed and rule 3 retries at 60 s', () => {
+      h.state.idle = true;
+      const id = deliver();
+      expect(h.sent).toHaveLength(1);
+      h.sent[0]!.hooks.onDropped!();
+      expect(row(id).enqueuedAt).toBeNull();
+      expect(row(id).armedAt).not.toBeNull();
+      h.advance(ARMED_FIX_TIMEOUT_MS - 1);
+      sweep();
+      expect(h.sent).toHaveLength(1);
+      h.advance(1);
+      sweep();
+      expect(h.sent).toHaveLength(2);
+    });
+  });
+
   describe('rule 3: armed fallback (idle push-route agent)', () => {
     it('types one pointer after 60 s, never before', () => {
       const id = deliver();
@@ -234,6 +261,27 @@ describe('fixDeliverySweep', () => {
       expect(h.sent).toHaveLength(1);
       expect(row(id).enqueuedAt).not.toBeNull();
       sweep();
+      expect(h.sent).toHaveLength(1);
+    });
+
+    it('does not type after a 2-hour host sleep, and does once the awake time is spent (T1326)', () => {
+      const slept = 2 * 60 * 60_000;
+      const awakeAfterSleeping = (sinceMs: number, nowMs: number): number =>
+        Math.max(0, nowMs - sinceMs - slept);
+      const sweepWithSleep = (): void =>
+        makeFixDeliverySweep({
+          ...h.host,
+          projectId: () => h.projectId,
+          awakeElapsedMs: awakeAfterSleeping,
+        }).sweep();
+
+      deliver();
+      h.advance(slept + ARMED_FIX_TIMEOUT_MS - 1);
+      sweepWithSleep();
+      expect(h.sent).toEqual([]);
+
+      h.advance(1);
+      sweepWithSleep();
       expect(h.sent).toHaveLength(1);
     });
 

@@ -14,9 +14,11 @@
  *   3. a later replan request while draining is the requesting node's own
  *      bounded row (the CLI records `outcome:'replan'` plus a bounded reason)
  *      — existing evidence, no second planner.
- *   4. `completeActivation` still consumes the claimed token and records the
- *      node's evidence but suppresses ALL successor creation while the
- *      revision is draining (completion.ts).
+ *   4. a node that is live at the election completes in the drain: the CLI
+ *      accepts its report and the completion pipeline integrates its work.
+ *      `completeActivation` consumes the claimed token and records the node's
+ *      evidence but suppresses ALL successor creation while the run is
+ *      draining (completion.ts), so N+1 is planned on top of that work.
  *   5. `beginReplanPlannerRun` cancels the draining revision's pending (and
  *      stale claimed) activations once the drain quiesces — no active node
  *      run, no ambiguous lease. Held leases do NOT block quiescence: they are
@@ -84,6 +86,7 @@ import {
   countNodeRunsInStatusesExcludingOutcome,
   nodeRunChangeSetIdsForGraphRun,
   nodeRunFailuresForGraphRun,
+  nodeRunsForGraphRun,
   nodeRunsInStatusesForRevision,
   replanNodeRunReasons,
   claimViolationNodeRuns,
@@ -93,6 +96,7 @@ import { cancelGraphToken, insertEntryTokens } from '../../../store/graph/tokens
 import { nextPlannerIdentity, sha256Hex } from './plannerRun.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
 import { cancelNodeRuns } from './abandonedNodes.js';
+import type { PreservedNodeWork } from '../workspace/preserve.js';
 import { parseGraphDocument, type GraphDocument } from '../parse.js';
 import type { CompileResult } from '../compile.js';
 
@@ -106,6 +110,9 @@ const MAX_CONFLICT_ROWS = 20;
 const MAX_SECONDARY_REASONS = 20;
 /** The most claim-violation evidence rows the reasons file carries. */
 const MAX_CLAIM_VIOLATIONS = 10;
+/** The most preserved patches the reasons file names, and paths per patch. */
+const MAX_PRESERVED_WORK = 10;
+const MAX_PRESERVED_PATHS = 20;
 const MAX_DEFERRED_IDS = 20;
 const MAX_RATIONALE_CHARS = 2000;
 
@@ -236,6 +243,48 @@ export interface ReplanLaunchDeps extends ReplanDeps {
   promptPath: string;
   /** The packaged ticket context the replanner is seeded with (host-built). */
   ticketContext: string;
+  /** The preserved patches of a graph run's node runs (T1323). Synchronous: the
+   *  planner allocation is one transaction. Absent → no preserved work. */
+  preservedWorkOf?: (graphRunId: number) => readonly PreservedNodeWork[];
+}
+
+/** One preserved patch in the reasons file. `patchPath` is relative to the
+ *  artifact root. */
+interface PreservedWorkReason {
+  node: string;
+  patchPath: string;
+  paths: string[];
+}
+
+/** The preserved patches of the draining revision's node runs. A `completed`
+ *  node run is left out: its work is integrated. An unreadable listing is
+ *  logged and gives no entry: it must not stop the planner. */
+function preservedWorkReasons(
+  deps: ReplanLaunchDeps,
+  graphRunId: number,
+  revisionId: number,
+): PreservedWorkReason[] {
+  if (!deps.preservedWorkOf) return [];
+  let entries: readonly PreservedNodeWork[];
+  try {
+    entries = deps.preservedWorkOf(graphRunId);
+  } catch (error) {
+    deps.debug?.(`[graph] replan begin: the preserved work of run ${graphRunId} is unreadable: ${String(error)}`);
+    return [];
+  }
+  const nodeIds = new Map(
+    nodeRunsForGraphRun(deps.db, graphRunId)
+      .filter((row) => row.revision_id === revisionId && row.status !== 'completed')
+      .map((row) => [row.id, row.node_id]),
+  );
+  return entries
+    .flatMap((entry) => {
+      const node = nodeIds.get(entry.nodeRunId);
+      return node === undefined
+        ? []
+        : [{ node, patchPath: entry.patchPath, paths: entry.paths.slice(0, MAX_PRESERVED_PATHS) }];
+    })
+    .slice(0, MAX_PRESERVED_WORK);
 }
 
 /** Step 7's launch REQUEST — the durable, bounded facts a replanner needs.
@@ -267,7 +316,9 @@ export type BeginReplanResult =
     };
 
 /** Blocked-node failure categories that prove no live process remains:
- *  - `resource-claim-violated` — the violation IS the replan's evidence;
+ *  - `resource-claim-violated` — the violation IS the replan's evidence. Two
+ *    writers: the completion pipeline and `integration/claimEvidence.ts`. Both
+ *    write it only after termination is proven;
  *  - `integration-conflict` — written only after termination is proven;
  *  - `graph-budget-exhausted` — legacy rows a budget refusal clobbered. */
 const DEAD_BLOCKED_CATEGORIES: readonly string[] = [
@@ -276,8 +327,19 @@ const DEAD_BLOCKED_CATEGORIES: readonly string[] = [
   'integration-conflict',
 ];
 
-/** The drain's active-work quiescence: no non-terminal node run and no held
- *  ambiguous-process lease. Held (`held`) leases are deliberately NOT a block
+/** Active statuses that prove no live process remains: the completion pipeline
+ *  writes both only after termination is proven. They do not hold a replan
+ *  drain (the replan submit cancels these rows), but they do hold END
+ *  quiescence, so `ACTIVE_NODE_STATUSES` keeps them. */
+const DEAD_NODE_STATUSES: readonly string[] = ['output-artifact-missing', 'artifact-unsafe'];
+
+/** The node statuses that hold a replan drain open. */
+const DRAIN_HOLDING_STATUSES: readonly string[] = ACTIVE_NODE_STATUSES.filter(
+  (status) => !DEAD_NODE_STATUSES.includes(status),
+);
+
+/** The drain's active-work quiescence: no node run that can still have a live
+ *  process or unsettled work, and no held ambiguous-process lease. Held (`held`) leases are deliberately NOT a block
  *  — they are the deferral source: N+1 validates against them and schedules
  *  conflicting nodes later. A `termination-unknown` holder stays in
  *  `ACTIVE_NODE_STATUSES`, so its never-releasing lease keeps the drain
@@ -291,8 +353,9 @@ function replanQuiescenceBlockedBy(db: GraphDb, graphRunId: number): string | nu
   // or a human Replan defers `not-quiescent` until a background tick cancels
   // it. The replan submit cancels these rows with the superseded revision's
   // work. `failed-to-launch` is NOT dead: the `graph-live-process` park uses it.
+  // A node parked for its output artifacts is dead too (`DEAD_NODE_STATUSES`).
   if (
-    countNodeRunsInStatusesExcludingOutcome(db, graphRunId, ACTIVE_NODE_STATUSES, 'replan', {
+    countNodeRunsInStatusesExcludingOutcome(db, graphRunId, DRAIN_HOLDING_STATUSES, 'replan', {
       blockedCategories: DEAD_BLOCKED_CATEGORIES,
     }) > 0
   ) {
@@ -422,6 +485,9 @@ export function beginReplanPlannerRun(
       claimViolations: claimViolationNodeRuns(db, input.graphRunId, MAX_CLAIM_VIOLATIONS).map(
         (r) => ({ node: r.node_id, evidence: r.reason }),
       ),
+      // T1323: work that was cut off before it was integrated, kept as a patch
+      // the next plan can use as a start.
+      preservedWork: preservedWorkReasons(deps, input.graphRunId, revision.id),
     };
     const reasonsBytes = new TextEncoder().encode(JSON.stringify(reasonsDoc));
     const reasonsSnapshotPath = `reasons/${sha256Hex(reasonsBytes)}.json`;

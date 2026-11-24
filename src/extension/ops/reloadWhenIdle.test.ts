@@ -69,6 +69,64 @@ describe('reloadWhenIdle', () => {
     expect(drain.isDraining()).toBe(false);
     expect(onCancelled).toHaveBeenCalledWith([]);
   });
+
+  it('treats a Canceled rejection (name and message) as a reloaded host, keeping the drain set', async () => {
+    const onCancelled = vi.fn();
+    const { d, drain } = deps([0], {
+      onCancelled,
+      reload: async () => {
+        throw Object.assign(new Error('Canceled'), { name: 'Canceled' });
+      },
+    });
+    expect(await reloadWhenIdle(d)).toBe('reloaded');
+    expect(drain.isDraining()).toBe(true);
+    expect(onCancelled).not.toHaveBeenCalled();
+  });
+
+  it('treats a Canceled rejection by message alone as a reloaded host, keeping the drain set', async () => {
+    const onCancelled = vi.fn();
+    const { d, drain } = deps([0], {
+      onCancelled,
+      reload: async () => {
+        throw new Error('Canceled');
+      },
+    });
+    expect(await reloadWhenIdle(d)).toBe('reloaded');
+    expect(drain.isDraining()).toBe(true);
+    expect(onCancelled).not.toHaveBeenCalled();
+  });
+
+  it('treats a Canceled rejection by name alone as a reloaded host and logs it', async () => {
+    const onCancelled = vi.fn();
+    const log = vi.fn();
+    const { d, drain } = deps([0], {
+      onCancelled,
+      log,
+      reload: async () => {
+        throw Object.assign(new Error('closing'), { name: 'Canceled' });
+      },
+    });
+    expect(await reloadWhenIdle(d)).toBe('reloaded');
+    expect(drain.isDraining()).toBe(true);
+    expect(onCancelled).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('reload when idle: reload command canceled — the host is closing');
+  });
+
+  it('a real reload failure still clears the drain and re-drives the held tickets', async () => {
+    const onCancelled = vi.fn();
+    const { d, drain } = deps([1, 0], {
+      onCancelled,
+      sleep: async () => {
+        drain.hold(7);
+      },
+      reload: async () => {
+        throw new Error('boom');
+      },
+    });
+    await expect(reloadWhenIdle(d)).rejects.toThrow('boom');
+    expect(drain.isDraining()).toBe(false);
+    expect(onCancelled).toHaveBeenCalledWith([7]);
+  });
 });
 
 describe('countLiveRuns', () => {

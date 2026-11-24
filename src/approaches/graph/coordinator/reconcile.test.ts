@@ -765,6 +765,200 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(result.transitions).toBe(1); // the node cancellation
   });
 
+  describe('a replan drain whose node has a session in this window', () => {
+    const PID = 4801;
+    const withSession = (nodeRunId: number): Partial<ReconcileGraphRunDeps> => ({
+      sessionFor: (id) => (id === nodeRunId ? { pid: PID } : undefined),
+    });
+    const aliveFacts = makeFacts({ alive: { [PID]: true }, startMs: { [PID]: Date.parse(NOW) } });
+    const deadFacts = makeFacts({ alive: { [PID]: false } });
+    const foreignFacts = makeFacts({ alive: { [PID]: true }, startMs: { [PID]: 1 } });
+    const unknownFacts = makeFacts({ alive: { [PID]: true } });
+
+    /** Reconcile a replan drain that holds one node run. */
+    async function reconcileDrain(
+      id: number,
+      status: string,
+      overrides: Partial<ReconcileGraphRunDeps>,
+      pid: number | null = PID,
+    ): Promise<string> {
+      toDraining(ctx);
+      if (pid !== null) linkProcess(ctx, id, pid, NOW);
+      insertNodeRun(ctx, id, status, { processRunId: pid === null ? null : id });
+      await reconcileGraphRun(ctx.makeDeps(overrides), { graphRunId: ctx.graphRunId });
+      expect(runRow(ctx).status).toBe('draining');
+      return nodeRow(ctx, id).status;
+    }
+
+    // The registry keeps a session until its tab closes, so a `blocked` row is
+    // judged by its recorded process and never by the session.
+    it.each([
+      { name: 'dead', facts: deadFacts, expected: 'cancelled' },
+      { name: 'foreign', facts: foreignFacts, expected: 'cancelled' },
+      { name: 'attributable', facts: aliveFacts, expected: 'blocked' },
+      { name: 'unknown', facts: unknownFacts, expected: 'blocked' },
+    ])('a blocked row whose process is $name ends $expected', async ({ facts, expected }) => {
+      expect(await reconcileDrain(160, 'blocked', { ...withSession(160), facts })).toBe(expected);
+    });
+
+    it('a blocked row with a session and no pid is left alone', async () => {
+      expect(await reconcileDrain(161, 'blocked', withSession(161), null)).toBe('blocked');
+    });
+
+    it('a blocked row with no session and no pid is cancelled', async () => {
+      expect(await reconcileDrain(162, 'blocked', {}, null)).toBe('cancelled');
+    });
+
+    it.each(['running', 'launching', 'failed-to-launch'])(
+      'a %s row with a dead process keeps the session skip',
+      async (status) => {
+        expect(await reconcileDrain(163, status, { ...withSession(163), facts: deadFacts })).toBe(status);
+      },
+    );
+
+    it('a completing row keeps the session skip: it is not handed to the pipeline', async () => {
+      const resumed: number[] = [];
+      const status = await reconcileDrain(164, 'completing', {
+        ...withSession(164),
+        facts: deadFacts,
+        resumePipeline: (id) => resumed.push(id),
+      });
+      expect(status).toBe('completing');
+      expect(resumed).toEqual([]);
+    });
+
+    it('a blocked replan requester is never cancelled, even with a dead process', async () => {
+      toDraining(ctx);
+      linkProcess(ctx, 165, PID, NOW);
+      insertNodeRun(ctx, 165, 'blocked', { processRunId: 165 });
+      ctx.db.prepare("UPDATE approach_node_runs SET outcome = 'replan' WHERE id = 165").run();
+      await reconcileGraphRun(
+        ctx.makeDeps({ ...withSession(165), facts: deadFacts }),
+        { graphRunId: ctx.graphRunId },
+      );
+      expect(nodeRow(ctx, 165).status).toBe('blocked');
+    });
+  });
+
+  describe('a drain cancel preserves the work of the node first (T1323)', () => {
+    /** The two places that cancel: the self-heal of a `running` run and the sweep of a `draining` run. */
+    const sites = [
+      {
+        name: 'the self-heal of a stranded running run',
+        park: () =>
+          void ctx.db
+            .prepare("UPDATE approach_graph_revisions SET status = 'draining' WHERE id = ?")
+            .run(ctx.revisionId),
+      },
+      { name: 'the sweep of a draining run', park: () => toDraining(ctx) },
+    ];
+
+    it.each(sites)('$name: preserveWork runs before the cancel', async ({ park }) => {
+      park();
+      insertNodeRun(ctx, 170, 'running');
+      insertNodeRun(ctx, 171, 'running');
+      const seen: Array<{ id: number; status: string }> = [];
+      await reconcileGraphRun(
+        ctx.makeDeps({
+          preserveWork: async (id) => {
+            await Promise.resolve();
+            seen.push({ id, status: nodeRow(ctx, id).status });
+            return { kind: 'preserved', repos: ['api'] };
+          },
+        }),
+        { graphRunId: ctx.graphRunId },
+      );
+      expect(seen).toEqual([
+        { id: 170, status: 'running' },
+        { id: 171, status: 'running' },
+      ]);
+      expect(nodeRow(ctx, 170).status).toBe('cancelled');
+      expect(nodeRow(ctx, 171).status).toBe('cancelled');
+      expect(runRow(ctx).status).toBe('draining');
+    });
+
+    it.each(sites)('$name: a throw and a failed result are logged and still cancel', async ({ park }) => {
+      park();
+      insertNodeRun(ctx, 172, 'running');
+      insertNodeRun(ctx, 173, 'running');
+      const logs: string[] = [];
+      await reconcileGraphRun(
+        ctx.makeDeps({
+          debug: (message) => logs.push(message),
+          preserveWork: async (id) => {
+            if (id === 172) throw new Error('disk gone');
+            return { kind: 'failed', reason: 'no base head' };
+          },
+        }),
+        { graphRunId: ctx.graphRunId },
+      );
+      expect(nodeRow(ctx, 172).status).toBe('cancelled');
+      expect(nodeRow(ctx, 173).status).toBe('cancelled');
+      expect(logs.some((l) => l.includes('172') && l.includes('disk gone'))).toBe(true);
+      expect(logs.some((l) => l.includes('173') && l.includes('no base head'))).toBe(true);
+    });
+
+    it.each(sites)('$name: a node that changed during the preserve is not cancelled', async ({ park }) => {
+      park();
+      linkProcess(ctx, 4901, 4901, NOW);
+      insertNodeRun(ctx, 174, 'running');
+      insertNodeRun(ctx, 175, 'failed-to-launch');
+      insertNodeRun(ctx, 176, 'blocked');
+      insertNodeRun(ctx, 177, 'running');
+      await reconcileGraphRun(
+        ctx.makeDeps({
+          preserveWork: async (id) => {
+            // Each change lands while the preserve is awaited; the status of the
+            // first and the third row stays the same, so a status CAS misses it.
+            if (id === 174) ctx.db.prepare('UPDATE approach_node_runs SET process_run_id = 4901 WHERE id = 174').run();
+            if (id === 175) ctx.db.prepare("UPDATE approach_node_runs SET status = 'launching' WHERE id = 175").run();
+            if (id === 176) ctx.db.prepare("UPDATE approach_node_runs SET outcome = 'replan' WHERE id = 176").run();
+            return { kind: 'nothing' };
+          },
+        }),
+        { graphRunId: ctx.graphRunId },
+      );
+      expect(nodeRow(ctx, 174).status).toBe('running');
+      expect(nodeRow(ctx, 175).status).toBe('launching');
+      expect(nodeRow(ctx, 176).status).toBe('blocked');
+      expect(nodeRow(ctx, 177).status).toBe('cancelled');
+    });
+
+    it.each(sites)('$name: a node that got a session during the preserve is not cancelled', async ({ park }) => {
+      park();
+      insertNodeRun(ctx, 178, 'running');
+      let live = false;
+      await reconcileGraphRun(
+        ctx.makeDeps({
+          sessionFor: (id) => (live && id === 178 ? { pid: 1 } : undefined),
+          preserveWork: async () => {
+            live = true;
+            return { kind: 'nothing' };
+          },
+        }),
+        { graphRunId: ctx.graphRunId },
+      );
+      expect(nodeRow(ctx, 178).status).toBe('running');
+    });
+
+    it.each(sites)('$name: a replan accepted during the preserve keeps its run and its node', async ({ park }) => {
+      park();
+      insertNodeRun(ctx, 179, 'running');
+      await reconcileGraphRun(
+        ctx.makeDeps({
+          preserveWork: async () => {
+            ctx.db.prepare("UPDATE approach_graph_revisions SET status = 'active' WHERE id = ?").run(ctx.revisionId);
+            ctx.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = ?").run(ctx.graphRunId);
+            return { kind: 'nothing' };
+          },
+        }),
+        { graphRunId: ctx.graphRunId },
+      );
+      expect(runRow(ctx).status).toBe('running');
+      expect(nodeRow(ctx, 179).status).toBe('running');
+    });
+  });
+
   it('refunds the cancelled node’s node-run budget when self-healing', async () => {
     // A cancelled visit produced no outcome, so its reservation must be released
     // — otherwise a near-ceiling graph refuses the replacement work.

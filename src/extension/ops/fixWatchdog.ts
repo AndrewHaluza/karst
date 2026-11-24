@@ -16,7 +16,8 @@ import {
   getSessionLaunchIntent,
   markTicketLaunchIntentsRedelivered,
 } from '../../store/sessionLaunchIntents.js';
-import { selectStrandedStages } from '../../store/strandedStages.js';
+import { selectStrandedStages, STRANDED_STAGE_GRACE_MS } from '../../store/strandedStages.js';
+import { defaultSleepLedger } from '../../runtime/sleepLedger.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { getTicket, setAgentState } from '../../store/tickets.js';
 import { markerStageFor } from '../../agent/markerStage.js';
@@ -41,6 +42,11 @@ export interface FixWatchdogDeps {
   projectId: () => number | null;
   now: () => string;
   log: (message: string) => void;
+  /**
+   * The wall length that holds `windowMs` of awake time (T1326). The host binds the sleep ledger; a
+   * test binds its own. Absent, the default ledger is unstarted and this is plain wall time.
+   */
+  awakeWindowMs?: (windowMs: number, nowMs: number) => number;
   /**
    * Whether a ticket's session terminal is live in THIS window (open, or a
    * revived/adopted handle). The delivery guard only re-sends a brief into a
@@ -171,10 +177,14 @@ export function runFixWatchdog(deps: FixWatchdogDeps): number {
     minAgeMs: DELIVERY_CHECK_MS,
     projectId: deps.projectId(),
   };
-  runDeliveryGuard(deps, opts, timeoutMs);
+  // A host sleep is not progress (T1326): every window below is stretched by the
+  // sleep it holds, so a fix that was only asleep stays inside its window.
+  const awakeWindowMs = deps.awakeWindowMs ?? defaultSleepLedger.awakeWindowMs;
+  const awakeTimeoutMs = awakeWindowMs(timeoutMs, Date.parse(opts.at));
+  runDeliveryGuard(deps, opts, awakeTimeoutMs);
   const stalled = {
     at: opts.at,
-    timeoutMs,
+    timeoutMs: awakeTimeoutMs,
     projectId: opts.projectId,
     debug: deps.log,
   };
@@ -201,7 +211,11 @@ function recoverStrandedStages(deps: FixWatchdogDeps, opts: DeliveryCheckOpts): 
   // The driver is not wired yet (activation tick): wait for a later tick.
   if (deps.redriveReady?.() === false) return 0;
   let handled = 0;
-  for (const s of selectStrandedStages(deps.store, { at: opts.at, projectId: opts.projectId })) {
+  const graceMs = (deps.awakeWindowMs ?? defaultSleepLedger.awakeWindowMs)(
+    STRANDED_STAGE_GRACE_MS,
+    Date.parse(opts.at),
+  );
+  for (const s of selectStrandedStages(deps.store, { at: opts.at, projectId: opts.projectId, graceMs })) {
     const key = `${s.ticketId}:${s.stageKey}:${s.attempt}`;
     try {
       if (!redriven.has(key)) {

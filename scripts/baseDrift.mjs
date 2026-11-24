@@ -9,7 +9,7 @@
 
 import { isAbsolute, relative } from 'node:path';
 
-/** Most screenshots re-run at the base; above it the base is judged drifted wholesale. */
+/** Most screenshots re-run at the base; above it the base is not checked (a ticket failure). */
 export const BASE_RERUN_CAP = 40;
 
 function* specsOf(node, project) {
@@ -112,7 +112,7 @@ export function planBaseCheck({ screenshots, others }, ownBaselines) {
   if (screenshots.length > BASE_RERUN_CAP) {
     return {
       kind: 'fail',
-      reason: `${screenshots.length} screenshots fail (cap ${BASE_RERUN_CAP}): base likely drifted wholesale, so no per-screenshot base check`,
+      reason: `${screenshots.length} screenshots fail (cap ${BASE_RERUN_CAP}): too many for a per-screenshot base check; the base was not checked`,
     };
   }
   return { kind: 'run' };

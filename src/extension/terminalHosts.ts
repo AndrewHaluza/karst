@@ -278,8 +278,20 @@ export function makeGraphTerminalHost(identity: TerminalIdentityRegistry): Trans
       });
       // Remembered in the same per-window registry the session terminals use:
       // the graph env carries KARST_TICKET_ID + KARST_LAUNCH_ID, so a reload
-      // re-attaches a live node session instead of launching a second one.
-      identity.remember(terminal, opts.env, undefined);
+      // re-attaches a live node session instead of launching a second one. The
+      // resolved provider rides along so a provider-keyed sweep (the usage
+      // watches) sees a graph session the same way it sees a ticket session.
+      identity.remember(
+        terminal,
+        opts.env,
+        opts.identity
+          ? {
+              provider: opts.identity.provider,
+              model: opts.identity.model ?? null,
+              ...(opts.identity.agentName != null ? { agentName: opts.identity.agentName } : {}),
+            }
+          : undefined,
+      );
       return {
         processId: () => Promise.resolve(terminal.processId),
         show: (preserveFocus) => terminal.show(preserveFocus),

@@ -1,5 +1,7 @@
 import type { Store } from './db.js';
-import { ROUND_SELECT, rowToRound, type RecoveryRound, type RecoveryRoundRow } from './recoveryRoundsRead.js';
+import { FIX_CONTINUED_PREFIX } from '../model/noChange.js';
+import { activeFixRound, ROUND_SELECT, rowToRound, type RecoveryRound, type RecoveryRoundRow } from './recoveryRoundsRead.js';
+import { listFixRoundHeads, sameHeads } from './fixRoundHeads.js';
 
 type SourceStage = RecoveryRound['sourceStage'];
 
@@ -58,6 +60,65 @@ export function latestRound(store: Store, ticketId: number): RecoveryRound | nul
     .prepare(`${ROUND_SELECT} WHERE ticket_id = ? ORDER BY id DESC LIMIT 1`)
     .get(ticketId) as RecoveryRoundRow | undefined;
   return row === undefined ? null : rowToRound(row);
+}
+
+/**
+ * How many rounds in a row ended on the SAME head — the loop limit for a continued gate-failure
+ * round (T1330, `FIX_SAME_HEAD_LIMIT`). It counts the given round, then each earlier round of the
+ * same ticket, source stage and episode while it is a `failed` `gate-failure` round whose recorded
+ * HEADs equal the given round's as a set. The first round that does not match stops the count, so a
+ * commit (different HEADs) and a user Retry (the parked round is `interrupted`) both restart it. A
+ * round with no recorded HEADs is no evidence of a loop: it counts as 1.
+ */
+export function sameHeadStreak(store: Store, round: RecoveryRound): number {
+  const own = listFixRoundHeads(store, round.id);
+  if (own.length === 0) return 1;
+  const rows = store.db
+    .prepare(
+      `${ROUND_SELECT} WHERE ticket_id = ? AND source_stage = ? AND episode = ? AND id <= ?
+        ORDER BY id DESC`,
+    )
+    .all(round.ticketId, round.sourceStage, round.episode, round.id) as RecoveryRoundRow[];
+  let streak = 1;
+  for (const row of rows) {
+    if (row.id === round.id) continue;
+    const earlier = rowToRound(row);
+    if (earlier.triggerKind !== 'gate-failure' || earlier.status !== 'failed') break;
+    if (!sameHeads(listFixRoundHeads(store, earlier.id), own)) break;
+    streak += 1;
+  }
+  return streak;
+}
+
+/** The round just before the active fix round that the host continued, and the agent's reason. */
+export interface ContinuedRound {
+  round: RecoveryRound;
+  /** The earlier round's stored agent reason; null for a no-commit round. Never its `end_reason`. */
+  reason: string | null;
+}
+
+/**
+ * The round just before the ticket's active fix round (same source stage and episode) when the
+ * host closed it because the source stage still failed (`FIX_CONTINUED_PREFIX`), with the agent's
+ * stored reason. Null for the first round of an episode, or when the previous round closed for
+ * another cause. The brief of the continued round reads this (`continuedFrom`).
+ */
+export function previousContinuedRound(store: Store, ticketId: number): ContinuedRound | null {
+  const active = activeFixRound(store, ticketId);
+  if (active === null) return null;
+  const row = store.db
+    .prepare(
+      `${ROUND_SELECT} WHERE ticket_id = ? AND source_stage = ? AND episode = ? AND id < ?
+        ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId, active.sourceStage, active.episode, active.id) as RecoveryRoundRow | undefined;
+  if (row === undefined) return null;
+  const end = store.db.prepare('SELECT end_reason FROM recovery_rounds WHERE id = ?').get(row.id) as
+    | { end_reason: string | null }
+    | undefined;
+  if (end?.end_reason == null || !end.end_reason.startsWith(FIX_CONTINUED_PREFIX)) return null;
+  const previous = rowToRound(row);
+  return { round: previous, reason: previous.noChangeReason };
 }
 
 /**

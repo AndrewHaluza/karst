@@ -5,6 +5,7 @@ import { openRecoveryRound, activeFixRound } from '../store/recoveryRounds.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { setStage } from '../store/stages.js';
 import { setStageCurrent, getTicket } from '../store/tickets.js';
+import { summarizeWithSignature } from './gates/environmentSignature.js';
 import { preBriefHostRerun, hostRerunFailedGates, HOST_RERUN_PASSED_REASON, type FailedGate, type HostRerunDeps } from './fixHostRerun.js';
 
 const AT = '2026-01-01T00:00:00Z';
@@ -90,6 +91,16 @@ describe('pre-brief host re-run', () => {
     expect(ran).toHaveLength(0);
   });
 
+  it('does nothing for a visual run above the base-check cap (T1325)', async () => {
+    // The stored summary is the one summarizeWithSignature writes today; the cap line is a
+    // ticket failure, so no host re-run spends 6 minutes on the same head before the brief.
+    const overCap = summarizeWithSignature('test:visual:docker', '92 screenshots fail (cap 40): too many for a per-screenshot base check; the base was not checked');
+    open([{ name: 'test:visual:docker', summary: overCap ?? '' }]);
+    expect(await preBriefHostRerun(store, ticketId, deps(0))).toEqual({ kind: 'not-applicable' });
+    expect(ran).toHaveLength(0);
+    expect(activeFixRound(store, ticketId)).not.toBeNull();
+  });
+
   it('keeps the round open and the stage at fix when the re-run fails, and re-runs only once', async () => {
     open([{ name: 'visual', summary: SIGNED }]);
     const first = await preBriefHostRerun(store, ticketId, deps(1));
@@ -102,10 +113,10 @@ describe('pre-brief host re-run', () => {
     expect(activeFixRound(store, ticketId)).not.toBeNull();
   });
 
-  it('the agent no-change marker then finds the re-run used', async () => {
+  it('a bare no-commit marker after the re-run opens the next round, and runs no gate', async () => {
     open([{ name: 'visual', summary: SIGNED }]);
     await preBriefHostRerun(store, ticketId, deps(1));
-    expect((await hostRerunFailedGates(store, ticketId, deps(0))).kind).toBe('already-used');
+    expect(await hostRerunFailedGates(store, ticketId, deps(0))).toEqual({ kind: 'next-round', round: 2, maxRounds: 3, failures: [{ gateName: 'visual', summary: SIGNED }] });
     expect(ran).toHaveLength(1);
   });
 

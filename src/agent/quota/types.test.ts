@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isWindowExpired, tightestUsedPct, tightestWindow, type QuotaSnapshot } from './types.js';
+import { isWindowExpired, tightestUsedPct, tightestWindow, type QuotaSnapshot, type QuotaWindow } from './types.js';
 
 const NOW = new Date('2026-01-01T00:00:00.000Z');
 
-const known = (windows: Array<{ label: string; usedPct: number; resetsAt: string | null }>): QuotaSnapshot => ({
+const known = (windows: QuotaWindow[]): QuotaSnapshot => ({
   core: 'codex',
   state: 'ok',
   windows,
@@ -102,6 +102,103 @@ describe('tightestWindow', () => {
   it('is null when every window has expired', () => {
     expect(
       tightestWindow(known([{ label: 'a', usedPct: 95, resetsAt: '2025-12-25T00:00:00.000Z' }]), NOW),
+    ).toBeNull();
+  });
+});
+
+describe('tightestWindow — secondary windows', () => {
+  const LATER = '2026-01-02T00:00:00.000Z';
+  const PAST = '2025-12-25T00:00:00.000Z';
+
+  it('prefers an open primary window over a higher-usage secondary pool', () => {
+    const snapshot = known([
+      { label: '5-hour', usedPct: 88, resetsAt: LATER },
+      { label: 'Weekly', usedPct: 59, resetsAt: LATER },
+      { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: LATER, secondary: true },
+      { label: 'Argon (Weekly)', usedPct: 100, resetsAt: LATER, secondary: true },
+    ]);
+    expect(tightestWindow(snapshot, NOW)?.label).toBe('5-hour');
+    expect(tightestUsedPct(snapshot, NOW)).toBe(88);
+  });
+
+  it('picks the higher primary window whichever order it appears in', () => {
+    expect(
+      tightestWindow(
+        known([
+          { label: 'low', usedPct: 10, resetsAt: null },
+          { label: 'high', usedPct: 70, resetsAt: null },
+          { label: 'side', usedPct: 100, resetsAt: null, secondary: true },
+        ]),
+        NOW,
+      )?.label,
+    ).toBe('high');
+    expect(
+      tightestWindow(
+        known([
+          { label: 'high', usedPct: 70, resetsAt: null },
+          { label: 'low', usedPct: 10, resetsAt: null },
+          { label: 'side', usedPct: 100, resetsAt: null, secondary: true },
+        ]),
+        NOW,
+      )?.label,
+    ).toBe('high');
+  });
+
+  it('keeps the first primary window when two are equally used', () => {
+    expect(
+      tightestWindow(
+        known([
+          { label: 'first', usedPct: 70, resetsAt: null },
+          { label: 'second', usedPct: 70, resetsAt: null },
+        ]),
+        NOW,
+      )?.label,
+    ).toBe('first');
+  });
+
+  it('falls back to the tightest open secondary pool when no primary window is open', () => {
+    const snapshot = known([
+      { label: 'p1', usedPct: 95, resetsAt: PAST },
+      { label: 's1', usedPct: 60, resetsAt: null, secondary: true },
+      { label: 's2', usedPct: 95, resetsAt: null, secondary: true },
+      { label: 's3', usedPct: 95, resetsAt: null, secondary: true },
+      { label: 's4', usedPct: 70, resetsAt: null, secondary: true },
+    ]);
+    expect(tightestWindow(snapshot, NOW)?.label).toBe('s2');
+    expect(tightestUsedPct(snapshot, NOW)).toBe(95);
+  });
+
+  it('falls back to a secondary pool when the snapshot has no primary window at all', () => {
+    expect(
+      tightestWindow(
+        known([{ label: 'Argon (Weekly)', usedPct: 42, resetsAt: null, secondary: true }]),
+        NOW,
+      )?.label,
+    ).toBe('Argon (Weekly)');
+  });
+
+  it('skips an expired secondary pool', () => {
+    expect(
+      tightestWindow(
+        known([
+          { label: 'p1', usedPct: 20, resetsAt: PAST },
+          { label: 's1', usedPct: 99, resetsAt: PAST, secondary: true },
+          { label: 's2', usedPct: 30, resetsAt: null, secondary: true },
+        ]),
+        NOW,
+      )?.label,
+    ).toBe('s2');
+  });
+
+  it('is null when every primary and secondary window has expired', () => {
+    expect(
+      tightestWindow(
+        known([
+          { label: 'p1', usedPct: 95, resetsAt: PAST },
+          { label: 's1', usedPct: 100, resetsAt: PAST, secondary: true },
+        ]),
+        NOW,
+      ),
     ).toBeNull();
   });
 });

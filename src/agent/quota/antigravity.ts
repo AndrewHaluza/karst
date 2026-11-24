@@ -230,6 +230,17 @@ export function resolveBucketLabel(
 }
 
 /**
+ * True for Antigravity's PRIMARY subscription windows — the ones that describe
+ * the plan's overall capacity. Every other resolved label (`Claude/GPT (Weekly)`,
+ * `Claude/GPT (5-hour)`, `Argon (Weekly)`, `Argon (5-hour)`, …) is a
+ * model-specific SIDE pool, tagged `secondary` so it stays listed in the Quota
+ * tab without winning `tightestWindow()` over the main subscription windows.
+ */
+export function isPrimaryAntigravityWindow(label: string): boolean {
+  return label === '5-hour' || label === 'Weekly';
+}
+
+/**
  * Parse RetrieveUserQuotaSummary and GetUserStatus responses into quota windows.
  */
 export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown): QuotaWindow[] {
@@ -270,12 +281,11 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
               : null;
         const label = resolveBucketLabel(bucket, group);
 
-        if (!isPaid) {
-          if (label === '5-hour' || label === 'Weekly') {
-            windows.push({ label, usedPct, resetsAt });
-          }
-        } else {
+        const primary = isPrimaryAntigravityWindow(label);
+        if (primary) {
           windows.push({ label, usedPct, resetsAt });
+        } else if (isPaid) {
+          windows.push({ label, usedPct, resetsAt, secondary: true });
         }
       }
     }
@@ -311,12 +321,14 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
               ? cfg.modelId
               : 'Model';
 
-        if (!isPaid) {
-          if (label === '5-hour' || label === 'Weekly') {
-            windows.push({ label, usedPct, resetsAt });
-          }
-        } else {
+        // Same tagging as the groups path (`isPrimaryAntigravityWindow`): a paid
+        // legacy payload's model pools are side pools, and `readCache()` re-derives
+        // the same flags for a snapshot this path wrote, so a live read and a cache
+        // hit of the same payload never pick a different core number.
+        if (isPrimaryAntigravityWindow(label)) {
           windows.push({ label, usedPct, resetsAt });
+        } else if (isPaid) {
+          windows.push({ label, usedPct, resetsAt, secondary: true });
         }
       }
     }
@@ -356,10 +368,16 @@ export async function readCache(
     if (Number.isNaN(readAtMs)) return null;
     const ageMs = nowMs - readAtMs;
     if (ageMs < 0 || ageMs > ttlMs) return null;
+    // A cache written before `secondary` existed has no flags: re-derive them on
+    // read so a legacy snapshot cannot make an exhausted side pool the core's
+    // number (`tightestWindow`) until the next live read rewrites the file.
+    const windows = (rec.windows as QuotaWindow[]).map((w) =>
+      isPrimaryAntigravityWindow(w.label) ? w : { ...w, secondary: true },
+    );
     return {
       core: 'antigravity',
       state: 'ok',
-      windows: rec.windows as QuotaWindow[],
+      windows,
       source: typeof rec.source === 'string' ? rec.source : ANTIGRAVITY_QUOTA_SOURCE,
       readAt: rec.readAt,
     };

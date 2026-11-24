@@ -105,10 +105,11 @@ function buildSetupItems(
     const state = stateOf(dep);
     return {
       id: dep.binary,
-      // Labels are used verbatim, never case-adjusted: 'npm' is lowercase by its
-      // own convention, and "Npm is installed" is a row about a product that has
-      // no such name.
-      label: `${dep.label} is installed`,
+      // A row starts with a capital ("The GitHub CLI is installed"). The one
+      // exception is a product name spelled lower case on purpose: 'npm' is
+      // lowercase by its own convention, and "Npm is installed" is a row about
+      // a product that has no such name.
+      label: `${capitalizeLeadingThe(dep.label)} is installed`,
       done: state === 'ok',
       detail: detailFor(dep, state, dep.enables === 'sessions', timedOut(dep)),
       enables: dep.enables,
@@ -118,10 +119,16 @@ function buildSetupItems(
   return [
     {
       id: 'manifest',
-      label: 'Create your karst.yml manifest',
+      // A done row says what is true; only an open row is a task (GS-16).
+      label: input.manifestExists ? 'The karst.yml manifest exists' : 'Create your karst.yml manifest',
       done: input.manifestExists,
       detail: input.manifestExists ? null : 'Karst needs a manifest describing your repositories.',
     },
     ...deps,
   ];
+}
+
+/** `the GitHub CLI` → `The GitHub CLI`; every other label is left exactly as declared. */
+function capitalizeLeadingThe(label: string): string {
+  return label.startsWith('the ') ? `The ${label.slice('the '.length)}` : label;
 }

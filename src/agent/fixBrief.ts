@@ -7,6 +7,8 @@ import { lastFailedGate } from '../workflow/fixAttempts.js';
 import { isCoverageRecord } from '../model/coverageRecord.js';
 import { NON_GATE_RUNS } from '../model/artifacts.js';
 import { signatureOfSummary } from '../workflow/gates/environmentSignature.js';
+import { FIX_SAME_HEAD_LIMIT } from '../workflow/fixContinue.js';
+import { fenceNoChangeReason } from '../workflow/noChangeClaimText.js';
 import { PROCESS_KILL_RULE } from './promptText.js';
 
 export const PROTOTYPE_REGION_CHECKLIST_RULE =
@@ -24,11 +26,38 @@ export function hasLinkedPrototype(ticket: {
   return /\bprototype\b/i.test(text) || /docs\/design\/[^\s)]+\.html/i.test(text);
 }
 
+/**
+ * The earlier fix round whose no-change (or no-commit) marker left the source stage failing: the
+ * host opened this round instead of parking. `reason` is the agent's stored no-change text, or null
+ * for a no-commit round (@arch:AC-66, T1330).
+ */
+export interface ContinuedFrom {
+  readonly round: number;
+  readonly maxRounds: number;
+  readonly reason: string | null;
+}
+
 export interface RenderFixBriefOptions {
   /** The ticket has a linked prototype (ui:UI-R39-REJECT per-region checklist rule). */
   readonly hasPrototype?: boolean;
   /** The caller appends the done-marker text, which already states PROCESS_KILL_RULE: the brief omits its copy. */
   readonly markerAppended?: boolean;
+  /** This fix round continued an earlier one that changed nothing and left the gates failing. */
+  readonly continuedFrom?: ContinuedFrom;
+}
+
+/**
+ * The one block a continued fix round carries: the same head, a gate that still fails, and the ask
+ * to change something real. The earlier agent reason is fenced as data with the shared no-change
+ * fence, never reworded into an instruction.
+ */
+export function renderContinuedFixBlock(from: ContinuedFrom): string {
+  const lines = [
+    `Continued from fix round ${from.round} of ${from.maxRounds}: the earlier fix round made no code change and the gates still fail on the same head.`,
+    'A repeated no-change does not close the gate. Read the full output and change the code, the test that the ticket makes wrong, or the baselines (by the re-record rule below). Never weaken a test or hide a break.',
+  ];
+  if (from.reason !== null) lines.push('', 'The earlier round gave this reason:', fenceNoChangeReason(from.reason));
+  return lines.join('\n');
 }
 
 /**
@@ -109,7 +138,9 @@ function gateCommandLines(stageKey: StageKey, runs: readonly GateRun[]): string[
 export const FIX_NO_CHANGE_RULE =
   'If no code change is correct (the failure output shows no fault in the ticket code, or a finding or observation is not a defect), never make an empty commit. ' +
   'Call the done marker with a no-change reason that gives your evidence: add `noChange: "<evidence>"` to the MCP `stage` call, or add `--no-change "<evidence>"` to the marker command. ' +
-  'The host then re-runs the failed gates, or runs review or the tester again with your reason. A second no-change on the same head parks the round for the user.';
+  'The host then re-runs the failed gates, or runs review or the tester again with your reason. ' +
+  `If a failed gate still fails, the host opens the next fix round; the round parks for the user only when the rounds are spent or ${FIX_SAME_HEAD_LIMIT} rounds in a row change nothing. ` +
+  'For a review or tester round, a second no-change on the same head parks.';
 
 /** Leads a failed gate row with no environment signature: the ticket needs a change. */
 export const TICKET_FAILURE_LABEL = 'ticket failure';
@@ -125,6 +156,18 @@ export const VISUAL_RERECORD_RULE =
   're-record only the failing views with `KARST_UI_GREP=<view> npm run -s test:visual:docker:update`, ' +
   'commit the baselines, and call the done marker. Do not ask the user in chat: the user approves the baselines once, in the baseline review. ' +
   'If the change is not intended, repair the UI and do not re-record.';
+
+/**
+ * The visual sweep's over-cap line (scripts/baseDrift.mjs): more views differ than the base
+ * check re-runs, so the base was not checked (T1325). Same ask as the ticket-break rule, but
+ * the brief must read the full output for the failing views.
+ */
+export const VISUAL_OVER_CAP = /\d+ screenshots fail \(cap \d+\)/u;
+export const VISUAL_RERECORD_OVER_CAP_RULE =
+  'More views differ than the base check can re-run, so the base was not checked. Read the full output for the failing views. ' +
+  'If this brief intends that UI change, re-record only the failing views with `KARST_UI_GREP=<view> npm run -s test:visual:docker:update`, ' +
+  'commit the baselines, and call the done marker. Do not ask the user in chat: the user approves the baselines once, in the baseline review. ' +
+  'If a view differs that this ticket does not intend to change, repair the UI and do not re-record it.';
 
 /** The docs gate's BLOCK line (scripts/docsGate.mjs) — the cue that a cite is a way out. */
 const DOCS_GATE_BLOCK = /BLOCK diff changes /u;
@@ -194,10 +237,11 @@ export function renderFixBrief(
       : `The ${gate.stageKey} gate failed for ticket ${ticketLabel}. Fix what it reported, ` +
         'then re-run each check whose files your fix changes to confirm it passes. ' +
         'If your fix changes no UI path, leave a UI gate (visual, layout) to the host.',
-    // A fix session runs shell commands to reproduce and re-run checks; it must
-    // stop only what it started (`kill $!`), never a process-wide `pkill`.
-    ...(options?.markerAppended ? [] : ['', PROCESS_KILL_RULE]),
   ];
+  if (options?.continuedFrom) lines.push('', renderContinuedFixBlock(options.continuedFrom));
+  // A fix session runs shell commands to reproduce and re-run checks; it must
+  // stop only what it started (`kill $!`), never a process-wide `pkill`.
+  if (!options?.markerAppended) lines.push('', PROCESS_KILL_RULE);
   if (!isPrFeedback) lines.push('', FIX_NO_CHANGE_RULE);
   if (gate.stageKey === 'review') lines.push('', REVIEW_SWEEP_RULE);
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
@@ -217,8 +261,15 @@ export function renderFixBrief(
       }
     }
   }
-  if (failures.some((f) => f.summary && /visual|layout/iu.test(f.gateName) && VISUAL_TICKET_BREAK.test(f.summary))) {
+  const visualFailures = failures.filter(
+    (f): f is GateRun & { summary: string } =>
+      f.summary !== null && /visual|layout/iu.test(f.gateName),
+  );
+  if (visualFailures.some((f) => VISUAL_TICKET_BREAK.test(f.summary))) {
     lines.push('', VISUAL_RERECORD_RULE);
+  } else if (visualFailures.some((f) => VISUAL_OVER_CAP.test(f.summary))) {
+    // Only when the base check could name the views: the ticket-break line is the stronger cue.
+    lines.push('', VISUAL_RERECORD_OVER_CAP_RULE);
   }
   if (failures.some((f) => f.summary && DOCS_GATE_BLOCK.test(f.summary)) || (gate.verdict && DOCS_GATE_BLOCK.test(gate.verdict))) {
     lines.push('', DOCS_GATE_CITE_RULE);

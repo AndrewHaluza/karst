@@ -17,6 +17,8 @@ export interface Harness {
     route: MessageRoute;
     launchId: string | undefined;
     running: boolean;
+    /** `agent_state === 'idle'` exactly (`waiting`, `none`, `not-started` stay false). */
+    idle: boolean;
     live: boolean;
     graph: boolean;
     sendResult: TypedSendResult;
@@ -40,6 +42,7 @@ export function makeHarness(): Harness {
     route: 'hook-block',
     launchId: 'L1',
     running: false,
+    idle: false,
     live: true,
     graph: false,
     sendResult: 'queued',
@@ -55,6 +58,7 @@ export function makeHarness(): Harness {
     routeFor: () => state.route,
     currentLaunchId: () => state.launchId,
     isRunning: () => state.running,
+    isIdle: () => state.idle,
     sendPointer: (id, deliveryId, hooks) => {
       sent.push({ ticketId: id, deliveryId, hooks });
       return state.sendResult;

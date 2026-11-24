@@ -207,6 +207,24 @@ describe('runAgentNode', () => {
   });
 });
 
+describe('composeNodePrompt — restored workspace', () => {
+  it('adds exactly one line when the workspace holds work of an earlier attempt', () => {
+    const plain = composeNodePrompt('# node', '# ticket', '# instructions', []);
+    const restored = composeNodePrompt('# node', '# ticket', '# instructions', [], true);
+    expect(restored).not.toBe(plain);
+    const added = restored.slice(plain.length).trim();
+    expect(added.split('\n')).toHaveLength(1);
+    expect(added.toLowerCase()).toContain('uncommitted work');
+    expect(added.toLowerCase()).toContain('earlier attempt');
+  });
+
+  it('does not change the prompt when the flag is false or absent', () => {
+    const plain = composeNodePrompt('# node', '# ticket', '# instructions', []);
+    expect(composeNodePrompt('# node', '# ticket', '# instructions', [], false)).toBe(plain);
+    expect(composeNodePrompt('# node', '# ticket', '# instructions', [])).toBe(plain);
+  });
+});
+
 describe('boundInputs', () => {
   const art = (path: string, bytes: number, mediaType = 'text/markdown') => ({
     path,

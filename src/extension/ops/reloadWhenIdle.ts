@@ -11,6 +11,17 @@ export const RELOAD_WHEN_IDLE_COMMAND = 'karst.reloadWhenIdle';
 export const RELOAD_WHEN_IDLE_TITLE = 'Karst: Reload window when idle';
 export const IDLE_POLL_MS = 2000;
 
+/** The name and message of the vscode `CancellationError` (`Canceled`). */
+export const RELOAD_CANCELED = 'Canceled';
+
+/**
+ * A `Canceled` rejection of `workbench.action.reloadWindow` is not a failed reload: the
+ * extension host is already closing and cancels the command (@arch:DRAIN-01).
+ */
+export function isReloadCanceled(err: unknown): boolean {
+  return err instanceof Error && (err.name === RELOAD_CANCELED || err.message === RELOAD_CANCELED);
+}
+
 /**
  * Live runs of THIS host: `process_runs` and `stage_runs` (every gate) whose
  * status is 'running' and whose pid is the host's, the `ship_runs` rows with
@@ -119,6 +130,10 @@ export async function reloadWhenIdle(deps: ReloadWhenIdleDeps): Promise<ReloadWh
       try {
         await deps.reload();
       } catch (err) {
+        if (isReloadCanceled(err)) {
+          deps.log('reload when idle: reload command canceled — the host is closing');
+          return 'reloaded';
+        }
         deps.onCancelled?.(deps.drain.cancel());
         throw err;
       }

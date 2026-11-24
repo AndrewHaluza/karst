@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import {
   resolvePhysicalDomains,
   domainKeyOf,
+  domainWorktreePathOf,
   gitCommonDirFromFs,
   repoWorktreeIndex,
   resolveRepoWorktrees,
@@ -28,6 +29,23 @@ describe('domainKeyOf', () => {
     const c = domainKeyOf('/wt/t1', '/other/.git');
     expect(a).toBe(b);
     expect(a).not.toBe(c);
+  });
+
+  it('keeps the NUL separator in the durable key', () => {
+    expect(domainKeyOf('/wt/t1', '/wt/.git')).toBe('/wt/t1\u0000/wt/.git');
+    expect(domainKeyOf('/wt/t1', null)).toBe('/wt/t1\u0000');
+  });
+});
+
+describe('domainWorktreePathOf', () => {
+  it('renders the canonical worktree path only, with no separator', () => {
+    const key = domainKeyOf('/wt/t1', '/wt/.git');
+    expect(domainWorktreePathOf(key)).toBe('/wt/t1');
+    expect(domainWorktreePathOf(key)).not.toContain('\u0000');
+  });
+
+  it('returns a key with no separator as it is', () => {
+    expect(domainWorktreePathOf('dom-api')).toBe('dom-api');
   });
 });
 

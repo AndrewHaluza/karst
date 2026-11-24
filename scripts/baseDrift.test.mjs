@@ -67,11 +67,11 @@ describe('planBaseCheck', () => {
     expect(plan).toMatchObject({ kind: 'fail' });
     expect(plan.reason).toContain('b2.png');
   });
-  it('fails with the wholesale reason above the cap', () => {
+  it('fails with the over-cap reason above the cap', () => {
     const many = Array.from({ length: BASE_RERUN_CAP + 1 }, (_, i) => s(i));
     const plan = planBaseCheck({ screenshots: many, others: [] }, new Set());
     expect(plan.kind).toBe('fail');
-    expect(plan.reason).toContain('base likely drifted wholesale');
+    expect(plan.reason).toBe(`${BASE_RERUN_CAP + 1} screenshots fail (cap ${BASE_RERUN_CAP}): too many for a per-screenshot base check; the base was not checked`);
   });
   it('runs at exactly the cap', () => {
     const many = Array.from({ length: BASE_RERUN_CAP }, (_, i) => s(i));

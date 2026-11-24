@@ -12,6 +12,10 @@
  *  - a repository only gets a service candidate when a real start command AND a
  *    real port can be inferred. No placeholder commands, no invented ports: a
  *    repo that does not qualify comes back with `service: null` and a reason.
+ *
+ * A linked git worktree below the root is the SAME repository seen again, not a
+ * separate project: it is not reported (`isLinkedWorktree`). The root itself is
+ * always reported, even when the root is a linked worktree.
  */
 
 export interface DiscoveryProbe {
@@ -58,7 +62,10 @@ export interface DiscoveryResult {
   empty: boolean;
 }
 
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', '.karst']);
+/** karst's own runtime/metadata directory; a manifest there describes the repo above it. */
+export const KARST_DIR_NAME = '.karst';
+
+const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', KARST_DIR_NAME]);
 
 /**
  * How deep below the workspace root to look for repositories. A monorepo keeps
@@ -85,9 +92,35 @@ function basename(p: string): string {
   return i === -1 ? s : s.slice(i + 1);
 }
 
+/**
+ * The directory discovery must walk, given the directory of `karst.yml`. A
+ * manifest in `<repo>/.karst/` describes `<repo>`: walking `.karst` would find
+ * karst's own runtime worktrees and miss the repository above it.
+ */
+export function discoveryRootFor(manifestDir: string): string {
+  const trimmed = stripTrailingSlash(manifestDir);
+  if (basename(trimmed) !== KARST_DIR_NAME) return trimmed;
+  const i = trimmed.lastIndexOf('/');
+  return i <= 0 ? '/' : trimmed.slice(0, i);
+}
+
 /** Is `dir` itself a git worktree? `.git` is a directory (normal) or file (submodule). */
 function isGitRepo(dir: string, probe: DiscoveryProbe): boolean {
   return probe.exists(`${dir}/.git`);
+}
+
+/**
+ * A linked git worktree has a `.git` FILE whose `gitdir:` target points into
+ * another repository's `.git/worktrees/` directory, so it is the same
+ * repository, not a separate project. A submodule also has a `.git` file, but
+ * its target is `.git/modules/`, so a submodule stays a repository.
+ */
+function isLinkedWorktree(dir: string, probe: DiscoveryProbe): boolean {
+  const text = probe.readFile(`${dir}/.git`);
+  if (text === undefined) return false;
+  const line = text.trim();
+  if (!line.startsWith('gitdir:')) return false;
+  return /[\\/]worktrees[\\/]/.test(line.slice('gitdir:'.length));
 }
 
 /**
@@ -327,9 +360,12 @@ export function discoverWorkspace(
   // hold repositories at any depth up to `MAX_DISCOVERY_DEPTH` (a monorepo keeps
   // its apps under `apps/` or `packages/`). The walk STOPS at a repository, so
   // nested git repos inside one (submodules, vendored checkouts) are not
-  // reported as separate projects.
+  // reported as separate projects. Below the root, a linked git worktree is the
+  // same repository seen again and is skipped; the root itself is always
+  // reported, even when the root is a linked worktree.
   const collect = (dir: string, depth: number): void => {
     if (isGitRepo(dir, probe)) {
+      if (depth > 0 && isLinkedWorktree(dir, probe)) return;
       dirs.push({ name: basename(dir), path: dir });
       return;
     }

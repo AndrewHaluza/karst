@@ -14,6 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
 import { canonicalPath, isPathUnder } from '../runtime/pathScope.js';
+import { startAwakeDeadline, type AwakeDeadline } from '../runtime/awakeDeadline.js';
 import { collapseDiagnostic } from '../model/diagnosticText.js';
 
 /**
@@ -36,6 +37,12 @@ export interface GitRunOptions {
   signal?: AbortSignal;
   /** Override the default per-call timeout (`GIT_TIMEOUT_MS`). */
   timeoutMs?: number;
+  /**
+   * Extra environment layered OVER the process env. The preserve path needs
+   * `GIT_INDEX_FILE` so `git add --intent-to-add` writes a COPY of the clone
+   * index, never the clone's own (`@arch:GRAPH-AUTORECOVERY`).
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 export type GitRunner = (
@@ -105,13 +112,13 @@ function runGitProcess(
     let settled = false;
     let termination: 'abort' | 'timeout' | null = null;
     let terminationDiagnostic = '';
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: AwakeDeadline | undefined;
     let terminationTimer: ReturnType<typeof setTimeout> | undefined;
 
     const settle = (exitCode: number, stderrDiagnostic = ''): void => {
       if (settled) return;
       settled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      timer?.cancel();
       if (terminationTimer !== undefined) clearTimeout(terminationTimer);
       signal?.removeEventListener('abort', abort);
       resolve({ stdout, stderr, stderrDiagnostic, exitCode });
@@ -157,7 +164,7 @@ function runGitProcess(
 
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    timer = setTimeout(() => terminate('timeout'), Math.max(0, timeoutMs));
+    timer = startAwakeDeadline(Math.max(0, timeoutMs), () => terminate('timeout'));
 
     child.stdout?.on('data', (chunk: Buffer) => stdout.append(chunk));
     child.stderr?.on('data', (chunk: Buffer) => stderr.append(chunk));
@@ -221,6 +228,7 @@ export function runGitEnv(
   env: NodeJS.ProcessEnv,
   timeoutMs: number = GIT_TIMEOUT_MS,
   maxOutputBytes: number = GIT_MAX_OUTPUT_BYTES,
+  signal?: AbortSignal,
 ): Promise<GitResult> {
   return runGitProcess(
     args,
@@ -228,7 +236,7 @@ export function runGitEnv(
     timeoutMs,
     maxOutputBytes,
     GIT_TERMINATION_GRACE_MS,
-    undefined,
+    signal,
     env,
   ).then(renderGitResult);
 }
@@ -262,15 +270,20 @@ export function runGitBytes(
 }
 
 /** Default runner: `git <args>` in `cwd`. Never throws — the exit code is the answer. */
-export const defaultGitRunner: GitRunner = (args, cwd, options) =>
-  runGit(
+export const defaultGitRunner: GitRunner = (args, cwd, options) => {
+  const timeoutMs = options?.timeoutMs ?? GIT_TIMEOUT_MS;
+  if (options?.env) {
+    return runGitEnv(args, cwd, options.env, timeoutMs, GIT_MAX_OUTPUT_BYTES, options.signal);
+  }
+  return runGit(
     args,
     cwd,
-    options?.timeoutMs ?? GIT_TIMEOUT_MS,
+    timeoutMs,
     GIT_MAX_OUTPUT_BYTES,
     GIT_TERMINATION_GRACE_MS,
     options?.signal,
   );
+};
 
 /** `git <args>` in `cwd`, throwing git's own reason (never a bare colon) on failure. */
 async function run(
