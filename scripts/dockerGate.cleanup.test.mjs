@@ -122,3 +122,62 @@ describe('sweepStaleBaseDirs', () => {
     expect(log).toHaveBeenCalledOnce();
   });
 });
+
+describe('judgeAgainstBase and the visual ledger', () => {
+  let work;
+  let results;
+  let runs;
+  beforeEach(() => {
+    vi.stubEnv('KARST_BASE_REF', 'HEAD');
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    work = mkdtempSync(join(tmpdir(), 'karst-gate-ledger-'));
+    results = join(work, 'results.json');
+    runs = 0;
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  const judge = (report, readLedger) => {
+    writeFileSync(results, JSON.stringify(report));
+    const seams = {
+      readLedger,
+      mkdtempSync: (prefix) => mkdtempSync(prefix),
+      git: () => ({ status: 1, stdout: '', stderr: 'no base worktree in this test' }),
+      removeContainer: async () => {},
+      rmSync: (path, options) => rmSync(path, options),
+    };
+    const run = async () => {
+      runs += 1;
+      return 1;
+    };
+    return judgeAgainstBase({ status: 1, rawArgv: ['run', 'x/playwright:1'], name: 'gate', volume: null, run, results, seams });
+  };
+  const lines = () => console.error.mock.calls.map((c) => c[0]);
+
+  it('passes a sweep whose only failure the ledger lists, without a re-run', async () => {
+    expect(await judge({ suites: [spec('unexpected')] }, () => ['visual|::home'])).toBe(0);
+    expect(runs).toBe(0);
+    expect(lines()).toContain('known failures (listed in tests/visual/visual-known-failures.json) — 1:');
+  });
+
+  it('keeps the failure when the report holds a global error', async () => {
+    expect(await judge({ errors: [{ message: 'webServer died' }], suites: [spec('unexpected')] }, () => ['visual|::home'])).toBe(1);
+  });
+
+  it('keeps an un-ledgered failure for the base check', async () => {
+    expect(await judge({ suites: [spec('unexpected')] }, () => [])).toBe(1);
+    expect(lines().some((l) => l.startsWith('known failures'))).toBe(false);
+  });
+
+  it('says so and excuses nothing when the ledger cannot be read', async () => {
+    const missing = () => {
+      throw new Error('cannot read the visual ledger x: ENOENT');
+    };
+    expect(await judge({ suites: [spec('unexpected')] }, missing)).toBe(1);
+    expect(lines()).toContain('visual ledger not applied: cannot read the visual ledger x: ENOENT');
+  });
+});

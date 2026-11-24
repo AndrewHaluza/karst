@@ -9,6 +9,7 @@ import {
   gatePlan,
   hasDocker,
   isBaselineEnvironment,
+  ledgerIntent,
   narrowSweep,
   missingDockerMessage,
   passesWorkers,
@@ -310,8 +311,18 @@ describe('gatePlan local path', () => {
   });
 });
 
+describe('ledgerIntent', () => {
+  it.each(['KARST_LAYOUT_SEED', 'KARST_LAYOUT_PRUNE', 'KARST_VISUAL_PRUNE'])('is true with %s set', (name) => {
+    expect(ledgerIntent({ [name]: '1' })).toBe(true);
+  });
+
+  it('is false without a seed or prune', () => {
+    expect(ledgerIntent({ KARST_UI_GREP: 'x' })).toBe(false);
+  });
+});
+
 describe('narrowSweep', () => {
-  it.each(['KARST_LAYOUT_SEED', 'KARST_LAYOUT_PRUNE'])('leaves the sweep full when %s is set', (intent) => {
+  it.each(['KARST_LAYOUT_SEED', 'KARST_LAYOUT_PRUNE', 'KARST_VISUAL_PRUNE'])('leaves the sweep full when %s is set', (intent) => {
     const saved = { ...process.env };
     delete process.env.KARST_UI_GREP;
     process.env[intent] = '1';

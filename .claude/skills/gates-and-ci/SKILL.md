@@ -84,7 +84,7 @@ Read this section only when a CI job fails on a PR.
 
 - `verify` (typecheck + lint:react + build + unit) and `integration`: on PR and push to `main`/`develop`.
 - `Mutation score`: see the section above. It runs on PRs and push to `develop`; develop pushes upload `mutation-develop` and stay advisory. It is skipped on PRs that touch no mutation input.
-- `visual`: blocks new breaks only (red on the PR, green on develop). A sweep that ran zero tests fails. Develop drift stays advisory.
+- `visual`: on a PR and on a push to develop, fails a red screenshot that `tests/visual/visual-known-failures.json` does not list, a stale ledger entry, a ledger entry that the PR adds, and a sweep that ran zero tests (`@ui:RUNNING-SWEEP`). Remove stale entries with `npm run -s test:visual:docker:prune`.
 - `docs-gate`: covered symbols cited or documented. `full-scan` (semgrep + gitleaks): cron and push to `develop`. `docker-sandbox-linux`: advisory.
 - `main-source-guard`: PRs into `main` only from `develop` or `hotfix/*`. `branch-drift`: fails when `main` has commits missing from `develop`.
 - The develop ruleset 'Enforce CI on develop' requires `Typecheck, build, unit`, `Integration and e2e`, `Docs gate` and `Visual regression (blocks new breaks)`.

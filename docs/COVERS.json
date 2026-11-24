@@ -17,12 +17,21 @@
   "scripts/archSchema.ts": [
     "arch:MAP-00"
   ],
+  "scripts/baseDrift.mjs#splitLedgered": [
+    "arch:GATE-LEDGER"
+  ],
   "scripts/containerWatch.mjs#watchContainer": [
     "arch:GATE-CONCURRENCY"
   ],
   "scripts/dockerGate.mjs": [
     "arch:GATE-CAPABILITY",
     "arch:GATE-REPEAT"
+  ],
+  "scripts/dockerGate.mjs#judgeAgainstBase": [
+    "arch:GATE-LEDGER"
+  ],
+  "scripts/dockerGate.mjs#ledgerIntent": [
+    "arch:GATE-LEDGER"
   ],
   "scripts/docsKeys.mjs": [
     "arch:DOC-01"
@@ -167,6 +176,9 @@
   ],
   "scripts/uiViews.mjs#mergedSelection": [
     "arch:GATE-BASE-MOVED"
+  ],
+  "scripts/visualLedger.mjs": [
+    "arch:GATE-LEDGER"
   ],
   "scripts/vitestGate.mjs": [
     "arch:GATE-REPEAT"

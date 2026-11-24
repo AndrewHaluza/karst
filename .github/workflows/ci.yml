@@ -283,10 +283,9 @@ jobs:
       # still count, so the score stays global. Restore the newest cache from
       # any run (restore-keys); save a fresh one per commit.
       # On a PR: fetch develop's mutation report (mutation.json, uploaded as
-      # `mutation-develop` by every develop push run). Same search as the visual
-      # job's "Find develop's red set": the run for the PR's base sha, else the
-      # closest completed develop run NEWER than the base (never an older one:
-      # it would blame the PR for drops already on develop). Any failure leaves
+      # `mutation-develop` by every develop push run): the run for the PR's base
+      # sha, else the closest completed develop run NEWER than the base (never an
+      # older one: it would blame the PR for drops already on develop). Any failure leaves
       # the report absent and the gate applies the new-file rule to every
       # changed file; a missing artifact never fails here.
       - name: Find develop's mutation report
@@ -547,9 +546,8 @@ jobs:
       # Depth 2, not the default 1: on a pull_request the checkout is the merge
       # commit, and scripts/visual-sweep-gate.mjs diffs HEAD^1..HEAD (the base
       # tip against the merge) to learn which baselines THIS PR added or
-      # changed. Their failures are blocking, as is any screenshot that is red here
-      # but not in develop's red set; screenshots already red on develop stay
-      # advisory.
+      # changed. Their failures are blocking, as is any red screenshot that the
+      # committed ledger (tests/visual/visual-known-failures.json) does not list.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
@@ -590,54 +588,6 @@ jobs:
       # the blocking verify job.
       - name: Typecheck the visual sweep
         run: npm run typecheck:visual
-
-      # On a PR: fetch develop's red set (visual-red-develop.json, uploaded by
-      # every develop push run) so the gate can tell new breaks from inherited
-      # drift. Use the run for the PR's base sha, else the closest completed develop run
-      # NEWER than the base (never an older one: it would blame the PR for
-      # breaks already on develop; a red unrelated job must not switch the gate off). Any failure here leaves the set absent and the
-      # gate falls back to the own-baseline rule; a missing artifact never fails.
-      - name: Find develop's red set
-        id: develop-red
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const base = context.payload.pull_request.base.sha;
-            const { data } = await github.rest.actions.listWorkflowRuns({
-              ...context.repo, workflow_id: 'ci.yml', branch: 'develop',
-              event: 'push', status: 'completed', per_page: 30,
-            });
-            // Newest first. Only the run for the base sha or a DESCENDANT of it
-            // is usable: an older run predates breaks already on develop and
-            // would blame this PR for them. Of the descendants take the oldest
-            // (closest to base). Once a run is older than base, all later are.
-            let nearest;
-            for (const run of data.workflow_runs) {
-              const { data: arts } = await github.rest.actions.listWorkflowRunArtifacts({
-                ...context.repo, run_id: run.id, name: 'visual-red-develop',
-              });
-              if (arts.artifacts.length === 0 || arts.artifacts[0].expired) continue;
-              if (run.head_sha === base) { nearest = run.id; break; }
-              const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
-                ...context.repo, basehead: `${base}...${run.head_sha}`,
-              });
-              if (cmp.status !== 'ahead') break;
-              nearest = run.id;
-            }
-            if (nearest) core.setOutput('run-id', nearest);
-
-      - name: Download develop's red set
-        id: develop-red-download
-        if: github.event_name == 'pull_request' && steps.develop-red.outputs.run-id != ''
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: visual-red-develop
-          path: develop-red
-          run-id: ${{ steps.develop-red.outputs.run-id }}
-          github-token: ${{ github.token }}
 
       - name: Download the shard reports
         uses: actions/download-artifact@v4
@@ -685,9 +635,10 @@ jobs:
       # `continue-on-error` here: it fails the job for a run that executed zero
       # tests (NDL-218), a listed test that no shard reported, the layout
       # verdict, a baseline the PR itself added or changed that does not
-      # match its own screenshot (#769), and on a PR a screenshot that fails
-      # here but is not red on develop. Screenshots red on develop stay
-      # advisory, and so does everything when no develop red set was fetched.
+      # match its own screenshot (#769), a red screenshot that the committed
+      # ledger (tests/visual/visual-known-failures.json) does not list, a stale
+      # ledger entry (this is a full run), and on a PR a ledger entry the PR
+      # adds. The rules are the same on a PR and on a push to develop.
       - name: Merge the shard reports and run the gate
         id: visual
         run: |
@@ -699,9 +650,6 @@ jobs:
           code=$?
           set -e
           echo "playwright-exit-code=${code}" >> "$GITHUB_OUTPUT"
-          if [ "${{ steps.develop-red-download.outcome }}" = "success" ]; then
-            export VISUAL_RED_DEVELOP="$PWD/develop-red/visual-red-develop.json"
-          fi
           export VISUAL_LISTED_REPORT="$PWD/visual-listed.json"
           node scripts/visual-sweep-gate.mjs
 
@@ -713,7 +661,7 @@ jobs:
             echo
             echo "Shard results: \`${{ needs.visual-shard.result }}\`"
             echo "Gate step outcome: \`${{ steps.visual.outcome }}\`"
-            echo "merge-reports exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (screenshots already red on develop are advisory; the gate fails the job when a shard did not report, zero tests ran, the layout verdict fails, this PR's own added/changed baseline fails, or a screenshot is red here but not on develop)"
+            echo "merge-reports exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (the gate fails the job when a shard did not report, zero tests ran, the layout verdict fails, this PR's own added/changed baseline fails, a red screenshot is not in tests/visual/visual-known-failures.json, a ledger entry is stale, or this PR adds a ledger entry)"
             echo
             if [ -f tests/visual/.results.json ]; then
               executed="$(node -e "const s = require('./tests/visual/.results.json').stats || {}; console.log((s.expected || 0) + (s.unexpected || 0) + (s.flaky || 0))" 2>/dev/null || echo 0)"
@@ -743,17 +691,6 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14
-
-      # Develop's red set (failed + flaky screenshots), consumed by PR runs (see "Find develop's red set").
-      # The gate writes it on every run; only develop pushes publish it.
-      - name: Upload develop's red set
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
-        uses: actions/upload-artifact@v4
-        with:
-          name: visual-red-develop
-          path: tests/visual/visual-red-develop.json
-          if-no-files-found: ignore
-          retention-days: 30
 
   # Branch policy guard (NDL-52 phase 4.4): `main` is the release branch, so it
   # must only advance by promoting `develop` or by a `hotfix/*` branch. Any
