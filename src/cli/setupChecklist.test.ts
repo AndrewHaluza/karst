@@ -10,7 +10,7 @@ import { ITEMS } from '../setup/checklist/items.js';
 import type { ChecklistItem } from '../setup/checklist/types.js';
 import { fakeProbes } from '../setup/readiness/fakeProbes.testutil.js';
 import type { Manifest } from '../manifest/types.js';
-import type { DiscoveryResult } from '../setup/discover.js';
+import { discoveryRootFor, discoverWorkspace, type DiscoveryProbe, type DiscoveryResult } from '../setup/discover.js';
 
 const manifest = {
   host: '127.0.0.1', portRange: [3000, 3999], baselineBranch: 'main', agentProvider: 'claude', defaultModel: 'm',
@@ -160,6 +160,39 @@ describe('setup checklist command', () => {
     const out = JSON.parse(await runSetupChecklistCommand({ ...base, manifest: undefined, loadError: 'ENOENT' }));
     expect(new Set(out.items.map((i: { status: string }) => i.status))).toEqual(new Set(['todo']));
     expect(out.ok).toBe(false);
+  });
+
+  it('reports repos.registered done when karst.yml is in .karst and the repo has linked worktrees', async () => {
+    const repo = '/p/repo';
+    const manifestDir = `${repo}/.karst`;
+    const files: Record<string, string> = {
+      [`${repo}/.git`]: 'gitdir: /p/other/.git/worktrees/repo\n',
+      [`${repo}/.karst/worktrees/x/.git`]: 'gitdir: /p/repo/.git/worktrees/x\n',
+      [`${repo}/.karst/base-check/merged-1/.git`]: 'gitdir: /p/repo/.git/worktrees/merged-1\n',
+    };
+    const dirs: Record<string, string[]> = {
+      [repo]: ['.karst'],
+      [`${repo}/.karst`]: ['worktrees', 'base-check'],
+      [`${repo}/.karst/worktrees`]: ['x'],
+      [`${repo}/.karst/base-check`]: ['merged-1'],
+    };
+    const probe: DiscoveryProbe = {
+      readFile: (p) => files[p],
+      listDir: (p) => dirs[p] ?? [],
+      exists: (p) => p in files || p in dirs || p === repo,
+      git: () => undefined,
+    };
+    const discovery = discoverWorkspace(discoveryRootFor(manifestDir), probe, 'main');
+    expect(discovery.repos.map((r) => r.name)).toEqual(['repo']);
+
+    const m = {
+      ...manifest,
+      repositories: { repo: { repoPath: repo, hasMigrations: false } },
+    } as unknown as Manifest;
+    const out = JSON.parse(await runSetupChecklistCommand({ ...base, manifest: m, manifestDir, discovery }));
+    const item = out.items.find((i: { code: string }) => i.code === 'repos.registered');
+    expect(item.status).toBe('done');
+    expect(JSON.stringify(out.items)).not.toContain('merged-1');
   });
 });
 

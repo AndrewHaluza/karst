@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectBaselineBranch,
+  discoveryRootFor,
   discoverWorkspace,
   inferService,
   repoNameFor,
@@ -12,6 +13,8 @@ interface FakeRepo {
   dirs?: string[];
   /** Key is the git subcommand joined; value is stdout ('' = success, empty). */
   git?: Record<string, string | undefined>;
+  /** Text of a `.git` FILE (a linked worktree or a submodule), as opposed to a `.git` directory. */
+  gitFile?: string;
 }
 
 function probeFor(repos: Record<string, FakeRepo>): DiscoveryProbe {
@@ -21,6 +24,7 @@ function probeFor(repos: Record<string, FakeRepo>): DiscoveryProbe {
       for (const [root, r] of roots) {
         if (!p.startsWith(root + '/')) continue;
         const rel = p.slice(root.length + 1);
+        if (rel === '.git' && r.gitFile !== undefined) return r.gitFile;
         if (r.files && rel in r.files) return r.files[rel];
       }
       return undefined;
@@ -35,7 +39,7 @@ function probeFor(repos: Record<string, FakeRepo>): DiscoveryProbe {
     exists: (p) => {
       if (repos[p]) return true;
       for (const [root, r] of Object.entries(repos)) {
-        if (p === `${root}/.git`) return r.git !== undefined;
+        if (p === `${root}/.git`) return r.git !== undefined || r.gitFile !== undefined;
         if (r.files && p.startsWith(root + '/') && p.slice(root.length + 1) in r.files) return true;
       }
       return false;
@@ -181,5 +185,39 @@ describe('discoverWorkspace', () => {
     expect(r.repos.map((x) => x.name)).toEqual(['api', 'docs', 'web']);
     expect(r.repos.find((x) => x.name === 'web')!.service?.start).toBe('npm run dev');
     expect(r.repos.find((x) => x.name === 'docs')!.service).toBeNull();
+  });
+
+  it('does not report a linked git worktree below the root as a repository', () => {
+    const probe = probeFor({
+      '/w': { dirs: ['a', 'b', 'c'] },
+      '/w/a': { git: {} },
+      // A linked worktree: `.git` is a file that points into `.git/worktrees/`.
+      '/w/b': { gitFile: 'gitdir: /x/a/.git/worktrees/b\n' },
+      // A submodule: also a `.git` file, but its gitdir points into `.git/modules/`.
+      '/w/c': { gitFile: 'gitdir: /x/a/.git/modules/c\n' },
+    });
+    const r = discoverWorkspace('/w', probe, 'main');
+    expect(r.repos.map((x) => x.name).sort()).toEqual(['a', 'c']);
+  });
+
+  it('still reports the root when the root .git is a linked-worktree file', () => {
+    const probe = probeFor({ '/w': { gitFile: 'gitdir: /x/a/.git/worktrees/w\n' } });
+    const r = discoverWorkspace('/w', probe, 'main');
+    expect(r.repos.map((x) => x.name)).toEqual(['w']);
+  });
+});
+
+describe('discoveryRootFor', () => {
+  it('uses the parent of a `.karst` manifest directory', () => {
+    expect(discoveryRootFor('/p/repo/.karst')).toBe('/p/repo');
+  });
+
+  it('keeps a manifest directory that is not `.karst`', () => {
+    expect(discoveryRootFor('/p/ws')).toBe('/p/ws');
+  });
+
+  it('strips a trailing slash before it compares the basename', () => {
+    expect(discoveryRootFor('/p/repo/.karst/')).toBe('/p/repo');
+    expect(discoveryRootFor('/p/ws/')).toBe('/p/ws');
   });
 });

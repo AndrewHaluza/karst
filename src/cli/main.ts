@@ -58,7 +58,7 @@ import { runSchemaCommand } from './schemaCommand.js';
 import { runManifestCommand } from './manifestCommand.js';
 import { realDiscoveryProbe, runSetupCommand } from './setupCommand.js';
 import { parseSetupChecklistArgs, runSetupChecklistCommand } from './setupChecklist.js';
-import { discoverWorkspace } from '../setup/discover.js';
+import { discoveryRootFor, discoverWorkspace } from '../setup/discover.js';
 import { readSkips, skipStorePath } from '../setup/checklist/skips.js';
 import { isEditTool, SETUP_SESSION_ENV } from './setupEdit/command.js';
 import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
@@ -927,7 +927,10 @@ export async function runCliAsync(
       repos: [],
       probes: nodeReadinessProbes(root),
       manifestDir: root,
-      discovery: discoverWorkspace(root, realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
+      // A manifest in `<repo>/.karst/` describes `<repo>`: discover from the
+      // repo, not from karst's runtime directory. `root` stays the manifestDir
+      // because a relative repoPath resolves against it.
+      discovery: discoverWorkspace(discoveryRootFor(root), realDiscoveryProbe(), loaded?.manifest.baselineBranch ?? 'main'),
       verifyServices: checklistVerifyServices(env, db, loaded?.manifest),
       servicesUnverified: !inSetupSession(env),
       skips: readSkips(skipStorePath(db, manifestPath)),
