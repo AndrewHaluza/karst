@@ -26,15 +26,3 @@
   text-transform:uppercase;color:var(--k-text-dim)}
 .sec-group .gcount{font-variant-numeric:tabular-nums}
 .sec-group .gnote{font-weight:var(--k-weight-normal);text-transform:none}
-
-/* Empty: mark + heading on one line, the reason under it, no button. */
-.estate{display:flex;align-items:flex-start;gap:var(--k-space-5);
-  padding:calc(var(--k-space-6) + var(--k-space-1)) calc(var(--k-space-6) + var(--k-space-1)) calc(var(--k-space-6) + var(--k-space-1) + var(--k-border-w))}
-.estate .emark{display:flex;align-items:center;justify-content:center;
-  width:var(--k-control-h-sm);height:var(--k-control-h-sm);border-radius:var(--k-radius-circle);flex:none;margin-top:calc(var(--k-border-w) * -1);
-  background:var(--k-surface-hover);color:var(--k-text-faint)}
-.estate .emark svg{width:var(--k-text-base);height:var(--k-text-base);display:block}
-.estate .ehead{font-size:var(--k-text-md);font-weight:var(--k-weight-semibold);color:var(--k-text)}
-.estate .esub{font-size:var(--k-text-sm);color:var(--k-text-dim);line-height:1.45;margin-top:var(--k-space-1)}
-/* A dead end gets no action anywhere, so it gets no emphasis either: a statement, not a prompt. */
-.estate.dead .ehead{color:var(--k-text-dim);font-weight:var(--k-weight-medium)}

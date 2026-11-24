@@ -100,18 +100,31 @@ describe('SubtasksPanel — visibility', () => {
     expect(add().classList.contains('hidden')).toBe(true);
   });
 
-  it('shows the empty message when one can be added', () => {
+  it('shows the shared one-line empty state when one can be added (Q3 UI-R46)', () => {
     mount(stateWith({ canAddSubtask: true }));
     expect(root().classList.contains('hidden')).toBe(false);
     expect(add().classList.contains('hidden')).toBe(false);
-    expect(document.querySelector('.subtask-empty')!.textContent).toBe('No sub-tasks yet. Add one to split off unfinished work.');
+    const line = document.querySelector('#subtasks .k-empty.k-empty--inline')!;
+    expect(line.textContent).toBe('No sub-tasks yet.');
+    expect(document.querySelector('.subtask-empty')).toBeNull();
+    // The header action is the way forward; the line is a statement, not a second control.
+    expect(document.querySelector('#subtasks button')).toBeNull();
   });
 
-  it('is shown for existing sub-tasks even when none can be added, without the button', () => {
+  it('is shown for existing sub-tasks even when none can be added, without the button or the empty line', () => {
     mount(stateWith({ subtasks: [sub(1)], subtaskProgress: { done: 0, total: 1 } }));
     expect(root().classList.contains('hidden')).toBe(false);
     expect(add().classList.contains('hidden')).toBe(true);
     expect(document.querySelector('.subtask-empty')).toBeNull();
+    expect(document.querySelector('.k-empty')).toBeNull();
+  });
+
+  it('drops the empty line when the first sub-task arrives', () => {
+    const h = mount(stateWith({ canAddSubtask: true }));
+    expect(document.querySelector('.k-empty')).not.toBeNull();
+    h.emit({ type: 'state', state: stateWith({ subtasks: [sub(1)], subtaskProgress: { done: 0, total: 1 }, canAddSubtask: true }) });
+    expect(document.querySelector('.k-empty')).toBeNull();
+    expect(document.querySelectorAll('#subtasks .subtask')).toHaveLength(1);
   });
 
   it('follows later pushes', () => {

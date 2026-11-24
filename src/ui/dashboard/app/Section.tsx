@@ -17,12 +17,18 @@ export interface SectionProps {
   readonly summaryMono?: boolean;
   readonly actions?: ReactNode;
   readonly bodyId?: string;
+  /**
+   * A panel with nothing to list: when non-empty, one muted line under the header replaces the body
+   * wrapper entirely (UI-R46). The line keeps `bodyId`, so the panel's anchors resolve in both states.
+   */
+  readonly empty?: string | null;
   readonly children?: ReactNode;
 }
 
-export function Section({ title, count, summary, summaryTitle, summaryMono, actions, bodyId, children }: SectionProps) {
+export function Section({ title, count, summary, summaryTitle, summaryMono, actions, bodyId, empty, children }: SectionProps) {
   const hasCount = count !== null && count !== undefined && count !== '' && count !== 0;
   const hasSummary = summary !== null && summary !== undefined && summary !== '' && summary !== false;
+  const hasEmpty = empty !== null && empty !== undefined && empty !== '';
   return (
     <>
       <div className="phead">
@@ -35,9 +41,15 @@ export function Section({ title, count, summary, summaryTitle, summaryMono, acti
         ) : null}
         {actions ? <span className="pops">{actions}</span> : null}
       </div>
-      <div className="pbody" id={bodyId}>
-        {children}
-      </div>
+      {hasEmpty ? (
+        <div className="k-empty k-empty--inline" id={bodyId}>
+          {empty}
+        </div>
+      ) : (
+        <div className="pbody" id={bodyId}>
+          {children}
+        </div>
+      )}
     </>
   );
 }

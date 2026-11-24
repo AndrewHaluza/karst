@@ -550,6 +550,19 @@ const chipBlockers = (s: DashboardState): DashboardState => ({
   ],
 });
 
+/** T1346: all four Overview panels with nothing to list; Sub-tasks can still gain one and Servers is runnable. */
+const emptyPanels = (s: DashboardState): DashboardState => ({
+  ...s,
+  subtasks: [],
+  subtaskProgress: { done: 0, total: 0 },
+  canAddSubtask: true,
+  hasRunnableRepos: true,
+  servers: [],
+  sharedServers: [],
+  worktrees: [],
+  prs: [],
+});
+
 const dashboardVariants = (): Variant[] => [
   ...CHIP_TIERS.map(([tier, width]) =>
     variant('dashboard', `stage-chip-${tier}`, dashboardScenario('running', 2, chipBlockers), { width, themes: CHIP_THEMES }),
@@ -560,6 +573,11 @@ const dashboardVariants = (): Variant[] => [
   ),
   ...stallVariants(),
   variant('dashboard', 'empty', () => stateMessage(renderStateFor('scope'))),
+  // T1346 Q3 (UI-R46): all four Overview panels empty at once — one muted line each, header actions kept, and no
+  // panel losing its place. The layout gate opens this page at every width; the tight shot (320-399 tier, RD-TIERS)
+  // shares that run, because a differing `width` is not a different page.
+  variant('dashboard', 'empty-panels', dashboardScenario('running', 2, emptyPanels)),
+  variant('dashboard', 'empty-panels-tight', dashboardScenario('running', 2, emptyPanels), { width: 360 }),
   variant('dashboard', 'loading', LOADING),
   variant('dashboard', 'error', dashboardScenario('failed', 2)),
   variant('dashboard', 'long-content', dashboardScenario('running', 20, (s) => ({ ...s, title: LONG_TITLE }))),
