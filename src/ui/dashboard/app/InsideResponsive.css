@@ -34,9 +34,8 @@
   #inside .op summary>.op-tail,#inside .op-static>.op-tail{grid-column:2/-1;grid-row:2;justify-content:flex-start;flex-wrap:nowrap;
     overflow:hidden;padding-right:0}
   #inside .op-tail:empty{display:none}
-  /* The row packs name + AI chip, detail, console, duration into one line: keep a gap after the chip and set the tail row (core, tokens) in from the label (T1343). */
-  #inside .op summary>.op-detail,#inside .op-static>.op-detail{padding-left:var(--p-s2)}
-  #inside .op summary>.op-tail,#inside .op-static>.op-tail{column-gap:var(--p-s2);row-gap:var(--p-s1);padding-top:var(--p-s1)}
+  /* The AI chip abuts the detail in the one-line row: keep a gap after it (T1343). */
+  #inside .op summary>.op-name:has(.ai-mark)+.op-detail,#inside .op-static>.op-name:has(.ai-mark)+.op-detail{padding-left:var(--p-s2)}
   #inside .op summary>.op-detail,#inside .op-static>.op-detail{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #inside .op summary>.op-detail.detail-console,#inside .op-static>.op-detail.detail-console{display:flex;min-width:0;max-width:100%}
   #inside .op summary>.op-detail.detail-console .op-detail-text,#inside .op-static>.op-detail.detail-console .op-detail-text{
