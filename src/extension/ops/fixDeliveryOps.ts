@@ -233,10 +233,13 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
     // pointer now. An older unread row keeps the pointer, and a launch still
     // starting keeps its seed. Never supersede here: `unavailable`/`held` leave
     // the row armed for the sweep's 60 s fallback.
+    // The upsert above clears `read_at`/`superseded_at`, so the oldest unread row
+    // always exists; it is THIS row only when no older unread row is waiting.
+    const pointerRow = nextUnreadDelivery(host.store, input.ticketId)!;
     if (
       host.isIdle(input.ticketId) &&
       !hasPendingFixIntent(host.store, row.launchId) &&
-      nextUnreadDelivery(host.store, input.ticketId)?.id === row.id
+      pointerRow.id === row.id
     ) {
       const sent = sendTypedPointer(host, row, 'first');
       if (sent === 'pointer-null') failPointer(host, row);
