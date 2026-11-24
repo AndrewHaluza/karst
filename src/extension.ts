@@ -12,6 +12,7 @@ import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { createDrain } from './runtime/drain.js';
 import { defaultSleepLedger, startSleepLedger } from './runtime/sleepLedger.js';
 import { registerReloadWhenIdle } from './extension/reloadWhenIdleBinding.js';
+import { registerKeepAwake } from './extension/keepAwakeBinding.js';
 import { onDrainChange } from './extension/ops/reloadDrainView.js';
 import { guardShipStart, ShipDrainingError } from './extension/ops/reloadWhenIdle.js';
 import { sessionDelivery } from './extension/ops/fixWatchdog.js';
@@ -7245,6 +7246,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
     { dispose: onDrainChange(() => dashboard.pushAllStates()) }, // the dashboards show the waiting reload
     registerReloadWhenIdle(localStore, drain, (m) => logger.info(m), (id) => void maybeDrive(id, 'drain-cancelled')),
+    registerKeepAwake(localStore, drain, () => currentProject()?.id, (m) => logger.debug(m)),
     ...registerCloseCommands({
       store: localStore, notify, log: { error: logError }, projectId: () => currentProject()?.id,
       activeTicketId: () => activeTicket.get() ?? undefined, stopWork: (id) => { driver.requestStop(id); sessions.disposeSession(id); },

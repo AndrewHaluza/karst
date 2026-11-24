@@ -56,7 +56,7 @@ flowchart LR
 | No profile or unreadable profile | Built-in prompt used | Fix the profile file. |
 
 ### Rules
-@arch:PROFILE · @arch:FLOOR · @arch:SAVE · @arch:PRESET · @arch:PIN · @arch:AGENTSPAGE · @arch:REPO · @arch:SERVICES · @arch:KEYCASE · @arch:LEGACY · @arch:BLOCKSEV · @arch:TESTER-BUDGET · @arch:DIFFS · @arch:CONCURRENCY · @arch:SANDBOX-HOST · @arch:FIELDCHK
+@arch:PROFILE · @arch:FLOOR · @arch:SAVE · @arch:PRESET · @arch:PIN · @arch:AGENTSPAGE · @arch:REPO · @arch:SERVICES · @arch:KEYCASE · @arch:LEGACY · @arch:BLOCKSEV · @arch:TESTER-BUDGET · @arch:DIFFS · @arch:CONCURRENCY · @arch:SANDBOX-HOST · @arch:KEEPAWAKE · @arch:FIELDCHK
 END_DOC_BLOCK: [@arch:MS-00]
 
 ## [@arch:PROFILE] A Settings process-assignment profile IS the process's prompt
@@ -153,6 +153,20 @@ Optional per-gate field on `uat.gates` / `review.gates` entries (`GateDef.sandbo
 
 **Service `sandbox: host`.** Optional per-service field (`ServiceDef.sandbox`: `host` | `inside`, default `inside`; validated in `validateService`, `manifest/validate/repository.ts`; Settings → Services edits it as the checkbox "Run on the host for a sandboxed ticket"). For a sandboxed ticket the service starts on the host from the host worktree (`runtime/startService.ts`); a host ticket ignores it. A `dependsOn` edge must have the same placement at both ends (`validate/graph.ts`). Keep and reset → `arch:AC-58`. ACCEPTED RISK: the service runs agent-written code on the host for the UAT and the kept user-UAT window; it binds `host` like a host ticket's service (loopback only, checked at load), and `sandboxHostAllow` is not widened, so the sandbox cannot reach it. A manual Restart between driver steps runs the last synced host tree. A docker-image service is refused inside a sandbox unless it declares `sandbox: host`. Example: `service: { start: npm run -s uat:host:serve, sandbox: host, ... }`.
 END_DOC_BLOCK: [@arch:SANDBOX-HOST]
+
+## [@arch:KEEPAWAKE] `karst.keepAwake` holds one `caffeinate` child per window while a run is live
+covers: src/extension/ops/keepAwake.ts, src/extension/keepAwakeBinding.ts
+
+`karst.keepAwake` is a VS Code setting (package.json `contributes.configuration`, NOT a `Manifest` field and with no Settings-panel control): enum `auto | off | always`, default `auto`. `auto` runs `caffeinate -s -w <host pid>` while a run of this window is live — macOS honours `-s` (no system sleep) on AC power only, so no power-source probe is needed and battery keeps its normal sleep. `always` uses `-i` (no idle sleep) and holds on battery too. `off` holds nothing. An absent or unknown value reads as `auto`. The display may still turn off; on a platform other than `darwin` the factory is a no-op.
+
+The live set is the drain's own (`@arch:DRAIN-01`): `listLiveRuns(store, hostPid, drain.inFlight(), ...liveDeliverTickets())` — gates, ships, delivers, stage processes, headless agents and graph nodes whose `stage_runs` / `deliver_runs` / `ship_runs` / `process_runs` row is `running` with this host's pid — plus `agent:<ticket>` for each non-archived ticket of the project with `agent_state = 'running'` and a `last_hook_at` within `KEEP_AWAKE_AGENT_FRESH_MS` (60 min). `listLiveRuns` leaves the interactive impl/fix terminals out on purpose, and the freshness test keeps a stale `running` row from holding the lock forever. A waiting or idle agent adds no key.
+
+`makeKeepAwake` ticks every `KEEP_AWAKE_INTERVAL_MS` (30 s) and starts ONE child when a key is live and the mode is not `off`, kills it when none is live, and kills then restarts it when the mode changes: two children never run at once. `spawn` is the async `node:child_process` one (`@arch:EVENTLOOP`: no sync spawn) with `stdio: 'ignore'`. A missing binary writes one debug line and is not tried again in that window; an unexpected exit clears the child so the next tick starts it again. `-w <host pid>` ends the child with the extension host, and `dispose()` kills it. Each window holds its own lock for its own runs, so two windows mean two children.
+
+Hold limit: when the sorted live-key signature does not change for `KEEP_AWAKE_MAX_HOLD_MS` (4 h) the lock is released until the signature changes, because a stuck run must not hold the Mac awake forever. Each start and each release writes one `debug` line with the mode and the key count; there is no toast and no event row (routine, `@arch:NTF-05`). The binding reads the setting on every tick (a change applies within 30 s) and runs one immediate tick at activation.
+
+`auto` is not free: `caffeinate -s` may also keep a LID-CLOSED Mac awake on AC power, untested when the lock shipped.
+END_DOC_BLOCK: [@arch:KEEPAWAKE]
 
 ## [@arch:FIELDCHK] New `Manifest` field checklist
 
