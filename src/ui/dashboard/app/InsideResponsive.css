@@ -96,11 +96,12 @@
 @container (max-width: 399px){
   #inside .inside{margin-left:var(--k-space-1);margin-right:var(--k-space-1)}
   /* DB-1: at the floor, with no header action, the title and the chip share row one (the chip shrinks to its ellipsis).
-     The live line and the clock take the next rows, so nothing overlaps (UI-R43). The chip is a control, so it starts
-     its cell. With a header action (`.has-actions`) the row has no room for the chip: the chip takes its own row. */
-  #inside .inside-head.has-autofix{grid-template-columns:auto minmax(0,1fr) auto;padding-top:var(--p-s1);padding-bottom:var(--p-s1)}
+     The live line and the clock take the next rows, so nothing overlaps (UI-R43).
+     The chip sits at the right end of row one.
+     With a header action (`.has-actions`) the row has no room for the chip: the chip takes its own row. */
+  #inside .inside-head.has-autofix{grid-template-columns:auto minmax(0,1fr) auto;row-gap:0;min-height:0;padding-top:var(--p-s1);padding-bottom:var(--p-s1)}
   #inside .inside-head.has-autofix .inside-title{grid-column:1;grid-row:1}
-  #inside .inside-head.has-autofix .autofix-chipwrap{grid-column:2;grid-row:1;justify-self:start;max-width:100%}
+  #inside .inside-head.has-autofix .autofix-chipwrap{grid-column:2;grid-row:1;justify-self:end;max-width:100%}
   #inside .inside-head.has-autofix .inside-live{grid-column:1/-1;grid-row:2}
   #inside .inside-head.has-autofix .inside-meta{grid-column:1/-1;grid-row:3}
   /* `.has-actions` is named in these selectors: the narrow rules above name `.has-autofix.has-actions`, which outranks the
