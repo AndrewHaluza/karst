@@ -455,6 +455,17 @@ describe('makeRequestedRerunSweep', () => {
     expect(redrive).not.toHaveBeenCalled();
   });
 
+  it('drives the next fix round through onNextRound when the gate still fails', async () => {
+    const store = openStore(':memory:');
+    const { project, ticketId } = await requestedRound(store);
+    const onNextRound = vi.fn();
+    const run = vi.fn<GateProcessRunner>(async () => ({ kind: 'completed', exitCode: 1, output: 'bad' }));
+    const outcomes = await makeRequestedRerunSweep({ store, runnerFor: () => run, gatesFor: () => [resolved({ args: ['t'] })], gateSlotsDir: mkdtempSync(join(tmpdir(), 'karst-rerun-slots-')), projectId: () => project.id, onNextRound })();
+    expect(outcomes).toBeUndefined();
+    expect(onNextRound).toHaveBeenCalledExactlyOnceWith(ticketId);
+    store.close();
+  });
+
   it('re-drives after the bridge re-run (hostRerunFor) and the pre-brief re-run (preBriefRerunFor) pass', async () => {
     for (const make of [hostRerunFor, preBriefRerunFor]) {
       const store = openStore(':memory:');

@@ -15,6 +15,17 @@ export interface FixRoundHead {
   headSha: string;
 }
 
+/**
+ * Equal as sets of `path:sha`. Two empty sets are NOT equal: no snapshot is no evidence, so a
+ * round with no recorded HEADs never matches another (@arch:AC-66 same-head rule).
+ */
+export function sameHeads(a: readonly FixRoundHead[], b: readonly FixRoundHead[]): boolean {
+  if (a.length === 0 || a.length !== b.length) return false;
+  const key = (h: FixRoundHead): string => `${h.worktreePath}\u0000${h.headSha}`;
+  const set = new Set(a.map(key));
+  return b.every((h) => set.has(key(h)));
+}
+
 /** Record the HEADs seen when the round opened. The first record wins: a re-nudge keeps the original. */
 export function recordFixRoundHeads(store: Store, roundId: number, heads: readonly FixRoundHead[]): void {
   const insert = store.db.prepare(

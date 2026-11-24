@@ -4,6 +4,7 @@ import { getTicket } from '../store/tickets.js';
 import { latestFindingBatch } from '../store/reviewFindings.js';
 import { listGateRuns } from '../store/gateRuns.js';
 import { activeRecoverySeries } from '../store/recoveryRounds.js';
+import { previousContinuedRound } from '../store/fixNoChangeRounds.js';
 import { listPrFeedbackForRound } from '../store/prFeedback.js';
 import { hasLinkedPrototype, renderFixBrief } from '../agent/fixBrief.js';
 import { resolveTicketByKey } from './resolveTicket.js';
@@ -90,13 +91,25 @@ function liveBrief(store: Store, ticketId: number): string {
   // A PR-feedback round's brief carries the adopted threads; an ordinary fix
   // (or a ship saga crash, which opens no round) passes nothing.
   const shipRound = activeRecoverySeries(store, t.id, 'ship');
+  const continued = previousContinuedRound(store, t.id);
   const brief = renderFixBrief(
     formatTicketRef(t.id, t.key),
     t.stages,
     latestFindingBatch(store, t.id),
     listGateRuns(store, t.id),
     shipRound === null ? undefined : listPrFeedbackForRound(store, t.id, shipRound.id),
-    { hasPrototype: hasLinkedPrototype(t) },
+    {
+      hasPrototype: hasLinkedPrototype(t),
+      ...(continued === null
+        ? {}
+        : {
+            continuedFrom: {
+              round: continued.round.round,
+              maxRounds: continued.round.maxRounds,
+              reason: continued.reason,
+            },
+          }),
+    },
   );
   if (brief === null) {
     return 'No failed gate is recorded for this ticket — there is nothing to fix.';

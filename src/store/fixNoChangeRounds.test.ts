@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
-import { openRecoveryRound } from './recoveryRounds.js';
+import { openRecoveryRound, continueFixRound } from './recoveryRounds.js';
 import { roundById } from './recoveryRoundsRead.js';
 import { setStage } from './stages.js';
 import { setStageCurrent } from './tickets.js';
 import { upsertProject } from './projects.js';
 import { parkRoundOutOfFixing } from './hostRerunRound.js';
+import { recordFixRoundHeads as recordHeads } from './fixRoundHeads.js';
+import { FIX_CONTINUED_PREFIX } from '../model/noChange.js';
 import {
   claimNoChangeRerun, requestNoChangeRerun, ticketsWithRequestedNoChangeRerun, previousNoChangeRound, parkedFixRound, recordNoChangeReason,
+  sameHeadStreak, previousContinuedRound,
 } from './fixNoChangeRounds.js';
 
 const AT = '2026-01-01T00:00:00Z';
@@ -105,5 +108,134 @@ describe('no-change round store helpers', () => {
     store.db.prepare("UPDATE stages SET blocked_kind = NULL WHERE ticket_id = ? AND stage_key = 'fix'").run(ticketId);
     setStageCurrent(store, ticketId, 'uat');
     expect(parkedFixRound(store, ticketId)).toBeNull();
+  });
+});
+
+describe('sameHeadStreak (T1330)', () => {
+  let store: Store;
+  let ticketId: number;
+  let projectId: number;
+  const at = '2026-09-01T10:00:00.000Z';
+  const heads = (sha: string) => [{ worktreePath: '/wt/web', headSha: sha }];
+
+  const open = (triggerKind = 'gate-failure', sourceStage: 'uat' | 'review' = 'uat'): number =>
+    openRecoveryRound(store, {
+      ticketId, sourceStage, sourceProcessId: sourceStage === 'uat' ? 'gates' : 'review', triggerKind,
+      triggerDetail: 'x', maxRounds: 10, startedAt: at,
+    } as never).id;
+
+  const set = (id: number, status: string): void => {
+    store.db.prepare('UPDATE recovery_rounds SET status = ? WHERE id = ?').run(status, id);
+  };
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    projectId = upsertProject(store, { slug: 'p' }).id;
+    ticketId = createTicketFlow(store, { key: 'T-1', title: 't', projectId }).id;
+    setStage(store, ticketId, 'fix', { status: 'running', startedAt: at });
+    setStageCurrent(store, ticketId, 'fix');
+  });
+
+  it('counts the round and every earlier failed gate-failure round on the same head', () => {
+    const r1 = open();
+    recordHeads(store, r1, heads('aaa'));
+    set(r1, 'failed');
+    const r2 = open();
+    recordHeads(store, r2, heads('aaa'));
+    set(r2, 'failed');
+    const r3 = open();
+    recordHeads(store, r3, heads('aaa'));
+    expect(sameHeadStreak(store, roundById(store, r3)!)).toBe(3);
+  });
+
+  it('a commit between rounds restarts the count', () => {
+    const r1 = open();
+    recordHeads(store, r1, heads('aaa'));
+    set(r1, 'failed');
+    const r2 = open();
+    recordHeads(store, r2, heads('bbb'));
+    expect(sameHeadStreak(store, roundById(store, r2)!)).toBe(1);
+  });
+
+  it('a user Retry (an interrupted round) restarts the count', () => {
+    const r1 = open();
+    recordHeads(store, r1, heads('aaa'));
+    set(r1, 'interrupted');
+    const r2 = open();
+    recordHeads(store, r2, heads('aaa'));
+    set(r2, 'failed');
+    const r3 = open();
+    recordHeads(store, r3, heads('aaa'));
+    // r1 is interrupted, so only r3 and r2 count.
+    expect(sameHeadStreak(store, roundById(store, r3)!)).toBe(2);
+  });
+
+  it('stops at a round of another trigger kind', () => {
+    const r1 = open('blocking-review-findings', 'review');
+    set(r1, 'failed');
+    const r2 = open();
+    recordHeads(store, r2, heads('aaa'));
+    expect(sameHeadStreak(store, roundById(store, r2)!)).toBe(1);
+  });
+
+  it('a round with no recorded heads counts as one', () => {
+    const r1 = open();
+    recordHeads(store, r1, heads('aaa'));
+    set(r1, 'failed');
+    const r2 = open();
+    expect(sameHeadStreak(store, roundById(store, r2)!)).toBe(1);
+  });
+});
+
+describe('previousContinuedRound (T1330)', () => {
+  let store: Store;
+  let ticketId: number;
+  let projectId: number;
+  const at = '2026-09-01T10:00:00.000Z';
+
+  const openFixing = (sourceStage: 'uat' | 'review' = 'uat'): number => {
+    const id = openRecoveryRound(store, {
+      ticketId, sourceStage, sourceProcessId: sourceStage === 'uat' ? 'gates' : 'review', triggerKind: 'gate-failure',
+      triggerDetail: 'x', maxRounds: 5, startedAt: at,
+    } as never).id;
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(id);
+    recordHeads(store, id, [{ worktreePath: '/wt/web', headSha: 'aaa' }]);
+    return id;
+  };
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    projectId = upsertProject(store, { slug: 'pc' }).id;
+    ticketId = createTicketFlow(store, { key: 'T-1', title: 't', projectId }).id;
+    setStage(store, ticketId, 'fix', { status: 'running', startedAt: at });
+    setStageCurrent(store, ticketId, 'fix');
+  });
+
+  it('returns the round just before the active one when the host continued it', () => {
+    const r1 = openFixing();
+    continueFixRound(store, { roundId: r1, endReason: `${FIX_CONTINUED_PREFIX} unit (web)`, at });
+    const previous = previousContinuedRound(store, ticketId);
+    expect(previous?.round.id).toBe(r1);
+    expect(previous?.round.maxRounds).toBe(5);
+    expect(previous?.reason).toBeNull();
+  });
+
+  it('carries the agent reason of a no-change round, never the end_reason', () => {
+    const r1 = openFixing();
+    recordNoChangeReason(store, r1, 'the gate is flaky on this machine', at);
+    continueFixRound(store, { roundId: r1, endReason: `${FIX_CONTINUED_PREFIX} unit (web)`, at });
+    expect(previousContinuedRound(store, ticketId)?.reason).toBe('the gate is flaky on this machine');
+  });
+
+  it('is null for a previous round closed for another cause', () => {
+    const r1 = openFixing();
+    continueFixRound(store, { roundId: r1, endReason: 'no change: port', at });
+    expect(previousContinuedRound(store, ticketId)).toBeNull();
+  });
+
+  it('is null when there is no active fix round or no earlier round', () => {
+    expect(previousContinuedRound(store, ticketId)).toBeNull();
+    openFixing(); // round 1, active
+    expect(previousContinuedRound(store, ticketId)).toBeNull();
   });
 });
