@@ -95,16 +95,20 @@
 }
 @container (max-width: 399px){
   #inside .inside{margin-left:var(--k-space-1);margin-right:var(--k-space-1)}
-  /* DB-1: at the floor the chip and the clock take their own rows, so the title, the live line and the menu keep
-     the first rows without overlapping (UI-R43). The chip is a control, so it starts the row rather than centring. */
-  /* `.has-actions` is in every selector: the narrow rules above name `.has-autofix.has-actions`, which outranks the plain
-     `.has-autofix` rules, so without it the menu would keep column 4 here. */
-  #inside .inside-head.has-autofix,#inside .inside-head.has-autofix.has-actions{grid-template-columns:minmax(0,1fr) auto;padding-top:var(--p-s1);padding-bottom:var(--p-s1)}
+  /* DB-1: at the floor, with no header action, the title and the chip share row one (the chip shrinks to its ellipsis).
+     The live line and the clock take the next rows, so nothing overlaps (UI-R43). The chip is a control, so it starts
+     its cell. With a header action (`.has-actions`) the row has no room for the chip: the chip takes its own row. */
+  #inside .inside-head.has-autofix{grid-template-columns:auto minmax(0,1fr) auto;padding-top:var(--p-s1);padding-bottom:var(--p-s1)}
   #inside .inside-head.has-autofix .inside-title{grid-column:1;grid-row:1}
-  #inside .inside-head.has-autofix .stageMenuWrap,#inside .inside-head.has-autofix.has-actions .stageMenuWrap{grid-column:2;grid-row:1}
+  #inside .inside-head.has-autofix .autofix-chipwrap{grid-column:2;grid-row:1;justify-self:start;max-width:100%}
   #inside .inside-head.has-autofix .inside-live{grid-column:1/-1;grid-row:2}
-  #inside .inside-head.has-autofix .autofix-chipwrap,#inside .inside-head.has-autofix.has-actions .autofix-chipwrap{grid-column:1/-1;grid-row:3;justify-self:start}
-  #inside .inside-head.has-autofix .inside-meta{grid-column:1/-1;grid-row:4}
+  #inside .inside-head.has-autofix .inside-meta{grid-column:1/-1;grid-row:3}
+  /* `.has-actions` is named in these selectors: the narrow rules above name `.has-autofix.has-actions`, which outranks the
+     plain `.has-autofix` rules, so without them the menu would keep column 4 here. */
+  #inside .inside-head.has-autofix.has-actions{grid-template-columns:minmax(0,1fr) auto}
+  #inside .inside-head.has-autofix.has-actions .stageMenuWrap{grid-column:2;grid-row:1}
+  #inside .inside-head.has-autofix.has-actions .autofix-chipwrap{grid-column:1/-1;grid-row:3;justify-self:start}
+  #inside .inside-head.has-autofix.has-actions .inside-meta{grid-column:1/-1;grid-row:4}
   #inside .op-body{margin-left:var(--k-space-6);padding-left:var(--p-s1)}
   #inside .evidence-row,#inside .gate-row,#inside .finding,#inside .done-line{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
   #inside .commit-repo-head,#inside .commit-list,#inside .pr-branch,#inside .pr-branch-note,
