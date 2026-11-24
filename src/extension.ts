@@ -104,6 +104,7 @@ import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import { takeGateSnapshot } from './extension/ops/gateSnapshotOps.js';
 import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
+import { sweepBaselineReviewCache } from './ui/dashboard/baselineReviewRetention.js';
 import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding } from './extension/storedArtifactBinding.js';
@@ -6212,6 +6213,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       } catch (e) {
         logError('karst: inactive worktree auto-archive failed', e);
+      }
+      // The baseline-review image cache (@arch:BASELINE-REVIEW) is a CACHE: a
+      // ticket that is gone or archived loses its folder, every live one keeps it.
+      try {
+        const removedCache = sweepBaselineReviewCache(context.globalStorageUri.fsPath, {
+          ticketState: (id) => { try { return getTicket(localStore, id).archivedAt !== null ? 'archived' : 'active'; } catch { return 'missing'; } },
+          debug: (m) => logger.debug(m),
+        });
+        if (removedCache.length > 0) logger.info(`karst: removed baseline-review cache of ${removedCache.length} archived ticket(s)`);
+      } catch (e) {
+        logError('karst: baseline-review cache sweep failed', e);
       }
       // Archived tickets: remove their graph node workspaces and end any run
       // archive left open (workspaces only — the run artifacts stay as evidence).
