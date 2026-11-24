@@ -6176,7 +6176,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (e) {
         logError('karst: planning scratch retention failed', e);
       }
-      await sweepArtifactRetention({ globalStorageRoot: context.globalStorageUri.fsPath, projectId: project.id, manifest: currentManifest(), debug: (m) => logger.debug(m), logError });
+      await sweepArtifactRetention({ globalStorageRoot: context.globalStorageUri.fsPath, projectId: project.id, manifest: currentManifest(), store: localStore, debug: (m) => logger.debug(m), logError });
       // The ticket sweep above only stamps `archived_at`; it never removes the
       // worktree folder, so an auto-archived ticket's dir would sit on disk
       // forever — the archive-compact plan's 'No auto-sweep' gap. This rides
