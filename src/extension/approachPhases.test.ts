@@ -58,6 +58,54 @@ describe('makePhasesOf', () => {
     ]);
   });
 
+  it('omits the outputKind key of a phase that declares no evidence', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+
+    expect(phasesOf()(t.id)).toStrictEqual([{ name: 'research' }, { name: 'plan', outputKind: 'plan' }]);
+  });
+
+  it('reads the evidence of the approach with the ticket approach id, not the first one', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+    const manifest = {
+      approaches: [
+        { id: 'other', label: 'O', workflow: [{ name: 'plan', evidence: { outputKind: 'spec' } }] },
+        { id: 'rpi', label: 'RPI', workflow: [{ name: 'plan', evidence: { outputKind: 'plan' } }] },
+      ],
+    } as Manifest;
+
+    expect(phasesOf({ manifest: () => manifest })(t.id)).toStrictEqual([
+      { name: 'research' },
+      { name: 'plan', outputKind: 'plan' },
+    ]);
+  });
+
+  it('gives names only when the manifest has no approaches, no such approach, or no workflow', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+    const names = [{ name: 'research' }, { name: 'plan' }];
+    const manifests = [
+      {},
+      { approaches: [{ id: 'other', label: 'O', workflow: [{ name: 'plan', evidence: { outputKind: 'plan' } }] }] },
+      { approaches: [{ id: 'rpi', label: 'RPI' }] },
+    ] as unknown as Manifest[];
+
+    for (const manifest of manifests) {
+      expect(phasesOf({ manifest: () => manifest })(t.id)).toStrictEqual(names);
+    }
+  });
+
+  it('keeps every phase when a manifest phase carries no evidence', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    updateTicketFields(store, t.id, { approach: 'rpi' });
+
+    expect(phasesOf({ manifest: () => manifestOf('plan') })(t.id)).toStrictEqual([
+      { name: 'research' },
+      { name: 'plan' },
+    ]);
+  });
+
   it('gives nothing for a ticket with no approach', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
 

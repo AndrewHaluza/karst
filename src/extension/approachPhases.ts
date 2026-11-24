@@ -35,8 +35,11 @@ export function makePhasesOf(deps: MakePhasesOfDeps): (ticketId: number) => read
       // The manifest declares the evidence; the package declares the order. A
       // package phase with no manifest twin simply carries no evidence.
       const kinds = new Map<string, ApproachPhase['outputKind']>();
-      for (const phase of deps.manifest()?.approaches?.find((a) => a.id === approachId)?.workflow ?? []) {
-        if (phase.evidence !== undefined) kinds.set(phase.name, phase.evidence.outputKind);
+      const declared = deps.manifest()?.approaches?.find((a) => a.id === approachId)?.workflow;
+      if (declared !== undefined) {
+        for (const phase of declared) {
+          if (phase.evidence !== undefined) kinds.set(phase.name, phase.evidence.outputKind);
+        }
       }
       return workflow.map((phase) => {
         const outputKind = kinds.get(phase.name);
