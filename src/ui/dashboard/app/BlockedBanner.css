@@ -44,3 +44,11 @@
 .fixpark-items{margin:0;padding-left:var(--k-space-6);font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);overflow-wrap:anywhere}
 .fixpark-actions{display:flex;gap:var(--k-space-3);flex-wrap:wrap}
 .fixpark-form textarea{width:100%;box-sizing:border-box}
+
+/* The merge conflict line (Q1): a needs-you block (@arch:BLOCKED), so amber like the baseline line. One Resolve per
+   repo; the buttons wrap at the narrow and tight tiers instead of overflowing the strip (UI-R43, UI-R44). */
+#blocked:has(> .facts[data-role="merge-blocked"]){border-top-color:color-mix(in srgb,var(--k-attention) 35%,transparent);
+  background:color-mix(in srgb,var(--k-attention) 7%,transparent)}
+#blocked:has(> .facts[data-role="merge-blocked"]) .fdot{background:var(--k-attention)}
+#blocked:has(> .facts[data-role="merge-blocked"]) .ftitle{color:var(--k-attention)}
+.fault .facts[data-role="merge-blocked"]{flex-wrap:wrap}

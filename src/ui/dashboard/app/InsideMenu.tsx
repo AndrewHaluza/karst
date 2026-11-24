@@ -59,7 +59,6 @@ const gateWord = (stage: string): string => (stage === 'uat' ? 'UAT' : 'Review')
 
 /** The visible main button's glyph, label and sentence per action. */
 const MAIN: Readonly<Record<MainAction, { readonly act: string; readonly icon: string; readonly label: string; readonly description: string; readonly name: ActionName }>> = {
-  retry: { act: 'rerun-gate', icon: 'refresh', label: 'Retry', description: 're-run this stage from scratch', name: 'sendBack' },
   ci: { act: 'send-ci-failure', icon: 'send', label: 'Send CI failure', description: 'send the failing CI log to the agent — UAT and Review will run again', name: 'ci' },
   prFeedback: { act: 'address-pr-feedback', icon: 'pencil', label: 'Address feedback', description: "send the review team's pull request feedback to the agent — UAT and Review will run again", name: 'prFeedback' },
   rebase: { act: 'rebase-on-base', icon: 'arrows-down-up', label: 'Rebase', description: 'rebase onto the base branch, regenerate files, push with a lease', name: 'rebase' },
@@ -111,9 +110,7 @@ export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string;
     },
     [ops],
   );
-  // Retry and Send back share one request: both put a confirmation modal in front of the user.
   const post: Readonly<Record<MainAction, () => void>> = {
-    retry: () => send.rerunGate(menu.retry as GateStage),
     ci: () => send.sendCiFailure(),
     prFeedback: () => send.addressPrFeedback(),
     rebase: () => send.rebaseOnBase(),
@@ -121,7 +118,7 @@ export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string;
   const mainSpec = main ? MAIN[main] : null;
   const mainSentence = mainSpec ? insideActionSentence(mainSpec.label, mainSpec.description) : '';
   const show = (a: MainAction): boolean => main !== a;
-  const runAgain = (menu.reset !== null) || (menu.retry !== null && show('retry'));
+  const runAgain = menu.reset !== null || menu.retry !== null;
   const toAgent = (menu.prFeedback && show('prFeedback')) || (menu.ci && show('ci')) || menu.gateFailure || menu.sendBack;
   const branch = menu.rebase && show('rebase');
   const rest = runAgain || toAgent || branch || menu.deliverFailures || menu.autofixStop;
@@ -129,7 +126,7 @@ export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string;
   return (
     <span className="stageMenuWrap" ref={wrap}>
       {mainSpec && main ? (
-        <button type="button" className="k-btn k-btn--secondary k-btn--sm stageMain" data-act={mainSpec.act} data-stage={main === 'retry' ? (menu.retry ?? undefined) : undefined} title={mainSentence} aria-label={mainSentence} onClick={start(mainSpec.name, post[main])}>
+        <button type="button" className="k-btn k-btn--secondary k-btn--sm stageMain" data-act={mainSpec.act} title={mainSentence} aria-label={mainSentence} onClick={start(mainSpec.name, post[main])}>
           <Icon name={mainSpec.icon} size={16} />
           <span>{mainSpec.label}</span>
         </button>
@@ -144,8 +141,9 @@ export function StageMenu({ stageKey, menu, main }: { readonly stageKey: string;
         <div className="stageMenu" role="menu" aria-label="Stage actions" ref={menuPop}>
           {runAgain ? (
             <Group title="Run again">
-              {menu.retry && show('retry') ? (
-                <Item data-act="rerun-gate" data-stage={menu.retry} description="Re-run this stage from scratch" icon="refresh" label={`Retry ${gateWord(menu.retry)}`} onClick={start('sendBack', () => send.rerunGate(menu.retry as GateStage))} />
+              {menu.retry ? (
+                // Re-run and Send back share one request: both put a confirmation modal in front of the user.
+                <Item data-act="rerun-gate" data-stage={menu.retry} description={`Re-run ${gateWord(menu.retry)} from scratch`} icon="refresh" label="Re-run stage…" onClick={start('sendBack', () => send.rerunGate(menu.retry as GateStage))} />
               ) : null}
               {menu.reset ? (
                 <Item data-act="reset-stage" data-stage={menu.reset} description="Clear the failed stage and start a fresh recovery episode" icon="arrow-back-up" label={`Reset ${gateWord(menu.reset)}`} onClick={start('resetStage', () => send.resetStage())} />

@@ -80,6 +80,17 @@ describe('Rail — the track', () => {
     expect(text(segEl('ship').querySelector('.g'))).toBe('⚠');
   });
 
+  it('a conflicted ship segment carries the glyph and the short label only: no Resolve on the rail (DB-3)', () => {
+    for (const cta of [{ kind: 'resolve-conflicts', repo: '/repos/web' }, { kind: 'resolve-panel' }]) {
+      mountRail(railState({ stageCurrent: 'ship', main: mainLine('ship', { ship: { status: 'passed', needsUser: true, needs: needs(cta as never, { action: 'Resolve', detail: '1 repo no longer merges cleanly' }) } }) }));
+      expect(text(segEl('ship').querySelector('.g'))).toBe('⚠');
+      expect(text(segEl('ship').querySelector('.mt'))).toBe('1 repo no longer merges cleanly');
+      expect(q('#rail .go')).toBeNull();
+      expect(q('#rail [data-act="resolve-conflicts"]')).toBeNull();
+      cleanupRail();
+    }
+  });
+
   it('reads needs-you from the host: a needs flag on a stage that is not current shows its duration, not the wording', () => {
     mountRail(railState({ main: [seg('impl', { status: 'passed', needsUser: true, needs: needs({ kind: 'open-session' }), cell: { startedAt: '2026-08-01T10:00:00Z', endedAt: '2026-08-01T10:05:00Z' } })] }));
     expect(text(segEl('impl').querySelector('.mt'))).toBe('5m');

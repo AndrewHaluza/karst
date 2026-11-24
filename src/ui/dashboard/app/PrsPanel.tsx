@@ -58,7 +58,8 @@ export function prsSummary(prs: DashboardState['prs']): string {
   const open = prs.filter((p) => p.status !== 'merged');
   const dismissed = open.filter((p) => p.dismissed).length;
   const live = open.filter((p) => !p.dismissed);
-  const ready = live.filter((p) => p.canMerge).length;
+  // The same verdict the row chip reads, so the header never says "ready" over a row that says "Merge blocked" (DB-2).
+  const ready = live.filter((p) => p.readiness.ready).length;
   const parts: Array<readonly [number, string]> = [
     [ready, 'ready'],
     [live.length - ready, 'blocked'],

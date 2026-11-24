@@ -118,7 +118,9 @@
 .menuButton.danger,.menuButton.danger .k-icon{color:var(--k-danger)}
 .shipWait{display:inline-flex;align-items:center;gap:var(--k-space-3);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border-radius:var(--k-radius-sm);color:var(--k-attention);font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold);white-space:nowrap}
 .shipWait.hidden{display:none}
-.attentionMark{width:var(--k-space-4);height:var(--k-space-4);border:calc(var(--k-border-w) * 2) solid currentColor;border-radius:var(--k-radius-circle);display:inline-flex;align-items:center;justify-content:center;font-size:var(--k-text-2xs);line-height:1}
+/* The ring holds its glyph: `.dhead .k-icon` would draw the 16px glyph out of an 8px ring (a containment failure, T1343). */
+.attentionMark{width:var(--k-space-7);height:var(--k-space-7);border:calc(var(--k-border-w) * 2) solid currentColor;border-radius:var(--k-radius-circle);display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:var(--k-text-2xs);line-height:1}
+.attentionMark .k-icon{width:100%;height:100%}
 .toast{color:var(--k-success);font-size:var(--k-text-xs);opacity:0;transition:opacity var(--k-dur-fast) var(--k-ease-standard);white-space:nowrap}
 .toast.show{opacity:1}
 /* The Resume button inside the paused chip. */

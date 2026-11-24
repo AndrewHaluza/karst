@@ -16,8 +16,11 @@
  *  - `baseline-review`: non-resumable, only the user's decision clears it. The banner is one amber line with Review and
  *    Approve all (`BaselineBanner.tsx`); the decisions are made in the review overlay (`BaselineOverlay.tsx`).
  *
- * `awaiting-merge` renders NOTHING (except an autopilot park, whose reason starts with `auto-fix`: the banner shows it): it is a normal wait, already surfaced by the header's chip and the Inside
- * ship view's merge rows, so a third surface would be the legacy blocked banner this fault chain removed.
+ * `awaiting-merge` is a normal wait and renders NOTHING, with two exceptions. An autopilot park (reason starts with
+ * `auto-fix`) shows its reason. A merge conflict that parks the ticket on the user (the host's `merge-blocked` ship
+ * slot, the same verdict the header chip mirrors) shows "Merge is blocked" and one Resolve per conflicted repo: the
+ * banner is the ONLY owner of that reason and action (Q1, UI-R40); the rail, the chip and the PR panel only mirror
+ * the state. Resume is never offered for this kind: it refuses `awaiting-merge` (@arch:BLOCKED).
  *
  * The buttons are runtime-pending and keep one className each: the runtime's `is-pending` lives on that node.
  * The key they carry is `data-stagekey`, NOT `data-stage`: the vanilla delegator selects a stage on any
@@ -33,6 +36,7 @@ import { blockFaultTitle } from './railText.js';
 import { isAutoFixPark } from './railSlices.js';
 import { AutofixBannerBody } from './AutofixParts.js';
 import type { AutofixBannerView } from '../../../model/inside/autofix.js';
+import { mergeBlockedDetail } from '../../../model/shipSlot.js';
 import { sameIgnoringLive } from './insideLive.js';
 import { DrainBanner } from './DrainBanner.js';
 import { selectDrainBanner } from './drainSlices.js';
@@ -54,7 +58,22 @@ interface BannerSlice {
   readonly stall: StallView | null;
   /** Only while the block is an auto-fix park the host worded (T1004). */
   readonly autofix: AutofixBannerView | null;
+  /** Only while a merge conflict parks the ticket on the user: one entry per conflicted repo. */
+  readonly conflicts: readonly ConflictRepo[];
 }
+
+interface ConflictRepo {
+  /** The repository path: what the Resolve click sends back. */
+  readonly repo: string;
+  /** The manifest name the PR panel shows, else the path. */
+  readonly label: string;
+}
+
+/** The host's `merge-blocked` slot, named the way the PR panel names each repo. Empty for every other state. */
+const conflictRepos = (s: NonNullable<DashboardSnapshot['state']>): readonly ConflictRepo[] => {
+  if (s.ship?.kind !== 'merge-blocked') return [];
+  return s.ship.repos.map((repo) => ({ repo, label: (s.prs ?? []).find((p) => p.repo === repo)?.repoDisplay || repo }));
+};
 
 /** null when there is nothing for the banner to say. */
 const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
@@ -63,7 +82,8 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
   const blocked = cell?.blocked;
   if (!s || !cell || !blocked) return null;
   const review = blocked.kind === 'baseline-review';
-  if (!(isAutoFixPark(blocked) || blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled' || blocked.kind === 'tester-skipped' || blocked.kind === 'push-diverged')) return null;
+  const conflicts = blocked.kind === 'awaiting-merge' && !isAutoFixPark(blocked) ? conflictRepos(s) : [];
+  if (!(isAutoFixPark(blocked) || conflicts.length > 0 || blocked.resumable !== false || review || blocked.kind === 'usage-limit' || blocked.kind === 'review-stalled' || blocked.kind === 'tester-skipped' || blocked.kind === 'push-diverged')) return null;
   return {
     ticketId: s.ticketId,
     stageKey: cell.stageKey,
@@ -72,6 +92,7 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
     baselines: review ? (s.baselineReview ?? []) : [],
     stall: blocked.kind === 'review-stalled' ? s.stall : null,
     autofix: blocked.kind === 'awaiting-merge' && isAutoFixPark(blocked) ? (s.autopilot?.banner ?? null) : null,
+    conflicts,
   };
 };
 
@@ -232,6 +253,28 @@ function ResourceKilledActions({ ticketId, stageKey }: ActionProps) {
   );
 }
 
+/** One conflicted repo's Resolve: hands the conflict to an agent session, settled by the host's `action-result`. */
+function ResolveButton({ repo, label }: { readonly repo: string; readonly label: string }) {
+  const send = useDashboardSend();
+  const onClick = usePendingAction(useCallback((requestId: string) => send.resolveConflicts(repo, requestId), [send, repo]));
+  return (
+    <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="resolve-conflicts" data-repo={repo} title="Hand this repo's conflict to an agent session" onClick={onClick}>
+      {label}
+    </button>
+  );
+}
+
+/** One repo: "Resolve". Several: "Resolve <repo>", so each button names the repo it acts on. */
+function ResolveActions({ conflicts }: { readonly conflicts: readonly ConflictRepo[] }) {
+  return (
+    <div className="facts" data-role="merge-blocked">
+      {conflicts.map((c) => (
+        <ResolveButton key={c.repo} repo={c.repo} label={conflicts.length === 1 ? 'Resolve' : `Resolve ${c.label}`} />
+      ))}
+    </div>
+  );
+}
+
 function Resume({ ticketId, stageKey }: ActionProps) {
   const send = useDashboardSend();
   const key = stageKey as Parameters<typeof send.stageResume>[1];
@@ -302,6 +345,14 @@ function Body({ slice }: { readonly slice: BannerSlice }) {
       <div className="autofix-banner" data-region="blocked-banner">
         <AutofixBannerBody banner={slice.autofix} />
       </div>
+    );
+  }
+  if (kind === 'awaiting-merge' && slice.conflicts.length > 0) {
+    return (
+      <>
+        <Head title="Merge is blocked" reason={mergeBlockedDetail(slice.conflicts.length)} />
+        <ResolveActions conflicts={slice.conflicts} />
+      </>
     );
   }
   if (kind === 'awaiting-merge') return <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />;

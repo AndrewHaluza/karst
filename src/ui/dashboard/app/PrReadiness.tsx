@@ -3,13 +3,14 @@
  * row per reason. Two or more blocking reasons fold into one closed `details` whose summary carries the brief
  * items and the actions; one reason keeps the plain list (a collapsed check or file list inside). It replaces the separate CI line, failing-checks details and merge-check line. Every string
  * and every verdict is the host's (`model/prMergeReadiness.ts`); this file only places them and never decides
- * that a PR is mergeable. An action is rendered only when the host attached it to the reason.
+ * that a PR is mergeable. An action is rendered only when the host attached it to the reason, and never a block
+ * recovery: a conflict's Resolve lives in the blocked banner only (Q1, DB-3, UI-R40); the box mirrors the state.
  */
 import { memo } from 'react';
 import { isBlocking, showsBlockedBox } from '../../../model/prMergeReadiness.js';
 import type { Reason, ReasonAction, ReasonListItem } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
-import { CiButton, OpenButton, OpenLink, ResolveButton, SingleFlightButton } from './PrActionButtons.js';
+import { CiButton, OpenButton, OpenLink, SingleFlightButton } from './PrActionButtons.js';
 import { Icon } from './Icon.js';
 
 const STATE_ICON: Readonly<Record<Reason['state'], string>> = {
@@ -49,14 +50,17 @@ function Items({ list }: { readonly list: readonly ReasonListItem[] }) {
   );
 }
 
-function ActionButton({ action, repo, ciBusy }: { readonly action: ReasonAction; readonly repo: string; readonly ciBusy: boolean }) {
+/** The reason's action as the panel offers it: a conflict's Resolve is block recovery, owned by the blocked banner. */
+const panelAction = (r: Reason): ReasonAction | undefined => (r.action?.act === 'resolve-conflicts' ? undefined : r.action);
+
+function ActionButton({ action, ciBusy }: { readonly action: ReasonAction; readonly ciBusy: boolean }) {
   switch (action.act) {
     case 'open-pr':
       return action.url ? <OpenButton url={action.url} label={action.label} /> : null;
     case 'send-ci-failure':
       return <CiButton busy={ciBusy} label={action.label} />;
     case 'resolve-conflicts':
-      return <ResolveButton repo={action.repo ?? repo} label={action.label} />;
+      return null;
     case 'rebase-on-base':
       return <SingleFlightButton name="rebase" act="rebase-on-base" label={action.label} title="Rebase onto the base branch, regenerate files, push with a lease" />;
     case 'address-pr-feedback':
@@ -78,6 +82,7 @@ function ReasonRow({ r, folded = false, repo, ciBusy, open, onToggle }: ReasonRo
   const hasBody = (r.list?.length ?? 0) > 0 || r.why !== undefined;
   // The first disclosure of a conflicts reason is the one the panel remembers (the vanilla `openMergeRepos`).
   const remembered = r.kind === 'conflicts';
+  const action = panelAction(r);
   return (
     <li className={`prsn prsn-${r.state}`} data-kind={r.kind}>
       <div className="prsn-line">
@@ -88,7 +93,7 @@ function ReasonRow({ r, folded = false, repo, ciBusy, open, onToggle }: ReasonRo
           <b className="prsn-label">{r.label}</b>
           {r.detail ? <span className="prsn-detail">{r.detail}</span> : null}
         </span>
-        {r.action && (!folded || r.state === 'note') ? <ActionButton action={r.action} repo={repo} ciBusy={ciBusy} /> : null}
+        {action && (!folded || r.state === 'note') ? <ActionButton action={action} ciBusy={ciBusy} /> : null}
       </div>
       {r.extra ? <div className="prsn-extra">{r.extra}</div> : null}
       {hasBody && folded ? (
@@ -116,8 +121,11 @@ function ReasonRow({ r, folded = false, repo, ciBusy, open, onToggle }: ReasonRo
 }
 
 /** The summary line of the folded list: chevron, headline, one brief item per blocking reason, then the actions. */
-function FoldSummary({ headline, blockers, repo, ciBusy }: { readonly headline: string; readonly blockers: readonly Reason[]; readonly repo: string; readonly ciBusy: boolean }) {
-  const acting = blockers.filter((r) => r.action !== undefined);
+function FoldSummary({ headline, blockers, ciBusy }: { readonly headline: string; readonly blockers: readonly Reason[]; readonly ciBusy: boolean }) {
+  const acting = blockers.flatMap((r) => {
+    const action = panelAction(r);
+    return action ? [{ kind: r.kind, action }] : [];
+  });
   return (
     <summary className="prblock-head">
       <span className="prblock-chev" aria-hidden="true">
@@ -138,7 +146,7 @@ function FoldSummary({ headline, blockers, repo, ciBusy }: { readonly headline: 
         // A click on an action must not toggle the disclosure: cancel the summary's default, the button's own handler already ran.
         <span className="prblock-acts" onClick={(e) => e.preventDefault()}>
           {acting.map((r) => (
-            <ActionButton key={r.kind} action={r.action!} repo={repo} ciBusy={ciBusy} />
+            <ActionButton key={r.kind} action={r.action} ciBusy={ciBusy} />
           ))}
         </span>
       ) : null}
@@ -193,7 +201,7 @@ export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onM
         open={mergeOpen}
         onToggle={(e) => onMergeToggle(p.repo, e.currentTarget.open)}
       >
-        <FoldSummary headline={readiness.headline} blockers={blockers} repo={p.repo} ciBusy={ciBusy} />
+        <FoldSummary headline={readiness.headline} blockers={blockers} ciBusy={ciBusy} />
         <ul className="prblock-list">
           {readiness.reasons.map((r) => (
             <ReasonRow key={r.kind} r={r} folded repo={p.repo} ciBusy={ciBusy} open={mergeOpen} onToggle={onMergeToggle} />

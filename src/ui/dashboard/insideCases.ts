@@ -625,6 +625,25 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   },
   {
     stage: 'review',
+    id: 'unreadable-blocked',
+    // T1343 DB-9: the same unreadable answer while the blocked banner shows the full reason: the row keeps only the
+    // short label "output unreadable", so the reason has one owner (UI-R40).
+    state: fromFacts(
+      'review',
+      {
+        cells: {
+          review: {
+            status: 'running',
+            blocked: { kind: 'capability-missing', reason: 'review findings: unreadable output from /wt/web — no findings could be read', at: t(25), resumable: true },
+          },
+        },
+        processRuns: [reviewRun({ status: 'failed', resultKind: UNREADABLE_RESULT_KIND, failureDetail: 'unreadable output from /wt/web — no findings could be read' })],
+      },
+      (s) => ({ ...s, artifacts: [unreadableReviewArtifact()] }),
+    ),
+  },
+  {
+    stage: 'review',
     id: 'multi-repo-filter',
     state: fromFacts('review', {
       cells: { review: { status: 'failed' } },
@@ -699,6 +718,31 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     })),
   },
   { stage: 'ship', id: 'passed', state: fromFacts('ship', { cells: { ship: { status: 'passed' } } }) },
+  {
+    stage: 'ship',
+    id: 'merge-blocked',
+    // T1343 Q1: a merge conflict parks the ticket on the user. The blocked banner owns "Merge is blocked" and one
+    // Resolve per repo; the rail segment keeps only its glyph and short label, the header chip reads "Merge blocked"
+    // and the PR rows carry no Resolve (UI-R40). Two repos, so the buttons name each repo and must wrap (UI-R44).
+    state: fromFacts('ship', { cells: { ship: { status: 'passed' } } }, (s) => {
+      const [first] = s.prs;
+      // The populated fixture lists one PR: add a second repo, so the banner names each repo and its buttons must wrap.
+      const prs = first ? [first, { ...first, repo: '/wt/api', repoDisplay: 'api', number: 422, url: 'https://github.com/o/api/pull/422' }] : s.prs;
+      const repos = prs.map((p) => p.repo);
+      const reason = { kind: 'conflicts', state: 'bad', label: 'Merge conflicts', short: 'conflicts', detail: 'the branch no longer merges cleanly' } as const;
+      return {
+        ...s,
+        currentStage: s.currentStage ? { ...s.currentStage, blocked: { kind: 'awaiting-merge', reason: `conflicts in ${repos.length} repos`, at: t(30), resumable: false } } : s.currentStage,
+        ship: { kind: 'merge-blocked', repos },
+        prs: prs.map((p) => (repos.includes(p.repo) ? { ...p, canMerge: false, readiness: { ready: false, headline: 'Merge blocked', facts: '', reasons: [reason] } } : p)),
+        rail: buildStageRail(s.stepper, s.stepper, {
+          current: 'ship',
+          needsUser: true,
+          needs: { detail: `${repos.length} repos no longer merge cleanly`, action: 'Resolve', cta: { kind: 'resolve-panel' } },
+        }),
+      } as DashboardState;
+    }),
+  },
   {
     stage: 'ship',
     id: 'deliver',

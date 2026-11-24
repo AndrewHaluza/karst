@@ -103,6 +103,18 @@ const blockedState = (kind: string, resumable: boolean): DashboardState => {
   } as DashboardState;
 };
 
+/** A ship conflict that parks the ticket on the user: the host's `merge-blocked` slot, which the banner reads. */
+const mergeBlockedState = (): DashboardState => {
+  const s = populatedStateFor('ship');
+  const cell = s.stepper.find((c) => c.stageKey === 'ship')!;
+  return {
+    ...s,
+    stageCurrent: 'ship',
+    currentStage: { ...cell, status: 'passed', blocked: { kind: 'awaiting-merge', reason: 'conflicts in web', at: '2026-08-12T10:00:00.000Z', resumable: false } },
+    ship: { kind: 'merge-blocked', repos: [REPO] },
+  } as DashboardState;
+};
+
 /** A fix round parked by the no-change rule: the banner offers Retry gate and Accept and continue. */
 const fixParkedState = (): DashboardState =>
   ({
@@ -423,10 +435,6 @@ export const COVERED: readonly ParityCase[] = [
     act: 'merge-pr', variant: 'rail needs-you', state: () => railNeedsState('ship', { kind: 'merge', repo: REPO }), sel: '.go' + forRepo('merge-pr'),
     posts: [{ type: 'merge-pr', repo: REPO }], rid: false, pendingSel: '.go[aria-busy="true"]',
   },
-  {
-    act: 'resolve-conflicts', variant: 'rail needs-you', state: () => railNeedsState('ship', { kind: 'resolve-conflicts', repo: REPO }),
-    sel: '.go' + forRepo('resolve-conflicts'), posts: [{ type: 'resolve-conflicts', repo: REPO }], rid: true,
-  },
 
   // --- servers -------------------------------------------------------------
   { act: 'open-server', state: () => st('impl'), sel: act('open-server', '[data-id="1"]'), posts: [{ type: 'open-server', serverId: 1 }], rid: true },
@@ -494,9 +502,9 @@ export const COVERED: readonly ParityCase[] = [
     sel: forRepo('undismiss-pr'), posts: [{ type: 'undismiss-pr', repo: REPO }], rid: false, pendingSel: '.mgbtn[aria-busy="true"]',
   },
   {
-    act: 'resolve-conflicts',
-    state: () => st('ship', { prs: [blockedPr('conflicts', { act: 'resolve-conflicts', label: 'Resolve conflicts', repo: REPO })] }),
-    sel: forRepo('resolve-conflicts'), posts: [{ type: 'resolve-conflicts', repo: REPO }], rid: true,
+    // A ship conflict: the blocked banner is the ONE owner of Resolve; the rail and the PR row only mirror it (DB-3).
+    act: 'resolve-conflicts', variant: 'blocked banner', state: mergeBlockedState,
+    sel: '#blocked ' + forRepo('resolve-conflicts'), posts: [{ type: 'resolve-conflicts', repo: REPO }], rid: true,
   },
   {
     act: 'send-ci-failure', variant: 'PR row',
@@ -579,8 +587,9 @@ export const COVERED: readonly ParityCase[] = [
     sel: act('send-back-to-implement'), posts: [{ type: 'send-back-to-implement' }], rid: false, pendingSel: false,
   },
   {
-    act: 'rerun-gate', variant: 'main action', state: uatMenuState,
-    sel: '.stageMain' + act('rerun-gate'), posts: [{ type: 'rerun-gate', stage: 'uat' }], rid: false, pendingSel: false,
+    // "Re-run stage…" lives in Actions only, never a main header button (DB-4).
+    act: 'rerun-gate', repeat: true, state: uatMenuState, prep: ensureMenu('uat', act('rerun-gate')),
+    sel: act('rerun-gate', '[data-stage="uat"]'), posts: [{ type: 'rerun-gate', stage: 'uat' }], rid: false, pendingSel: false,
   },
   {
     act: 'reset-stage', repeat: true, state: uatMenuState, prep: ensureMenu('uat', act('reset-stage')),
