@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -9,6 +9,7 @@ import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
 import { recordBaselineDecisions } from '../../store/baselineDecisions.js';
 import type { GitBytesRunner, GitRunner } from '../../integrations/git.js';
 import { baselineLabel, isImagePath, loadBaselineRows, withBaselines } from './baselineRows.js';
+import { removeBaselineReviewDir } from './baselineReviewRetention.js';
 
 describe('baselineLabel / isImagePath', () => {
   it('strips the static directory prefix of the matching glob', () => {
@@ -89,6 +90,36 @@ describe('loadBaselineRows', () => {
     // old bytes (a, c) and new bytes (a, b) — two content-addressed files, none in a worktree.
     expect(files).toHaveLength(2);
     expect(files.map((f) => readFileSync(join(dir, f), 'utf8')).sort()).toEqual(['new', 'old-image-bytes']);
+  });
+
+  // The images are a CACHE (@arch:BASELINE-REVIEW): a parked ticket's rows
+  // re-materialize the old image from git on the next render, so removing the
+  // folder at archive/delete time never leaves the overlay blank.
+  it('re-creates the old image on the next render after the cache folder was removed', async () => {
+    // Production shape: `<globalStorage>/baseline-review` is the loader's
+    // `storageRoot`, and the sweep/delete take `<globalStorage>` itself.
+    const storage = mkdtempSync(join(tmpdir(), 'karst-br-restore-'));
+    try {
+      const cacheRoot = join(storage, 'baseline-review');
+      const load = () =>
+        loadBaselineRows({
+          store, manifest: m, git, gitBytes, ticketId, storageRoot: cacheRoot, toUri: (p) => p,
+          readFile: async () => Buffer.from('new'),
+        });
+      const first = await load();
+      const dir = join(cacheRoot, String(ticketId));
+      expect(readdirSync(dir)).toHaveLength(2);
+
+      removeBaselineReviewDir(storage, ticketId);
+      expect(existsSync(dir)).toBe(false);
+
+      const again = await load();
+      expect(again).toEqual(first);
+      expect(again.find((r) => r.label === 'a.png')!.oldSrc).toMatch(/[0-9a-f]{64}\.png$/);
+      expect(readdirSync(dir)).toHaveLength(2);
+    } finally {
+      rmSync(storage, { recursive: true, force: true });
+    }
   });
 
   it('reflects recorded decisions, with the rejection reason', async () => {

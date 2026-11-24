@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Store } from './db.js';
 import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import { rowToStage, setStage, type Stage } from './stages.js';
@@ -997,6 +997,14 @@ const TICKET_CHILD_TABLES = [
 ] as const;
 
 /**
+ * The extension's `<globalStorage>/baseline-review/` folder name, spelled here
+ * because the store must never import `src/ui/**` (`scripts/arch-layers.json`:
+ * `store` is core, `ui` is view). `baselineReviewRoot` in
+ * `ui/dashboard/baselineRows.ts` is the owner of the same path.
+ */
+const BASELINE_REVIEW_DIR = 'baseline-review';
+
+/**
  * Hard-delete a ticket and all its child rows in a transaction. There are no FK
  * cascades on the child tables (except `process_runs`, which cascades off
  * `tickets`), so each is cleared explicitly. Irreversible — the caller (UI)
@@ -1019,8 +1027,10 @@ const TICKET_CHILD_TABLES = [
  * is provided, the ticket's graph byte subtree is removed AFTER the rows
  * commit — the retention sweep covers the case where it is absent. Likewise
  * `artifactsRoot` (the `<globalStorage>/artifacts` directory) removes the
- * ticket's gate console-log dir, with the same sweep covering the absent case.
- * Archive removes nothing (see archiveTicket).
+ * ticket's gate console-log dir AND the sibling baseline-review image cache
+ * (`<globalStorage>/baseline-review/<ticketId>`, a cache the overlay
+ * re-creates — @arch:BASELINE-REVIEW), with the same sweep covering the absent
+ * case. Archive removes nothing (see archiveTicket).
  */
 export function deleteTicket(
   store: Store,
@@ -1104,6 +1114,14 @@ export function deleteTicket(
   }
   if (artifactsRoot !== undefined) {
     rmSync(join(artifactsRoot, String(ticketId)), { recursive: true, force: true });
+    // The baseline-review image cache is a SIBLING of `artifacts/` and a cache,
+    // not evidence (@arch:BASELINE-REVIEW): the overlay re-creates each image
+    // from git. Removed here too — the store never imports `src/ui/**` (layer
+    // rules), so the folder name is spelled locally.
+    rmSync(join(dirname(artifactsRoot), BASELINE_REVIEW_DIR, String(ticketId)), {
+      recursive: true,
+      force: true,
+    });
   }
 }
 

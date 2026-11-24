@@ -818,6 +818,30 @@ describe('ticket + stage persistence', () => {
     }
   });
 
+  // The baseline-review image cache (`<globalStorage>/baseline-review/<ticketId>`,
+  // @arch:BASELINE-REVIEW) is a sibling of `artifacts/`, so the same hard delete
+  // that removes the gate console logs removes it too — otherwise ~100 MB per UI
+  // ticket stays on disk with no owner. It is a cache: the overlay re-creates it.
+  it('deleteTicket removes the baseline-review cache dir when artifactsRoot is given', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-br-delete-'));
+    try {
+      const t = createTicket(store, { key: 'D-6', title: 'baselines' });
+      const mine = join(dir, 'baseline-review', String(t.id));
+      mkdirSync(mine, { recursive: true });
+      writeFileSync(join(mine, 'sha.png'), 'img');
+      const other = createTicket(store, { key: 'D-7', title: 'other baselines' });
+      const theirs = join(dir, 'baseline-review', String(other.id));
+      mkdirSync(theirs, { recursive: true });
+
+      deleteTicket(store, t.id, undefined, join(dir, 'artifacts'));
+
+      expect(existsSync(mine)).toBe(false);
+      expect(existsSync(theirs)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   // The product deletion contract (v27): foreign keys are ON in openStore, so a
   // ticket whose token/finding evidence links to its process_runs rows must be
   // deletable WITHOUT relying on SQLite discovering a safe order. The ledger is
