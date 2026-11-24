@@ -104,6 +104,7 @@ import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import { takeGateSnapshot } from './extension/ops/gateSnapshotOps.js';
 import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
+import { sweepBaselineReviewCache } from './ui/dashboard/baselineReviewRetention.js';
 import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding } from './extension/storedArtifactBinding.js';
@@ -211,7 +212,7 @@ import { createLiveHeadlessBinding } from './extension/liveHeadlessBinding.js';
 import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
 import { getPlacement } from './store/placement.js';
 import { createStallBinding } from './extension/stallBinding.js';
-import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
+import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { prunePlanningScratch } from './extension/ops/planningScratchRetention.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, gitCatFileBatch, repoPathsOf, repoTargetsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
@@ -279,6 +280,7 @@ import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
 import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
+import { sweepArchivedTicketGraphRuns } from './approaches/graph/archivedSweep.js';
 import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
 import { makeAutoRecoverySweep } from './extension/ops/graphAutoRecoverySweep.js';
 import { type GraphRecoverySeams } from './extension/ops/graphRecoveryDispatch.js';
@@ -393,7 +395,7 @@ import {
   defaultGitRunner,
 } from './integrations/git.js';
 import { loadManifest, type Manifest } from './manifest/load.js';
-import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_RESILIENCE } from './manifest/schema.js';
+import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS, DEFAULT_RESILIENCE } from './manifest/schema.js';
 import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable } from './manifest/runnable.js';
@@ -6165,6 +6167,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // Finished planning sessions archive on this tick too (`archivePlanningAfterDays`).
       sweepPlanningArchive({ store: localStore, projectId: project.id, manifest: currentManifest(), isLive: (id) => planning.isLive(id), logError });
+      try {
+        const pruned = await prunePlanningScratch({ store: localStore, projectId: project.id,
+          scratchRoot: join(storageDir, 'planning-scratch'),
+          afterDays: currentManifest()?.archivePlanningAfterDays ?? DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS,
+          isLive: (id) => planning.isLive(id), debug: (m) => logger.debug(m) });
+        if (pruned.length > 0) logger.info(`karst: removed ${pruned.length} large folder(s) from archived planning sessions (${Math.round(pruned.reduce((sum, p) => sum + p.bytes, 0) / (1024 * 1024))} MB)`);
+      } catch (e) {
+        logError('karst: planning scratch retention failed', e);
+      }
       await sweepArtifactRetention({ globalStorageRoot: context.globalStorageUri.fsPath, projectId: project.id, manifest: currentManifest(), debug: (m) => logger.debug(m), logError });
       // The ticket sweep above only stamps `archived_at`; it never removes the
       // worktree folder, so an auto-archived ticket's dir would sit on disk
@@ -6211,6 +6222,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       } catch (e) {
         logError('karst: inactive worktree auto-archive failed', e);
+      }
+      // The baseline-review image cache (@arch:BASELINE-REVIEW) is a CACHE: a
+      // ticket that is gone or archived loses its folder, every live one keeps it.
+      try {
+        const removedCache = sweepBaselineReviewCache(context.globalStorageUri.fsPath, {
+          ticketState: (id) => { try { return getTicket(localStore, id).archivedAt !== null ? 'archived' : 'active'; } catch { return 'missing'; } },
+          debug: (m) => logger.debug(m),
+        });
+        if (removedCache.length > 0) logger.info(`karst: removed baseline-review cache of ${removedCache.length} archived ticket(s)`);
+      } catch (e) {
+        logError('karst: baseline-review cache sweep failed', e);
+      }
+      // Archived tickets: remove their graph node workspaces and end any run
+      // archive left open (workspaces only — the run artifacts stay as evidence).
+      try {
+        const gs = graphCoordinatorStore;
+        if (gs) {
+          const swept = await sweepArchivedTicketGraphRuns({ store: gs, transaction: (fn) => runImmediateTransaction(gs.db, fn), facts: systemAsyncProcessFacts, killTree: systemKillTree, isSessionLive: (id) => sessions.isLive(id), debug: (m) => logger.debug(m) }, project.id);
+          if (swept.removedNodeRunIds.length > 0) logger.info(`karst: removed ${swept.removedNodeRunIds.length} graph node workspace(s) of archived tickets (${(swept.releasedBytes / (1024 * 1024)).toFixed(1)} MB)`);
+        }
+      } catch (e) {
+        logError('karst: archived graph workspace sweep failed', e);
       }
       // The same setting gates the background sweep: a ticket the sweep
       // archives is closed exactly like one archived by a click, so its done

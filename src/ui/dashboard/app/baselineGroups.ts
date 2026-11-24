@@ -27,6 +27,8 @@ export interface Row {
   readonly decision: Decision;
   readonly label: string;
   readonly reason: string;
+  /** The old reason when the user rejected this entry in an earlier round; null otherwise. Display only. */
+  readonly priorRejection: string | null;
   readonly oldSrc: string;
   readonly newSrc: string;
 }
@@ -47,6 +49,7 @@ export const normaliseRow = (r: BaselineReviewRow): Row => ({
   decision: Object.hasOwn(DECISION_WORD, r.decision) ? r.decision : 'pending',
   label: String(r.label || ''),
   reason: String(r.reason || ''),
+  priorRejection: typeof r.priorRejection === 'string' ? r.priorRejection : null,
   oldSrc: r.oldSrc ? String(r.oldSrc) : '',
   newSrc: r.newSrc ? String(r.newSrc) : '',
 });

@@ -2,12 +2,16 @@
  * Graph byte-subtree retention (Slice 2 Task 8).
  *
  * Graph bytes live under global storage — `<globalStorage>/graph/<projectSlug>/
- * <ticketId>/` — OUTSIDE every worktree (E4). Archive removes nothing: graph
- * evidence survives archive and dies only with `deleteTicket`, which removes
- * the subtree after its rows. The activation sweep is the net for subtrees
- * that outlived their runs: a subtree whose ticket no longer exists, or whose
- * every graph run is `closed`, is removed. No per-ticket pruning of a LIVE
- * ticket's history in V1 (a cancelled or stale run keeps its evidence).
+ * <ticketId>/` — OUTSIDE every worktree (E4). Archive removes the node
+ * workspaces and nothing else: `archivedSweep.ts` cancels the ticket's open
+ * graph runs after a one-hour grace (and with no live session), then removes
+ * `workspaces/<nodeRunId>/` of every terminal run. The run's
+ * `<run>/artifacts/` subtree evidence SURVIVES archive and dies only with
+ * `deleteTicket`, which removes the subtree after its rows. The activation
+ * sweep is the net for subtrees that outlived their runs: a subtree whose
+ * ticket no longer exists, or whose every graph run is `closed`, is removed. No
+ * per-ticket pruning of a LIVE ticket's history in V1 (a cancelled or stale run
+ * keeps its evidence).
  *
  * Host-agnostic: the two predicates are injected; this module walks the
  * directory tree with node:fs only.

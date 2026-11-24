@@ -11,7 +11,6 @@ import { MERGE_ALL_NONE_READY, MERGE_ALL_ROUND_RUNNING } from '../../../model/me
 import { MergeAllButton, RefreshButton } from './PrActionButtons.js';
 import { PrRow } from './PrRow.js';
 import { useOps } from './DashboardAppContext.js';
-import { EmptyState } from './EmptyState.js';
 import { RegionPortal } from './RegionPortal.js';
 import { Section } from './Section.js';
 import { sharedBranch } from './WorktreesPanel.js';
@@ -88,6 +87,8 @@ export const PrsPanel = memo(function PrsPanel() {
         summary={summary || null}
         summaryTitle={summary || undefined}
         bodyId="prs"
+        // Q3 (UI-R46): no PR yet is one muted line under the header, beside the live Refresh.
+        empty={slice !== null && prs.length === 0 ? 'No pull requests yet.' : null}
         // The refresh stays live even with zero PRs, and before the first snapshot: "none yet" is exactly the answer a user wants to re-ask right after a ship.
         actions={
           <>
@@ -96,10 +97,9 @@ export const PrsPanel = memo(function PrsPanel() {
           </>
         }
       >
-        {slice === null ? null : prs.length === 0 ? (
-          <EmptyState icon="git-pull-request" heading="No pull requests." sub="Ship opens one per repository with changes." />
-        ) : (
-          prs.map((p) => (
+        {slice === null || prs.length === 0
+          ? null
+          : prs.map((p) => (
             <PrRow
               key={p.repo}
               p={p}
@@ -113,8 +113,7 @@ export const PrsPanel = memo(function PrsPanel() {
               onInfoToggle={toggleInfo}
               api={api}
             />
-          ))
-        )}
+          ))}
       </Section>
     </RegionPortal>
   );

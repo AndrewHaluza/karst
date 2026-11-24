@@ -40,6 +40,7 @@ function EntryButton({ r, label, selected, onSelect }: { readonly r: Row; readon
       <Glyph decision={r.decision} />
       <span className="blentry-label">{label}</span>
       <span className="bl-status">{STATUS_WORD[r.status]}</span>
+      {r.priorRejection !== null ? <span className="bl-status">· was rejected</span> : null}
     </button>
   );
 }
@@ -87,7 +88,7 @@ export function BaselineList({ model, drafts }: { readonly model: BaselineModel;
             <optgroup key={g.name} label={g.name}>
               {g.rows.map((r) => (
                 <option key={r.index} value={r.index}>
-                  {`${subLabel(r)} — ${STATUS_WORD[r.status]} — ${DECISION_WORD[r.decision]}`}
+                  {`${subLabel(r)} — ${STATUS_WORD[r.status]}${r.priorRejection !== null ? ' · was rejected' : ''} — ${DECISION_WORD[r.decision]}`}
                 </option>
               ))}
             </optgroup>

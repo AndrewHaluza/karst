@@ -36,9 +36,14 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1321 DB-5 inside-review-unreadable and DB-1 inside-ship-autofix-header, @ui:UI-R57: 2 Inside cases x 4 width tiers x 1 theme (dark) (+8 screenshots) and their layout runs (+16).
   // T1340 baseline-overlay-mixed (pending, rejected and approved rows, with the Send button in the header), @ui:UI-R57:
   // 1 theme (+1 screenshot) and its layout run (+5); the existing banner-rejected shot now shows the banner's Send button.
+  // T1341 baseline-overlay-prior-rejected (a pending row that shows the reason from the earlier round), @ui:UI-R57:
+  // 1 theme (+1 screenshot) and its layout run (+5).
+  // T1346 empty panels (Q3, @ui:UI-R57): the five missing panel states (srv-not-runnable, srv-one, wt-one,
+  // subtask-empty, subtask-one) x 3 width tiers (+15 screenshots); `empty-panels` and its tight 360 shot (+2),
+  // and the one new all-empty page x 5 layout widths (+5) that `empty-panels-tight` shares.
   // T1343 Q1 inside-ship-merge-blocked (the banner owns Resolve per repo) and DB-9 inside-review-unreadable-blocked (the short
   // label beside the banner), @ui:UI-R57: 2 Inside cases x 4 width tiers x 1 theme (dark) (+8 screenshots) and their layout runs (+16).
-  dashboard: { screenshots: 645, layout: 791 },
+  dashboard: { screenshots: 663, layout: 801 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

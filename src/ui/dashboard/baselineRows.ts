@@ -10,7 +10,7 @@ import {
   runGitBytes,
   type GitBytesRunner,
 } from '../../integrations/git.js';
-import { latestBaselineDecisions } from '../../store/baselineDecisions.js';
+import { baselineKey, latestBaselineDecisions } from '../../store/baselineDecisions.js';
 import { baselineState, type BaselineEntry } from '../../workflow/gates/baselineReview.js';
 import { deriveBaselineEntries, type BaselineHostDeps } from '../../workflow/gates/baselineReviewTicket.js';
 
@@ -48,6 +48,13 @@ export interface BaselineReviewRow {
   newSrc: string | null;
   decision: 'pending' | 'approved' | 'rejected';
   reason: string | null;
+  /**
+   * The reason the user gave when they rejected this entry in an EARLIER round —
+   * a latest `rejected` decision whose sha the file no longer has (the agent
+   * re-recorded it). Display only: the entry is still `pending`, and this never
+   * reaches `baselineState` or the uat-report artifact (@arch:SHELF).
+   */
+  priorRejection: string | null;
 }
 
 /** The path minus the static directory prefix of the first glob it sits under. */
@@ -148,6 +155,13 @@ export async function loadBaselineRows(input: BaselineRowsInput): Promise<Baseli
     const newFile =
       image && entry.status !== 'deleted' ? await materializeNew(input, entry, dir) : null;
     const state = baselineState(entry, latest);
+    // The latest decision at a DIFFERENT sha is an earlier round: the agent re-recorded the image, so the entry is
+    // pending again; the old reason still tells the user what the fix had to answer (@arch:BASELINE-REVIEW).
+    const decision = latest.get(baselineKey(entry.repo, entry.path));
+    const priorRejection =
+      state.kind === 'pending' && decision?.decision === 'rejected' && decision.sha256 !== entry.newSha256
+        ? decision.reason ?? ''
+        : null;
     rows.push({
       index,
       path: entry.path,
@@ -157,6 +171,7 @@ export async function loadBaselineRows(input: BaselineRowsInput): Promise<Baseli
       newSrc: newFile ? input.toUri(newFile) : null,
       decision: state.kind,
       reason: state.kind === 'rejected' ? state.reason : null,
+      priorRejection,
     });
   }
   return rows;

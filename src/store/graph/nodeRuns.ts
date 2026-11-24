@@ -699,13 +699,41 @@ export function nodeRunChangeSetIdsForGraphRun(
   return rows.map((r) => r.change_set_id);
 }
 
-/** The node run ids of a graph run that are safe to clean up. */
-export function cleanableNodeRunIdsForGraphRun(db: GraphDb, graphRunId: number): number[] {
+/**
+ * The node run ids of a graph run whose workspace is safe to clean up.
+ *
+ * By default only the node's own terminal statuses (`completed`, `cancelled`)
+ * qualify. With `includeStaleNodes`, a node left `stale`, `failed-to-launch`,
+ * `failed` or `ready` is also cleanable — but ONLY when its graph run itself is
+ * terminal (`closed` or `cancelled`). A live run keeps those nodes recoverable,
+ * and a `running` node is never cleanable in either mode (T1342).
+ */
+export function cleanableNodeRunIdsForGraphRun(
+  db: GraphDb,
+  graphRunId: number,
+  options: { includeStaleNodes?: boolean } = {},
+): number[] {
+  if (!options.includeStaleNodes) {
+    const rows = db
+      .prepare(
+        `SELECT id FROM approach_node_runs
+         WHERE graph_run_id = ? AND status IN ('completed', 'cancelled')
+         ORDER BY id`,
+      )
+      .all(graphRunId) as Array<{ id: number }>;
+    return rows.map((r) => r.id);
+  }
   const rows = db
     .prepare(
-      `SELECT id FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN ('completed', 'cancelled')
-       ORDER BY id`,
+      `SELECT n.id FROM approach_node_runs n
+       JOIN approach_graph_runs g ON g.id = n.graph_run_id
+       WHERE n.graph_run_id = ?
+         AND (
+           n.status IN ('completed', 'cancelled')
+           OR (g.status IN ('closed', 'cancelled')
+               AND n.status IN ('stale', 'failed-to-launch', 'failed', 'ready'))
+         )
+       ORDER BY n.id`,
     )
     .all(graphRunId) as Array<{ id: number }>;
   return rows.map((r) => r.id);
@@ -715,10 +743,18 @@ export function cleanableNodeRunIdsForGraphRun(db: GraphDb, graphRunId: number):
 export function nodeRunWorkspaceRef(
   db: GraphDb,
   id: number,
-): { graph_run_id: number; status: string; ticket_id: number; project_slug: string | null } | undefined {
+):
+  | {
+      graph_run_id: number;
+      status: string;
+      graph_run_status: string;
+      ticket_id: number;
+      project_slug: string | null;
+    }
+  | undefined {
   return db
     .prepare(
-      `SELECT n.graph_run_id, n.status, g.ticket_id, p.slug AS project_slug
+      `SELECT n.graph_run_id, n.status, g.status AS graph_run_status, g.ticket_id, p.slug AS project_slug
        FROM approach_node_runs n
        JOIN approach_graph_runs g ON g.id = n.graph_run_id
        JOIN tickets t ON t.id = g.ticket_id
@@ -726,7 +762,13 @@ export function nodeRunWorkspaceRef(
        WHERE n.id = ?`,
     )
     .get(id) as
-    | { graph_run_id: number; status: string; ticket_id: number; project_slug: string | null }
+    | {
+        graph_run_id: number;
+        status: string;
+        graph_run_status: string;
+        ticket_id: number;
+        project_slug: string | null;
+      }
     | undefined;
 }
 
