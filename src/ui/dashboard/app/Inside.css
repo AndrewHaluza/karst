@@ -270,5 +270,8 @@
 /* The island wrapper is an inline span: as a flex item it sat on the text baseline, so the core mark rode above the agent name (T1343). */
 #inside .agent-mark{line-height:0}
 #inside .agenticon-island{display:contents}
+/* The core name and its mark share one 18px line box, so they sit on one centre line in the tail row (T1343). */
+#inside .agent-id>.agent-name{height:18px;line-height:18px}
+#inside .agent-id>.agent-mark{height:18px}
 /* UI-R44: the full detail repeats at the top of the open body; only the narrow and tight tiers show it, where row one cuts the detail. */
 #inside .op-body>.op-detail-full{display:none;margin-bottom:var(--p-s2)}

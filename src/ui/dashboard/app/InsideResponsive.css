@@ -36,6 +36,8 @@
   #inside .op-tail:empty{display:none}
   /* The AI chip abuts the detail in the one-line row: keep a gap after it (T1343). */
   #inside .op summary>.op-name:has(.ai-mark)+.op-detail,#inside .op-static>.op-name:has(.ai-mark)+.op-detail{padding-left:var(--p-s2)}
+  /* A tail that carries the core mark AND the token pill is the crowded row: air it out (T1343). */
+  #inside .op summary>.op-tail:has(.token-stat),#inside .op-static>.op-tail:has(.token-stat){column-gap:var(--p-s3);padding-top:var(--p-s1)}
   #inside .op summary>.op-detail,#inside .op-static>.op-detail{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #inside .op summary>.op-detail.detail-console,#inside .op-static>.op-detail.detail-console{display:flex;min-width:0;max-width:100%}
   #inside .op summary>.op-detail.detail-console .op-detail-text,#inside .op-static>.op-detail.detail-console .op-detail-text{

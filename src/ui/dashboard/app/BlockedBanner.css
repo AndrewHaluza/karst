@@ -52,3 +52,8 @@
 #blocked:has(> .facts[data-role="merge-blocked"]) .fdot{background:var(--k-attention)}
 #blocked:has(> .facts[data-role="merge-blocked"]) .ftitle{color:var(--k-attention)}
 .fault .facts[data-role="merge-blocked"]{flex-wrap:wrap}
+/* Narrow and tight: the one Resolve spans the strip, so it is a full-width target under the reason (UI-R43). */
+@media (max-width:699px){
+  .fault .facts[data-role="merge-blocked"]{flex:1 1 100%}
+  .fault .facts[data-role="merge-blocked"] .k-btn{flex:1 1 auto;justify-content:center}
+}
