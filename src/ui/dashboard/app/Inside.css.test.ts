@@ -179,7 +179,7 @@ describe('Inside CSS — the container queries', () => {
     // A main button fills the row: the chip and the clock share row two.
     expect(tight).toMatch(/\.has-autofix\.has-main \.autofix-chipwrap\{grid-column:1;grid-row:2/);
     // A row's action takes its own line, so the detail keeps its width.
-    expect(tight).toMatch(/#inside \.evidence-row \.ev-tail:not\(:empty\)\{grid-column:2\/-1;grid-row:2/);
+    expect(tight).toMatch(/#inside \.evidence-row \.ev-tail:has\(> \[data-act=\"autopilot-stop-after\"\]\)\{grid-column:2\/-1;grid-row:2/);
     // The chip drops "default" and the clock drops its start time here.
     expect(tight).toMatch(/\.autofix-default,[^{]*\.clock-start\{display:none\}/);
   });

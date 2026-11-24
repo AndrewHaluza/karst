@@ -115,10 +115,14 @@
   #inside .inside-head.has-autofix.has-main .inside-live{grid-row:3}
   #inside .inside-head.has-autofix .autofix-chip{padding:0 var(--p-s1)}
   #inside .inside-head.has-autofix .autofix-default,#inside .inside-head.has-autofix .clock-start{display:none}
-  /* A node's action ("Last round") fills its own track and crushes the detail to a few letters per line. At the floor
+  /* A row with no timing gives no track to it, so the detail of a failed gate keeps the width (the dismiss cross and the
+     "Show" disclosure sit beside it). The action row of a step gets room below it. */
+  #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr) auto auto}
+  #inside .op summary>.op-tail,#inside .op-static>.op-tail{padding-bottom:var(--p-s1)}
+  /* The "Last round" action fills its own track and crushes the detail to a few letters per line. At the floor
      the action takes its own line under the name and the detail (explicit cells, so the row never auto-wraps). */
-  #inside .graph-node .ev-tail:not(:empty),#inside .evidence-row .ev-tail:not(:empty){grid-column:2/-1;grid-row:2;justify-self:start}
-  #inside .evidence-row:has(> .ev-tail:not(:empty)) > :last-child{grid-column:5;grid-row:1}
+  #inside .evidence-row .ev-tail:has(> [data-act="autopilot-stop-after"]){grid-column:2/-1;grid-row:2;justify-self:start}
+  #inside .evidence-row:has(> .ev-tail > [data-act="autopilot-stop-after"]) > :last-child{grid-column:5;grid-row:1}
   #inside .op-body{margin-left:var(--k-space-6);padding-left:var(--p-s1)}
   #inside .evidence-row,#inside .gate-row,#inside .finding,#inside .done-line{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
   #inside .commit-repo-head,#inside .commit-list,#inside .pr-branch,#inside .pr-branch-note,
