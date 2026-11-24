@@ -9,6 +9,7 @@
 import { memo, useEffect, useState } from 'react';
 import { useDashboardSend, useOps } from './DashboardAppContext.js';
 import { selectControls } from './headerSlices.js';
+import { Icon } from './Icon.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
 
@@ -31,10 +32,11 @@ function Toast({ shipped }: { readonly shipped: boolean }) {
   );
 }
 
+/** The shared "waiting" mark: the same attention ring every wait chip carries (DB-21). */
 function Mark() {
   return (
     <span className="attentionMark" aria-hidden="true">
-      ❚❚
+      <Icon name="player-pause" size={12} />
     </span>
   );
 }

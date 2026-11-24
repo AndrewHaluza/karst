@@ -6,6 +6,7 @@ import { isCoverageRecord } from '../coverageRecord.js';
 import {
   parseShipPreState,
   type ShipEvidence,
+  type ShipRepoEvidence,
   type ShipRepoStepEvidence,
 } from '../../store/shipRuns.js';
 import { summarizeMergeCheck } from '../mergeCheckView.js';
@@ -415,6 +416,10 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
     repos.map((repo) => commitRepoView(input, repo, input.evidence.repos[repo]!.commits)),
     recorded,
   );
+  // A repo the run never reached (a push-only record) has no commit row, so it
+  // must not make the Commit row claim "0 commit-ready" (DB-14). With no
+  // commit row anywhere, the row states the absence.
+  const commitRepos = repos.filter((repo) => hasCommitEvidence(input.evidence.repos[repo]!));
   const total = Object.values(input.evidence.repos).reduce(
     (sum, r) => sum + r.commits.filter((c) => c.origin === 'created-by-ship').length,
     0,
@@ -423,9 +428,9 @@ function commitProcess(input: ShipProcessesInput): InsideProcessView {
     id: 'commit',
     kind: 'commit',
     label: 'Commit',
-    status: repos.length > 0 ? commitStatus(input, repos) : ranStatus(input),
-    ...(repos.length > 0
-      ? { detail: commitDetail(repos, input.evidence) }
+    status: commitRepos.length > 0 ? commitStatus(input, commitRepos) : ranStatus(input),
+    ...(commitRepos.length > 0
+      ? { detail: commitDetail(commitRepos, input.evidence) }
       : { detail: noEvidenceDetail(input) }),
     // NO count chip here: the description already says how many repositories
     // are commit-ready and how many the ship created, so a "2 commits" pill
@@ -479,9 +484,39 @@ function ranStatus(input: ShipProcessesInput): InsideStatus {
 }
 
 function noEvidenceDetail(input: ShipProcessesInput): string {
-  return input.cell.status === 'pending'
+  // A ship that is still running has not reached every row: those rows are not absent, they are not resolved yet.
+  return input.cell.status === 'pending' || input.cell.status === 'running'
     ? 'resolved when ship runs'
     : 'no recorded evidence for this ship';
+}
+
+/**
+ * Whether the evidence object holds a recorded row in ANY repository. A ship
+ * that recorded nothing at all states the absence ONCE (on the Commit row),
+ * not three times; partial evidence keeps every row's own absence (DB-14).
+ */
+function hasRecordedEvidence(input: ShipProcessesInput): boolean {
+  return Object.values(input.evidence.repos).some(
+    (repo) =>
+      Object.keys(repo.steps).length > 0 ||
+      repo.commits.length > 0 ||
+      Object.keys(repo.intents).length > 0,
+  );
+}
+
+/** Whether one repository recorded a commit step or a ship commit. */
+function hasCommitEvidence(repo: ShipRepoEvidence): boolean {
+  return repo.steps.commit !== undefined || repo.commits.length > 0;
+}
+
+/**
+ * Whether a row states its OWN absence. While the ship is pending every row
+ * keeps `resolved when ship runs`; once it ran, a row states its absence only
+ * when the evidence is partial. With no recorded row at all, the Commit row
+ * states it once (DB-14).
+ */
+function keepsOwnAbsence(input: ShipProcessesInput): boolean {
+  return input.cell.status === 'pending' || input.cell.status === 'running' || hasRecordedEvidence(input);
 }
 
 /**
@@ -531,7 +566,9 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
     status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
     ...(recorded.length > 0
       ? { detail: `${pushed}/${recorded.length} pushed` }
-      : { detail: noEvidenceDetail(input) }),
+      : keepsOwnAbsence(input)
+        ? { detail: noEvidenceDetail(input) }
+        : {}),
     ...stepSpan(input, (repo) => input.evidence.repos[repo]!.steps.push),
     evidence: { kind: 'rows', rows },
   };
@@ -723,6 +760,10 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
           .filter(Boolean)
           .join(' · ')
       : undefined;
+  // No PR step in ANY repository: this row has no evidence of its own, so with
+  // partial evidence it keeps the absence sentence (DB-14). A `note` step is
+  // evidence (ship decided no PR was needed), never an absence.
+  const prRecorded = repos.some((repo) => input.evidence.repos[repo]!.steps.pr !== undefined);
   const describeRun = latestProcessRun(input.processRuns ?? [], 'pr-description');
   const describeTokens = input.tokensForRuns
     ? describeRun
@@ -734,8 +775,11 @@ function prProcess(input: ShipProcessesInput): InsideProcessView {
     kind: 'pr',
     label: 'Pull request',
     status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
-    ...(recorded.length === 0 ? { detail: noEvidenceDetail(input) } : {}),
-    ...(detail ? { detail } : {}),
+    ...(detail
+      ? { detail }
+      : !prRecorded && keepsOwnAbsence(input)
+        ? { detail: noEvidenceDetail(input) }
+        : {}),
     ...stepSpan(input, (repo) => input.evidence.repos[repo]!.steps.pr),
     // The AI identity that wrote the descriptions — recorded at ship time,
     // never the current settings.

@@ -21,6 +21,9 @@ describe('ShipControls — the ship slot', () => {
     const h = mountHeader(headerState({ ship: { kind: 'waiting-merge', repos: 2 } }));
     expect(has('#shipWait', 'hidden')).toBe(false);
     expect($('#shipWait').getAttribute('title')).toBe('Waiting for 2 repos to be merged');
+    // DB-21: the mark is the shared pause glyph, never two text bars.
+    expect($('#shipWait .attentionMark [data-icon="player-pause"]')).not.toBeNull();
+    expect($('#shipWait .attentionMark').textContent).toBe('');
     h.emit({ type: 'state', state: headerState({ ship: { kind: 'waiting-merge', repos: 1 } }) });
     expect($('#shipWait').getAttribute('title')).toBe('Waiting for 1 repo to be merged');
     h.emit({ type: 'state', state: headerState({ ship: { kind: 'waiting-merge', repos: 0 } }) });

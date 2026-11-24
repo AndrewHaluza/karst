@@ -48,10 +48,10 @@ const failingCi = (): DashboardState => {
 describe('React Inside / vanilla page — selection and persistence', () => {
   it('a rail pick renders that stage’s Inside and the page persists sel (one way: React announces, the page writes)', async () => {
     const v = await open(populatedStateFor('impl'));
-    expect(title(v)).toBe('Inside impl');
+    expect(title(v)).toBe('Inside Implementation');
     const before = v.posted.length;
     await click(v, '#rail .pick[data-stage="review"]');
-    expect(title(v)).toBe('Inside review');
+    expect(title(v)).toBe('Inside Review');
     expect(v.query('#inside .vbar')!.textContent).toMatch(/^Viewing Review — not the current stage\./);
     expect(persisted(v).sel).toBe('review');
     expect(v.posted.length).toBe(before);
@@ -62,7 +62,7 @@ describe('React Inside / vanilla page — selection and persistence', () => {
     const v = await open(populatedStateFor('impl'));
     await click(v, '#rail .pick[data-stage="uat"]');
     await click(v, '#inside [data-back]');
-    expect(title(v)).toBe('Inside impl');
+    expect(title(v)).toBe('Inside Implementation');
     expect(v.query('#inside .vbar')).toBeNull();
     expect(v.queryAll('#rail .pick').filter((p) => p.getAttribute('aria-pressed') === 'true').map((p) => (p as HTMLElement).dataset.stage)).toEqual(['impl']);
     expect(persisted(v).sel).toBeNull();
@@ -71,7 +71,7 @@ describe('React Inside / vanilla page — selection and persistence', () => {
   it('persists the auto-selected Ship wait with the selection, so a reload does not yank the user back', async () => {
     const v = await open(populatedStateFor('impl'));
     await push(v, { ...populatedStateFor('ship'), ship: { kind: 'confirm' } } as DashboardState);
-    expect(title(v)).toBe('Inside ship');
+    expect(title(v)).toBe('Inside Ship');
     expect(persisted(v)).toMatchObject({ sel: 'ship', shipWait: expect.stringMatching(/:confirm$/) });
   });
 

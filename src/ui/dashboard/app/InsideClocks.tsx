@@ -12,10 +12,20 @@ import { TokenPill } from './InsideParts.js';
 import { liveDuration, nodeAge, pickDuration, pickTime, pickTokens, rowField, rowTiming, stageClock, timelineTokens } from './insideSlices.js';
 import { useSlice } from './useSlice.js';
 
+const CLOCK_SEP = ' · ';
+
 /** The header's `started 12:23:06 · 51.7s`. */
 export function StageClock({ stage }: { readonly stage: string }) {
   const clock = useSlice(useMemo(() => stageClock(stage), [stage]));
-  return <span className="inside-meta">{clock}</span>;
+  // The start time is its own span: the tight header hides it (CSS) and keeps the duration. The text is unchanged.
+  const cut = clock.indexOf(CLOCK_SEP);
+  if (cut < 0) return <span className="inside-meta">{clock}</span>;
+  return (
+    <span className="inside-meta">
+      <span className="clock-start">{clock.slice(0, cut + CLOCK_SEP.length)}</span>
+      {clock.slice(cut + CLOCK_SEP.length)}
+    </span>
+  );
 }
 
 /** The running operation's elapsed time, with its separator; nothing while the operation states none. */

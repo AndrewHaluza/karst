@@ -105,7 +105,10 @@ export function AutofixOverride({ autopilot }: { readonly autopilot: AutopilotSl
     <span className="autofix-chipwrap" ref={wrap} onKeyDown={onKey}>
       <button type="button" className="autofix-chip" ref={trigger} data-act="autopilot-menu" aria-haspopup="menu" aria-expanded={open} title="Choose how auto-fix runs for this ticket" onClick={() => setOpen((o) => !o)}>
         {autopilot.override !== 'inherit' ? <span className="autofix-dot" aria-hidden="true" /> : null}
-        <span>{chipText(autopilot)}</span>
+        <span>
+          {`Auto-fix ${onOff(autopilot.effective)}`}
+          {autopilot.override === 'inherit' ? <span className="autofix-default">{' · default'}</span> : null}
+        </span>
         <Icon name="chevron-down" size={16} />
       </button>
       {open ? (

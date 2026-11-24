@@ -25,11 +25,29 @@ describe('Inside — the shell', () => {
     expect(section.getAttribute('aria-labelledby')).toBe('inside-title');
     expect(section.classList.contains('viewing')).toBe(false);
     expect(must('.inside-head').getAttribute('title')).toBe('UAT');
-    expect(text(must('#inside-title'))).toBe('Inside uat');
+    expect(text(must('#inside-title'))).toBe('Inside UAT');
     expect(text(must('.inside-meta'))).toBe('has not run yet');
     expect(text(must('.blurb'))).toBe('Runs the tests.');
     expect(q('.ledger')).toBeNull();
     expect(q('.vbar')).toBeNull();
+  });
+
+  it('names the stage by its display title, not its key (DB-13)', () => {
+    mountInside(insideState({ stageCurrent: 'impl', views: { impl: view('impl', { title: 'Implementation' }) } }));
+    expect(text(must('#inside-title'))).toBe('Inside Implementation');
+  });
+
+  it('gives the auto-fix chip a header track of its own, and one more when the actions menu renders (DB-1)', () => {
+    const autopilot = { override: 'on', projectDefault: true, effective: true, banner: null, roundActive: false };
+    mountInside(insideState({ stageCurrent: 'ship', autopilot, views: { ship: view('ship', { title: 'Ship' }) } }));
+    expect(must('.inside-head').classList.contains('has-autofix')).toBe(true);
+    expect(must('.inside-head').classList.contains('has-actions')).toBe(false);
+    expect(q('[data-act="autopilot-menu"]')).not.toBeNull();
+    cleanupInside();
+    mountInside(insideState({ stageCurrent: 'ship', autopilot, ciFailure: { available: true, repos: [] }, rebase: { available: true, stage: 'ship' }, views: { ship: view('ship', { title: 'Ship' }) } }));
+    expect(must('.inside-head').classList.contains('has-autofix')).toBe(true);
+    expect(must('.inside-head').classList.contains('has-actions')).toBe(true);
+    expect(q('[data-stage-menu="ship"]')).not.toBeNull();
   });
 
   it('draws the Now line as its own region under the header, wrapping, with the PR number whole (T1140)', () => {
@@ -46,18 +64,18 @@ describe('Inside — the shell', () => {
 
   it('falls back from the presented stage to the current one to scope', () => {
     mountInside(insideState({ stageCurrent: 'uat', presentedStage: 'review' }));
-    expect(text(must('#inside-title'))).toBe('Inside review');
+    expect(text(must('#inside-title'))).toBe('Inside REVIEW');
     cleanupInside();
     mountInside(insideState({ stageCurrent: 'uat', presentedStage: '' }));
-    expect(text(must('#inside-title'))).toBe('Inside uat');
+    expect(text(must('#inside-title'))).toBe('Inside UAT');
     cleanupInside();
     mountInside(insideState({ stageCurrent: '', presentedStage: '' }));
-    expect(text(must('#inside-title'))).toBe('Inside scope');
+    expect(text(must('#inside-title'))).toBe('Inside SCOPE');
   });
 
   it('renders the view the persisted selection names, with the viewing bar and a Back that follows the ticket again', () => {
     const h = mountInside(insideState({ stageCurrent: 'impl', views: { scope: view('scope', { title: 'Scope' }) } }), { persisted: { sel: 'scope' } });
-    expect(text(must('#inside-title'))).toBe('Inside scope');
+    expect(text(must('#inside-title'))).toBe('Inside Scope');
     expect(must('#inside > section.inside').classList.contains('viewing')).toBe(true);
     expect(text(must('.vbar > span'))).toBe('Viewing Scope — not the current stage.');
     const back = must<HTMLButtonElement>('.vbar [data-back]');
@@ -65,7 +83,7 @@ describe('Inside — the shell', () => {
     expect(back.getAttribute('title')).toBe('Current stage — return the strip to Implementation, the stage the ticket is actually on');
     expect(back.getAttribute('aria-label')).toBe(back.getAttribute('title'));
     fireEvent.click(back);
-    expect(text(must('#inside-title'))).toBe('Inside impl');
+    expect(text(must('#inside-title'))).toBe('Inside IMPL');
     expect(q('.vbar')).toBeNull();
     expect(h.persisted).toEqual([{ sel: null, shipWait: null }]);
   });
@@ -77,7 +95,7 @@ describe('Inside — the shell', () => {
 
   it('shows no viewing bar on the stage a fix round presents', () => {
     mountInside(insideState({ stageCurrent: 'fix', presentedStage: 'uat' }));
-    expect(text(must('#inside-title'))).toBe('Inside uat');
+    expect(text(must('#inside-title'))).toBe('Inside UAT');
     expect(q('.vbar')).toBeNull();
     cleanupInside();
     mountInside(insideState({ stageCurrent: 'fix', presentedStage: 'review' }));
@@ -98,22 +116,22 @@ describe('Inside — the shell', () => {
     h.emit({ type: 'state', state: insideState({ stageCurrent: 'impl' }) } as HostMessage);
     h.emit({ type: 'state', state: insideState({ stageCurrent: 'impl' }), live: true } as HostMessage);
     h.emit({ type: 'clocks', clocks: {} } as HostMessage);
-    expect(text(must('#inside-title'))).toBe('Inside uat');
+    expect(text(must('#inside-title'))).toBe('Inside UAT');
   });
 
   it('a rail pick re-points the block in the same turn and asks the page to persist it', () => {
     const state = insideState({ stageCurrent: 'impl', rail: { main: [{ cell: { stageKey: 'impl', status: 'running' }, status: 'running', current: true, needsUser: false, needs: null, retry: null }, { cell: { stageKey: 'uat', status: 'pending' }, status: 'pending', current: false, needsUser: false, needs: null, retry: null }] } });
     const h = mountInside(state, { withRail: true });
-    expect(text(must('#inside-title'))).toBe('Inside impl');
+    expect(text(must('#inside-title'))).toBe('Inside IMPL');
     fireEvent.click(must('#rail .pick[data-stage="uat"]'));
-    expect(text(must('#inside-title'))).toBe('Inside uat');
+    expect(text(must('#inside-title'))).toBe('Inside UAT');
     expect(h.persisted).toEqual([{ sel: 'uat', shipWait: null }]);
   });
 
   it('a new ship wait selects Ship once, and the user can leave it', () => {
     const h = mountInside(insideState({ stageCurrent: 'impl' }));
     h.emit({ type: 'state', state: insideState({ stageCurrent: 'ship', ship: { kind: 'confirm' } }) } as HostMessage);
-    expect(text(must('#inside-title'))).toBe('Inside ship');
+    expect(text(must('#inside-title'))).toBe('Inside SHIP');
     expect(h.persisted).toEqual([{ sel: 'ship', shipWait: `${942017}:confirm` }]);
   });
 });

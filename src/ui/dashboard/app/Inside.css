@@ -70,6 +70,10 @@
 #inside .inside-head{min-height:38px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;
   align-items:center;gap:var(--p-s2);padding:0 var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border)}
 #inside .inside-head.has-actions{grid-template-columns:auto minmax(0,1fr) auto auto}
+/* The auto-fix override chip is its OWN track (DB-1, UI-R43): auto-placement would wrap it (or the clock) onto an
+   implicit second row and overlap the title. The menu takes one more track when it renders too. */
+#inside .inside-head.has-autofix{grid-template-columns:auto minmax(0,1fr) auto auto}
+#inside .inside-head.has-autofix.has-actions{grid-template-columns:auto minmax(0,1fr) auto auto auto}
 #inside .inside-title{font-size:var(--p-sm);font-weight:var(--k-weight-semibold);color:var(--p-strong);white-space:nowrap}
 #inside .inside-live{min-width:0;overflow:hidden;white-space:nowrap;color:var(--p-muted);
   font-size:var(--p-sm);display:flex;align-items:center;gap:var(--p-s2);line-height:18px}

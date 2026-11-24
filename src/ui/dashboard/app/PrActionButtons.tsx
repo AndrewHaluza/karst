@@ -6,6 +6,7 @@
  */
 import { memo, useCallback, useEffect, useId, useState, type MouseEvent } from 'react';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
+import { showsBlockedBox } from '../../../model/prMergeReadiness.js';
 import { useDashboardSend, useOps, usePendingOps } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import type { PrPendingApi } from './usePrPending.js';
@@ -99,7 +100,7 @@ const MERGE_UNAVAILABLE = 'Merge is not available';
  * chooses the strategy) before anything runs. The webview posts only `{type:'merge-pr', repo}` (UI-R37).
  * `.k-btn--primary` is its treatment per UI-R10b. Offered or not is the host's verdict, never this file's.
  */
-export const MergeButton = memo(function MergeButton({ p, busy }: { readonly p: PrPanelRow; readonly busy: boolean }) {
+export const MergeButton = memo(function MergeButton({ p, busy, readinessId }: { readonly p: PrPanelRow; readonly busy: boolean; readonly readinessId?: string }) {
   const send = useDashboardSend();
   // Held in the state the stage rail's Merge shares (pendingOps.ts): one operation, one dialog.
   const ops = usePendingOps();
@@ -125,13 +126,17 @@ export const MergeButton = memo(function MergeButton({ p, busy }: { readonly p: 
   }
   if (!p.canMerge) {
     const reason = p.mergeBlockedReason || MERGE_UNAVAILABLE;
-    // The reason is visible text the button points to; `title` alone is invisible to touch and keyboard users (UI-R17).
+    // DB-16: when the readiness block's own blocked box is on screen, it is the visible reason, so the inline copy is
+    // gone and the button points at the box instead of repeating it (UI-R17). Without the box the reason stays inline.
+    const boxed = showsBlockedBox(p);
     return (
       <>
-        <span className="pmreason" id={reasonId}>
-          {reason}
-        </span>
-        <button type="button" className={SECONDARY} disabled title={p.mergeBlockedReason} aria-describedby={reasonId}>
+        {boxed ? null : (
+          <span className="pmreason" id={reasonId}>
+            {reason}
+          </span>
+        )}
+        <button type="button" className={SECONDARY} disabled title={p.mergeBlockedReason} aria-describedby={boxed ? readinessId : reasonId}>
           Merge
         </button>
       </>

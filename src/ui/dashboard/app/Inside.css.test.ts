@@ -159,6 +159,37 @@ describe('Inside CSS — the container queries', () => {
     expect(tight).toMatch(/#inside \.evidence-row,#inside \.gate-row,#inside \.finding,#inside \.done-line\{/);
   });
 
+  it('gives the auto-fix chip and the actions menu their own header tracks (DB-1, UI-R43)', () => {
+    // The chip was auto-placed: it wrapped the clock onto an implicit second row and overlapped the title.
+    expect(CSS).toMatch(/#inside \.inside-head\.has-autofix\{grid-template-columns:auto minmax\(0,1fr\) auto auto\}/);
+    expect(CSS).toMatch(/#inside \.inside-head\.has-autofix\.has-actions\{grid-template-columns:auto minmax\(0,1fr\) auto auto auto\}/);
+    // The two-class selectors outrank the ≤699 rules, so each tier restates them: title and menu on row one, the chip
+    // in its own cell, the clock at full width.
+    const narrow = containerBlock('699px');
+    expect(narrow).toMatch(/#inside \.inside-head\.has-autofix\.has-actions\{grid-template-columns:minmax\(0,auto\) minmax\(0,1fr\) auto auto\}/);
+    expect(narrow).toMatch(/#inside \.inside-head\.has-autofix\.has-actions \.stageMenuWrap\{grid-column:4;grid-row:1\}/);
+    expect(narrow).toMatch(/#inside \.inside-meta\{grid-column:1\/-1/);
+    // The delivery hero stacks at the narrow tier: title beside the check, then the summary, then the time.
+    expect(narrow).toMatch(/#inside \.done-hero\{display:grid;grid-template-columns:auto minmax\(0,1fr\)/);
+    expect(narrow).toMatch(/#inside \.done-hero-sub\{grid-column:2;grid-row:2\}/);
+    const tight = containerBlock('399px');
+    // At the floor the header is one row: title, chip, clock, then the menu. The live line takes row two.
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.autofix-chipwrap(,[^{]+)?\{grid-column:2;grid-row:1;justify-self:end/);
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.inside-meta(,[^{]+)?\{grid-column:3;grid-row:1/);
+    // The narrow tier names `.has-autofix.has-actions`, which outranks the plain rules: the tight tier must name it too.
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix\.has-actions \.stageMenuWrap\{grid-column:4;grid-row:1\}/);
+    expect(tight).toMatch(/#inside \.inside-head\.has-autofix\.has-actions\{grid-template-columns:auto minmax\(0,1fr\) auto auto\}/);
+    // A main button fills the row: the chip and the clock share row two.
+    expect(tight).toMatch(/\.has-autofix\.has-main \.autofix-chipwrap\{grid-column:1;grid-row:2/);
+    // The live line has its own row and its glyph stays beside the label.
+    expect(tight).toMatch(/#inside \.inside-head \.inside-live\{grid-column:1\/-1;grid-row:2;align-items:flex-start\}/);
+    expect(tight).toMatch(/#inside \.inside-live strong\{flex:1 1 0\}/);
+    // A row's action takes its own line, so the detail keeps its width.
+    expect(tight).toMatch(/#inside \.evidence-row \.ev-tail:has\(> \[data-act="autopilot-stop-after"\]\)\{grid-column:2\/-1;grid-row:2/);
+    // The chip drops "default" and the clock drops its start time here.
+    expect(tight).toMatch(/\.autofix-default,[^{]*\.clock-start\{display:none\}/);
+  });
+
   it('never introduces whole-component horizontal scrolling at the tiers (B7)', () => {
     for (const w of ['999px', '699px', '399px']) {
       expect(containerBlock(w), `@container (max-width: ${w}) scrolls horizontally`).not.toMatch(/overflow-x:\s*(?:scroll|auto)/);

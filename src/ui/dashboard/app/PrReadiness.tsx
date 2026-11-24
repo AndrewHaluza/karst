@@ -6,7 +6,7 @@
  * that a PR is mergeable. An action is rendered only when the host attached it to the reason.
  */
 import { memo } from 'react';
-import { isBlocking } from '../../../model/prMergeReadiness.js';
+import { isBlocking, showsBlockedBox } from '../../../model/prMergeReadiness.js';
 import type { Reason, ReasonAction, ReasonListItem } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CiButton, OpenButton, OpenLink, ResolveButton, SingleFlightButton } from './PrActionButtons.js';
@@ -151,10 +151,12 @@ interface PrReadinessProps {
   readonly ciBusy: boolean;
   readonly mergeOpen: boolean;
   readonly onMergeToggle: (repo: string, open: boolean) => void;
+  /** The blocked box's id: the Merge button's accessible description points at it (DB-16, UI-R17). */
+  readonly boxId: string;
 }
 
 /** Nothing for a merged PR (it landed), a dismissed one, or one with no reason to state. */
-export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onMergeToggle }: PrReadinessProps) {
+export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onMergeToggle, boxId }: PrReadinessProps) {
   const { readiness } = p;
   if (p.status === 'merged' || p.dismissed) return null;
   const notes = (
@@ -178,16 +180,16 @@ export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onM
       </>
     );
   }
-  if (readiness.reasons.length === 0) return null;
+  // Notes only (GitHub did not confirm the merge, so the PR is not ready): show the notes, not an empty blocked box.
+  if (!showsBlockedBox(p)) return readiness.reasons.length > 0 ? notes : null;
   const blockers = readiness.reasons.filter(isBlocking);
   const n = blockers.length;
-  // Notes only (GitHub did not confirm the merge, so the PR is not ready): show the notes, not an empty blocked box.
-  if (n === 0) return notes;
   if (n >= 2) {
     return (
       <details
         className="prblock prblock-fold"
         data-state="blocked"
+        id={boxId}
         open={mergeOpen}
         onToggle={(e) => onMergeToggle(p.repo, e.currentTarget.open)}
       >
@@ -201,7 +203,7 @@ export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onM
     );
   }
   return (
-    <div className="prblock" data-state="blocked">
+    <div className="prblock" data-state="blocked" id={boxId}>
       <div className="prblock-head">
         <Icon name="lock" size={13} />
         <b>{readiness.headline}</b>

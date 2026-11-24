@@ -5,7 +5,7 @@
  * `ciLine`). Every string is the host's (`prPanelView`, `mergeCheckPanel`, `prChecksView`): this file
  * only places them, and never decides that a PR is mergeable or that a check failed.
  */
-import { memo } from 'react';
+import { memo, useId } from 'react';
 import { isBlocking, waitsOnChecksOnly } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CopyUrl, DismissButton, MergeButton, OpenLink } from './PrActionButtons.js';
@@ -84,6 +84,8 @@ export interface PrRowProps {
 
 export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBusy, ciBusy, mergeOpen, infoOpen, onMergeToggle, onInfoToggle, api }: PrRowProps) {
   const repoLabel = p.repoDisplay || p.repo;
+  // One id for the readiness box: the Merge button's accessible description points at whatever this row renders.
+  const readinessId = useId();
   // Suppressed on a merged PR: it landed, and a stale rollup beside `merged` would state a question that is closed.
   const live = p.status !== 'merged';
   const status = STATUS_ICON[p.status] ?? STATUS_ICON_FALLBACK;
@@ -94,7 +96,7 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
   const waitCount = live && !p.dismissed && waitsOnChecksOnly(p.readiness.reasons) ? (p.readiness.reasons.find((r) => r.state === 'run')?.count ?? blocking) : 0;
   const sub = (
     <>
-      <PrReadiness p={p} ciBusy={ciBusy} mergeOpen={mergeOpen} onMergeToggle={onMergeToggle} />
+      <PrReadiness p={p} ciBusy={ciBusy} mergeOpen={mergeOpen} onMergeToggle={onMergeToggle} boxId={readinessId} />
       <Comments p={p} />
     </>
   );
@@ -110,7 +112,7 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
         trail={
           <span className="pacts">
             <DismissButton p={p} api={api} busy={dismissBusy} />
-            <MergeButton p={p} busy={mergeBusy} />
+            <MergeButton p={p} busy={mergeBusy} readinessId={readinessId} />
           </span>
         }
         sub={sub}

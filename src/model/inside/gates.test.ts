@@ -870,6 +870,20 @@ describe("uatProcesses", () => {
     );
     const row = views.find((p) => p.id === "tester")!;
     expect(row.detail).toBe("output unreadable — no observations recorded");
+    // An unreadable answer blocks; it does not fail (UI-R14, arch:REVIEW R6b).
+    expect(row.status).toBe("note");
+    expect(row.statusLabel).toBe("Unknown");
+  });
+
+  it("reads a stored failed unreadable Tester run as unknown, not failed", () => {
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [processRun({ id: 5, status: "failed", resultKind: "unreadable-output" })],
+      }),
+    );
+    const row = views.find((p) => p.id === "tester")!;
+    expect(row.status).toBe("note");
+    expect(row.statusLabel).toBe("Unknown");
   });
 
   it("scopes observations to the LATEST tester run by invocation id", () => {
@@ -1561,6 +1575,52 @@ describe("reviewProcesses", () => {
     expect(review.detail).toContain(AGY_DENIAL_DETAIL);
     expect(review.detail).toContain("karst doctor");
     expect(review.detail).toContain("tools.agy-permissions");
+  });
+
+  it("reads an unreadable Review answer as unknown with its recorded reason, not failed", () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: { ...reviewCell, status: "running" },
+        processRuns: [
+          processRun({
+            stageKey: "review",
+            processId: "review",
+            status: "failed",
+            resultKind: "unreadable-output",
+            failureDetail: "unreadable output from /wt/web — no findings could be read",
+          }),
+        ],
+      }),
+    );
+    const review = views.find((p) => p.id === "review")!;
+    expect(review.status).toBe("note");
+    expect(review.statusLabel).toBe("Unknown");
+    expect(review.detail).toBe(
+      "unreadable output from /wt/web — no findings could be read",
+    );
+  });
+
+  it("reads a legacy execution-failed unreadable Review row as unknown, not failed", () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: { ...reviewCell, status: "running" },
+        processRuns: [
+          processRun({
+            stageKey: "review",
+            processId: "review",
+            status: "failed",
+            resultKind: "execution-failed",
+            failureDetail: "unreadable output from /wt/web — no findings could be read",
+          }),
+        ],
+      }),
+    );
+    const review = views.find((p) => p.id === "review")!;
+    expect(review.status).toBe("note");
+    expect(review.statusLabel).toBe("Unknown");
+    expect(review.detail).toBe(
+      "unreadable output from /wt/web — no findings could be read",
+    );
   });
 
   it("states a failed gate batch compactly on the process row (B9)", () => {
@@ -2263,6 +2323,21 @@ describe("round selection (T3): selectedAttempt resolves through the T1 selector
     expect(gates.detail).not.toContain("will run when the stage runs");
   });
 
+  it("states has not run for the live attempt's AI rows with no recorded run (DB-15)", () => {
+    const uat = uatProcesses(qualityInput({ processRuns: [] })).find((p) => p.id === "tester")!;
+    expect(uat.status).not.toBe("pending");
+    expect(uat.detail).toBe("has not run");
+    const review = reviewProcesses(qualityInput({ processRuns: [] })).find((p) => p.id === "review")!;
+    expect(review.detail).toBe("has not run");
+  });
+
+  it("does not state has not run for a legacy review that has findings but no run row", () => {
+    const review = reviewProcesses(
+      qualityInput({ processRuns: [], findings: [finding("high", { title: "legacy finding", file: "a.ts", line: 1 })] }),
+    ).find((p) => p.id === "review")!;
+    expect(review.detail).not.toBe("has not run");
+  });
+
   it("a selected attempt with no matching run renders absence, never a different attempt's run", () => {
     const views = uatProcesses(
       qualityInput({
@@ -2530,7 +2605,7 @@ describe("the current attempt (round 2 staleness)", () => {
     const tester = processes.find((p) => p.id === "tester")!;
     expect(tester.evidence).toMatchObject({ kind: "findings", rows: [] });
     expect(tester.status).not.toBe("fail");
-    expect(tester.detail).toBeUndefined();
+    expect(tester.detail).toBe("has not run");
   });
 
   it("renders no Review findings for a fresh invocation", () => {
@@ -2568,7 +2643,7 @@ describe("the current attempt (round 2 staleness)", () => {
       blocking: 0,
     });
     expect(review.aggregate).toBeUndefined();
-    expect(review.detail).toBeUndefined();
+    expect(review.detail).toBe("has not run");
   });
 
   it("renders the named attempt when the current invocation HAS recorded rows", () => {

@@ -81,7 +81,9 @@ export const PrsPanel = memo(function PrsPanel() {
     <RegionPortal region="prs">
       <Section
         title="Pull requests"
-        count={prs.length}
+        // DB-11: the summary already says how many are blocked / ready / dismissed; a second count beside it repeats it.
+        // Worktrees keeps both values, so this is the caller's choice, never Section's.
+        count={summary ? null : prs.length}
         summary={summary || null}
         summaryTitle={summary || undefined}
         bodyId="prs"
