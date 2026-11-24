@@ -266,6 +266,12 @@ export type WebviewMessage =
    * approves a rejected entry.
    */
   | { type: 'baseline-approve-all'; blockId: string }
+  /**
+   * Send every changed baseline the host sees as rejected to fix in one round.
+   * Records no decision: the earlier rejections are the failed verdict's cause.
+   * Pending entries stay pending.
+   */
+  | { type: 'baseline-send-rejections'; blockId: string }
   /** Reject ONE changed baseline entry with the user's required reason. */
   | { type: 'baseline-reject'; blockId: string; index: number; reason: string }
   /** Re-run ONLY the Tester lane of a UAT parked `tester-skipped`. */

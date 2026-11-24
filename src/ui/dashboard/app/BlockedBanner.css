@@ -31,6 +31,8 @@
 .blbanner{display:flex;align-items:center;flex-wrap:wrap;gap:var(--k-space-4)}
 .blbanner .ftitle{color:var(--k-attention)}
 .blbanner .k-btn{display:inline-flex;align-items:center;gap:var(--k-space-2)}
+/* T1340: Review, Approve-and-send and Send wrap at the narrow tiers instead of overflowing the strip. */
+.blbanner .facts{flex-wrap:wrap}
 
 /* The parked fix round (FixParkBanner.tsx): a needs-you block, so amber. Buttons and the note form wrap, never overflow. */
 #blocked:has(> .fixpark){border-top-color:color-mix(in srgb,var(--k-attention) 35%,transparent);

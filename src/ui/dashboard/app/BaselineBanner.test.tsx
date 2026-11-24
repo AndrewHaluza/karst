@@ -67,6 +67,29 @@ describe('BaselineBanner (@arch:BASELINE-REVIEW)', () => {
     expect(banner().querySelector('.freason')!.textContent).toContain('1 of 1 changed screenshot needs you');
   });
 
+  it('counts two rejections in the line and offers Send 2 rejections to fix', () => {
+    mountRail(review([row(0, 'rejected', { reason: 'a' }), row(1, 'rejected', { reason: 'b' }), row(2, 'pending')]));
+    expect(banner().querySelector('.freason')!.textContent).toContain('· 2 rejected');
+    expect(btn('baseline-send-rejections').className).toContain('k-btn--danger');
+    expect(btn('baseline-send-rejections').textContent).toContain('Send 2 rejections to fix');
+    expect(btn('baseline-send-rejections').getAttribute('data-block-id')).toBe('baseline-review');
+  });
+
+  it('says Approve all also sends the rejections, and posts Send with the block id once', () => {
+    const h = mountRail(review([row(0, 'pending'), row(1, 'rejected', { reason: 'x' })]));
+    expect(btn('baseline-approve-all').textContent).toContain('Approve 1 and send 1 to fix');
+    fireEvent.click(btn('baseline-send-rejections'));
+    fireEvent.click(btn('baseline-send-rejections'));
+    expect(h.send.baselineSendRejections).toHaveBeenCalledTimes(1);
+    expect(h.send.baselineSendRejections).toHaveBeenCalledWith('baseline-review', 'req-1');
+  });
+
+  it('hides Send when nothing is rejected', () => {
+    mountRail(review([row(0, 'pending'), row(1, 'approved')]));
+    expect(q('#blocked [data-act="baseline-send-rejections"]')).toBeNull();
+    expect(btn('baseline-approve-all').textContent).toContain('Approve all');
+  });
+
   it('allowlists the enums and coerces the index', () => {
     mountRail(review([row(7.9, 'odd', { status: 'weird' })]));
     expect(all('#blocked .blbanner')).toHaveLength(1);

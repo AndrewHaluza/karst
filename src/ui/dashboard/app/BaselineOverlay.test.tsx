@@ -59,12 +59,14 @@ describe('BaselineOverlay — shell', () => {
     expect(q('#baselineView [data-region="baseline-review"]')).toBeNull();
   });
 
-  it('has Back with a text label, the title, the ticket and stage, and Approve all (n)', () => {
+  it('has Back with a text label, the title, the ticket and stage, Approve and send, and Send', () => {
     mount();
     expect(must('#baselineView .dh-backlabel').textContent).toBe('Dashboard');
     expect(must('#baselineView .dh-current').textContent).toBe('Baselines');
     expect(must('#baselineView .blsub').textContent).toContain('3 open');
-    expect(btn('baseline-approve-all').textContent).toContain('Approve all (3)');
+    // One entry is rejected, so the Approve all click also sends it to fix and the label says so.
+    expect(btn('baseline-approve-all').textContent).toContain('Approve 3 and send 1 to fix');
+    expect(btn('baseline-send-rejections').textContent).toContain('Send 1 rejection to fix');
   });
 });
 
@@ -268,6 +270,58 @@ describe('BaselineOverlay — reject form', () => {
     h.act(() => h.overlays.openBaselines());
     click(btn('baseline-reject-open'));
     expect(must<HTMLTextAreaElement>('#blreason-0').value).toBe('half a thought');
+  });
+});
+
+describe('BaselineOverlay — collect rejections', () => {
+  const THREE = [row(0, 'dark/a.png'), row(1, 'light/a.png'), row(2, 'dark/b.png')];
+  const rejected = (index: number, label: string) => row(index, label, 'rejected', { reason: `bad ${index}` });
+  const rejectRow = (index: number): void => {
+    click(btn('baseline-reject-open', `[data-index="${index}"]`));
+    fireEvent.input(must(`#blreason-${index}`), { target: { value: `bad ${index}` } });
+    click(btn('baseline-reject'));
+  };
+
+  it('records two rejections, keeps the overlay open and offers Send 2 rejections to fix', () => {
+    const h = mount(THREE);
+    rejectRow(0);
+    expect(h.send.baselineReject).toHaveBeenCalledWith('baseline-review', 0, 'bad 0', 'req-1');
+    // The host answers: the form closes, and the selection moves on to the next pending entry.
+    h.emit({ type: 'state', state: review([rejected(0, 'dark/a.png'), row(1, 'light/a.png'), row(2, 'dark/b.png')]) });
+    expect(q('#blreason-0')).toBeNull();
+    expect(selected()).toBe('1');
+    rejectRow(1);
+    h.emit({ type: 'state', state: review([rejected(0, 'dark/a.png'), rejected(1, 'light/a.png'), row(2, 'dark/b.png')]) });
+    expect(q('#baselineView [data-region="baseline-review"]')).not.toBeNull();
+    expect(all('#baselineView .blchip').map((c) => c.textContent!.trim())).toEqual(['Needs review 1', 'Rejected 2', 'Approved 0', 'All 3']);
+    expect(btn('baseline-send-rejections').textContent).toContain('Send 2 rejections to fix');
+    expect(selected()).toBe('2');
+  });
+
+  it('posts baseline-send-rejections with the block id once, and stays pending', () => {
+    const h = mount();
+    const send = btn('baseline-send-rejections');
+    click(send);
+    click(send);
+    expect(h.send.baselineSendRejections).toHaveBeenCalledTimes(1);
+    expect(h.send.baselineSendRejections).toHaveBeenCalledWith('baseline-review', 'req-1');
+    expect(send.getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('clears a reject form that the host marks rejected, so a re-record at that row does not reopen it', () => {
+    const h = mount(THREE);
+    click(btn('baseline-reject-open'));
+    expect(q('#blreason-0')).not.toBeNull();
+    h.emit({ type: 'state', state: review([rejected(0, 'dark/a.png'), row(1, 'light/a.png'), row(2, 'dark/b.png')]) });
+    expect(q('#blreason-0')).toBeNull();
+    // The agent re-records the same entry: the row is pending again, but no stale form may reopen.
+    h.emit({ type: 'state', state: review(THREE) });
+    click(btn('baseline-filter', '[data-filter="all"]'));
+    click(btn('baseline-select', '[data-index="0"]'));
+    expect(selected()).toBe('0');
+    expect(q('#blreason-0')).toBeNull();
+    click(btn('baseline-reject-open'));
+    expect(q('#blreason-0')).not.toBeNull();
   });
 });
 
