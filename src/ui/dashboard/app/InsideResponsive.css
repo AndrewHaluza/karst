@@ -59,6 +59,13 @@
   #inside .finding-loc{grid-column:2}
   #inside .finding-time{display:none}
   #inside .done-line{grid-template-columns:76px minmax(0,1fr)}
+  /* The delivery hero stacks: the check and the title share row one, the summary and the time take the rows below. At this
+     width three flex cells crushed the title to one word per line beside a long summary. */
+  #inside .done-hero{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;column-gap:var(--p-s2);row-gap:var(--k-space-1);padding-top:var(--p-s2);padding-bottom:var(--p-s2)}
+  #inside .done-hero>:first-child{grid-column:1;grid-row:1}
+  #inside .done-hero-main{grid-column:2;grid-row:1;overflow-wrap:anywhere}
+  #inside .done-hero-sub{grid-column:2;grid-row:2}
+  #inside .done-hero-time{grid-column:2;grid-row:3;margin-left:0}
   #inside .done-state{grid-column:2}
   /* The receipt grid stacks rather than crushing three columns; the commit
      list and the PR note lose their hanging indent so nothing truncates. */

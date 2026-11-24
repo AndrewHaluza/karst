@@ -169,6 +169,9 @@ describe('Inside CSS — the container queries', () => {
     expect(narrow).toMatch(/#inside \.inside-head\.has-autofix\.has-actions\{grid-template-columns:minmax\(0,auto\) minmax\(0,1fr\) auto auto\}/);
     expect(narrow).toMatch(/#inside \.inside-head\.has-autofix\.has-actions \.stageMenuWrap\{grid-column:4;grid-row:1\}/);
     expect(narrow).toMatch(/#inside \.inside-meta\{grid-column:1\/-1/);
+    // The delivery hero stacks at the narrow tier: title beside the check, then the summary, then the time.
+    expect(narrow).toMatch(/#inside \.done-hero\{display:grid;grid-template-columns:auto minmax\(0,1fr\)/);
+    expect(narrow).toMatch(/#inside \.done-hero-sub\{grid-column:2;grid-row:2\}/);
     const tight = containerBlock('399px');
     // At the floor the header is one row: title, chip, clock, then the menu. The live line takes row two.
     expect(tight).toMatch(/#inside \.inside-head\.has-autofix \.autofix-chipwrap(,[^{]+)?\{grid-column:2;grid-row:1;justify-self:end/);
