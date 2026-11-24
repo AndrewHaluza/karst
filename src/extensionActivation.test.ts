@@ -107,6 +107,23 @@ describe('extension activation', () => {
     );
   });
 
+  // The same tick also owns the archived tickets' graph workspaces: a graph
+  // node workspace is a full clone, so an archived ticket's terminal runs are
+  // cleaned and its open runs are cancelled by the sweep itself. It rides AFTER
+  // the worktree sweep, is scoped to `project.id`, and reports the removal in
+  // one info line (T1342).
+  it('sweeps archived-ticket graph node workspaces on the PR tick', () => {
+    const source = readExtensionSources();
+
+    expect(source).toMatch(
+      /archiveInactiveWorktrees\([\s\S]{0,2000}?sweepArchivedTicketGraphRuns\(/,
+    );
+    expect(source).toMatch(
+      /sweepArchivedTicketGraphRuns\(\{[\s\S]{0,600}?isSessionLive: \(id\) => sessions\.isLive\(id\)[\s\S]{0,400}?\}, project\.id\)/,
+    );
+    expect(source).toContain('graph node workspace(s) of archived tickets');
+  });
+
   // The manual bulk-archive command is DESTRUCTIVE and must never run unscoped:
   // `currentProject()?.id` degrades to `undefined` when no project is bound,
   // which the store reads as ALL projects, so a click in an unbound window would

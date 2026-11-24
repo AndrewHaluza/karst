@@ -95,6 +95,40 @@ export function allGraphRunsClosed(db: GraphDb, ticketId: number): boolean {
   return row === undefined;
 }
 
+/** One graph run of an archived ticket — the archive sweep's work item. */
+export interface ArchivedTicketGraphRun {
+  graphRunId: number;
+  ticketId: number;
+  status: string;
+}
+
+/**
+ * Every graph run belonging to a ticket of `projectId` that was archived
+ * before `archivedBeforeIso`, in run id order (T1342).
+ *
+ * `julianday(...)` normalizes both timestamp shapes this column can hold — the
+ * SQLite `datetime('now')` written by `archiveTicket` (`YYYY-MM-DD HH:MM:SS`)
+ * and an ISO 8601 string — and fails CLOSED on NULL or malformed values, so a
+ * ticket whose archive stamp cannot be read is never swept.
+ */
+export function graphRunsForArchivedTicketsBefore(
+  db: GraphDb,
+  projectId: number,
+  archivedBeforeIso: string,
+): ArchivedTicketGraphRun[] {
+  return db
+    .prepare(
+      `SELECT r.id AS graphRunId, r.ticket_id AS ticketId, r.status AS status
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE t.project_id = ?
+          AND t.archived_at IS NOT NULL
+          AND julianday(t.archived_at) < julianday(?)
+        ORDER BY r.id`,
+    )
+    .all(projectId, archivedBeforeIso) as ArchivedTicketGraphRun[];
+}
+
 /** Every graph run id of a ticket, in creation order (evidence deletion). */
 export function graphRunIdsForTicket(db: GraphDb, ticketId: number): number[] {
   const rows = db

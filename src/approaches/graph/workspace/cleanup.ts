@@ -120,7 +120,44 @@ export function cleanupNodeWorkspace(
 /** The only node-run statuses whose workspace is no longer recoverable. */
 export const TERMINAL_WORKSPACE_NODE_STATUSES = ['completed', 'cancelled'] as const;
 
+/** Graph-run statuses in which a leftover node is no longer recoverable. */
+export const TERMINAL_RUN_CLEANABLE_GRAPH_STATUSES = ['closed', 'cancelled'] as const;
+
+/** Extra node statuses a TERMINAL run's cleanup may remove (never `running`). */
+export const TERMINAL_RUN_EXTRA_CLEANABLE_NODE_STATUSES = [
+  'stale',
+  'failed-to-launch',
+  'failed',
+  'ready',
+] as const;
+
 type TerminalWorkspaceNodeRow = NonNullable<ReturnType<typeof nodeRunWorkspaceRef>>;
+
+/** Whether a node run's workspace is cleanable, honouring the optional
+ *  `includeStaleNodes` widening for a terminal graph run (T1342). */
+function isCleanableTerminalNode(
+  node: TerminalWorkspaceNodeRow,
+  graphRunId: number,
+  includeStaleNodes: boolean,
+): boolean {
+  if (node.graph_run_id !== graphRunId) return false;
+  if (
+    TERMINAL_WORKSPACE_NODE_STATUSES.includes(
+      node.status as (typeof TERMINAL_WORKSPACE_NODE_STATUSES)[number],
+    )
+  ) {
+    return true;
+  }
+  return (
+    includeStaleNodes
+    && TERMINAL_RUN_CLEANABLE_GRAPH_STATUSES.includes(
+      node.graph_run_status as (typeof TERMINAL_RUN_CLEANABLE_GRAPH_STATUSES)[number],
+    )
+    && TERMINAL_RUN_EXTRA_CLEANABLE_NODE_STATUSES.includes(
+      node.status as (typeof TERMINAL_RUN_EXTRA_CLEANABLE_NODE_STATUSES)[number],
+    )
+  );
+}
 
 function safePathSegment(value: string): boolean {
   return value.length > 0 && value !== '.' && value !== '..' && basename(value) === value;
@@ -188,18 +225,19 @@ function validatedNodeWorkspaceRoot(
  * repository clone; the mandated layout puts all of them directly under the
  * same node-run root, so one cleanup stops every descendant server and removes
  * the whole workspace. Recoverable/runnable statuses are explicit no-ops.
+ *
+ * `includeStaleNodes` widens the cleanable node statuses to `stale`,
+ * `failed-to-launch`, `failed` and `ready` — only for a `closed` or `cancelled`
+ * graph run. A `running` node workspace is never removed.
  */
 export function cleanupTerminalNodeWorkspace(
   deps: CleanupNodeWorkspaceDeps,
-  input: { graphRunId: number; nodeRunId: number },
+  input: { graphRunId: number; nodeRunId: number; includeStaleNodes?: boolean },
 ): CleanupNodeWorkspaceResult {
   const node = nodeRunWorkspaceRef(deps.store.db, input.nodeRunId);
   if (
     !node
-    || node.graph_run_id !== input.graphRunId
-    || !TERMINAL_WORKSPACE_NODE_STATUSES.includes(
-      node.status as (typeof TERMINAL_WORKSPACE_NODE_STATUSES)[number],
-    )
+    || !isCleanableTerminalNode(node, input.graphRunId, input.includeStaleNodes === true)
   ) {
     deps.debug?.(
       `[graph] workspace cleanup: node ${input.nodeRunId} is ${node?.status ?? 'missing'} — preserving recoverable workspace`,
@@ -218,21 +256,34 @@ export function cleanupTerminalNodeWorkspace(
   return cleanupNodeWorkspace(deps, { ...input, cwd: workspaceRoot });
 }
 
-/** Clean every terminal node workspace left when a graph run closes. */
+/** A graph-run workspace cleanup result, carrying the node it acted on. */
+export type GraphRunNodeWorkspaceCleanupResult = CleanupNodeWorkspaceResult & { nodeRunId: number };
+
+/**
+ * Clean every terminal node workspace left when a graph run closes.
+ *
+ * `includeStaleNodes` also cleans the leftovers of a terminal (`closed` or
+ * `cancelled`) run: a `stale`, `failed-to-launch`, `failed` or `ready` node no
+ * longer has a recoverable workspace. A `running` node is never touched.
+ */
 export function cleanupTerminalGraphRunWorkspaces(
   deps: CleanupNodeWorkspaceDeps,
-  input: { graphRunId: number },
-): CleanupNodeWorkspaceResult[] {
-  const nodes = cleanableNodeRunIdsForGraphRun(deps.store.db, input.graphRunId);
-  const results: CleanupNodeWorkspaceResult[] = [];
+  input: { graphRunId: number; includeStaleNodes?: boolean },
+): GraphRunNodeWorkspaceCleanupResult[] {
+  const nodes = cleanableNodeRunIdsForGraphRun(deps.store.db, input.graphRunId, {
+    includeStaleNodes: input.includeStaleNodes,
+  });
+  const results: GraphRunNodeWorkspaceCleanupResult[] = [];
   for (const nodeRunId of nodes) {
     try {
-      results.push(
-        cleanupTerminalNodeWorkspace(deps, {
+      results.push({
+        ...cleanupTerminalNodeWorkspace(deps, {
           graphRunId: input.graphRunId,
           nodeRunId,
+          includeStaleNodes: input.includeStaleNodes,
         }),
-      );
+        nodeRunId,
+      });
     } catch (err) {
       // Run close is already committed. Cleanup is best-effort and one bad
       // workspace must not prevent the remaining terminal nodes being reaped.
