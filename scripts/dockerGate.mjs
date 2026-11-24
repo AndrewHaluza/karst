@@ -634,6 +634,19 @@ function localLedger(cwd, read = readLedger) {
 }
 
 /**
+ * True when the report is a finished sweep whose only failures are the `known` ones: no global error, the
+ * `stats.unexpected` count matches, and every test started (a cut-short run leaves tests with no result).
+ */
+export function completeReport(report, known) {
+  if (Array.isArray(report.errors) && report.errors.length > 0) return false;
+  if (report.stats?.unexpected !== known) return false;
+  const neverStarted = (node) =>
+    (node.specs ?? []).some((spec) => (spec.tests ?? []).some((t) => t.status === 'skipped' && (t.results ?? []).length === 0)) ||
+    (node.suites ?? []).some(neverStarted);
+  return !neverStarted(report);
+}
+
+/**
  * A failed sweep, re-judged. First the committed visual ledger: a failing
  * screenshot it lists is a known failure (reported, not failed), as in CI.
  * Then the rest: re-run them once at the head (flakes), then in a detached
@@ -653,9 +666,8 @@ export async function judgeAgainstBase({ status, rawArgv, name, volume, run, res
   const own = sha === null ? new Set() : ownBaselines(cwd, sha);
   const ledgered = splitLedgered(failingScreenshots(report, cwd), localLedger(cwd, seams.readLedger), own);
   for (const line of ledgerLines(ledgered.known)) console.error(line);
-  const globalErrors = Array.isArray(report.errors) && report.errors.length > 0;
   const rest = ledgered.failing;
-  if (ledgered.known.length > 0 && !globalErrors && rest.screenshots.length === 0 && rest.others.length === 0) return 0;
+  if (ledgered.known.length > 0 && completeReport(report, ledgered.known.length) && rest.screenshots.length === 0 && rest.others.length === 0) return 0;
   if (sha === null) return status;
   const head = await judgeAtHead({ status, rawArgv, name, volume, run, results, failing: rest, own, seams });
   if (head.done) return head.status;

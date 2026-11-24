@@ -27,6 +27,9 @@
     "arch:GATE-CAPABILITY",
     "arch:GATE-REPEAT"
   ],
+  "scripts/dockerGate.mjs#completeReport": [
+    "arch:GATE-LEDGER"
+  ],
   "scripts/dockerGate.mjs#judgeAgainstBase": [
     "arch:GATE-LEDGER"
   ],

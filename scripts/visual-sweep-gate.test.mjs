@@ -266,6 +266,11 @@ describe('ledger keys of the report', () => {
     );
   });
 
+  it('screenshotStatuses keeps a failure when the same key passes later', () => {
+    const rep = report(failing('twice'), testEntry({ status: 'expected', title: 'twice' }));
+    expect(screenshotStatuses(rep).get('dark|::twice')).toBe('unexpected');
+  });
+
   it('own-baseline failures stay a separate rule', () => {
     const changed = new Set([`${BASELINES_DIR}/dark/own.png`]);
     const rep = report(testEntry({ title: 'own', expected: { name: 'own', path: '/repo/tests/visual/__baselines__/dark' } }));

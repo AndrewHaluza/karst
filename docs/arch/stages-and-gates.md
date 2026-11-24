@@ -226,9 +226,9 @@ A cleanup failure is a NOTICE and never changes the gate verdict (D717, T1228). 
 END_DOC_BLOCK: [@arch:GATE-CLEANUP]
 
 ## [@arch:GATE-LEDGER] A local visual gate excuses the screenshots that the committed visual ledger lists
-covers: scripts/baseDrift.mjs#splitLedgered, scripts/dockerGate.mjs#judgeAgainstBase, scripts/dockerGate.mjs#ledgerIntent, scripts/visualLedger.mjs
+covers: scripts/baseDrift.mjs#splitLedgered, scripts/dockerGate.mjs#judgeAgainstBase, scripts/dockerGate.mjs#completeReport, scripts/dockerGate.mjs#ledgerIntent, scripts/visualLedger.mjs
 
-The committed visual ledger (`tests/visual/visual-known-failures.json`, `@ui:RUNNING-SWEEP`) is the only exemption for a red screenshot, in CI and in the local `visual` gate. When the sweep fails, `judgeAgainstBase` reads the ledger before the flake re-run and the base check (@arch:GATE-OUTPUT). `splitLedgered` removes each failing screenshot that the ledger lists, and the gate prints `known failures (listed in …) — N:`. Known failures get no re-run and do not count toward the 40 cap. When only known failures remain and the report holds no global error, the gate exits 0.
+The committed visual ledger (`tests/visual/visual-known-failures.json`, `@ui:RUNNING-SWEEP`) is the only exemption for a red screenshot, in CI and in the local `visual` gate. When the sweep fails, `judgeAgainstBase` reads the ledger before the flake re-run and the base check (@arch:GATE-OUTPUT). `splitLedgered` removes each failing screenshot that the ledger lists, and the gate prints `known failures (listed in …) — N:`. Known failures get no re-run and do not count toward the 40 cap. When only known failures remain and the report is complete (`completeReport`: no global error, a matching `stats.unexpected`, every test started), the gate exits 0.
 
 A ledgered screenshot whose baseline the ticket recorded stays failing (@arch:BASELINE-REVIEW). An unreadable ledger prints `visual ledger not applied: <reason>` and excuses nothing. A local gate never judges stale entries: only the full CI run does. The base check stays for the un-ledgered failures: CI blocks them on develop, so they reach a ticket only when its base predates a fix on develop.
 

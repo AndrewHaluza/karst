@@ -255,11 +255,17 @@ export function failingScreenshots(rep, statuses = ['unexpected']) {
   return failing;
 }
 
-/** The outcome of every screenshot test of a report, by ledger key (the layout projects have their own ledger). */
+/**
+ * The outcome of every screenshot test of a report, by ledger key (the layout projects have their own ledger).
+ * A key seen twice (a merged report, or one leaf title under two describe blocks) keeps `unexpected`: a later
+ * pass must never hide a failure.
+ */
 export function screenshotStatuses(rep) {
   const statuses = new Map();
   for (const spec of projectSpecs(rep, undefined)) {
-    if (!isLayoutProject(spec.project)) statuses.set(ledgerKey(spec), spec.status);
+    if (isLayoutProject(spec.project)) continue;
+    const key = ledgerKey(spec);
+    if (statuses.get(key) !== 'unexpected') statuses.set(key, spec.status);
   }
   return statuses;
 }

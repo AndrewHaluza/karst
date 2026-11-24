@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BASE_DIR_MAX_AGE_MS, bestEffort, judgeAgainstBase, sweepStaleBaseDirs } from './dockerGate.mjs';
+import { BASE_DIR_MAX_AGE_MS, bestEffort, completeReport, judgeAgainstBase, sweepStaleBaseDirs } from './dockerGate.mjs';
 
 const spec = (status) => ({
   specs: [
@@ -159,13 +159,19 @@ describe('judgeAgainstBase and the visual ledger', () => {
   const lines = () => console.error.mock.calls.map((c) => c[0]);
 
   it('passes a sweep whose only failure the ledger lists, without a re-run', async () => {
-    expect(await judge({ suites: [spec('unexpected')] }, () => ['visual|::home'])).toBe(0);
+    expect(await judge({ stats: { unexpected: 1 }, suites: [spec('unexpected')] }, () => ['visual|::home'])).toBe(0);
     expect(runs).toBe(0);
     expect(lines()).toContain('known failures (listed in tests/visual/visual-known-failures.json) — 1:');
   });
 
   it('keeps the failure when the report holds a global error', async () => {
-    expect(await judge({ errors: [{ message: 'webServer died' }], suites: [spec('unexpected')] }, () => ['visual|::home'])).toBe(1);
+    expect(await judge({ errors: [{ message: 'webServer died' }], stats: { unexpected: 1 }, suites: [spec('unexpected')] }, () => ['visual|::home'])).toBe(1);
+  });
+
+  it('keeps the failure when the run was cut short', async () => {
+    const cut = { title: 'later', tests: [{ projectName: 'visual', status: 'skipped', results: [] }] };
+    const report = { stats: { unexpected: 1 }, suites: [{ specs: [...spec('unexpected').specs, cut] }] };
+    expect(await judge(report, () => ['visual|::home'])).toBe(1);
   });
 
   it('keeps an un-ledgered failure for the base check', async () => {
@@ -179,5 +185,21 @@ describe('judgeAgainstBase and the visual ledger', () => {
     };
     expect(await judge({ suites: [spec('unexpected')] }, missing)).toBe(1);
     expect(lines()).toContain('visual ledger not applied: cannot read the visual ledger x: ENOENT');
+  });
+});
+
+describe('completeReport', () => {
+  it('is complete when the unexpected count matches and every test started', () => {
+    expect(completeReport({ stats: { unexpected: 1 }, suites: [spec('unexpected')] }, 1)).toBe(true);
+  });
+
+  it('is incomplete when the count differs or is absent', () => {
+    expect(completeReport({ stats: { unexpected: 2 }, suites: [spec('unexpected')] }, 1)).toBe(false);
+    expect(completeReport({ suites: [spec('unexpected')] }, 1)).toBe(false);
+  });
+
+  it('accepts an intentional skip that left a result', () => {
+    const skip = { title: 'skip', tests: [{ projectName: 'visual', status: 'skipped', results: [{}] }] };
+    expect(completeReport({ stats: { unexpected: 1 }, suites: [{ suites: [{ specs: [...spec('unexpected').specs, skip] }] }] }, 1)).toBe(true);
   });
 });
