@@ -99,11 +99,14 @@ describe('gettingStarted webview.html', () => {
     expect(script).not.toContain("msg.type === 'error'");
   });
 
-  it('gives the done/not-done status dot a role and an accessible name in words, never colour alone (UI-R28)', () => {
+  it('gives each row glyph a role and an accessible name in words, never colour alone (UI-R28)', () => {
     const script = scriptBlock();
-    expect(script).toContain("dot.setAttribute('role', 'img')");
-    expect(script).toMatch(/dot\.setAttribute\('aria-label',\s*it\.done \? 'Done' : 'Not done'\)/);
-    expect(script).toMatch(/dot\.className = 'k-dot ' \+ \(it\.done \? 'k-dot--passed' : 'k-dot--failed'\)/);
+    expect(script).toContain("span.setAttribute('role', 'img')");
+    expect(script).toContain("span.setAttribute('aria-label', mark.label)");
+    for (const label of ["'Done'", "'To do'", "'Missing'"]) expect(script).toContain(`label: ${label}`);
+    expect(script).toContain("icon: 'circle-check'");
+    expect(script).toContain("icon: 'circle'");
+    expect(script).toContain("icon: 'alert-triangle'");
   });
 
   it('every title attribute is a non-empty, period-free string no longer than 80 characters (UI-R20)', () => {
@@ -118,9 +121,31 @@ describe('gettingStarted webview.html', () => {
     }
   });
 
-  it('the create-manifest button carries a title, because its effect (writing to disk) is not confined to the screen', () => {
+  it('the starter-file button carries a title, because its effect (writing to disk) is not confined to the screen', () => {
+    expect(scriptBlock()).toContain("title: 'Write a starter karst.yml to the workspace root'");
+  });
+
+  it('uses the shared page header with the mark, the title and the lede', () => {
+    expect(HTML).toContain('<header class="k-pagehead">');
+    expect(HTML).toContain('class="k-pagehead-mark"');
+    expect(HTML).toContain('<h1 class="k-pagehead-title">Getting Started</h1>');
+    expect(HTML).toContain('class="k-pagehead-sub" id="lede"');
+  });
+
+  it('shows the host-built progress text and the state-error alert', () => {
+    expect(HTML).toContain('id="progress"');
+    expect(HTML).toMatch(/id="state-error" role="alert"/);
+    expect(scriptBlock()).toContain("msg.type === 'state-error'");
+  });
+
+  it('renders the tutorial as an ordered list', () => {
+    expect(HTML).toContain('<ol class="steps" id="tutorial">');
+  });
+
+  it('keeps focus on the same row after a re-render (GS-7)', () => {
     const script = scriptBlock();
-    expect(script).toContain("b.title = 'Write a starter karst.yml to the workspace root'");
+    expect(script).toContain('li.dataset.id = it.id');
+    expect(script).toContain('label.tabIndex = -1');
   });
 
   it('carries a Report an issue entry on the page (§ report an issue)', () => {

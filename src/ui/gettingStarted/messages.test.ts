@@ -1,5 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseGettingStartedMessage, routeGettingStartedAction, type GettingStartedActions } from './messages.js';
+import { parseGettingStartedMessage, routeGettingStartedAction, type GettingStartedActions, type GettingStartedHostMessage } from './messages.js';
+
+describe('GettingStartedHostMessage', () => {
+  // GS-4: a failed setup check reaches the page as its own message, not as a
+  // blank page (the panel used to only log).
+  it('carries a state-error with the reason', () => {
+    const message: GettingStartedHostMessage = { type: 'state-error', message: 'spawn git ENOENT' };
+    expect(message).toMatchObject({ type: 'state-error', message: 'spawn git ENOENT' });
+  });
+});
 
 describe('parseGettingStartedMessage', () => {
   it('accepts every known discriminant', () => {
@@ -22,6 +31,12 @@ describe('parseGettingStartedMessage', () => {
     expect(parseGettingStartedMessage('nope')).toBeNull();
     expect(parseGettingStartedMessage({ type: 'evil' })).toBeNull();
     expect(parseGettingStartedMessage({})).toBeNull();
+  });
+
+  // The trust boundary is one-way: `state-error` is host→webview only, and a
+  // webview repeating it must not be parsed into an action.
+  it('does not accept a host-only state-error from the webview', () => {
+    expect(parseGettingStartedMessage({ type: 'state-error', message: 'spawn git ENOENT' })).toBeNull();
   });
 });
 

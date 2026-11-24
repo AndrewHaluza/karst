@@ -24,8 +24,15 @@ export type GettingStartedMessage =
  * reports through the single `action-result` seam (UI-R13), which is what
  * lets the webview surface a failure as a toast instead of the page's own
  * unlabelled `#error` div.
+ *
+ * `state-error` is different: loading the page's own state failed, so there is
+ * no state to render. It tells the page why the checklist is empty instead of
+ * leaving it blank (GS-4).
  */
-export type GettingStartedHostMessage = { type: 'state'; state: GettingStartedState } | ActionResultMessage;
+export type GettingStartedHostMessage =
+  | { type: 'state'; state: GettingStartedState }
+  | { type: 'state-error'; message: string }
+  | ActionResultMessage;
 
 /**
  * Host-side side-effects the Getting Started page can trigger. A `void` return acks

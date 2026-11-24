@@ -5,16 +5,27 @@ import type { GettingStartedState } from './state.js';
 import type { GettingStartedActionsCtx } from './actions.js';
 
 function fakeState(): GettingStartedState {
-  return { checklist: [], tutorial: [] };
+  return {
+    checklist: [],
+    tutorial: [],
+    progressText: '0 of 0 done',
+    lede: 'Finish the setup below.',
+    manifestActions: { primary: 'create-manifest', secondary: 'setup-agent' },
+  };
 }
 
 class FakePanel implements GettingStartedPanel {
   revealed = 0;
+  closed = 0;
   posted: GettingStartedHostMessage[] = [];
   private msgHandler?: (m: unknown) => void;
   private disposeHandler?: () => void;
   reveal(): void {
     this.revealed += 1;
+  }
+  close(): void {
+    this.closed += 1;
+    this.disposeHandler?.();
   }
   postMessage(m: GettingStartedHostMessage): void {
     this.posted.push(m);
@@ -275,6 +286,80 @@ describe('GettingStartedManager', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(panels[0]!.posted).toEqual([{ type: 'state', state: newer }]);
+  });
+
+  // GS-3: Re-check used to settle before its own check ended. The action now
+  // returns the load promise, so the state post lands first.
+  it('posts the recheck state before the action-result', async () => {
+    const { host, panels } = makeHost();
+    const loadState = vi.fn(async () => fakeState());
+    const mgr = new GettingStartedManager(loadState, host, (ctx) => ({
+      createManifest: vi.fn(), recheckDeps: () => ctx.pushState({ recheck: true }), openSettings: vi.fn(),
+      createTicket: vi.fn(), setupAgent: vi.fn(), reportIssue: vi.fn(), dismiss: vi.fn(), requestState: vi.fn(),
+    }));
+    mgr.open();
+    panels[0]!.posted.length = 0;
+    panels[0]!.send({ type: 'recheck-deps', requestId: 'r1' });
+    await vi.waitFor(() => expect(panels[0]!.posted.some((m) => m.type === 'action-result')).toBe(true));
+    expect(panels[0]!.posted.map((m) => m.type)).toEqual(['state', 'action-result']);
+  });
+
+  // GS-4: a failed check used to leave a blank page. Both catch branches now
+  // tell the page why.
+  it('posts a state-error when the state load rejects', async () => {
+    const { host, panels } = makeHost();
+    const logError = vi.fn();
+    const loadState = vi.fn().mockResolvedValueOnce(fakeState()).mockRejectedValueOnce(new Error('spawn git ENOENT'));
+    const mgr = new GettingStartedManager(
+      loadState,
+      host,
+      (ctx) => ({
+        createManifest: vi.fn(), recheckDeps: () => ctx.pushState({ recheck: true }), openSettings: vi.fn(),
+        createTicket: vi.fn(), setupAgent: vi.fn(), reportIssue: vi.fn(), dismiss: vi.fn(), requestState: vi.fn(),
+      }),
+      logError,
+    );
+    mgr.open();
+    panels[0]!.send({ type: 'recheck-deps' });
+    await vi.waitFor(() => expect(panels[0]!.posted.some((m) => m.type === 'state-error')).toBe(true));
+    expect(panels[0]!.posted.at(-1)).toEqual({ type: 'state-error', message: 'spawn git ENOENT' });
+    expect(logError).toHaveBeenCalledWith('karst: getting started state failed', expect.any(Error));
+  });
+
+  it('posts a state-error when the state load throws synchronously', () => {
+    const { host, panels } = makeHost();
+    const logError = vi.fn();
+    const mgr = new GettingStartedManager(
+      () => {
+        throw new Error('spawn git ENOENT');
+      },
+      host,
+      () => ({
+        createManifest: vi.fn(), recheckDeps: vi.fn(), openSettings: vi.fn(), createTicket: vi.fn(),
+        setupAgent: vi.fn(), reportIssue: vi.fn(), dismiss: vi.fn(), requestState: vi.fn(),
+      }),
+      logError,
+    );
+    mgr.open();
+    expect(panels[0]!.posted).toEqual([{ type: 'state-error', message: 'spawn git ENOENT' }]);
+    expect(logError).toHaveBeenCalledWith('karst: getting started state failed', expect.any(Error));
+  });
+
+  // GS-8: the dismiss action closes the page through the same ctx.
+  it('binds ctx.close to the panel close', () => {
+    const { host, panels } = makeHost();
+    let ctxRef: GettingStartedActionsCtx | undefined;
+    const mgr = new GettingStartedManager(fakeState, host, (ctx) => {
+      ctxRef = ctx;
+      return {
+        createManifest: vi.fn(), recheckDeps: vi.fn(), openSettings: vi.fn(), createTicket: vi.fn(),
+        setupAgent: vi.fn(), reportIssue: vi.fn(), dismiss: vi.fn(), requestState: vi.fn(),
+      };
+    });
+    mgr.open();
+    ctxRef!.close();
+    expect(panels[0]!.closed).toBe(1);
+    expect(mgr.isOpen()).toBe(false);
   });
 });
 

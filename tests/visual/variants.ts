@@ -1224,8 +1224,10 @@ const gettingStartedVariants = (): Variant[] => {
     variant('gettingStarted', 'populated', () => getCorpus('gettingStarted'), { baseline: 'gettingStarted', themes: ALL_THEMES }),
     variant('gettingStarted', 'empty', g('empty')),
     variant('gettingStarted', 'loading', LOADING),
-    // No host-failure state exists for this view; the fresh checklist (nothing configured) is its unhappy path.
-    variant('gettingStarted', 'error', g('fresh')),
+    variant('gettingStarted', 'error', () => ({ messages: [{ type: 'state-error', message: 'spawn git ENOENT' }] })),
+    variant('gettingStarted', 'fresh', g('fresh')),
+    variant('gettingStarted', 'returning', g('returning')),
+    variant('gettingStarted', 'agent-missing', g('agent-missing')),
     variant('gettingStarted', 'long-content', g('hostile')),
     variant('gettingStarted', 'complete', g('complete')),
   ];

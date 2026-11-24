@@ -16,12 +16,8 @@
         margin-inline: auto;
         line-height: var(--k-leading-normal);
       }
-      /* Splash header: the approved mark beside the title — brand presence on
-         the fresh-install surface, layout composed from tokens (UI-R04/R05). */
-      .gs-head{display:flex;align-items:center;gap:var(--k-space-4);margin-bottom:var(--k-space-2)}
-      .gs-head h1{margin:0}
-      h1 { font-size: var(--k-text-xl); margin: 0 0 var(--k-space-2); }
-      p.lede { margin: 0 0 var(--k-space-8); color: var(--k-text-dim); }
+      /* The shared page header (.k-pagehead) carries the approved mark, the title and the lede. */
+      .k-pagehead { margin-bottom: var(--k-space-8); }
       section { margin-bottom: var(--k-space-9); }
       h2 {
         font-size: var(--k-text-lg);
@@ -29,7 +25,19 @@
         letter-spacing: 0.04em;
         color: var(--k-text-dim);
       }
-      ul { list-style: none; padding: 0; margin: 0; }
+      ul, ol { list-style: none; padding: 0; margin: 0; }
+      .section-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--k-space-4); }
+      .progress-text { font-size: var(--k-text-sm); color: var(--k-text-dim); }
+      .gs-notice { margin: 0 0 var(--k-space-4); color: var(--k-danger); overflow-wrap: anywhere; }
+      .gs-pending { color: var(--k-text-dim); }
+      .gs-mark { display: inline-flex; flex: none; }
+      .gs-mark--done { color: var(--k-passed); }
+      .gs-mark--todo { color: var(--k-text-dim); }
+      .gs-mark--missing { color: var(--k-warning); }
+      .item-actions { display: flex; flex-wrap: wrap; gap: var(--k-space-3); margin: var(--k-space-3) 0 0 var(--k-space-9); }
+      .item-actions .item-action { margin-top: 0; }
+      .gs-label, .gs-step-label { min-width: 0; overflow-wrap: anywhere; }
+      .item-label:focus-visible { outline: var(--k-border-w) solid var(--k-focus); outline-offset: var(--k-space-1); }
       li { padding: var(--k-space-5) 0; border-bottom: var(--k-border-w) solid var(--k-border); }
       .item-head { display: flex; align-items: center; gap: var(--k-space-4); }
       .detail {
@@ -40,8 +48,8 @@
       }
       .item-action, .step-action { margin-top: var(--k-space-3); }
       .steps { counter-reset: step; }
-      .steps li { display: flex; gap: var(--k-space-6); align-items: baseline; }
-      .steps li::before {
+      .steps > li { display: flex; gap: var(--k-space-6); align-items: baseline; }
+      .steps > li::before {
         counter-increment: step;
         content: counter(step);
         font-weight: var(--k-weight-semibold);
@@ -52,7 +60,8 @@
       .item-label, .step-body { min-width: 0; overflow-wrap: anywhere; }
       .item-label { flex: 1 1 auto; }
       .detail { overflow-wrap: anywhere; }
-      .step-body { flex: 1; }
+      .step-body { flex: 1; min-width: 0; }
+      .step-label { display: flex; align-items: center; gap: var(--k-space-3); }
       .step-desc { font-size: var(--k-text-sm); color: var(--k-text-dim); }
       .section-desc {
         font-size: var(--k-text-sm);
@@ -86,7 +95,9 @@
     <style>/*KARST_PALETTE*/</style>
   </head>
   <body>
-    <div class="gs-head">
+    <header class="k-pagehead">
+      <div class="k-pagehead-main">
+        <span class="k-pagehead-mark">
       <svg aria-hidden="true" width="28" height="28" viewBox="0 0 215 215">
         <defs>
           <linearGradient id="gsLeft" x1="0.22" y1="0.12" x2="0.78" y2="0.92">
@@ -103,13 +114,24 @@
         <path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z" fill="url(#gsRight)"/>
         <circle cx="106.5" cy="111.5" r="26.5" fill="url(#gsCore)"/>
       </svg>
-      <h1>Getting Started</h1>
-    </div>
-    <p class="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
+        </span>
+        <div>
+          <h1 class="k-pagehead-title">Getting Started</h1>
+          <p class="k-pagehead-sub" id="lede">Orchestrate AI-agent ticket workflows across your repos. Finish setup below.</p>
+        </div>
+      </div>
+    </header>
 
     <section>
-      <h2>Setup checklist</h2>
-      <ul id="checklist"></ul>
+      <div class="section-head">
+        <h2>Setup checklist</h2>
+        <span class="progress-text" id="progress"></span>
+      </div>
+      <p class="gs-notice" id="state-error" role="alert" hidden></p>
+      <div class="k-empty" id="checklist-empty" hidden>
+        <div class="k-empty-title">Karst found nothing to check.</div>
+      </div>
+      <ul id="checklist" aria-busy="false"><li class="gs-pending">Checking your setup…</li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck"
           title="Re-run the setup checklist against disk and PATH">Re-check</button>
@@ -126,23 +148,25 @@
 
     <section>
       <h2>How Karst works</h2>
-      <ul class="steps" id="tutorial"></ul>
+      <ol class="steps" id="tutorial"></ol>
     </section>
 
     <section>
       <h2>Report an issue</h2>
       <p class="section-desc">
-        Click this when Karst itself behaves unexpectedly — a ticket stuck at a stage, a gate
-        that will not run, a panel that goes blank. Karst collects its own diagnostics
-        (runtime versions, stage and gate state, effective configuration, bounded logs),
-        redacts secrets, paths and credentials, then opens the report for you to read
-        before anything leaves your machine. Approve it and Karst hands the redacted
-        summary to a prefilled GitHub issue in your browser; you still press Submit there.
+        Use this when Karst itself fails, for example a stuck stage or a blank panel.
+        You review the redacted report before it leaves your machine.
       </p>
-      <p class="section-desc">
-        Ticket descriptions and other prompt text are left out unless you opt in during the
-        review step. For work items in your own project, create a ticket instead.
-      </p>
+      <details class="section-desc">
+        <summary>What the report contains</summary>
+        <p class="section-desc">
+          Karst collects its own diagnostics (runtime versions, stage and gate state, effective
+          configuration, bounded logs) and redacts secrets, paths and credentials. Approve the report
+          and Karst hands the redacted summary to a prefilled GitHub issue in your browser. You still
+          press Submit there. Ticket descriptions and other prompt text are left out unless you opt in
+          during the review step. For work items in your own project, create a ticket instead.
+        </p>
+      </details>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="report-issue"
           title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
@@ -150,7 +174,7 @@
     </section>
 
     <footer>
-      <button type="button" class="k-btn k-btn--ghost" id="dismiss">Don't show this again</button>
+      <button type="button" class="k-btn k-btn--ghost" id="dismiss">Do not open at start-up</button>
     </footer>
 
     <script>
@@ -159,21 +183,86 @@
       const vscode = acquireVsCodeApi();
       const post = (type, requestId) => vscode.postMessage(requestId ? { type, requestId } : { type });
 
-      function renderChecklist(items) {
+      const MARKS = {
+        done: { icon: 'circle-check', cls: 'gs-mark--done', label: 'Done' },
+        todo: { icon: 'circle', cls: 'gs-mark--todo', label: 'To do' },
+        missing: { icon: 'alert-triangle', cls: 'gs-mark--missing', label: 'Missing' },
+      };
+
+      function markFor(it) {
+        if (it.done) return MARKS.done;
+        return it.id === 'manifest' ? MARKS.todo : MARKS.missing;
+      }
+
+      function glyph(mark) {
+        const span = document.createElement('span');
+        span.className = 'gs-mark ' + mark.cls;
+        span.setAttribute('role', 'img');
+        span.setAttribute('aria-label', mark.label);
+        span.innerHTML = karstIcon(mark.icon, 16);
+        return span;
+      }
+
+      const MANIFEST_BUTTONS = {
+        'setup-agent': { label: 'Set up with agent', title: 'Start an onboarding setup session', msg: 'setup-agent' },
+        'create-manifest': { label: 'Use a starter file', title: 'Write a starter karst.yml to the workspace root', msg: 'create-manifest' },
+      };
+
+      function manifestButton(id, primary, enabled) {
+        const a = MANIFEST_BUTTONS[id];
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'k-btn item-action ' + (primary ? 'k-btn--primary' : 'k-btn--secondary');
+        b.textContent = a.label;
+        b.title = a.title;
+        if (!enabled) {
+          b.disabled = true;
+          b.title = 'Install the agent CLI first';
+          b.id = 'btn-' + id;
+          b.setAttribute('aria-describedby', 'why-manifest');
+        } else {
+          karstAction(b, (requestId) => post(a.msg, requestId));
+        }
+        return b;
+      }
+
+      function renderManifestActions(li, actions, agentReady) {
+        const box = document.createElement('div');
+        box.className = 'item-actions';
+        const agentOff = (id) => id === 'setup-agent' && !agentReady;
+        const hasOff = agentOff(actions.primary) || agentOff(actions.secondary);
+        box.append(manifestButton(actions.primary, true, !agentOff(actions.primary)));
+        box.append(manifestButton(actions.secondary, false, !agentOff(actions.secondary)));
+        li.append(box);
+        if (hasOff) {
+          const why = document.createElement('p');
+          why.className = 'step-desc';
+          why.id = 'why-manifest';
+          why.textContent = 'Install the agent CLI first. See the setup checklist.';
+          li.append(why);
+        }
+      }
+
+      function renderChecklist(items, manifestActions) {
         const ul = document.getElementById('checklist');
+        const focusedId = document.activeElement && document.activeElement.closest
+          ? (document.activeElement.closest('li[data-id]') || {}).dataset?.id
+          : undefined;
         ul.innerHTML = '';
+        document.getElementById('checklist-empty').hidden = items.length > 0;
+        if (items.length === 0) return;
+        // The host orders the two actions by the agent CLI's readiness (Q5); the page reads it, never recomputes it.
+        const agentReady = !!manifestActions && manifestActions.primary === 'setup-agent';
         for (const it of items) {
           const li = document.createElement('li');
+          li.dataset.id = it.id;
           const head = document.createElement('div');
           head.className = 'item-head';
-          const dot = document.createElement('span');
-          dot.className = 'k-dot ' + (it.done ? 'k-dot--passed' : 'k-dot--failed');
-          dot.setAttribute('role', 'img');
-          dot.setAttribute('aria-label', it.done ? 'Done' : 'Not done');
           const label = document.createElement('span');
-          label.className = 'item-label';
+          label.className = 'item-label gs-label';
+          label.tabIndex = -1;
           label.textContent = it.label;
-          head.append(dot, label);
+          head.append(glyph(markFor(it)), label);
           li.append(head);
           if (it.detail) {
             const d = document.createElement('div');
@@ -181,16 +270,16 @@
             d.textContent = it.detail;
             li.append(d);
           }
-          if (it.id === 'manifest' && !it.done) {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'k-btn k-btn--primary item-action';
-            b.textContent = 'Create karst.yml';
-            b.title = 'Write a starter karst.yml to the workspace root';
-            karstAction(b, (requestId) => post('create-manifest', requestId));
-            li.append(b);
+          if (it.id === 'manifest' && !it.done && manifestActions) {
+            renderManifestActions(li, manifestActions, agentReady);
           }
           ul.append(li);
+        }
+        // The re-render removed the focused element: keep focus on the same row (GS-7).
+        const active = document.activeElement;
+        if (focusedId && (!active || active === document.body)) {
+          const row = ul.querySelector('li[data-id="' + focusedId + '"] .item-label');
+          if (row) row.focus();
         }
       }
 
@@ -274,55 +363,68 @@
       }
 
       function renderTutorial(steps) {
-        const ul = document.getElementById('tutorial');
-        ul.innerHTML = '';
+        const ol = document.getElementById('tutorial');
+        ol.innerHTML = '';
         for (const s of steps) {
           const li = document.createElement('li');
           const body = document.createElement('div');
           body.className = 'step-body';
           const label = document.createElement('div');
-          label.textContent = s.label;
+          label.className = 'step-label';
+          if (s.done) label.append(glyph(MARKS.done));
+          const text = document.createElement('span');
+          text.className = 'gs-step-label';
+          text.textContent = s.label;
+          label.append(text);
           const desc = document.createElement('div');
           desc.className = 'step-desc';
           desc.textContent = s.description;
           body.append(label, desc);
           const ACTIONS = {
-            settings: { label: 'Open Settings', title: 'Open the Karst settings panel', msg: 'open-settings' },
-            'create-ticket': { label: 'Create Ticket', title: 'Open the create-ticket panel', msg: 'create-ticket' },
-            'setup-agent': { label: 'Set up with agent', title: 'Start an onboarding setup session', msg: 'setup-agent' },
+            settings: { label: 'Open settings', title: 'Open the Karst settings panel', msg: 'open-settings' },
+            'create-ticket': { label: 'Create ticket', title: 'Open the create-ticket panel', msg: 'create-ticket' },
           };
           if (s.action && ACTIONS[s.action]) {
             const a = ACTIONS[s.action];
             const b = document.createElement('button');
             b.type = 'button';
-            b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
+            b.className = 'k-btn k-btn--sm step-action ' + (s.done ? 'k-btn--ghost' : 'k-btn--secondary');
             b.textContent = a.label;
             b.title = a.title;
-            if (s.enabled === false) {
-              b.disabled = true;
-              b.title = 'Install the agent CLI first — see the checklist above';
-            } else {
-              karstAction(b, (requestId) => post(a.msg, requestId));
-            }
+            karstAction(b, (requestId) => post(a.msg, requestId));
             body.append(b);
           }
           li.append(body);
-          ul.append(li);
+          ol.append(li);
         }
+      }
+
+      let recheckId = null;
+      function setBusy(on) {
+        document.getElementById('checklist').setAttribute('aria-busy', on ? 'true' : 'false');
       }
 
       window.addEventListener('message', (event) => {
         const msg = event.data;
         if (msg.type === 'state') {
-          renderChecklist(msg.state.checklist);
+          document.getElementById('state-error').hidden = true;
+          document.getElementById('progress').textContent = msg.state.progressText;
+          document.getElementById('lede').textContent = msg.state.lede;
+          renderChecklist(msg.state.checklist, msg.state.manifestActions);
           renderAgentSetup(msg.state.agentSetup);
           renderTutorial(msg.state.tutorial);
+        } else if (msg.type === 'state-error') {
+          const n = document.getElementById('state-error');
+          n.textContent = 'Could not check your setup: ' + msg.message + '. Select Re-check to try again.';
+          n.hidden = false;
+          document.getElementById('checklist').querySelectorAll('.gs-pending').forEach((el) => el.remove());
         } else if (msg.type === 'action-result') {
+          if (msg.requestId === recheckId) { recheckId = null; setBusy(false); }
           karstSettle(msg.requestId, msg.ok, msg.message);
         }
       });
 
-      karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId), { tier: 'view' });
+      karstAction(document.getElementById('recheck'), (requestId) => { recheckId = requestId; setBusy(true); post('recheck-deps', requestId); }, { tier: 'view' });
       karstAction(document.getElementById('report-issue'), (requestId) => post('report-issue', requestId));
       karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId), { tier: 'view' });
       post('request-state');

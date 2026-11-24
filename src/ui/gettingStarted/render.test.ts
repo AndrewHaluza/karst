@@ -50,18 +50,19 @@ describe('gettingStarted render', () => {
         }
       });
 
-      it('carries the correct done/not-done visual state on each row (was: marks done items with k-dot--passed)', () => {
+      it('carries the correct done/not-done visual state on each row (done, to do and missing differ by shape)', () => {
         const h = renderWebview('gettingStarted', { nonce: FIXTURE_NONCE });
         try {
           h.receive({ type: 'state', state: fixture.state });
           const items = h.queryAll('#checklist > li');
           for (let i = 0; i < items.length; i++) {
-            const dot = items[i]!.querySelector('.k-dot');
-            expect(dot, `checklist item ${i}`).not.toBeNull();
-            const expected = fixture.state.checklist[i]!.done
-              ? 'k-dot--passed'
-              : 'k-dot--failed';
-            expect(dot!.classList.contains(expected), `checklist item ${i}`).toBe(true);
+            const item = fixture.state.checklist[i]!;
+            const mark = items[i]!.querySelector('.gs-mark');
+            expect(mark, `checklist item ${i}`).not.toBeNull();
+            expect(mark!.getAttribute('role')).toBe('img');
+            expect(mark!.querySelectorAll('svg')).toHaveLength(1);
+            const expected = item.done ? 'Done' : item.id === 'manifest' ? 'To do' : 'Missing';
+            expect(mark!.getAttribute('aria-label'), `checklist item ${i}`).toBe(expected);
           }
         } finally {
           h.close();

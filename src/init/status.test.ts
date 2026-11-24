@@ -51,6 +51,21 @@ describe('buildSetupStatus', () => {
     expect(items.find((i) => i.id === 'manifest')!.done).toBe(false);
   });
 
+  // GS-16: a done row must not read as the task that is already finished.
+  it('labels the manifest row by what is true, not as a task', () => {
+    const present = buildSetupStatus({ manifestExists: true, provider: 'claude', probe: () => true, ready: () => true });
+    expect(present.find((i) => i.id === 'manifest')!.label).toBe('The karst.yml manifest exists');
+    const missing = buildSetupStatus({ manifestExists: false, provider: 'claude', probe: () => true, ready: () => true });
+    expect(missing.find((i) => i.id === 'manifest')!.label).toBe('Create your karst.yml manifest');
+  });
+
+  // GS-10: a row label starts with a capital, except a product name spelled lower case.
+  it('capitalises a leading "the" but keeps npm lower case', () => {
+    const items = buildSetupStatus({ manifestExists: true, provider: 'claude', probe: () => true, ready: () => true });
+    expect(items.find((i) => i.id === 'gh')!.label).toBe('The GitHub CLI is installed');
+    expect(items.find((i) => i.id === 'npm')!.label).toBe('npm is installed');
+  });
+
   it('marks git undone when git is absent', () => {
     const items = buildSetupStatus({
       manifestExists: true,

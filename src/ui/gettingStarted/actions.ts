@@ -11,17 +11,27 @@ export interface GettingStartedActionsCtx {
   /**
    * Rebuild + push fresh state (the panel binds this to a fresh loadState).
    * Only a user re-check passes `recheck: true`; any other push reads the probe cache.
+   * Returns the load promise, so an action that pushed state reports its result
+   * only after that state has been posted (GS-3).
    */
-  pushState(options?: { recheck?: boolean }): void;
+  pushState(options?: { recheck?: boolean }): Promise<void>;
+  /** Close the page (the panel binds this to its own panel disposal). */
+  close(): void;
 }
 
 export type GettingStartedActionsFactory = (ctx: GettingStartedActionsCtx) => GettingStartedActions;
+
+/** What "Do not open at start-up" tells the user, and how to bring the page back. */
+export const GETTING_STARTED_DISMISS_MESSAGE =
+  "Getting Started will not open at start-up. Run 'Karst: Getting Started' to open it.";
 
 export interface GettingStartedActionsDeps {
   /** Create karst.yml from the bundled template and open it (real: scaffoldManifest). */
   scaffoldManifest: () => Promise<void>;
   /** Persist the per-workspace dismiss flag (real: workspaceState.update). */
   setDismissed: () => void;
+  /** Tell the user something they cannot see on the page (real: toast.info). */
+  notify: (message: string) => void;
   /** Run a registered command (real: vscode.commands.executeCommand). */
   runCommand: (command: string) => void;
 }
@@ -33,10 +43,12 @@ export function buildGettingStartedActions(deps: GettingStartedActionsDeps): Get
       // seam (panel.ts), which reports it as the terminal `action-result`
       // (UI-R13) instead of the old bespoke `{type:'error'}` push.
       await deps.scaffoldManifest();
-      ctx.pushState(); // manifest item flips to done without closing the panel
+      // The manifest item flips to done without closing the panel. Awaiting the
+      // push keeps that state ahead of this action's own result (GS-3).
+      await ctx.pushState();
     },
-    recheckDeps(): void {
-      ctx.pushState({ recheck: true });
+    recheckDeps(): Promise<void> {
+      return ctx.pushState({ recheck: true });
     },
     openSettings(): void {
       deps.runCommand('karst.openSettings');
@@ -58,10 +70,14 @@ export function buildGettingStartedActions(deps: GettingStartedActionsDeps): Get
       deps.runCommand('karst.reportIssue');
     },
     dismiss(): void {
+      // The flag is stored first: if the word to the user or the close failed,
+      // the choice they just made would be the part lost.
       deps.setDismissed();
+      deps.notify(GETTING_STARTED_DISMISS_MESSAGE);
+      ctx.close();
     },
     requestState(): void {
-      ctx.pushState();
+      void ctx.pushState();
     },
   });
 }
