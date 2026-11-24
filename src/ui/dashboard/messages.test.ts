@@ -90,6 +90,7 @@ function actions(): DashboardActions {
     openArtifactResource: vi.fn(),
     baselineApprove: vi.fn(),
     baselineApproveAll: vi.fn(),
+    baselineSendRejections: vi.fn(),
     openStoredRevision: vi.fn(),
     diffStoredRevisions: vi.fn(),
     openStoredLive: vi.fn(),
@@ -1082,6 +1083,15 @@ describe('inside-action', () => {
     routeAction({ type: 'baseline-approve-all', blockId: '/etc/passwd' }, a);
     routeAction({ type: 'baseline-approve-all' }, a);
     expect(a.baselineApproveAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes baseline-send-rejections with the block id only, and drops a wrong block', () => {
+    const a = actions();
+    routeAction({ type: 'baseline-send-rejections', blockId: 'baseline-review' }, a);
+    expect(a.baselineSendRejections).toHaveBeenCalledWith('baseline-review');
+    routeAction({ type: 'baseline-send-rejections', blockId: '/etc/passwd' }, a);
+    routeAction({ type: 'baseline-send-rejections' }, a);
+    expect(a.baselineSendRejections).toHaveBeenCalledTimes(1);
   });
 
   it('rejects crafted baseline messages: paths, wrong block, junk indices, bad reasons', () => {

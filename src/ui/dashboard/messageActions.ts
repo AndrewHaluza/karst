@@ -217,6 +217,8 @@ export interface DashboardActions {
   baselineApprove: (blockId: string, indices: number[]) => void | Promise<void>;
   /** Approve every pending changed baseline; the host decides which entries are pending. */
   baselineApproveAll: (blockId: string) => void | Promise<void>;
+  /** Send every rejected changed baseline to fix in one round; the host decides which entries are rejected. */
+  baselineSendRejections: (blockId: string) => void | Promise<void>;
   testerSkippedRerun: () => void | Promise<void>;
   testerSkippedAccept: () => void | Promise<void>;
   fixParkedRetry: () => void | Promise<void>;

@@ -314,6 +314,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     }
     case 'baseline-approve-all':
       return m.blockId === BASELINE_BLOCK_ID ? { type: 'baseline-approve-all', blockId: BASELINE_BLOCK_ID } : null;
+    case 'baseline-send-rejections':
+      return m.blockId === BASELINE_BLOCK_ID ? { type: 'baseline-send-rejections', blockId: BASELINE_BLOCK_ID } : null;
     case 'tester-skipped-rerun':
       return { type: 'tester-skipped-rerun' };
     case 'tester-skipped-accept':

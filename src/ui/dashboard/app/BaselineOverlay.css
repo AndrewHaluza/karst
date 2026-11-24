@@ -70,6 +70,9 @@ body.baseline-nav .stepper,body.baseline-nav .grid{display:none}
 .blpos{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
 .blactions{display:flex;gap:var(--k-space-3);flex-wrap:wrap;margin-left:auto}
 .blact .k-btn{display:inline-flex;align-items:center;gap:var(--k-space-2)}
+/* T1340: with rejected entries the drill header also carries Approve-and-send and Send. At the narrow tiers the actions
+   wrap under the trail instead of overlapping it (@ui:UI-R43, @ui:RD-TIERS). */
+.blview .drillhead{flex-wrap:wrap}
 .blreject{padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border);background:var(--k-surface)}
 .blreject textarea{width:100%;box-sizing:border-box}
 

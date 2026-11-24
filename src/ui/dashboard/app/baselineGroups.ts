@@ -9,6 +9,9 @@ export const STATUS_WORD: Readonly<Record<string, string>> = { added: 'new file'
 export const DECISION_GLYPH: Readonly<Record<string, 'wait' | 'pass' | 'fail'>> = { pending: 'wait', approved: 'pass', rejected: 'fail' };
 export const DECISION_WORD: Readonly<Record<string, string>> = { pending: 'Needs review', approved: 'Approved', rejected: 'Rejected' };
 
+/** The one baseline-review block id; the banner and the action bar both name it in every decision message. */
+export const BASELINE_BLOCK_ID = 'baseline-review';
+
 /** The visual-test theme folders: a label under one of them groups by the rest of its path. */
 export const THEME_FOLDERS: readonly string[] = ['dark', 'dark-grayscale', 'dark-reduced-motion', 'light', 'hc'];
 
@@ -102,6 +105,12 @@ export function effectiveFilter(chosen: Filter | null, counts: Counts): Filter {
   const f = chosen ?? defaultFilter(counts);
   return f === 'pending' && counts.pending === 0 ? 'all' : f;
 }
+
+/** `Send 1 rejection to fix` / `Send 2 rejections to fix`: the click sends every rejected entry in one round. */
+export const sendRejectionsLabel = (count: number): string => `Send ${count} ${count === 1 ? 'rejection' : 'rejections'} to fix`;
+
+/** `Approve <p> and send <r> to fix`: with rejections waiting, Approve all also sends them to fix, and says so. */
+export const approveSendLabel = (pending: number, rejected: number): string => `Approve ${pending} and send ${rejected} to fix`;
 
 /** The selected entry when it is in the visible list, else the first visible one. */
 export const pickSelected = (visible: readonly Row[], selected: number | null): Row | null => visible.find((r) => r.index === selected) ?? visible[0] ?? null;

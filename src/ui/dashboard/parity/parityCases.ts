@@ -145,6 +145,12 @@ const groupState = (): DashboardState =>
   }) as DashboardState;
 const baselineState = (): DashboardState =>
   ({ ...blockedState('baseline-review', false), baselineReview: baselineRows() }) as DashboardState;
+/** One entry rejected, one still pending: the banner shows Send, and Approve all says it sends the rejection too. */
+const rejectedBaselineState = (): DashboardState =>
+  ({
+    ...blockedState('baseline-review', false),
+    baselineReview: baselineRows().map((r, i) => (i === 0 ? { ...r, decision: 'rejected', reason: 'clipped' } : r)),
+  }) as DashboardState;
 
 const storedState = (): DashboardState =>
   st('impl', {
@@ -683,6 +689,11 @@ export const COVERED: readonly ParityCase[] = [
   {
     act: 'baseline-approve-all', variant: 'approve all in the banner', state: baselineState, sel: act('baseline-approve-all'),
     posts: [{ type: 'baseline-approve-all', blockId: 'baseline-review' }], rid: true,
+  },
+  {
+    act: 'baseline-send-rejections', variant: 'one rejected entry in the banner', state: rejectedBaselineState,
+    sel: act('baseline-send-rejections'),
+    posts: [{ type: 'baseline-send-rejections', blockId: 'baseline-review' }], rid: true,
   },
   {
     act: 'baseline-approve', variant: 'one entry', state: baselineState, prep: openBaselines, sel: act('baseline-approve', '[data-role="approve"]'),

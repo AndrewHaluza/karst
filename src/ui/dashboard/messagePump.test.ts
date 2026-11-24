@@ -25,7 +25,7 @@ describe('attachMessagePump — a dropped decision message (UI-R13 exception)', 
     expect(JSON.stringify(logError.mock.calls)).not.toContain('req-1');
   });
 
-  it.each(['baseline-approve-all', 'baseline-reject'])('also answers a dropped %s', (type) => {
+  it.each(['baseline-approve-all', 'baseline-send-rejections', 'baseline-reject'])('also answers a dropped %s', (type) => {
     const { send, postMessage } = setup();
     send({ type, blockId: 'wrong', requestId: 'req-2' });
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'req-2', ok: false }));

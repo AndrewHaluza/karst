@@ -32,6 +32,7 @@ export interface BaselineVariant {
 }
 
 const OPEN = '[data-act="baseline-open"]';
+const ALL = '[data-act="baseline-filter"][data-filter="all"]';
 const REJECT_OPEN = '[data-act="baseline-reject-open"]';
 const REJECT_SEND = '[data-act="baseline-reject"]';
 /** Rows that carry an image; the rest show the missing-image note. */
@@ -68,6 +69,16 @@ export const BASELINE_VARIANTS: readonly BaselineVariant[] = [
   { id: 'overlay-deleted-file', rows: () => [row(0, 'dark/gone.png', { status: 'deleted', newSrc: null })], clicks: [OPEN] },
   { id: 'overlay-json', rows: () => [row(0, 'layout-known-failures.json', { path: 'tests/visual/layout-known-failures.json', oldSrc: null, newSrc: null })], clicks: [OPEN] },
   { id: 'overlay-reject-error', rows: () => many(3), clicks: [OPEN, REJECT_OPEN, REJECT_SEND] },
+  {
+    id: 'overlay-mixed',
+    rows: () => [
+      row(0, 'dark/a.png', { decision: 'rejected', reason: 'button is clipped' }),
+      row(1, 'dark/b.png', { decision: 'approved' }),
+      row(2, 'dark/c.png'),
+      row(3, 'dark/d.png'),
+    ],
+    clicks: [OPEN, ALL],
+  },
   { id: 'overlay-mid', rows: () => many(12), clicks: [OPEN], width: 600 },
   { id: 'overlay-narrow', rows: () => many(12), clicks: [OPEN], width: 380 },
   { id: 'overlay-tight', rows: () => many(12), clicks: [OPEN], width: 340 },

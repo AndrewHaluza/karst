@@ -1,13 +1,14 @@
 /**
  * The review overlay's sticky action bar (@arch:BASELINE-REVIEW): Prev / Next with "i / n", Reject, "Approve <k> themes"
  * when the screenshot has more than one pending theme, and Approve. Reject opens its reason form in this bar, for the
- * selected entry. Every decision message names only the block id and entry indices (`baseline-approve` takes an index
- * list, `baseline-reject` one index and the reason). Approve moves the selection to the next pending entry.
+ * selected entry. A rejection RECORDS the decision only: it does not close the overlay, so the user rejects every wrong
+ * screenshot before `SendRejectionsButton` sends them to fix in one round. Every decision message names only the block
+ * id and entry indices (`baseline-approve` takes an index list, `baseline-reject` one index and the reason,
+ * `baseline-send-rejections` none). Approve and Reject move the selection to the next pending entry.
  */
 import { useCallback, useEffect, useRef, type MouseEvent } from 'react';
-import { BASELINE_BLOCK_ID } from './BaselineBanner.js';
+import { BASELINE_BLOCK_ID, nextOpen, sendRejectionsLabel, stepFrom, type Row } from './baselineGroups.js';
 import type { BaselineDrafts } from './baselineDrafts.js';
-import { nextOpen, stepFrom, type Row } from './baselineGroups.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import { beginPending, usePendingAction } from './usePendingAction.js';
@@ -25,6 +26,17 @@ export function useApprove(model: BaselineModel, drafts: BaselineDrafts) {
       else send.baselineApprove(BASELINE_BLOCK_ID, [...indices], requestId);
     },
     [send, drafts, model.visible, from],
+  );
+}
+
+/** Send every rejected entry to `fix` in one round; the host joins them into one failed verdict. */
+export function SendRejectionsButton({ count }: { readonly count: number }) {
+  const send = useDashboardSend();
+  const onClick = usePendingAction(useCallback((requestId: string) => send.baselineSendRejections(BASELINE_BLOCK_ID, requestId), [send]));
+  return (
+    <button type="button" className="k-btn k-btn--danger k-btn--sm" data-act="baseline-send-rejections" data-block-id={BASELINE_BLOCK_ID} onClick={onClick}>
+      <Icon name="corner-down-right" size={14} /> {sendRejectionsLabel(count)}
+    </button>
   );
 }
 
@@ -106,6 +118,16 @@ export function BaselineActions({ model, row, drafts, approve }: { readonly mode
   const rejectOpen = drafts.rejectOpen === row.index && row.decision !== 'rejected';
   const prev = stepFrom(model.visible, row.index, -1);
   const next = stepFrom(model.visible, row.index, 1);
+  // The host marked the row rejected: its form has served its purpose, and the row leaves the pending filter. Close it
+  // (so a later re-record at the same index cannot reopen a stale form) and move on to the next pending entry, as
+  // Approve does.
+  const open = drafts.rejectOpen;
+  useEffect(() => {
+    if (open === null || !model.rows.some((r) => r.index === open && r.decision === 'rejected')) return;
+    const on = nextOpen(model.rows, open);
+    drafts.closeReject();
+    if (on !== null) drafts.select(on);
+  }, [open, model.rows, drafts]);
   return (
     <div className="blact" data-region="baseline-actions">
       {rejectOpen ? <RejectForm key={row.index} r={row} drafts={drafts} /> : null}
