@@ -1,9 +1,11 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { openStore } from '../store/db.js';
-import { DoctorExit, parseDoctorArgs, runDoctorCommand, type GitHealthProbe, type ListSandboxes, type SandboxProbe } from './doctorCommand.js';
+import { formatDoctorBytes } from '../doctor/formatBytes.js';
+import { STORAGE_WARN_BYTES } from '../doctor/storageCheck.js';
+import { DoctorExit, parseDoctorArgs, runDoctorCommand, type GitHealthProbe, type ListSandboxes, type SandboxProbe, type StorageUsageProbe } from './doctorCommand.js';
 
 function seed() {
   const store = openStore(':memory:');
@@ -172,6 +174,52 @@ describe('karst doctor command', () => {
     const ids = JSON.parse((await run(store, ['--json', '--area', 'state'])).output).checks.map((c: { id: string }) => c.id);
     expect(ids).not.toContain('state.stuck.T-3');
     expect(ids).not.toContain('state.stuck.T-4');
+  });
+
+  it('storage: lists state.storage right after state.wal in the state area', async () => {
+    const ids = JSON.parse((await run(seed(), ['--json', '--area', 'state'])).output).checks.map((c: { id: string }) => c.id);
+    expect(ids).toContain('state.storage');
+    expect(ids.indexOf('state.storage')).toBe(ids.indexOf('state.wal') + 1);
+  });
+
+  async function doctorWithDbPath(dbPath: string, rest: string[], storageUsage?: StorageUsageProbe): Promise<{ checks: { id: string; status: string; detail: string; fix?: { tier: string } }[]; applied: { checkId: string }[] }> {
+    try {
+      await runDoctorCommand(seed(), dbPath, undefined, ['doctor', ...rest], {}, undefined, undefined, undefined, storageUsage);
+    } catch (e) {
+      return JSON.parse((e as DoctorExit).output);
+    }
+    throw new Error('expected DoctorExit');
+  }
+
+  it('storage: measures dirname(dbPath) and names the largest children', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'doctor-storage-cli-'));
+    const dbPath = join(dir, 'karst.db');
+    try {
+      mkdirSync(join(dir, 'artifacts'));
+      writeFileSync(join(dir, 'artifacts', 'a.bin'), 'x'.repeat(2048));
+      writeFileSync(dbPath, 'x'.repeat(1024));
+
+      const report = await doctorWithDbPath(dbPath, ['--json', '--area', 'state']);
+      const storage = report.checks.find((c) => c.id === 'state.storage');
+
+      expect(storage).toMatchObject({ status: 'ok' });
+      expect(storage?.detail).toBe(
+        `Karst storage is ${formatDoctorBytes(3072)} (artifacts ${formatDoctorBytes(2048)}, karst.db ${formatDoctorBytes(1024)})`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('storage: warns through an injected probe for dirname(dbPath) and --fix never applies it', async () => {
+    const probe = vi.fn<StorageUsageProbe>(() => ({ totalBytes: STORAGE_WARN_BYTES, entries: [], partial: false }));
+    const dbPath = join('/tmp', 'karst-store', 'karst.db');
+
+    const report = await doctorWithDbPath(dbPath, ['--fix', '--json', '--area', 'state'], probe);
+
+    expect(probe).toHaveBeenCalledWith(dirname(dbPath));
+    expect(report.checks.find((c) => c.id === 'state.storage')).toMatchObject({ status: 'warn', fix: { tier: 'report' } });
+    expect(report.applied.some((a) => a.checkId === 'state.storage')).toBe(false);
   });
 
   it('tools: inotify watch check is emitted on linux and skipped on non-linux', async () => {
