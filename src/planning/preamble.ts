@@ -232,6 +232,7 @@ export function planningInstructions(input: PreambleInput): string {
       ? [
           `Write plans, pages, screenshots and other session files only in $${PLANNING_ARTIFACTS_ENV} (${input.artifactsDir}), never in a repo, the Claude scratchpad or /tmp;`,
           'a skill that names another plan dir (docs/superpowers/plans, a show-me scratchpad) writes there instead.',
+          `Do not install packages, copy repositories or write build output into $${PLANNING_ARTIFACTS_ENV}; do that in a temporary directory and remove it when you finish.`,
         ]
       : []),
     '',

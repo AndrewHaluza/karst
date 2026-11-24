@@ -101,6 +101,22 @@ describe('planningArtifactsDir', () => {
     );
     expect(planningInstructions({ sessionId: 7, title: 'T', manifest })).not.toContain('KARST_ARTIFACTS');
   });
+
+  it('forbids installs, repo copies and build output in the artifacts dir when it is set', () => {
+    const text = planningInstructions({ sessionId: 7, title: 'T', manifest, artifactsDir: '/s/7/artifacts' });
+    expect(text).toContain(
+      'Write plans, pages, screenshots and other session files only in $KARST_ARTIFACTS (/s/7/artifacts), never in a repo, the Claude scratchpad or /tmp;',
+    );
+    expect(text).toContain(
+      'Do not install packages, copy repositories or write build output into $KARST_ARTIFACTS; do that in a temporary directory and remove it when you finish.',
+    );
+  });
+
+  it('omits the no-install line when the artifacts dir is unknown', () => {
+    const text = planningInstructions({ sessionId: 7, title: 'T', manifest });
+    expect(text).not.toContain('KARST_ARTIFACTS');
+    expect(text).not.toContain('Do not install packages, copy repositories or write build output');
+  });
 });
 
 describe('planningInstructions — project notes index', () => {

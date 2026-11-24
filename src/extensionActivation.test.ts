@@ -81,6 +81,23 @@ describe('extension activation', () => {
     expect(source).toContain('sweepPlanningArchive({ store: localStore, projectId: project.id, manifest: currentManifest()');
   });
 
+  // An archived planning session keeps `Open artifacts`, so its plan files must
+  // stay — but a spike that cloned repos and ran installs leaves GBs behind
+  // (P71 held 5.66 GB). Retention rides the same PR tick directly after the
+  // archive sweep, reuses `archivePlanningAfterDays`, and reports removals in
+  // one info line. Fault-isolated so a bad dir never delays the tick.
+  it('prunes large archived planning scratch folders on the PR sweep, after the archive sweep', () => {
+    const source = readExtensionSources();
+
+    expect(source).toMatch(
+      /sweepPlanningArchive\([\s\S]{0,400}?prunePlanningScratch\(\{[\s\S]{0,600}?planning-scratch[\s\S]{0,400}?archivePlanningAfterDays \?\? DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS/,
+    );
+    expect(source).toContain(
+      'logError(\'karst: planning scratch retention failed\', e);',
+    );
+    expect(source).toContain('large folder(s) from archived planning sessions');
+  });
+
   // The done-ticket sweep only stamps `archived_at`; it never removes the
   // worktree folder, so an auto-archived ticket's dir would sit on disk forever
   // (the archive-compact plan's 'No auto-sweep' gap — the manual
