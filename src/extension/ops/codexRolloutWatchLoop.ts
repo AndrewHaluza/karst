@@ -28,7 +28,7 @@ export interface CodexTerminalNamed {
 
 /** Per-session memory: the located rollout and the fingerprint of the last successful read. */
 interface RolloutState {
-  path: string;
+  path: string | null;
   fingerprint: { mtimeMs: number; size: number } | null;
 }
 
@@ -54,11 +54,21 @@ export interface CodexRolloutWatchLoop {
 }
 
 /**
+ * One directory's entries, greatest name first. A rollout's name embeds the
+ * session start time and a day directory is `YYYY`/`MM`/`DD`, so the greatest
+ * name is the newest: the sweep visits the newest day first and, within one
+ * day, offers the newest rollout.
+ */
+export function newestFirst<T extends { readonly name: string }>(entries: readonly T[]): T[] {
+  return [...entries].sort((a, b) => b.name.localeCompare(a.name));
+}
+
+/**
  * Find `rollout-<time>-<sessionId>.jsonl` under `<home>/sessions/YYYY/MM/DD`.
- * Day directories are walked newest first (`YYYY` > `MM` > `DD` reverse-lex),
- * so the newest file wins; a miss is normal (the session has not written a
- * rollout yet). The entry is returned by name only — symlinks and squatting
- * directories are refused by the read, which resolves and opens it safely.
+ * Day directories are walked newest first ({@link newestFirst}), so the newest
+ * file wins; a miss is normal (the session has not written a rollout yet). The
+ * entry is returned by name only — symlinks and squatting directories are
+ * refused by the read, which resolves and opens it safely.
  */
 async function findRolloutFile(base: string, sessionId: string, depth = 3): Promise<string | null> {
   let entries;
@@ -67,8 +77,7 @@ async function findRolloutFile(base: string, sessionId: string, depth = 3): Prom
   } catch {
     return null;
   }
-  const sorted = [...entries].sort((a, b) => b.name.localeCompare(a.name));
-  for (const entry of sorted) {
+  for (const entry of newestFirst(entries)) {
     const full = join(base, entry.name);
     if (entry.name.startsWith('rollout-') && entry.name.endsWith(`-${sessionId}.jsonl`)) return full;
     if (entry.isDirectory() && depth > 0) {
@@ -143,30 +152,31 @@ export function createCodexRolloutWatchLoop(deps: CodexRolloutWatchLoopDeps): Co
     try {
       realRoot = await realpath(sessionsRoot);
     } catch (error) {
-      deps.debug(`[codex] ticket ${ticketId}: no session root ${sessionsRoot} (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
+      deps.debug(`[codex] ticket ${ticketId}: no session root ${sessionsRoot} (${(error as NodeJS.ErrnoException).code})`);
       return;
     }
-    const state = states.get(sessionId) ?? { path: '', fingerprint: null };
-    if (state.path === '') {
+    const state = states.get(sessionId) ?? { path: null, fingerprint: null };
+    let rolloutPath = state.path;
+    if (rolloutPath === null) {
       const found = await findRolloutFile(sessionsRoot, sessionId);
       if (found === null) {
         deps.debug(`[codex] ticket ${ticketId}: no rollout yet for ${sessionId}`);
         return;
       }
+      rolloutPath = found;
       state.path = found;
       states.set(sessionId, state);
     }
     let fingerprint: { mtimeMs: number; size: number };
-    const rolloutPath = state.path;
     try {
       const st = await stat(rolloutPath);
       fingerprint = { mtimeMs: st.mtimeMs, size: st.size };
     } catch (error) {
       // The cached file vanished (a new day directory, or an archived session):
       // forget it and look again next sweep.
-      state.path = '';
+      state.path = null;
       state.fingerprint = null;
-      deps.debug(`[codex] ticket ${ticketId}: rollout missing: ${rolloutPath} (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
+      deps.debug(`[codex] ticket ${ticketId}: rollout missing: ${rolloutPath} (${(error as NodeJS.ErrnoException).code})`);
       return;
     }
     if (
