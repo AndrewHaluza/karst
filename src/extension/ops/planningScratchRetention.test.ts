@@ -13,7 +13,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
-import { createPlanningSession, setPlanningSessionStatus } from '../../store/planningSessions.js';
+import {
+  createPlanningSession,
+  deletePlanningSession,
+  setPlanningSessionStatus,
+} from '../../store/planningSessions.js';
 import {
   PLANNING_ARCHIVED_DIR_MAX_BYTES,
   prunePlanningScratch,
@@ -168,7 +172,17 @@ describe('prunePlanningScratch', () => {
       sparse(join(artifacts(id), 'spike', 'f.bin'), 60 * MB);
     }
 
-    expect(await run()).toEqual([]);
+    // Skipped before any walk or liveness probe, not only at the pre-delete check.
+    const checked: number[] = [];
+    expect(
+      await run({
+        isLive: (sessionId) => {
+          checked.push(sessionId);
+          return false;
+        },
+      }),
+    ).toEqual([]);
+    expect(checked).toEqual([]);
     expect(existsSync(join(artifacts(active), 'spike', 'f.bin'))).toBe(true);
     expect(existsSync(join(artifacts(filed), 'spike', 'f.bin'))).toBe(true);
   });
@@ -180,6 +194,63 @@ describe('prunePlanningScratch', () => {
 
     expect(await run({ isLive: (s) => s === id })).toEqual([]);
     expect(existsSync(join(artifacts(id), 'spike', 'f.bin'))).toBe(true);
+  });
+
+  it('re-checks liveness after the async walk before deleting', async () => {
+    const id = session();
+    const dir = artifacts(id);
+    mkdirSync(join(dir, 'spike'), { recursive: true });
+    sparse(join(dir, 'spike', 'f.bin'), 60 * MB);
+
+    let calls = 0;
+    const pruned = await run({
+      isLive: () => {
+        calls += 1;
+        return calls > 1;
+      },
+    });
+
+    expect(pruned).toEqual([]);
+    expect(existsSync(join(dir, 'spike', 'f.bin'))).toBe(true);
+  });
+
+  it('re-checks the archived status after the async walk before deleting', async () => {
+    const id = session();
+    const dir = artifacts(id);
+    mkdirSync(join(dir, 'spike'), { recursive: true });
+    sparse(join(dir, 'spike', 'f.bin'), 60 * MB);
+
+    let calls = 0;
+    const pruned = await run({
+      isLive: () => {
+        calls += 1;
+        if (calls === 1) setPlanningSessionStatus(store, id, 'active');
+        return false;
+      },
+    });
+
+    expect(pruned).toEqual([]);
+    expect(existsSync(join(dir, 'spike', 'f.bin'))).toBe(true);
+  });
+
+  it('skips a session deleted during the async walk without a per-dir error', async () => {
+    const id = session();
+    const dir = artifacts(id);
+    mkdirSync(join(dir, 'spike'), { recursive: true });
+    sparse(join(dir, 'spike', 'f.bin'), 60 * MB);
+
+    let calls = 0;
+    const pruned = await run({
+      isLive: () => {
+        calls += 1;
+        if (calls === 1) deletePlanningSession(store, id);
+        return false;
+      },
+    });
+
+    expect(pruned).toEqual([]);
+    expect(existsSync(join(dir, 'spike', 'f.bin'))).toBe(true);
+    expect(debug.filter((m) => m.includes('failed on session'))).toEqual([]);
   });
 
   it('never touches another project’s archived session', async () => {

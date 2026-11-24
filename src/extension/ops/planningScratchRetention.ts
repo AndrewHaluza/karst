@@ -1,7 +1,7 @@
 import { lstat, readdir, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
-import { listPlanningSessions } from '../../store/planningSessions.js';
+import { getPlanningSession, listPlanningSessions } from '../../store/planningSessions.js';
 import { planningArtifactsDir } from '../../planning/preamble.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -127,6 +127,12 @@ export async function prunePlanningScratch(
         if (!st.isDirectory()) continue;
         const bytes = await dirBytes(entryPath);
         if (bytes <= PLANNING_ARCHIVED_DIR_MAX_BYTES) continue;
+        // The size walk awaits per entry. Re-read both facts it was gated on:
+        // the session may have been resumed or filed, or a terminal may have
+        // opened on it, while the walk ran.
+        const current = getPlanningSession(input.store, s.id);
+        if (current?.status !== 'archived') continue;
+        if (input.isLive(s.id)) continue;
         await remove(entryPath);
         pruned.push({ sessionId: s.id, dir: name, bytes });
         input.debug(`[planning] scratch retention: removed ${name} from session ${s.id} (${bytes} B)`);
