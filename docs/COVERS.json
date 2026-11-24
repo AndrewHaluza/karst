@@ -509,6 +509,9 @@
   "src/extension/graphPreserveBinding.ts": [
     "arch:GRAPH-PRESERVE"
   ],
+  "src/extension/keepAwakeBinding.ts": [
+    "arch:KEEPAWAKE"
+  ],
   "src/extension/ops/autoDeliverOps.ts": [
     "arch:AP-01"
   ],
@@ -606,6 +609,9 @@
   ],
   "src/extension/ops/hostUserUat.ts#resetHostServices": [
     "arch:AC-58"
+  ],
+  "src/extension/ops/keepAwake.ts": [
+    "arch:KEEPAWAKE"
   ],
   "src/extension/ops/mergeAllOps.ts#mergeAllOp": [
     "arch:GH-09"
