@@ -499,6 +499,9 @@
   "src/doctor/gitHealthCheck.ts#checkGitHealth": [
     "arch:CLI-16"
   ],
+  "src/doctor/storageCheck.ts#checkStorage": [
+    "arch:CLI-16"
+  ],
   "src/extension/artifactCaptureWiring.ts": [
     "arch:APP-00"
   ],
