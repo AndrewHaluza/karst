@@ -17,12 +17,25 @@ describe('PrsPanel — header and empty states', () => {
     expect(refreshBtn().disabled).toBe(false);
   });
 
-  it('says there are none, shows no count, and keeps the refresh live', () => {
+  it('says there are none in one muted line, shows no count, and keeps the refresh live (Q3 UI-R46)', () => {
     mount(stateWith([]));
     expect(text('.phead .count')).toBe('');
-    expect(text('#prs .ehead')).toBe('No pull requests.');
-    expect(text('#prs .esub')).toBe('Ship opens one per repository with changes.');
+    const line = document.querySelector('#prs')!;
+    expect(line.className).toBe('k-empty k-empty--inline');
+    expect(line.textContent).toBe('No pull requests yet.');
+    // One form for all four panels: no body wrapper, no icon, no bold heading.
+    expect(document.querySelector('.pbody')).toBeNull();
+    expect(document.querySelector('.estate, .emark, .ehead, .k-empty-title')).toBeNull();
     expect(refreshBtn().disabled).toBe(false);
+  });
+
+  it('replaces the empty line with the rows in place when the first pull request arrives (UI-R46)', () => {
+    const h = mount(stateWith([]));
+    expect(document.querySelector('#prs')!.className).toBe('k-empty k-empty--inline');
+    h.emit({ type: 'state', state: stateWith([pr()]) });
+    expect(document.querySelector('#prs')!.className).toBe('pbody');
+    expect(document.querySelectorAll('#prs .prrow')).toHaveLength(1);
+    expect(document.querySelector('.k-empty')).toBeNull();
   });
 
   it('drops the count when the summary already says how many need attention (DB-11)', () => {

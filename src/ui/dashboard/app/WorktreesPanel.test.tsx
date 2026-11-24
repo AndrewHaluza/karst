@@ -103,17 +103,32 @@ const one = (name: string): HTMLButtonElement => {
 describe('WorktreesPanel — rendering', () => {
   it('renders an empty body and an untouched header button before the first snapshot', () => {
     mount(null);
+    expect(document.querySelector('#worktrees')!.className).toBe('pbody');
     expect(document.querySelector('#worktrees')!.childElementCount).toBe(0);
     expect(one('show-changes').disabled).toBe(false);
   });
 
-  it('shows the empty state and draws no changes button when the ticket has no worktrees (DB-19, UI-R19)', () => {
+  it('shows one muted line and draws no changes button when the ticket has no worktrees (Q3 UI-R46, DB-19 UI-R19)', () => {
     mount(stateWith([]));
-    expect(document.querySelector('#worktrees .ehead')!.textContent).toBe('No worktrees.');
-    expect(document.querySelector('#worktrees .esub')!.textContent).toBe('Implement creates one per repository in scope.');
+    const line = document.querySelector('#worktrees')!;
+    expect(line.className).toBe('k-empty k-empty--inline');
+    expect(line.textContent).toBe('No worktrees yet.');
+    // One form for all four panels: no body wrapper, no icon, no bold heading.
+    expect(document.querySelector('.pbody')).toBeNull();
+    expect(document.querySelector('.estate, .emark, .ehead, .k-empty-title')).toBeNull();
     // A disabled icon button cannot take the focus, so its title-only reason is unreachable: it is not rendered.
     expect(document.querySelector('#wtChanges')).toBeNull();
     expect(document.querySelector('[data-act="show-changes"]')).toBeNull();
+  });
+
+  it('replaces the empty line with the row and its changes button in place (UI-R46)', () => {
+    const h = mount(stateWith([]));
+    expect(document.querySelector('#worktrees')!.className).toBe('k-empty k-empty--inline');
+    h.emit({ type: 'state', state: stateWith([wt('a')]) });
+    expect(document.querySelector('#worktrees')!.className).toBe('pbody');
+    expect(document.querySelectorAll('#worktrees .wtwrap')).toHaveLength(1);
+    expect(document.querySelector('.k-empty')).toBeNull();
+    expect(one('show-changes')).toBeTruthy();
   });
 
   it('shows a branch every row shares once in the header, with a copy button, and not on the rows', () => {

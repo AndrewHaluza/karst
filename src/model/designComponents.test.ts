@@ -179,6 +179,21 @@ describe('design system components', () => {
     expect(rulesFor('.k-toast-root')).toContain('var(--k-z-toast)');
   });
 
+  it('draws the inline empty line as a flush panel row, not a dashed box (@ui:11.19)', () => {
+    // The dashboard's empty panels show one muted line under their own header (UI-R46): the shared
+    // `.k-empty` box is the wrong shape there, so the modifier strips the box and keeps the dim ink.
+    const inline = CSS.match(/\.k-empty--inline\{[^}]*\}/)?.[0] ?? '';
+    expect(inline, 'no .k-empty--inline rule').not.toBe('');
+    expect(inline).toContain('border:0');
+    expect(inline).toContain('border-radius:0');
+    expect(inline).toContain('padding:var(--k-space-3) var(--k-space-7)');
+    expect(inline).toContain('text-align:left');
+    expect(inline).toContain('font-size:var(--k-text-sm)');
+    expect(inline).toContain('overflow-wrap:anywhere');
+    // The dim ink comes from `.k-empty`, which clears WCAG AA in every theme (UI-R41).
+    expect(rulesFor('.k-empty')).toContain('color:var(--k-text-dim)');
+  });
+
   it('draws the shared page header with a high-contrast boundary and a narrow actions row (@ui:11.22)', () => {
     // One header primitive for the simple panels (Getting Started, Diffs,
     // Usage, Resources, Doctor). The boundary is contrastBorder, not the
