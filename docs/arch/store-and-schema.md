@@ -114,7 +114,7 @@ therefore added to the store module and the schema, never to a repo-wide grep.
 
 The host names a graph terminal tab from two narrow reads: `nodeRunNamingFacts` (`node_id`, `launch_attempt`) and `plannerRunLaunchAttempt`. `approaches/graph/sessionNaming.ts` builds the name and sanitizes the node id.
 
-The host closes a graph terminal tab only after a proven success (`approaches/graph/closeOnSuccess.ts`): a node that `runCompletionPipeline` integrated, or a planner whose plan `acceptSubmittedPlan` or `acceptSubmittedReplan` accepted and whose process the transport proved ended. It finds the accepted planner run through `acceptedBootstrapPlannerRunId` and `acceptedReplanPlannerRunId`. The transport method `disposeOnSuccess` marks the session first, so the close is no launch failure and the `process_runs` row closes `passed` only if it is still `running`. Every failure, block, crash or Stop keeps the tab open. A node that reported `block` or `replan` also has its process tree stopped, and its tab stays open: the host stops it through the transport (`stopNodeProcessOnBlocked`), reconcile stops a live attributable process of a `blocked` row, and a Resume stops it before the row re-arms.
+The host closes a graph terminal tab only after a proven success (`approaches/graph/closeOnSuccess.ts`): a node `runCompletionPipeline` integrated, or a planner whose plan `acceptSubmittedPlan`/`acceptSubmittedReplan` accepted and whose process the transport proved ended (`acceptedBootstrapPlannerRunId`/`acceptedReplanPlannerRunId`). `disposeOnSuccess` marks the session first, so the close is no launch failure. Every failure, block, crash or Stop keeps the tab open; a `block`/`replan` node's process tree is stopped while its tab stays open (`stopNodeProcessOnBlocked`).
 
 The agent identity snapshot is part of the same boundary: `approach_graph_runs.agent_identity` changes only through `setGraphRunAgentIdentity` and is read through `graphRunAgentIdentity`. The bootstrap writes it; a user switch (`approaches/graph/modelChange.ts`) replaces it in one transaction. Every planner, replan, node, retry and autorecovery launch of the run reads it, and a NULL snapshot (a pre-v133 run) resolves live. A switch never stops a running session. The Settings or ticket question calls `switchGraphRunModels`.
 
@@ -142,7 +142,17 @@ Two deliberate, documented exceptions remain:
   tables: they aggregate cost/token/profile facts across `token_usage`,
   `process_runs`, and the run rows, and reporting observes and never reaches
   back (`docs/arch/diagnostics.md`). They read; they never write state.
+
+Continued in `arch:ST-01` (archived-ticket graph sweeps: end open runs, remove terminal node workspaces).
 END_DOC_BLOCK: [@arch:GRAPHRUN]
+
+## [@arch:ST-01] An archived ticket's graph node workspaces are swept, its run evidence stays
+covers: src/approaches/graph/archivedSweep.ts, src/store/graph/graphRuns.ts#graphRunsForArchivedTicketsBefore
+
+Split out of `arch:GRAPHRUN`.
+
+Archive ends an archived ticket's open graph runs and removes their node workspaces (T1342). `graphRunsForArchivedTicketsBefore` finds runs of tickets archived before a cutoff; `archivedSweep.ts` cancels them (`ticket archived`) and cleans terminal ones with `includeStaleNodes` (never a `running` node). The read is state-driven: it returns an open run, or a terminal run that still has a cleanable node with a workspace-ledger row, so the 60-second PR tick never re-scans a cleaned history; a terminal run whose only leftover is a `running` node is left out. Only `workspaces/<node>/` is removed — `<run>/artifacts/` and every other subtree stay as evidence; the server reap runs first (`@arch:ORPHANS`).
+END_DOC_BLOCK: [@arch:ST-01]
 
 ## [@arch:GRAPHDEPS] A graph node workspace gets the dependencies of its ticket worktree, for any language
 covers: src/approaches/graph/workspace/depsPlan.ts, src/approaches/graph/workspace/workspaceDeps.ts

@@ -95,6 +95,88 @@ export function allGraphRunsClosed(db: GraphDb, ticketId: number): boolean {
   return row === undefined;
 }
 
+/** One graph run of an archived ticket — the archive sweep's work item. */
+export interface ArchivedTicketGraphRun {
+  graphRunId: number;
+  ticketId: number;
+  status: string;
+}
+
+/**
+ * The node statuses whose workspace the archive sweep may remove inside a
+ * terminal (`closed`/`cancelled`) run. Mirrors
+ * `cleanableNodeRunIdsForGraphRun(..., { includeStaleNodes: true })`: a
+ * `running` node is never cleanable.
+ */
+const ARCHIVED_CLEANABLE_NODE_STATUSES = [
+  'completed',
+  'cancelled',
+  'stale',
+  'failed-to-launch',
+  'failed',
+  'ready',
+] as const;
+
+/**
+ * Graph runs belonging to a ticket of `projectId` that was archived before
+ * `archivedBeforeIso` AND that still have work for the archive sweep, in run
+ * id order (T1342).
+ *
+ * "Work" is state-driven, so the 60-second PR tick never re-scans every run an
+ * archived ticket ever had: an open run still needs cancelling, and a terminal
+ * (`closed`/`cancelled`) run is returned only while it still has a cleanable
+ * node with a workspace-ledger row. Once its workspaces are removed the run
+ * drops out — the sweep never walks a cleaned history again. A `stale` graph
+ * run is already terminal to Cancel and is never cleanable by the sweep, so it
+ * is excluded. A terminal run whose only leftover node is `running` keeps its
+ * ledger and is likewise left out (that workspace is never removed).
+ *
+ * `julianday(...)` normalizes both timestamp shapes this column can hold — the
+ * SQLite `datetime('now')` written by `archiveTicket` (`YYYY-MM-DD HH:MM:SS`)
+ * and an ISO 8601 string — and fails CLOSED on NULL or malformed values, so a
+ * ticket whose archive stamp cannot be read is never swept.
+ */
+export function graphRunsForArchivedTicketsBefore(
+  db: GraphDb,
+  projectId: number,
+  archivedBeforeIso: string,
+): ArchivedTicketGraphRun[] {
+  const cleanablePlaceholders = ARCHIVED_CLEANABLE_NODE_STATUSES.map(() => '?').join(', ');
+  return db
+    .prepare(
+      // Terminal runs are driven from the (small) workspace ledger, never from
+      // a scan of every node run: a row exists only while a workspace is on
+      // disk, so a cleaned run is not visited again. The open-run arm needs no
+      // workspace at all — cancelling it is the work.
+      `SELECT r.id AS graphRunId, r.ticket_id AS ticketId, r.status AS status
+         FROM approach_graph_workspaces w
+         JOIN approach_node_runs n ON n.id = w.node_run_id
+         JOIN approach_graph_runs r ON r.id = n.graph_run_id
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE t.project_id = ?
+          AND t.archived_at IS NOT NULL
+          AND julianday(t.archived_at) < julianday(?)
+          AND r.status IN ('closed', 'cancelled')
+          AND n.status IN (${cleanablePlaceholders})
+        UNION
+       SELECT r.id AS graphRunId, r.ticket_id AS ticketId, r.status AS status
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE t.project_id = ?
+          AND t.archived_at IS NOT NULL
+          AND julianday(t.archived_at) < julianday(?)
+          AND r.status NOT IN ('closed', 'stale', 'cancelled')
+        ORDER BY graphRunId`,
+    )
+    .all(
+      projectId,
+      archivedBeforeIso,
+      ...ARCHIVED_CLEANABLE_NODE_STATUSES,
+      projectId,
+      archivedBeforeIso,
+    ) as ArchivedTicketGraphRun[];
+}
+
 /** Every graph run id of a ticket, in creation order (evidence deletion). */
 export function graphRunIdsForTicket(db: GraphDb, ticketId: number): number[] {
   const rows = db

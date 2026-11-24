@@ -279,6 +279,7 @@ import { artifactRootDir } from './approaches/graph/artifacts/snapshot.js';
 import { declaredWritesFor } from './approaches/graph/integration/claims.js';
 import { flipOnEndQuiescence } from './approaches/graph/coordinator/completion.js';
 import { resolveGraphDiagnosticIdentity } from './approaches/graph/diagnostics.js';
+import { sweepArchivedTicketGraphRuns } from './approaches/graph/archivedSweep.js';
 import { recoverGraphRun, type RecoveryDeps } from './approaches/graph/coordinator/recovery.js';
 import { makeAutoRecoverySweep } from './extension/ops/graphAutoRecoverySweep.js';
 import { type GraphRecoverySeams } from './extension/ops/graphRecoveryDispatch.js';
@@ -6211,6 +6212,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       } catch (e) {
         logError('karst: inactive worktree auto-archive failed', e);
+      }
+      // Archived tickets: remove their graph node workspaces and end any run
+      // archive left open (workspaces only — the run artifacts stay as evidence).
+      try {
+        const gs = graphCoordinatorStore;
+        if (gs) {
+          const swept = await sweepArchivedTicketGraphRuns({ store: gs, transaction: (fn) => runImmediateTransaction(gs.db, fn), facts: systemAsyncProcessFacts, killTree: systemKillTree, isSessionLive: (id) => sessions.isLive(id), debug: (m) => logger.debug(m) }, project.id);
+          if (swept.removedNodeRunIds.length > 0) logger.info(`karst: removed ${swept.removedNodeRunIds.length} graph node workspace(s) of archived tickets (${(swept.releasedBytes / (1024 * 1024)).toFixed(1)} MB)`);
+        }
+      } catch (e) {
+        logError('karst: archived graph workspace sweep failed', e);
       }
       // The same setting gates the background sweep: a ticket the sweep
       // archives is closed exactly like one archived by a click, so its done
