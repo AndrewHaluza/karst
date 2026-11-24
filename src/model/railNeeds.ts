@@ -211,7 +211,7 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
       // (or nudges) the exact session the blocked banner's Resolve button would.
       // Several conflicted repos have no single target for a track-level
       // button. The dashboard rail draws no control for either kind: the
-      // banner owns one Resolve per repo (Q1, UI-R40); the sidebar peek acts.
+      // banner owns one Resolve for all repos (Q1, UI-R40); the sidebar peek acts.
       case 'conflicted': {
         const detail = `${count(gate.repos)} ${
           gate.repos.length === 1 ? 'no longer merges' : 'no longer merge'

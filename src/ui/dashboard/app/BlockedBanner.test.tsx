@@ -112,18 +112,16 @@ describe('BlockedBanner — a ship conflict (Q1: the banner owns the reason and 
     expect(h.send.stageResume).not.toHaveBeenCalled();
   });
 
-  it('names each repo when several conflict, by its display name', () => {
-    mountRail(wait({ kind: 'merge-blocked', repos: [WEB, API] }));
+  it('offers one Resolve for every conflicted repo and sends one message per repo', () => {
+    const h = mountRail(wait({ kind: 'merge-blocked', repos: [WEB, API] }));
     expect(text('.freason')).toBe(' · 2 repos no longer merge cleanly');
-    expect(all('#blocked [data-act="resolve-conflicts"]').map((b) => [b.textContent, b.dataset.repo])).toEqual([
-      ['Resolve web', WEB],
-      ['Resolve api', API],
+    const buttons = all('#blocked [data-act="resolve-conflicts"]');
+    expect(buttons.map((b) => b.textContent)).toEqual(['Resolve']);
+    fireEvent.click(buttons[0]!);
+    expect(h.send.resolveConflicts.mock.calls).toEqual([
+      [WEB, 'req-1'],
+      [API, undefined],
     ]);
-  });
-
-  it('names a repo the PR panel does not list by its path', () => {
-    mountRail(wait({ kind: 'merge-blocked', repos: [WEB, '/repos/docs'] }));
-    expect(all('#blocked [data-act="resolve-conflicts"]').map((b) => b.textContent)).toEqual(['Resolve web', 'Resolve /repos/docs']);
   });
 
   it('a calm wait (no conflict, CI running, ship running) shows no banner and no action that clears the block', () => {

@@ -267,5 +267,8 @@
 /* The core mark: a named, focusable icon (CoreMark). It is the only part of the identity left at a tight container. */
 #inside .agent-mark{display:inline-flex;align-items:center;flex:none;border-radius:var(--k-radius-sm)}
 #inside .agent-mark:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+/* The island wrapper is an inline span: as a flex item it sat on the text baseline, so the core mark rode above the agent name (T1343). */
+#inside .agent-mark{line-height:0}
+#inside .agenticon-island{display:contents}
 /* UI-R44: the full detail repeats at the top of the open body; only the narrow and tight tiers show it, where row one cuts the detail. */
 #inside .op-body>.op-detail-full{display:none;margin-bottom:var(--p-s2)}

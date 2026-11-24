@@ -18,7 +18,7 @@
  *
  * `awaiting-merge` is a normal wait and renders NOTHING, with two exceptions. An autopilot park (reason starts with
  * `auto-fix`) shows its reason. A merge conflict that parks the ticket on the user (the host's `merge-blocked` ship
- * slot, the same verdict the header chip mirrors) shows "Merge is blocked" and one Resolve per conflicted repo: the
+ * slot, the same verdict the header chip mirrors) shows "Merge is blocked" and one Resolve for all conflicted repos: the
  * banner is the ONLY owner of that reason and action (Q1, UI-R40); the rail, the chip and the PR panel only mirror
  * the state. Resume is never offered for this kind: it refuses `awaiting-merge` (@arch:BLOCKED).
  *
@@ -253,24 +253,26 @@ function ResourceKilledActions({ ticketId, stageKey }: ActionProps) {
   );
 }
 
-/** One conflicted repo's Resolve: hands the conflict to an agent session, settled by the host's `action-result`. */
-function ResolveButton({ repo, label }: { readonly repo: string; readonly label: string }) {
-  const send = useDashboardSend();
-  const onClick = usePendingAction(useCallback((requestId: string) => send.resolveConflicts(repo, requestId), [send, repo]));
-  return (
-    <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="resolve-conflicts" data-repo={repo} title="Hand this repo's conflict to an agent session" onClick={onClick}>
-      {label}
-    </button>
-  );
-}
-
-/** One repo: "Resolve". Several: "Resolve <repo>", so each button names the repo it acts on. */
+/**
+ * The one Resolve: hands every conflicted repo to an agent session, one message each. The first message carries the
+ * request id, so the host's `action-result` settles the button once; the others follow without one.
+ */
 function ResolveActions({ conflicts }: { readonly conflicts: readonly ConflictRepo[] }) {
+  const send = useDashboardSend();
+  const onClick = usePendingAction(
+    useCallback(
+      (requestId: string) => {
+        conflicts.forEach((c, i) => send.resolveConflicts(c.repo, i === 0 ? requestId : undefined));
+      },
+      [send, conflicts],
+    ),
+  );
+  const title = conflicts.length === 1 ? "Hand this repo's conflict to an agent session" : `Hand the conflicts of ${conflicts.map((c) => c.label).join(', ')} to agent sessions`;
   return (
     <div className="facts" data-role="merge-blocked">
-      {conflicts.map((c) => (
-        <ResolveButton key={c.repo} repo={c.repo} label={conflicts.length === 1 ? 'Resolve' : `Resolve ${c.label}`} />
-      ))}
+      <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="resolve-conflicts" data-repo={conflicts.length === 1 ? conflicts[0]?.repo : undefined} title={title} onClick={onClick}>
+        Resolve
+      </button>
     </div>
   );
 }

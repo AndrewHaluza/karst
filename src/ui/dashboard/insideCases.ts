@@ -722,7 +722,7 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     stage: 'ship',
     id: 'merge-blocked',
     // T1343 Q1: a merge conflict parks the ticket on the user. The blocked banner owns "Merge is blocked" and one
-    // Resolve per repo; the rail segment keeps only its glyph and short label, the header chip reads "Merge blocked"
+    // one Resolve for all repos; the rail segment keeps only its glyph and short label, the header chip reads "Merge blocked"
     // and the PR rows carry no Resolve (UI-R40). Two repos, so the buttons name each repo and must wrap (UI-R44).
     state: fromFacts('ship', { cells: { ship: { status: 'passed' } } }, (s) => {
       const [first] = s.prs;
