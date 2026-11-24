@@ -7,7 +7,7 @@ import { roundById } from '../store/recoveryRounds.js';
 import { claimNoChangeRerun, previousContinuedRound, previousNoChangeRound } from '../store/fixNoChangeRounds.js';
 import { listFixRoundHeads, sameHeads } from '../store/fixRoundHeads.js';
 import { noChangeEndReason } from '../model/noChange.js';
-import { claimHostRerun, closeRoundPassed, hostRerunPassedBefore, markHostRerunFailed } from '../store/hostRerunRound.js';
+import { claimHostRerun, closeRoundPassed, hostRerunPassedBefore, inFlightRerunOwnerPid, markHostRerunFailed } from '../store/hostRerunRound.js';
 import { setStage } from '../store/stages.js';
 import { setAgentState, setStageCurrent } from '../store/tickets.js';
 import { nowIso } from '../model/time.js';
@@ -61,6 +61,23 @@ export interface HostRerunDeps {
    */
   onNextRound?: (ticketId: number) => void;
   debug?: (message: string) => void;
+  /** True when a process with this pid runs. Default: a signal-0 probe. Injected by tests. */
+  isAlive?: (pid: number) => boolean;
+}
+
+function pidIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** True when another live window owns this round's claimed re-run: its result is still to come. */
+function rerunRunsInAnotherWindow(store: Store, roundId: number, deps: HostRerunDeps): boolean {
+  const pid = inFlightRerunOwnerPid(store, roundId);
+  return pid !== null && pid !== process.pid && (deps.isAlive ?? pidIsAlive)(pid);
 }
 
 /** The one-sentence way out, named in the marker reply and the park verdict. */
@@ -247,6 +264,8 @@ export async function hostRerunFailedGates(
   const claimed = round.noChangeReason !== null ? claimNoChangeRerun(store, round.id, now()) : claimHostRerun(store, round.id, now());
   if (!claimed) {
     if (!park) return { kind: 'already-used' };
+    // A live owner in another window still runs the gates: that window decides the round.
+    if (rerunRunsInAnotherWindow(store, round.id, deps)) return { kind: 'already-used' };
     // The claim is spent and nothing is in flight: decide from the stored evidence, run no gate.
     const failures = storedFailures(failedRows);
     const decision = continueOrPark(store, round, {

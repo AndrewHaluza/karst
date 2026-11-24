@@ -168,6 +168,15 @@ describe('host re-run of failed gates for a refused no-commit fix marker', () =>
     expect(describeHostRerun(out)?.message).toContain('opens now');
   });
 
+  it('a spent claim whose live owner is another window opens no round; a dead owner does', async () => {
+    store.db.prepare("UPDATE recovery_rounds SET status = 'fixing', host_rerun_at = ?, host_rerun_pid = ? WHERE id = ?").run(AT, process.pid + 1, roundId);
+    const live = await hostRerunFailedGates(store, ticketId, { ...deps(() => ok), isAlive: () => true });
+    expect(live).toEqual({ kind: 'already-used' });
+    expect(listRecoveryRounds(store, ticketId)).toHaveLength(1);
+    const dead = await hostRerunFailedGates(store, ticketId, { ...deps(() => ok), isAlive: () => false });
+    expect(dead.kind).toBe('next-round');
+  });
+
   it('a duplicate call while its re-run is in flight writes nothing and opens no round', async () => {
     store.db.prepare("UPDATE recovery_rounds SET status = 'fixing' WHERE id = ?").run(roundId);
     let release!: (results: GateRerunResult[]) => void;

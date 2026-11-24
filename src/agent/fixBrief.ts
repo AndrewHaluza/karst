@@ -7,6 +7,7 @@ import { lastFailedGate } from '../workflow/fixAttempts.js';
 import { isCoverageRecord } from '../model/coverageRecord.js';
 import { NON_GATE_RUNS } from '../model/artifacts.js';
 import { signatureOfSummary } from '../workflow/gates/environmentSignature.js';
+import { FIX_SAME_HEAD_LIMIT } from '../workflow/fixContinue.js';
 import { fenceNoChangeReason } from '../workflow/noChangeClaimText.js';
 import { PROCESS_KILL_RULE } from './promptText.js';
 
@@ -138,7 +139,7 @@ export const FIX_NO_CHANGE_RULE =
   'If no code change is correct (the failure output shows no fault in the ticket code, or a finding or observation is not a defect), never make an empty commit. ' +
   'Call the done marker with a no-change reason that gives your evidence: add `noChange: "<evidence>"` to the MCP `stage` call, or add `--no-change "<evidence>"` to the marker command. ' +
   'The host then re-runs the failed gates, or runs review or the tester again with your reason. ' +
-  'If a failed gate still fails, the host opens the next fix round; the round parks for the user only when the rounds are spent or 5 rounds in a row change nothing. ' +
+  `If a failed gate still fails, the host opens the next fix round; the round parks for the user only when the rounds are spent or ${FIX_SAME_HEAD_LIMIT} rounds in a row change nothing. ` +
   'For a review or tester round, a second no-change on the same head parks.';
 
 /** Leads a failed gate row with no environment signature: the ticket needs a change. */

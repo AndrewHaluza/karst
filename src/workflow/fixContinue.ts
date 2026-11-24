@@ -78,7 +78,7 @@ export function continueOrPark(
   if (next === null) {
     // The committed budget refused the new round after all: park rather than leave a spent round
     // under a running fix row.
-    const verdict = `${opts.parkVerdict} — the fix rounds are spent (round ${round.round} of ${round.maxRounds})`;
+    const verdict = `${opts.parkVerdict} — the next fix round did not open (round ${round.round} of ${round.maxRounds}; the round status changed during the re-run or the budget is spent)`;
     parkRound(store, round.ticketId, round.id, verdict, opts.at);
     return { kind: 'parked', verdict };
   }
