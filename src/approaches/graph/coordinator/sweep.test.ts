@@ -146,15 +146,22 @@ function runIdForNode(db: Ctx['db'], revisionId: number, nodeId: string): number
  *  parked in statuses the claim path never writes. */
 function insertNodeRunRow(
   db: Ctx['db'],
-  row: { graphRunId: number; revisionId: number; nodeId: string; status: string; id?: number },
+  row: {
+    graphRunId: number;
+    revisionId: number;
+    nodeId: string;
+    status: string;
+    id?: number;
+    nodeKind?: 'agent' | 'command' | 'gate';
+  },
 ): number {
   const info = db
     .prepare(
       `INSERT INTO approach_node_runs
          (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-       VALUES (?, ?, ?, ?, 'agent', 1, ?)`,
+       VALUES (?, ?, ?, ?, ?, 1, ?)`,
     )
-    .run(row.id ?? null, row.graphRunId, row.revisionId, row.nodeId, row.status);
+    .run(row.id ?? null, row.graphRunId, row.revisionId, row.nodeId, row.nodeKind ?? 'agent', row.status);
   return Number(info.lastInsertRowid);
 }
 
@@ -1189,6 +1196,166 @@ describe('H4 live-holder deferral ceiling (T1333)', () => {
     const row = deferralOf(ctx, 'b')!;
     expect(row.reason).toMatch(/^resource-conflict/);
     expect(row.wait_since).toBe(since);
+  });
+
+  it('a command node executing in place at `ready` is a live holder — 31 min keeps waiting', () => {
+    const ctx = oneNode();
+    const owner = insertNodeRunRow(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      revisionId: ctx.revisionId,
+      nodeId: 'foreign-owner',
+      nodeKind: 'command',
+      status: 'ready',
+    });
+    hold(ctx, owner);
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+
+    tick(ctx, T0);
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('a ready AGENT owner is claimed but never launched — not live, so 31 min times out', () => {
+    const ctx = oneNode();
+    hold(ctx, liveOwnerInRun(ctx, 'ready'));
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+
+    tick(ctx, T0);
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('parallel-slot-busy at 31 min with a command still running at `ready` keeps waiting', () => {
+    const ctx = oneNode();
+    insertNodeRunRow(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      revisionId: ctx.revisionId,
+      nodeId: 'foreign-owner',
+      nodeKind: 'command',
+      status: 'ready',
+    });
+    setActiveProcesses(ctx, 1);
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+
+    tick(ctx, T0, { maxParallelOf: () => 1 }, []);
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('a gate claimed earlier in the tick consumes no process slot — a later agent still claims', () => {
+    const ctx = harness(doc([gate('g'), agent('a')], [
+      { id: 'g-end', from: 'g', on: 'matched', to: 'END' },
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['g', 'a']));
+    // 'g' is token 1, so the tick claims the gate before the agent.
+    entry(ctx, 'g');
+    entry(ctx, 'a');
+
+    const result = tick(ctx, T0, { maxParallelOf: () => 1 }, []);
+
+    expect(result.claimed).toBe(2);
+    expect(runIdForNode(ctx.db, ctx.revisionId, 'a')).toBeDefined();
+    expect(deferralOf(ctx, 'a')).toBeUndefined();
+  });
+
+  it('a claim that races a live lease holder re-reads liveness — 31 min keeps the 4 h ceiling', () => {
+    const ctx = oneNode();
+    const owner = liveOwnerInRun(ctx);
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+    let raced = false;
+
+    tick(ctx, T0, {
+      domainsForActivation: () => {
+        // Land the lease AFTER the tick's lease snapshot: the scheduler admits
+        // the group and the claim's lease backstop throws GraphClaimError.
+        if (!raced) {
+          raced = true;
+          hold(ctx, owner);
+        }
+        return [DOM];
+      },
+    });
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('a claim that races a parked lease holder keeps the 30-minute ceiling', () => {
+    const ctx = oneNode();
+    const owner = parkedOwner(ctx, 'blocked');
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+    let raced = false;
+
+    tick(ctx, T0, {
+      domainsForActivation: () => {
+        if (!raced) {
+          raced = true;
+          hold(ctx, owner);
+        }
+        return [DOM];
+      },
+    });
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('a claim that races the process ceiling with a live node keeps waiting at 31 min', () => {
+    const ctx = oneNode();
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+    let raced = false;
+
+    tick(ctx, T0, {
+      maxParallelOf: () => 1,
+      domainsForActivation: () => {
+        if (!raced) {
+          raced = true;
+          setActiveProcesses(ctx, 1);
+          liveOwnerInRun(ctx);
+        }
+        return [];
+      },
+    });
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('a claim that races the process ceiling with no live node times out at 31 min', () => {
+    const ctx = oneNode();
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+    let raced = false;
+
+    tick(ctx, T0, {
+      maxParallelOf: () => 1,
+      domainsForActivation: () => {
+        if (!raced) {
+          raced = true;
+          setActiveProcesses(ctx, 1);
+        }
+        return [];
+      },
+    });
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
   });
 
   it('a holder that leaves the live set after 30 min times out on the very next tick', () => {

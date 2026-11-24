@@ -200,7 +200,9 @@ export function activationDomainKeys(
 /** A held lease observed by the scheduler: the domain, its access, whether
  *  the owner's process death is unprovable (then it blocks EVERYTHING), the
  *  claimed paths (`[]` = repository-wide), and whether the owner is still live
- *  (the deferral ceiling's input, `@issue:H4`). */
+ *  (the deferral ceiling's input, `@issue:H4`). `ownerLive` comes from the
+ *  store: a live node-run status for any kind, plus a COMMAND owner still
+ *  executing at `ready`. */
 export interface SchedulerLease {
   physicalDomain: string;
   accessMode: AccessMode;
@@ -235,9 +237,11 @@ export interface SchedulerState {
   /** The manifest's `graph.limits.maxParallel` (the external-process ceiling). */
   maxParallel: number;
   /**
-   * How many node runs of THIS graph run are in a live status (T1333). A
-   * `parallel-slot-busy` refusal is only "live" when a process is behind the
-   * occupied slots: the durable count, or a process this very call admitted.
+   * How many node runs of THIS graph run are live right now (T1333): the live
+   * statuses (`launching`, `running`, `completing`, `integrating`) plus a
+   * COMMAND run still executing at `ready`. A `parallel-slot-busy` refusal is
+   * only "live" when a process is behind the occupied slots: this durable
+   * count, or a process this very call admitted.
    */
   liveNodeRuns: number;
 }
@@ -269,8 +273,11 @@ const PROCESS_KINDS: readonly SchedulerGroup['nodeKind'][] = ['agent', 'command'
  *  CONFLICTING lease is inspected (T1333): the refusal's `holderLive` is true
  *  only when each one has a live, unambiguous owner, so a single parked holder
  *  in a multi-lease contention keeps the short deferral ceiling. The `detail`
- *  describes the first conflicting lease, in store order. */
-function heldLeaseConflict(
+ *  describes the first conflicting lease, in store order. Exported for the
+ *  sweep's claim-failure fallback: a claim that throws under an ADMITTED
+ *  decision raced another window, and the deferral it records must classify
+ *  the holder it actually met. */
+export function heldLeaseConflict(
   domains: readonly ActivationDomain[],
   leases: readonly SchedulerLease[],
 ): { detail: string; holderLive: boolean } | null {

@@ -28,14 +28,13 @@ import {
 } from '../../../store/graph/graphRuns.js';
 import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import {
+  countLiveNodeRunsForGraphRun,
   heldLeasesForScheduler,
-  LIVE_NODE_RUN_STATUSES,
   type SchedulerLeaseRow,
 } from '../../../store/graph/leases.js';
 import {
   activeProcessesOf,
   clearDeferral,
-  countNodeRunsInStatusesForGraphRun,
   recordDeferral,
   type BaseHead,
 } from '../../../store/graph/nodeRuns.js';
@@ -44,6 +43,7 @@ import { handleBudgetRefusal } from './visits.js';
 import { joinCorrelationKey } from './lineage.js';
 import {
   agingPriority,
+  heldLeaseConflict,
   schedulerReady,
   type SchedulerDecision,
   type SchedulerGroup,
@@ -73,6 +73,8 @@ export const MAX_SWEEP_TRANSITIONS = 100;
  * that holder, so the run is sitting dead. A refusal behind a LIVE holder uses
  * `MAX_LIVE_HOLDER_WAIT_MS` instead: an agent node that runs 40 minutes is
  * making progress, and parking the run under it is the false block T1317 hit.
+ * A claim that throws after the scheduler admitted it raced another window, so
+ * `holderLiveAfterClaimFailure` re-reads the durable facts before deferring.
  *
  * On expiry the run parks `blocked` with the refusal that would not clear,
  * which is recoverable — the reason maps to the `replan` recovery category,
@@ -83,10 +85,11 @@ export const MAX_DEFERRAL_WAIT_MS = 30 * 60_000;
 
 /**
  * H4, the LONG ceiling: a deferral behind a live holder (T1333). The holder's
- * node run is `launching`, `running`, `completing` or `integrating`, so it is
- * still working and its lease/slot releases when it finishes — waiting is the
- * correct behaviour, and 30 minutes is shorter than a legitimate long agent
- * run (T1317's holder ran ~40 minutes).
+ * node run is `launching`, `running`, `completing` or `integrating` — or a
+ * COMMAND run still executing at `ready`, which is where a command sits until
+ * it finishes — so it is still working and its lease/slot releases when it
+ * finishes. Waiting is the correct behaviour, and 30 minutes is shorter than a
+ * legitimate long agent run (T1317's holder ran ~40 minutes) or a long build.
  *
  * It is still a CEILING, not an exemption: issue H4 requires every deferral to
  * have an upper bound, so a hung agent cannot hold the run for ever. Four
@@ -283,8 +286,8 @@ export function runCoordinatorTick(
     activeProcesses: activeProcessesOf(db, opts.graphRunId),
     // T1333: how many node runs of THIS run are live right now — the
     // `parallel-slot-busy` holder-liveness input. Durable status only, no
-    // process probe.
-    liveNodeRuns: countNodeRunsInStatusesForGraphRun(db, opts.graphRunId, LIVE_NODE_RUN_STATUSES),
+    // process probe; a command still executing at `ready` counts.
+    liveNodeRuns: countLiveNodeRunsForGraphRun(db, opts.graphRunId),
     ceiling: maxParallel ?? Number.MAX_SAFE_INTEGER,
   };
   const waitSinceByNode = new Map(
@@ -365,6 +368,20 @@ export function runCoordinatorTick(
   // scheduling from wherever it noticed — including the inner token loop,
   // whose `break` only leaves that group.
   let blockedByDeferral = false;
+
+  /** T1333: the holder liveness to record when a claim throws AFTER the
+   *  scheduler admitted it. That is a race with another window — a lease or a
+   *  process slot landed between this tick's snapshot and the claim — so the
+   *  durable facts are re-read instead of trusting the snapshot: a fresh
+   *  conflicting lease supplies its holders' liveness, and with no lease
+   *  conflict the refusal was the process ceiling, whose holder is a live node
+   *  run of this run. Without this the fallback recorded a refusal with no
+   *  liveness and false-blocked a healthy run at 30 minutes. */
+  const holderLiveAfterClaimFailure = (domains: readonly ActivationDomain[]): boolean => {
+    const conflict = heldLeaseConflict(domains, heldLeasesForScheduler(db));
+    if (conflict !== null) return conflict.holderLive;
+    return countLiveNodeRunsForGraphRun(db, opts.graphRunId) > 0;
+  };
 
   /** Record the deferral, and answer whether this node's wait has run out
    *  (H4) — the caller then stops scheduling, because the run is blocked. */
@@ -529,6 +546,9 @@ export function runCoordinatorTick(
         }
       } catch (err) {
         if (err instanceof GraphClaimError) {
+          // A join firing acquires no domain lease and reserves no process
+          // slot, so a refused firing has no live holder behind it: the short
+          // ceiling is right and no `holderLive` is needed (T1333).
           if (defer(group.destination, { reason: 'resource-conflict', detail: err.message })) break;
         } else {
           throw err;
@@ -561,8 +581,14 @@ export function runCoordinatorTick(
           // Slice 5 Task 2/3: a lease-conflicted or ceiling-refused claim
           // aborts and rolls back — a NORMAL serialization state, not a
           // fault. The token stays pending and the group defers, with the
-          // reason persisted so Inside can show it.
-          defer(group.destination, { reason: 'resource-conflict', detail: err.message });
+          // reason persisted so Inside can show it. T1333: the deferral's
+          // ceiling needs the holder's liveness, re-read because the claim
+          // raced this tick's snapshot.
+          defer(group.destination, {
+            reason: 'resource-conflict',
+            detail: err.message,
+            holderLive: holderLiveAfterClaimFailure(scheduler.domains),
+          });
           graphDiag('claim', {
             revisionId: revision.id,
             detail: `activation for ${group.destination} refused: ${err.message}`,
@@ -591,10 +617,15 @@ export function runCoordinatorTick(
             ownerLive: true,
           });
         }
-        // A later group in this tick that meets the process ceiling is waiting
-        // behind a LIVE process — the claim reserved the slot for one.
-        if (node.kind === 'agent' || node.kind === 'command') workingState.liveNodeRuns += 1;
-        workingState.activeProcesses += 1;
+        // Only agent and command claims reserve a process slot — gates and
+        // joins spawn nothing (`activeProcessesOf`) — so only they extend the
+        // working ceiling, and the live-node count moves with it: a later group
+        // in this tick that meets the ceiling is then waiting behind a LIVE
+        // process. A gate claim inflates neither (T1333).
+        if (node.kind === 'agent' || node.kind === 'command') {
+          workingState.activeProcesses += 1;
+          workingState.liveNodeRuns += 1;
+        }
         result.claimed += 1;
         result.transitions += 1;
         continue;

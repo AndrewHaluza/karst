@@ -118,9 +118,9 @@ The host closes a graph terminal tab only after a proven success (`approaches/gr
 
 The agent identity snapshot is part of the same boundary: `approach_graph_runs.agent_identity` changes only through `setGraphRunAgentIdentity` and is read through `graphRunAgentIdentity`. The bootstrap writes it; a user switch (`approaches/graph/modelChange.ts`) replaces it in one transaction. Every planner, replan, node, retry and autorecovery launch of the run reads it, and a NULL snapshot (a pre-v133 run) resolves live. A switch never stops a running session. The Settings or ticket question calls `switchGraphRunModels`.
 
-The automatic recovery count is part of the same boundary: `approach_graph_runs.auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads the candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
+The automatic recovery count is part of the same boundary: `auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
 
-`heldLeasesForScheduler` joins `approach_node_runs` for owner liveness.
+`heldLeasesForScheduler` joins `approach_node_runs` for liveness; a command at `ready` is live.
 
 The claim evidence of a `blocked` node reads `blockedNodeRunsWithoutCategory`. The host reads a clone through `workspacesForNode`.
 

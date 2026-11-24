@@ -13,6 +13,7 @@ import { NODE_RUN_TRANSITIONS } from './transitions.js';
 import {
   LIVE_NODE_RUN_STATUSES,
   acquireLease,
+  countLiveNodeRunsForGraphRun,
   heldLeasesForScheduler,
   markLeaseAmbiguous,
 } from './leases.js';
@@ -51,14 +52,19 @@ function harness(): Harness {
   return { db, graphRunId, revisionId };
 }
 
-function insertNodeRun(h: Harness, status: string, nodeId = 'owner'): number {
+function insertNodeRun(
+  h: Harness,
+  status: string,
+  nodeId = 'owner',
+  nodeKind: 'agent' | 'command' | 'gate' = 'agent',
+): number {
   const res = h.db
     .prepare(
       `INSERT INTO approach_node_runs
          (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-       VALUES (?, ?, ?, 'agent', 1, ?)`,
+       VALUES (?, ?, ?, ?, 1, ?)`,
     )
-    .run(h.graphRunId, h.revisionId, nodeId, status);
+    .run(h.graphRunId, h.revisionId, nodeId, nodeKind, status);
   return Number(res.lastInsertRowid);
 }
 
@@ -121,6 +127,35 @@ describe('heldLeasesForScheduler owner liveness (T1333)', () => {
     expect(heldLeasesForScheduler(h.db)[0]!.ownerLive).toBe(false);
   });
 
+  it('a command node run at `ready` is live — a command executes in place and only then completes', () => {
+    const h = harness();
+    const owner = insertNodeRun(h, 'ready', 'owner', 'command');
+    holdLease(h, owner);
+    expect(heldLeasesForScheduler(h.db)).toEqual([
+      {
+        physicalDomain: 'dom-a',
+        accessMode: 'write',
+        ambiguous: false,
+        paths: [],
+        ownerLive: true,
+      },
+    ]);
+  });
+
+  it('an agent node run at `ready` stays not live — claimed but never launched', () => {
+    const h = harness();
+    const owner = insertNodeRun(h, 'ready');
+    holdLease(h, owner);
+    expect(heldLeasesForScheduler(h.db)[0]!.ownerLive).toBe(false);
+  });
+
+  it('a command node run parked in a terminal status is not live either', () => {
+    const h = harness();
+    const owner = insertNodeRun(h, 'blocked', 'owner', 'command');
+    holdLease(h, owner);
+    expect(heldLeasesForScheduler(h.db)[0]!.ownerLive).toBe(false);
+  });
+
   it('a lease whose owner row is missing is not live', () => {
     const h = harness();
     // The owner FK normally forbids an orphan; disable it just for this insert
@@ -156,5 +191,51 @@ describe('heldLeasesForScheduler owner liveness (T1333)', () => {
     holdLease(h, owner);
     h.db.prepare("UPDATE approach_resource_leases SET status = 'released'").run();
     expect(heldLeasesForScheduler(h.db)).toEqual([]);
+  });
+});
+
+describe('countLiveNodeRunsForGraphRun (T1333)', () => {
+  it('counts live statuses and a command at `ready`, and nothing parked or merely claimed', () => {
+    const h = harness();
+    insertNodeRun(h, 'running', 'a');
+    insertNodeRun(h, 'integrating', 'b');
+    insertNodeRun(h, 'ready', 'c', 'command'); // executing in place
+    insertNodeRun(h, 'ready', 'd'); // agent claimed, not launched
+    insertNodeRun(h, 'blocked', 'e');
+    insertNodeRun(h, 'completed', 'f');
+
+    expect(countLiveNodeRunsForGraphRun(h.db, h.graphRunId)).toBe(3);
+  });
+
+  it('does not count another graph run\'s live node', () => {
+    const h = harness();
+    insertNodeRun(h, 'running', 'a');
+    const foreignGraphRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           SELECT ticket_id, 'impl', 1, 'foreign-approach', 'running', ?
+           FROM approach_graph_runs WHERE id = ?`,
+        )
+        .run(NOW, h.graphRunId).lastInsertRowid,
+    );
+    const foreignRevisionId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions
+             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, '{}', 'fp-foreign', 'active', ?)`,
+        )
+        .run(foreignGraphRunId, NOW).lastInsertRowid,
+    );
+    h.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (?, ?, 'foreign', 'agent', 1, 'running')`,
+      )
+      .run(foreignGraphRunId, foreignRevisionId);
+
+    expect(countLiveNodeRunsForGraphRun(h.db, h.graphRunId)).toBe(1);
   });
 });

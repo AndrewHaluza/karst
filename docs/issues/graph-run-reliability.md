@@ -296,8 +296,10 @@ ceilings, and `defer` picks one from the refusal's `holderLive`:
 
 - `MAX_LIVE_HOLDER_WAIT_MS` (4 hours) when every holder behind the refusal is
   live — a lease owner in `launching`, `running`, `completing` or
-  `integrating`, or (for `parallel-slot-busy`) at least one live node run of
-  this graph run (a process claimed earlier in the same tick counts).
+  `integrating`, or a COMMAND owner still executing at `ready` (a command runs
+  in place and only then moves to `completing`), or (for `parallel-slot-busy`)
+  at least one live node run of this graph run, a command at `ready` included
+  (a process claimed earlier in the same tick counts).
 - `MAX_DEFERRAL_WAIT_MS` (30 minutes) when ANY blocking holder is parked, dead,
   ambiguous (`ambiguous-process`) or missing, or when a `parallel-slot-busy`
   slot has no live node behind it. A hung live agent is still bounded: the
@@ -306,9 +308,12 @@ ceilings, and `defer` picks one from the refusal's `holderLive`:
 Liveness is the owner node run's durable status, read by
 `heldLeasesForScheduler`'s join inside the store boundary; reconcile already
 moves a dead process to `stale` or `termination-unknown`, so the sweep stays
-synchronous and probes no process. `wait_since` never moves (aging priority
-still reads it), so a holder that leaves the live set after the waiter's 30th
-minute times out on the very next tick.
+synchronous and probes no process. A claim that throws `GraphClaimError` after
+the scheduler admitted it raced another window, so the sweep re-reads the
+conflicting leases and live count (`holderLiveAfterClaimFailure`) before it
+records the deferral. `wait_since` never moves (aging priority still reads it),
+so a holder that leaves the live set after the waiter's 30th minute times out on
+the very next tick.
 END_DOC_BLOCK: [@issue:H4]
 
 ## [@issue:H-INVARIANT] The invariant these four share
