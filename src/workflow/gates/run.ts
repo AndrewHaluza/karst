@@ -5,6 +5,7 @@ import { prepareCommand } from '../../runtime/command.js';
 import { resolveCommandCwd } from '../../runtime/commandCwd.js';
 import { BoundedOutput } from '../../runtime/boundedOutput.js';
 import { killTree } from '../../runtime/processTree.js';
+import { startAwakeDeadline, type AwakeDeadline } from '../../runtime/awakeDeadline.js';
 
 /**
  * Backstop for a script gate that HANGS. It must exceed the slowest legitimate
@@ -177,14 +178,14 @@ export function runProcess(
     let timedOut = false;
     let aborted = false;
     let terminationDiagnostic = '';
-    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let deadline: AwakeDeadline | undefined;
     let terminationDeadline: ReturnType<typeof setTimeout> | undefined;
 
     const settle = (outcome: ProcessOutcome): void => {
       if (settled) return;
       settled = true;
       if (typeof disposeRegistration === 'function') disposeRegistration();
-      if (deadline !== undefined) clearTimeout(deadline);
+      deadline?.cancel();
       if (terminationDeadline !== undefined) clearTimeout(terminationDeadline);
       options.signal?.removeEventListener('abort', onAbort);
       onDebug?.(
@@ -260,7 +261,7 @@ export function runProcess(
       settle({ kind: 'completed', exitCode: code ?? 1, output: output.render() });
     });
 
-    deadline = setTimeout(() => {
+    deadline = startAwakeDeadline(Math.max(0, timeoutMs), () => {
       if (settled) return;
       timedOut = true;
       terminate();
@@ -278,7 +279,7 @@ export function runProcess(
           ),
         });
       }, Math.max(0, terminationGraceMs));
-    }, Math.max(0, timeoutMs));
+    });
   });
 }
 

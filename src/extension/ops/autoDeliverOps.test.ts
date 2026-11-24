@@ -318,6 +318,21 @@ describe('isConflictRoundStalled (the stall clock starts at the receipt, @arch:A
     expect(asked).toEqual([ROUND.repo]);
   });
 
+  it('does not stall a round whose wait passed asleep (T1326)', () => {
+    const rounds = createConflictRounds();
+    rounds.arm(9, ROUND);
+    const read = receipt('2026-11-17T20:00:00.000Z');
+    const slept = 2 * 60 * 60_000;
+    const awakeAfterTwoHours = (sinceMs: number, nowMs: number): number =>
+      Math.max(0, nowMs - sinceMs - slept);
+    // Wall 2 h, all of it asleep: not stalled.
+    expect(isConflictRoundStalled(rounds, 9, read, T0 + slept + 60_000, awakeAfterTwoHours)).toBe(false);
+    // The same sleep, with the stall window actually spent awake: still stalled.
+    expect(
+      isConflictRoundStalled(rounds, 9, read, T0 + slept + CONFLICT_ROUND_STALL_MS + 1, awakeAfterTwoHours),
+    ).toBe(true);
+  });
+
   it('does not stall a round while its resolved merge is being delivered', async () => {
     const seen: boolean[] = [];
     const { deps, rounds } = rig({

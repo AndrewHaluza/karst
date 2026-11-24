@@ -148,6 +148,22 @@ describe('fixWatchdog', () => {
     );
   });
 
+  it('a fix whose stall window only passed asleep is not stalled (T1326)', () => {
+    toFix(ticketId);
+    stalledFix(ticketId);
+    const slept = 2 * 60 * 60_000;
+    const awakeWindow = (windowMs: number): number => windowMs + slept;
+    const at = (wallMs: number): string => new Date(Date.parse(T0) + wallMs).toISOString();
+
+    // Wall 2 h 30 min, of which 2 h were sleep: 30 min awake, inside the 60 min window.
+    expect(runFixWatchdog(deps({ now: () => at(slept + 30 * 60_000), awakeWindowMs: awakeWindow }))).toBe(0);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).not.toBe('interrupted');
+
+    // The same wall time, with the stall window actually spent awake: still parked.
+    expect(runFixWatchdog(deps({ now: () => at(slept + 61 * 60_000), awakeWindowMs: awakeWindow }))).toBe(1);
+    expect(listRecoveryRounds(store, ticketId)[0]!.status).toBe('interrupted');
+  });
+
   it('parks a fix whose launch never confirmed', () => {
     toFix(ticketId);
     const roundId = pendingRound(ticketId);
@@ -1019,6 +1035,28 @@ describe('fixWatchdog stranded stage', () => {
     expect(stageBlock(store, id, 'uat')?.kind).toBe('stranded-stage');
     // parked: no longer selected, nothing more happens
     expect(runFixWatchdog(deps)).toBe(0);
+    store.close();
+  });
+
+  it('does not treat a stage whose grace only passed asleep as stranded (T1326)', () => {
+    const store = openStore(':memory:');
+    const projectId = upsertProject(store, { slug: 'stranded-sleep-proj' }).id;
+    const id = createTicketFlow(store, { key: 'T-11', title: 't', projectId }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(id);
+    setStage(store, id, 'uat', { status: 'running', startedAt: T0 });
+    const redrive = vi.fn();
+    const slept = 2 * 60 * 60_000;
+    const base: FixWatchdogDeps = {
+      store, timeoutMinutes: () => 60, projectId: () => projectId, now: () => T2, log: () => {},
+      isLive: () => false, nudge: () => false, isGraphTicket: () => false,
+      redrive, redriven: new Set<string>(),
+    };
+    // T2 is two hours after T0; two of them were sleep, so the 2 min grace has not passed.
+    expect(runFixWatchdog({ ...base, awakeWindowMs: (windowMs) => windowMs + slept })).toBe(0);
+    expect(redrive).not.toHaveBeenCalled();
+    // Awake past the grace: the stage is stranded as before.
+    runFixWatchdog({ ...base, awakeWindowMs: (windowMs) => windowMs });
+    expect(redrive).toHaveBeenCalledExactlyOnceWith(id);
     store.close();
   });
 

@@ -7,6 +7,7 @@ import {
   type FixDelivery,
 } from '../../store/fixDeliveries.js';
 import { DELIVERY_CHECK_MS } from './fixWatchdog.js';
+import { defaultSleepLedger } from '../../runtime/sleepLedger.js';
 import { claimPointerFailed } from '../../store/fixDeliveries.js';
 import {
   failPointer,
@@ -45,6 +46,11 @@ const RESEND_RETRY_MS = 60_000;
 export interface FixDeliverySweepDeps extends FixDeliveryHost {
   /** The window's bound project; undefined sweeps nothing. */
   projectId: () => number | undefined;
+  /**
+   * Wall time since `sinceMs`, minus the host sleep inside it (T1326). The host binds the sleep ledger;
+   * absent (tests) the default ledger is unstarted and this is plain wall time.
+   */
+  awakeElapsedMs?: (sinceMs: number, nowMs: number) => number;
 }
 
 export interface FixDeliverySweep {
@@ -54,7 +60,8 @@ export interface FixDeliverySweep {
 export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySweep {
   const lastResendAt = new Map<number, number>();
 
-  const ageMs = (stamp: string): number => Date.parse(deps.now()) - Date.parse(stamp);
+  const ageMs = (stamp: string): number =>
+    (deps.awakeElapsedMs ?? defaultSleepLedger.awakeElapsedMs)(Date.parse(stamp), Date.parse(deps.now()));
 
   /**
    * Whether a row is still live for its round. A `fix` row lives while the ticket is at `fix` and its round is

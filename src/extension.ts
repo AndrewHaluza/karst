@@ -10,6 +10,7 @@ import { listTicketLifecycle } from './store/runningServers.js';
 import { makeCloudSidebarActions } from './ui/sidebar/cloudActions.js';
 import { registerCloseCommands } from './extension/ops/closeCommands.js';
 import { createDrain } from './runtime/drain.js';
+import { defaultSleepLedger, startSleepLedger } from './runtime/sleepLedger.js';
 import { registerReloadWhenIdle } from './extension/reloadWhenIdleBinding.js';
 import { onDrainChange } from './extension/ops/reloadDrainView.js';
 import { guardShipStart, ShipDrainingError } from './extension/ops/reloadWhenIdle.js';
@@ -726,6 +727,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // T1012: reap the headless child of a run a new open supersedes (dead owner only).
   context.subscriptions.push({ dispose: bindOrphanReap(localStore, { debug: (m) => logger.debug(m), logError }) });
   const notify = vscodeNotify;
+  // T1326: awaken-time windows. Started ONCE here; without it every reader sees plain wall time.
+  context.subscriptions.push(startSleepLedger(notify));
   // Hook-channel observation for the issue report. A failed agent-side hook says
   // only "exited with code 1"; these counters are the host's half of that.
   const hookChannelRecorder = createHookChannelRecorder();
@@ -2111,7 +2114,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       deliver: (brief, hit) => conflictDelivery(id, brief, hit),
     }),
     conflictRoundActive: (id) => conflictRounds.armed(id) !== null || isAutoDelivering(id),
-    conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id, (repo) => currentConflictDelivery(localStore, id, repo)?.readAt ?? null),
+    conflictRoundStalled: (id) => isConflictRoundStalled(conflictRounds, id, (repo) => currentConflictDelivery(localStore, id, repo)?.readAt ?? null, Date.now(), defaultSleepLedger.awakeElapsedMs),
     dropConflictRound: (id) => conflictRounds.disarm(id),
     isDraining: () => drain.isDraining(),
     startAutoDeliver: (id) => startAutoDeliver(id),
@@ -4239,6 +4242,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           transaction: <T>(fn: () => T): T => runImmediateTransaction(gs.db, fn),
           now: () => new Date().toISOString(),
           debug: (message) => logger.debug(message),
+          awakeElapsedMs: defaultSleepLedger.awakeElapsedMs,
           baseHeadsOf: () => baseHeads,
           // Slice 5 T2: the physical domains each activation needs, resolved
           // from the node's declared claims — the claim acquires one `held`

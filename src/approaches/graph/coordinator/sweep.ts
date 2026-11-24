@@ -138,7 +138,15 @@ export interface SweepDeps {
    * atomic slot reservation. Absent → the tick enforces no ceiling.
    */
   maxParallelOf?: (graphRunId: number) => number | undefined;
+  /**
+   * Awake time between two wall stamps (T1326): a host sleep is not a wait. The
+   * HOST binds it to the sleep ledger; absent (tests, CLI) it is wall time.
+   */
+  awakeElapsedMs?: (sinceMs: number, nowMs: number) => number;
 }
+
+/** The default: the wall time between two stamps, with no sleep taken out. */
+const wallElapsedMs = (sinceMs: number, nowMs: number): number => nowMs - sinceMs;
 
 export interface SweepResult {
   graphRunId: number;
@@ -414,8 +422,12 @@ export function runCoordinatorTick(
     // T1333: the ceiling depends on the HOLDER, not only on elapsed time. A
     // live holder keeps the long bound; `wait_since` is untouched either way,
     // so a holder that dies after 30 minutes times out on the next tick.
+    // T1326: the wait counts awake time only, so a host sleep is not a wait.
     const limit = refusal.holderLive ? MAX_LIVE_HOLDER_WAIT_MS : MAX_DEFERRAL_WAIT_MS;
-    const waited = Date.parse(now) - Date.parse(recorded.waitSince);
+    const waited = (deps.awakeElapsedMs ?? wallElapsedMs)(
+      Date.parse(recorded.waitSince),
+      Date.parse(now),
+    );
     if (!Number.isFinite(waited) || waited < limit) return false;
     return blockOnDeferralTimeout(nodeId, reason, waited);
   };

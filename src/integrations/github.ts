@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 import { BoundedOutput, TailOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
+import { startAwakeDeadline, type AwakeDeadline } from '../runtime/awakeDeadline.js';
 import { normalizeComments, type PrComment } from '../model/prComments.js';
 import { applyRequiredChecks, normalizeChecks, normalizeMergeBlock } from './prChecks.js';
 import { normalizeReviewDecision, type PrReviewDecision } from '../model/prReview.js';
@@ -112,13 +113,13 @@ export const defaultGhRunnerAsync = (
     const stderr = new BoundedOutput(Math.max(0, maxOutputBytes));
     let settled = false;
     let timedOut = false;
-    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let deadline: AwakeDeadline | undefined;
     let terminationDeadline: ReturnType<typeof setTimeout> | undefined;
 
     const settle = (result: GhResult): void => {
       if (settled) return;
       settled = true;
-      if (deadline !== undefined) clearTimeout(deadline);
+      deadline?.cancel();
       if (terminationDeadline !== undefined) clearTimeout(terminationDeadline);
       resolve(result);
     };
@@ -159,7 +160,7 @@ export const defaultGhRunnerAsync = (
       settle(outcome(code));
     });
 
-    deadline = setTimeout(() => {
+    deadline = startAwakeDeadline(Math.max(0, timeoutMs), () => {
       if (settled) return;
       timedOut = true;
       let terminationDiagnostic = '';
@@ -181,7 +182,7 @@ export const defaultGhRunnerAsync = (
           }),
         Math.max(0, terminationGraceMs),
       );
-    }, Math.max(0, timeoutMs));
+    });
   });
 
 /** Extract the trailing PR number from a `gh` PR URL (…/pull/<n>). */

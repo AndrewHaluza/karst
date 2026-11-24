@@ -14,6 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 import { BoundedOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
 import { canonicalPath, isPathUnder } from '../runtime/pathScope.js';
+import { startAwakeDeadline, type AwakeDeadline } from '../runtime/awakeDeadline.js';
 import { collapseDiagnostic } from '../model/diagnosticText.js';
 
 /**
@@ -111,13 +112,13 @@ function runGitProcess(
     let settled = false;
     let termination: 'abort' | 'timeout' | null = null;
     let terminationDiagnostic = '';
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: AwakeDeadline | undefined;
     let terminationTimer: ReturnType<typeof setTimeout> | undefined;
 
     const settle = (exitCode: number, stderrDiagnostic = ''): void => {
       if (settled) return;
       settled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      timer?.cancel();
       if (terminationTimer !== undefined) clearTimeout(terminationTimer);
       signal?.removeEventListener('abort', abort);
       resolve({ stdout, stderr, stderrDiagnostic, exitCode });
@@ -163,7 +164,7 @@ function runGitProcess(
 
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    timer = setTimeout(() => terminate('timeout'), Math.max(0, timeoutMs));
+    timer = startAwakeDeadline(Math.max(0, timeoutMs), () => terminate('timeout'));
 
     child.stdout?.on('data', (chunk: Buffer) => stdout.append(chunk));
     child.stderr?.on('data', (chunk: Buffer) => stderr.append(chunk));
