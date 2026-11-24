@@ -97,18 +97,38 @@ describe('ServersPanel — summary', () => {
 });
 
 describe('ServersPanel — empty states', () => {
-  it('prompts to start when services can run but none do, with a period and no button', () => {
+  it('prompts to start in one muted line, with the header ops and no body, icon or heading (Q3, UI-R46)', () => {
     mount(stateWith([]));
-    expect(text('#servers .estate .ehead')).toBe('No servers running.');
-    expect(document.querySelector('#servers .estate.dead')).toBeNull();
-    expect(document.querySelector('#servers .emark svg.k-icon')).not.toBeNull();
+    const line = document.querySelector('#servers')!;
+    expect(line.className).toBe('k-empty k-empty--inline');
+    expect(line.textContent).toBe('No servers running yet.');
+    // One form for all four panels: no body wrapper, no icon, no bold heading.
+    expect(document.querySelector('.pbody')).toBeNull();
+    expect(document.querySelector('.estate')).toBeNull();
+    expect(document.querySelector('.emark')).toBeNull();
+    expect(document.querySelector('.ehead, .k-empty-title')).toBeNull();
+    // The line carries no action of its own; the header keeps the whole-ticket ops.
     expect(document.querySelector('#servers button')).toBeNull();
+    expect(one('spin-servers')).toBeTruthy();
+    expect(one('env-overrides-open')).toBeTruthy();
   });
 
-  it('states that nothing can run when no repository declares a service', () => {
+  it('states that nothing can run, in the same line, without a dead icon or header ops', () => {
     mount(stateWith([], [], false));
-    expect(text('#servers .estate.dead .ehead')).toBe('No runnable services in scope.');
-    expect(text('#servers .esub')).toContain('without a service block');
+    const line = document.querySelector('#servers')!;
+    expect(line.className).toBe('k-empty k-empty--inline');
+    expect(line.textContent).toBe('No runnable services in scope.');
+    expect(document.querySelector('.pbody, .estate, .dead, .emark, .ehead')).toBeNull();
+    expect(document.querySelector('.phead .pops button')).toBeNull();
+  });
+
+  it('replaces the empty line with the rows, in place, when the first server arrives (UI-R46)', () => {
+    const h = mount(stateWith([]));
+    expect(document.querySelector('#servers')!.className).toBe('k-empty k-empty--inline');
+    h.emit({ type: 'state', state: stateWith([srv(1, 'web')]) });
+    expect(document.querySelector('#servers')!.className).toBe('pbody');
+    expect(document.querySelectorAll('#servers .krow')).toHaveLength(1);
+    expect(document.querySelector('.k-empty')).toBeNull();
   });
 });
 
@@ -191,7 +211,7 @@ describe('ServersPanel — rows', () => {
   it('keeps a shared-only stack truthful: a "No ticket services" row, no empty state', () => {
     mount(stateWith([], [shared('db')]));
     expect(text('.srvnone')).toBe('No ticket services — only shared ones are in scope.');
-    expect(document.querySelector('.estate')).toBeNull();
+    expect(document.querySelector('.k-empty')).toBeNull();
     expect(document.querySelector('.sec-group .gcount')!.textContent).toBe('0');
   });
 

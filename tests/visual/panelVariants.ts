@@ -136,6 +136,12 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   { id: 'srv-fault', patch: withServers([server(1, 'web', 'failed', null), server(2, 'api', 'failed', null)]) },
   { id: 'srv-stopped', patch: withServers([server(1, 'web', 'stopped', null), server(2, 'api', 'stopped', null)]) },
   { id: 'srv-none', patch: withServers([]) },
+  // T1346 Q3 (UI-R46): the two forms every empty panel must show — the one muted line, and one row in the same place.
+  { id: 'srv-not-runnable', patch: (s) => ({ ...withServers([])(s), sharedServers: [], hasRunnableRepos: false }) },
+  { id: 'srv-one', patch: withServers([server(1, 'web', 'running', 5173)]) },
+  { id: 'wt-one', patch: withWorktrees((w) => w.slice(0, 1)) },
+  { id: 'subtask-empty', patch: (s) => ({ ...s, subtasks: [], subtaskProgress: { done: 0, total: 0 }, canAddSubtask: true }) },
+  { id: 'subtask-one', patch: (s) => ({ ...s, subtasks: s.subtasks.slice(0, 1), subtaskProgress: { done: 0, total: 1 }, canAddSubtask: true }) },
   { id: 'wt-normal', patch: (s) => s },
   { id: 'wt-base', patch: (s) => s, click: '[data-act="toggle-base-form"]' },
   { id: 'wt-ext', patch: withWorktrees((w) => w.map((x, i) => ({ ...x, launchable: true, branch: i === 0 ? x.branch : 'feat/other-branch' }))) },

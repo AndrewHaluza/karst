@@ -38,7 +38,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // 1 theme (+1 screenshot) and its layout run (+5); the existing banner-rejected shot now shows the banner's Send button.
   // T1341 baseline-overlay-prior-rejected (a pending row that shows the reason from the earlier round), @ui:UI-R57:
   // 1 theme (+1 screenshot) and its layout run (+5).
-  dashboard: { screenshots: 638, layout: 780 },
+  // T1346 empty panels (Q3, @ui:UI-R57): the five missing panel states (srv-not-runnable, srv-one, wt-one,
+  // subtask-empty, subtask-one) x 3 width tiers (+15 screenshots); `empty-panels` and its tight 360 shot (+2),
+  // and the one new all-empty page x 5 layout widths (+5) that `empty-panels-tight` shares.
+  dashboard: { screenshots: 655, layout: 785 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

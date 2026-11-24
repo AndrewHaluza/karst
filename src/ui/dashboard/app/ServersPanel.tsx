@@ -9,7 +9,6 @@
 import { memo, useCallback, useState } from 'react';
 import type { DashboardSnapshot } from './dashboardStore.js';
 import { useDashboardSend, useOverlays, usePersistence } from './DashboardAppContext.js';
-import { EmptyState } from './EmptyState.js';
 import { RegionPortal } from './RegionPortal.js';
 import { LocalAction, PostAction } from './ServerActions.js';
 import { isOnline, isSharedFault, ServerRow, SharedRow, type OwnServer, type SharedServer } from './ServerRows.js';
@@ -71,18 +70,13 @@ const ServerOps = memo(function ServerOps({ slice }: { readonly slice: ServersSl
   );
 });
 
-/** The two empty states stay distinct: a PROMPT (nothing runs, the header's Start fixes that) versus a STATEMENT (nothing here can run). */
-function Empty({ runnable }: { readonly runnable: boolean }) {
-  return runnable ? (
-    <EmptyState icon="server-2" heading="No servers running." sub="Start the services in scope to get their local addresses here." />
-  ) : (
-    <EmptyState
-      icon="circle-x"
-      tone="dead"
-      heading="No runnable services in scope."
-      sub="This ticket scopes only repositories without a service block, so there is nothing here to run."
-    />
-  );
+/**
+ * The empty line stays truthful in both cases (Q3, UI-R46): a PROMPT (nothing runs, the header's Start fixes
+ * that) and a STATEMENT (nothing here can run) are still different sentences, in the same one-line form.
+ */
+function emptyLine(slice: ServersSlice | null, total: number): string | null {
+  if (!slice || total > 0) return null;
+  return slice.runnable ? 'No servers running yet.' : 'No runnable services in scope.';
 }
 
 /**
@@ -114,7 +108,6 @@ function ServersBody({ slice }: { readonly slice: ServersSlice }) {
   const [filter, setFilter] = useState(() => persistence.srvFilter);
   const { servers, shared } = slice;
   const total = servers.length + shared.length;
-  if (total === 0) return <Empty runnable={slice.runnable} />;
 
   const filterable = total > FILTER_ABOVE;
   const needle = filter.trim().toLowerCase();
@@ -192,8 +185,9 @@ export const ServersPanel = memo(function ServersPanel() {
         summaryTitle={summary}
         actions={slice ? <ServerOps slice={slice} /> : null}
         bodyId="servers"
+        empty={emptyLine(slice, total)}
       >
-        {slice ? <ServersBody slice={slice} /> : null}
+        {slice && total > 0 ? <ServersBody slice={slice} /> : null}
       </Section>
     </RegionPortal>
   );

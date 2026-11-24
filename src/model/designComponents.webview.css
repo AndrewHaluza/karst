@@ -371,6 +371,10 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
   padding:var(--k-space-9) var(--k-space-8);text-align:center;color:var(--k-text-dim)}
 .k-empty-title{font-size:var(--k-text-md);color:var(--k-text);margin-bottom:var(--k-space-2)}
 .k-empty-hint{font-size:var(--k-text-sm)}
+/* A one-line empty state flush inside a panel that already has its header (the dashboard's four
+   Overview panels, UI-R46): no box, no centred column, the dim ink of `.k-empty` kept. */
+.k-empty--inline{border:0;border-radius:0;padding:var(--k-space-3) var(--k-space-7);text-align:left;
+  font-size:var(--k-text-sm);overflow-wrap:anywhere}
 /* Shared page header (@ui:11.22): bottom boundary uses --k-border-strong (contrastBorder); actions take their own row at the narrow tier edge. */
 .k-pagehead{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;
   gap:var(--k-space-4) var(--k-space-6);padding-bottom:var(--k-space-6);margin-bottom:var(--k-space-6);
