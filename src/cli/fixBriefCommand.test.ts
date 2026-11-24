@@ -4,7 +4,10 @@ import { createTicket, updateTicketFields } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { reconcilePrFeedback, adoptPrFeedbackIntoRound } from '../store/prFeedback.js';
-import { openRecoveryRound } from '../store/recoveryRounds.js';
+import { openRecoveryRound, continueFixRound } from '../store/recoveryRounds.js';
+import { recordNoChangeReason } from '../store/fixNoChangeRounds.js';
+import { FIX_CONTINUED_PREFIX } from '../model/noChange.js';
+import { fixBriefForTicket } from '../extension/ops/fixBriefForTicket.js';
 import { currentFixDelivery, upsertFixDelivery, getFixDelivery, claimPointed } from '../store/fixDeliveries.js';
 import { parseFixBriefArgs, runFixBriefCommand } from './fixBriefCommand.js';
 
@@ -85,6 +88,32 @@ describe('runFixBriefCommand', () => {
     expect(() => runFixBriefCommand(store, { key: 'NOPE-1', ack: false })).toThrow(
       /no ticket found for key or id 'NOPE-1'/,
     );
+  });
+
+  it('the CLI brief equals the host brief for a continued round', () => {
+    const id = seedTicket();
+    setStage(store, id, 'uat', { status: 'failed', verdict: 'lint failed' });
+    const round = openRecoveryRound(store, {
+      ticketId: id,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'x',
+      maxRounds: 3,
+      startedAt: '2026-09-01T00:00:00Z',
+    });
+    recordNoChangeReason(store, round.id, 'no fault in the ticket code', '2026-09-01T00:00:00Z');
+    continueFixRound(store, {
+      roundId: round.id,
+      endReason: `${FIX_CONTINUED_PREFIX} lint (web)`,
+      at: '2026-09-01T00:00:00Z',
+    });
+    const cli = runFixBriefCommand(store, { key: 'PROJ-1', ack: false });
+    expect(cli).toContain('Continued from fix round 1 of 3:');
+    expect(cli).toContain('<<<no-change-reason\nno fault in the ticket code\nno-change-reason>>>');
+    expect(cli).toBe(fixBriefForTicket(store, id));
   });
 
   it('includes the adopted PR feedback when a ship-sourced round is active', () => {

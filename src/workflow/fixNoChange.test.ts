@@ -50,8 +50,21 @@ describe('applyNoChangeMarker', () => {
     const roundId = openFixing('gate-failure', 'uat');
     const out = await applyNoChangeMarker(store, ticketId, 'port window', gitAt('aaa'), { viaBridge: false, now: () => AT });
     expect(out).toEqual({ kind: 'rerun-requested', message: NO_CHANGE_RERUN_REQUESTED_REPLY });
+    expect(NO_CHANGE_RERUN_REQUESTED_REPLY).toContain('opens the next fix round');
     expect(roundById(store, roundId)?.noChangeReason).toBe('port window');
     expect(ticketsWithRequestedNoChangeRerun(store, projectId)).toEqual([ticketId]);
+  });
+
+  it('a second gate-failure no-change on the same head does not park: the host decides', async () => {
+    const r1 = openFixing('gate-failure', 'uat');
+    await applyNoChangeMarker(store, ticketId, 'first', gitAt('aaa'), { viaBridge: false, now: () => AT });
+    store.db.prepare("UPDATE recovery_rounds SET status = 'failed' WHERE id = ?").run(r1);
+    const r2 = openFixing('gate-failure', 'uat', 'aaa');
+    const out = await applyNoChangeMarker(store, ticketId, 'again', gitAt('aaa'), { viaBridge: false, now: () => AT });
+    expect(out.kind).toBe('rerun-requested');
+    expect(getStage(store, ticketId, 'fix')?.status).toBe('running');
+    expect(roundById(store, r2)?.status).toBe('fixing');
+    expect(roundById(store, r2)?.noChangeReason).toBe('again');
   });
 
   it('gate-failure round via the bridge hands the re-run to recoverRefusal, and the sweep does not list it', async () => {
@@ -95,6 +108,15 @@ describe('applyNoChangeMarker', () => {
     });
     expect(roundById(store, r2)?.status).toBe('interrupted');
     expect(roundById(store, r2)?.noChangeReason).toBe('again');
+  });
+
+  it('a second tester-verifier no-change on the same head parks too', async () => {
+    const r1 = openFixing('tester-verifier-failure', 'uat');
+    await applyNoChangeMarker(store, ticketId, 'first', gitAt('aaa'), { viaBridge: false, now: () => AT });
+    store.db.prepare("UPDATE recovery_rounds SET status = 'revalidating' WHERE id = ?").run(r1);
+    openFixing('tester-verifier-failure', 'uat', 'aaa');
+    expect((await applyNoChangeMarker(store, ticketId, 'again', gitAt('aaa'), { viaBridge: false, now: () => AT })).kind).toBe('refused');
+    expect(getStage(store, ticketId, 'fix')?.status).toBe('failed');
   });
 
   it('a repeat no-change in the same round keeps the first reason and repeats the decision', async () => {

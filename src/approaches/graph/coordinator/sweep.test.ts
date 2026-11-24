@@ -17,8 +17,14 @@ import {
   graphTokenById,
   pendingTokensForRevision,
 } from '../../../store/graph/tokens.js';
-import { acquireLease } from '../../../store/graph/leases.js';
-import { runCoordinatorTick, activeGraphRunIds, type SweepDeps } from './sweep.js';
+import { acquireLease, markLeaseAmbiguous } from '../../../store/graph/leases.js';
+import {
+  runCoordinatorTick,
+  activeGraphRunIds,
+  MAX_DEFERRAL_WAIT_MS,
+  MAX_LIVE_HOLDER_WAIT_MS,
+  type SweepDeps,
+} from './sweep.js';
 import type { GraphDocument, ApproachEdge, ApproachNode } from '../parse.js';
 
 interface Ctx {
@@ -134,6 +140,82 @@ function runIdForNode(db: Ctx['db'], revisionId: number, nodeId: string): number
     )
     .get(revisionId, nodeId) as { id: number } | undefined;
   return row?.id;
+}
+
+/** Insert a node run at a chosen status — the sweep tests need lease owners
+ *  parked in statuses the claim path never writes. */
+function insertNodeRunRow(
+  db: Ctx['db'],
+  row: {
+    graphRunId: number;
+    revisionId: number;
+    nodeId: string;
+    status: string;
+    id?: number;
+    nodeKind?: 'agent' | 'command' | 'gate';
+  },
+): number {
+  const info = db
+    .prepare(
+      `INSERT INTO approach_node_runs
+         (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+       VALUES (?, ?, ?, ?, ?, 1, ?)`,
+    )
+    .run(row.id ?? null, row.graphRunId, row.revisionId, row.nodeId, row.nodeKind ?? 'agent', row.status);
+  return Number(info.lastInsertRowid);
+}
+
+/**
+ * A second graph run (with its active revision) for a lease owner that must NOT
+ * belong to `ctx.graphRunId`: the tick parks a run `node-blocked` as soon as
+ * that run has a `blocked`/`stale` node run, so a parked cross-run lease owner
+ * needs its own run — which is also how cross-run lease contention arises in
+ * production.
+ */
+function foreignRun(ctx: Ctx): { graphRunId: number; revisionId: number } {
+  const graphRunId = Number(
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         SELECT ticket_id, 'impl',
+                (SELECT COALESCE(MAX(stage_attempt), 0) + 1 FROM approach_graph_runs),
+                'foreign-approach', 'running', '2026-08-12T00:00:00.000Z'
+         FROM approach_graph_runs WHERE id = ?`,
+      )
+      .run(ctx.graphRunId).lastInsertRowid,
+  );
+  const revisionId = Number(
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 1, '{}', 'fp-foreign', 'active', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(graphRunId).lastInsertRowid,
+  );
+  return { graphRunId, revisionId };
+}
+
+/** A live lease owner in `ctx.graphRunId` (a `running` row is not a fault, so
+ *  the run still reaches the scheduler). */
+function liveOwnerInRun(ctx: Ctx, status = 'running'): number {
+  return insertNodeRunRow(ctx.db, {
+    graphRunId: ctx.graphRunId,
+    revisionId: ctx.revisionId,
+    nodeId: 'foreign-owner',
+    status,
+  });
+}
+
+/** A lease owner parked in a FOREIGN graph run (blocked/stale/etc.). */
+function parkedOwner(ctx: Ctx, status: string): number {
+  const foreign = foreignRun(ctx);
+  return insertNodeRunRow(ctx.db, {
+    graphRunId: foreign.graphRunId,
+    revisionId: foreign.revisionId,
+    nodeId: 'foreign-owner',
+    status,
+  });
 }
 
 describe('runCoordinatorTick', () => {
@@ -505,16 +587,12 @@ describe('scheduler admission, deferrals and the process ceiling (Slice 5 Task 3
     const ctx = harness(doc([agent('a')], [
       { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
     ], ['a']));
-    ctx.db
-      .prepare(
-        `INSERT INTO approach_node_runs
-           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
-      )
-      .run(ctx.graphRunId, ctx.revisionId);
+    // A PARKED holder (in a foreign run): a live holder keeps the long ceiling
+    // (T1333), so the short 30-minute ceiling is what this test measures.
+    const owner = parkedOwner(ctx, 'blocked');
     acquireLease(ctx.db, {
       graphRunId: ctx.graphRunId,
-      ownerNodeRunId: 900,
+      ownerNodeRunId: owner,
       physicalDomain: 'dom-api',
       accessMode: 'write',
       claimedPaths: null,
@@ -548,16 +626,11 @@ describe('scheduler admission, deferrals and the process ceiling (Slice 5 Task 3
     const ctx = harness(doc([agent('a')], [
       { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
     ], ['a']));
-    ctx.db
-      .prepare(
-        `INSERT INTO approach_node_runs
-           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
-      )
-      .run(ctx.graphRunId, ctx.revisionId);
+    // A parked holder keeps the SHORT ceiling (a live one keeps the 4 hour bound, T1333).
+    const owner = parkedOwner(ctx, 'blocked');
     acquireLease(ctx.db, {
       graphRunId: ctx.graphRunId,
-      ownerNodeRunId: 900,
+      ownerNodeRunId: owner,
       physicalDomain: 'dom-api',
       accessMode: 'write',
       claimedPaths: null,
@@ -593,16 +666,12 @@ describe('scheduler admission, deferrals and the process ceiling (Slice 5 Task 3
     const ctx = harness(doc([agent('a')], [
       { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
     ], ['a']));
-    ctx.db
-      .prepare(
-        `INSERT INTO approach_node_runs
-           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-         VALUES (900, ?, ?, 'foreign', 'agent', 1, 'running')`,
-      )
-      .run(ctx.graphRunId, ctx.revisionId);
+    // A parked holder in a foreign run: this test needs the SHORT ceiling to
+    // reach the timeout path whose CAS it then swallows.
+    const owner = parkedOwner(ctx, 'blocked');
     acquireLease(ctx.db, {
       graphRunId: ctx.graphRunId,
-      ownerNodeRunId: 900,
+      ownerNodeRunId: owner,
       physicalDomain: 'dom-api',
       accessMode: 'write',
       claimedPaths: null,
@@ -909,5 +978,442 @@ describe('activeGraphRunIds (G1a — project scope)', () => {
     // no recovery step of its own.
     db.prepare('UPDATE tickets SET paused_at = NULL WHERE id = 1').run();
     expect(activeGraphRunIds(db, { projectId: 1 })).toEqual([1, 2]);
+  });
+});
+
+/**
+ * T1333 (issue H4, second pass): the deferral ceiling depends on the HOLDER.
+ * A live holder (`launching`/`running`/`completing`/`integrating`) keeps a
+ * bounded 4-hour ceiling, because an agent node that runs 40 minutes is making
+ * progress; a parked, dead, ambiguous or missing holder — and a parallel slot
+ * with no live node behind it — keeps 30 minutes. `wait_since` never moves, so
+ * a holder that leaves the live set after the waiter's 30th minute times out on
+ * the very next tick.
+ */
+describe('H4 live-holder deferral ceiling (T1333)', () => {
+  const T0 = '2026-08-12T00:00:00.000Z';
+  const MIN = 60_000;
+  const at = (minutes: number): string => new Date(Date.parse(T0) + minutes * MIN).toISOString();
+  const DOM = { physicalDomain: 'dom-api', accessMode: 'write' as const, paths: [] as string[] };
+
+  interface Domain {
+    physicalDomain: string;
+    accessMode: 'read' | 'write';
+    paths?: readonly string[];
+  }
+
+  const oneNode = (): Ctx =>
+    harness(doc([agent('a')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['a']));
+
+  const twoNodes = (): Ctx =>
+    harness(doc([agent('a'), agent('b')], [
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+      { id: 'b-end', from: 'b', on: 'complete', to: 'END' },
+    ], ['a', 'b']));
+
+  function entry(ctx: Ctx, nodeId: string): number {
+    return insertEntryTokens(ctx.db, ctx.revisionId, [
+      { edgeId: `entry-${nodeId}`, destinationNodeId: nodeId, destinationEnd: false },
+    ], T0)[0]!;
+  }
+
+  function seedDeferral(ctx: Ctx, nodeId: string, since: string): void {
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_node_deferrals (graph_run_id, revision_id, node_id, reason, wait_since, updated_at)
+         VALUES (?, ?, ?, 'resource-conflict: seeded', ?, ?)`,
+      )
+      .run(ctx.graphRunId, ctx.revisionId, nodeId, since, since);
+  }
+
+  function deferralOf(
+    ctx: Ctx,
+    nodeId: string,
+  ): { reason: string; wait_since: string } | undefined {
+    return ctx.db
+      .prepare('SELECT reason, wait_since FROM approach_node_deferrals WHERE node_id = ?')
+      .get(nodeId) as { reason: string; wait_since: string } | undefined;
+  }
+
+  function runOf(ctx: Ctx): { status: string; blocked_reason: string | null } {
+    return ctx.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string; blocked_reason: string | null };
+  }
+
+  function hold(ctx: Ctx, ownerNodeRunId: number, domain = 'dom-api'): number {
+    return acquireLease(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      ownerNodeRunId,
+      physicalDomain: domain,
+      accessMode: 'write',
+      claimedPaths: null,
+      now: T0,
+    });
+  }
+
+  function setActiveProcesses(ctx: Ctx, count: number): void {
+    ctx.db
+      .prepare('UPDATE approach_graph_runs SET active_processes = ? WHERE id = ?')
+      .run(count, ctx.graphRunId);
+  }
+
+  function tick(
+    ctx: Ctx,
+    now: string,
+    overrides: Partial<SweepDeps> = {},
+    domains: readonly Domain[] = [DOM],
+  ): ReturnType<typeof runCoordinatorTick> {
+    return runCoordinatorTick(
+      ctx.makeDeps({
+        now: () => now,
+        domainsForActivation: () => [...domains],
+        ...overrides,
+      }),
+      { graphRunId: ctx.graphRunId },
+    );
+  }
+
+  it('documents two ceilings: 30 minutes by default, 4 hours for a live holder', () => {
+    expect(MAX_DEFERRAL_WAIT_MS).toBe(30 * MIN);
+    expect(MAX_LIVE_HOLDER_WAIT_MS).toBe(4 * 60 * MIN);
+  });
+
+  it('a node that waits 31 min on a live owner is deferred — the run stays running and wait_since never moves', () => {
+    const ctx = oneNode();
+    hold(ctx, liveOwnerInRun(ctx));
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+
+    const result = tick(ctx, T0);
+
+    expect(result.claimed).toBe(0);
+    expect(runOf(ctx).status).toBe('running');
+    const row = deferralOf(ctx, 'a')!;
+    expect(row.reason).toMatch(/^resource-conflict/);
+    expect(row.wait_since).toBe(since);
+  });
+
+  it('a node that reaches the 4 h live ceiling is parked graph-deferral-timeout', () => {
+    const ctx = oneNode();
+    hold(ctx, liveOwnerInRun(ctx));
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-(MAX_LIVE_HOLDER_WAIT_MS / MIN)));
+
+    tick(ctx, T0);
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('a parked owner at 31 min keeps the 30-minute ceiling', () => {
+    const ctx = oneNode();
+    hold(ctx, parkedOwner(ctx, 'blocked'));
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+
+    tick(ctx, T0);
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('a stale owner at 31 min keeps the 30-minute ceiling', () => {
+    const ctx = oneNode();
+    hold(ctx, parkedOwner(ctx, 'stale'));
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+
+    tick(ctx, T0);
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('an ambiguous-process lease timed out at 31 min even when its owner row is running', () => {
+    const ctx = oneNode();
+    const owner = liveOwnerInRun(ctx);
+    hold(ctx, owner);
+    expect(markLeaseAmbiguous(ctx.db, owner)).toBe(1);
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+
+    tick(ctx, T0);
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('one live and one parked lease on the same domain time out at 31 min — every conflicting lease is inspected', () => {
+    const ctx = oneNode();
+    hold(ctx, liveOwnerInRun(ctx));
+    hold(ctx, parkedOwner(ctx, 'blocked'));
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+
+    tick(ctx, T0);
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('parallel-slot-busy at 31 min with a live node keeps waiting, and times out at the 4 h ceiling', () => {
+    const ctx = oneNode();
+    liveOwnerInRun(ctx);
+    setActiveProcesses(ctx, 1);
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+
+    tick(ctx, T0, { maxParallelOf: () => 1 }, []);
+
+    expect(runOf(ctx).status).toBe('running');
+    const row = deferralOf(ctx, 'a')!;
+    expect(row.reason).toMatch(/^parallel-slot-busy/);
+    expect(row.wait_since).toBe(since);
+
+    const atCeiling = new Date(Date.parse(since) + MAX_LIVE_HOLDER_WAIT_MS).toISOString();
+    tick(ctx, atCeiling, { maxParallelOf: () => 1 }, []);
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('parallel-slot-busy at 31 min with no live node in this run times out — another run\'s live node does not count', () => {
+    const ctx = oneNode();
+    parkedOwner(ctx, 'running'); // live, but in a DIFFERENT graph run
+    setActiveProcesses(ctx, 1);
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+
+    tick(ctx, T0, { maxParallelOf: () => 1 }, []);
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('parallel-slot-busy at 31 min when an agent was claimed earlier in the same tick keeps waiting', () => {
+    const ctx = twoNodes();
+    entry(ctx, 'a');
+    entry(ctx, 'b');
+    const since = at(-31);
+    // Both wait equally, so aging leaves the creation order alone: `a` takes
+    // the single slot and `b` meets the ceiling in the same tick.
+    seedDeferral(ctx, 'a', since);
+    seedDeferral(ctx, 'b', since);
+
+    const result = tick(ctx, T0, { maxParallelOf: () => 1 }, []);
+
+    expect(result.claimed).toBe(1);
+    expect(runIdForNode(ctx.db, ctx.revisionId, 'a')).toBeDefined();
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'b')!.wait_since).toBe(since);
+  });
+
+  it('a conflict with a peer already claimed in the same tick keeps waiting at 31 min', () => {
+    const ctx = twoNodes();
+    entry(ctx, 'a');
+    entry(ctx, 'b');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+    seedDeferral(ctx, 'b', since);
+
+    const result = tick(ctx, T0);
+
+    expect(result.claimed).toBe(1);
+    expect(runIdForNode(ctx.db, ctx.revisionId, 'a')).toBeDefined();
+    expect(runOf(ctx).status).toBe('running');
+    const row = deferralOf(ctx, 'b')!;
+    expect(row.reason).toMatch(/^resource-conflict/);
+    expect(row.wait_since).toBe(since);
+  });
+
+  it('a command node executing in place at `ready` is a live holder — 31 min keeps waiting', () => {
+    const ctx = oneNode();
+    const owner = insertNodeRunRow(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      revisionId: ctx.revisionId,
+      nodeId: 'foreign-owner',
+      nodeKind: 'command',
+      status: 'ready',
+    });
+    hold(ctx, owner);
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+
+    tick(ctx, T0);
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('a freshly claimed agent at `ready` is a live holder — 31 min keeps waiting', () => {
+    const ctx = oneNode();
+    hold(ctx, liveOwnerInRun(ctx, 'ready'));
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+
+    tick(ctx, T0);
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('parallel-slot-busy at 31 min with a freshly claimed agent at `ready` keeps waiting', () => {
+    const ctx = oneNode();
+    insertNodeRunRow(ctx.db, {
+      graphRunId: ctx.graphRunId,
+      revisionId: ctx.revisionId,
+      nodeId: 'foreign-owner',
+      status: 'ready',
+    });
+    setActiveProcesses(ctx, 1);
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+
+    tick(ctx, T0, { maxParallelOf: () => 1 }, []);
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('a gate claimed earlier in the tick consumes no process slot — a later agent still claims', () => {
+    const ctx = harness(doc([gate('g'), agent('a')], [
+      { id: 'g-end', from: 'g', on: 'matched', to: 'END' },
+      { id: 'a-end', from: 'a', on: 'complete', to: 'END' },
+    ], ['g', 'a']));
+    // 'g' is token 1, so the tick claims the gate before the agent.
+    entry(ctx, 'g');
+    entry(ctx, 'a');
+
+    const result = tick(ctx, T0, { maxParallelOf: () => 1 }, []);
+
+    expect(result.claimed).toBe(2);
+    expect(runIdForNode(ctx.db, ctx.revisionId, 'a')).toBeDefined();
+    expect(deferralOf(ctx, 'a')).toBeUndefined();
+  });
+
+  it('a claim that races a live lease holder re-reads liveness — 31 min keeps the 4 h ceiling', () => {
+    const ctx = oneNode();
+    const owner = liveOwnerInRun(ctx);
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+    let raced = false;
+
+    tick(ctx, T0, {
+      domainsForActivation: () => {
+        // Land the lease AFTER the tick's lease snapshot: the scheduler admits
+        // the group and the claim's lease backstop throws GraphClaimError.
+        if (!raced) {
+          raced = true;
+          hold(ctx, owner);
+        }
+        return [DOM];
+      },
+    });
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('a claim that races a parked lease holder keeps the 30-minute ceiling', () => {
+    const ctx = oneNode();
+    const owner = parkedOwner(ctx, 'blocked');
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+    let raced = false;
+
+    tick(ctx, T0, {
+      domainsForActivation: () => {
+        if (!raced) {
+          raced = true;
+          hold(ctx, owner);
+        }
+        return [DOM];
+      },
+    });
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('a claim that races the process ceiling with a live node keeps waiting at 31 min', () => {
+    const ctx = oneNode();
+    entry(ctx, 'a');
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
+    let raced = false;
+
+    tick(ctx, T0, {
+      maxParallelOf: () => 1,
+      domainsForActivation: () => {
+        if (!raced) {
+          raced = true;
+          setActiveProcesses(ctx, 1);
+          liveOwnerInRun(ctx);
+        }
+        return [];
+      },
+    });
+
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+  });
+
+  it('a claim that races the process ceiling with no live node times out at 31 min', () => {
+    const ctx = oneNode();
+    entry(ctx, 'a');
+    seedDeferral(ctx, 'a', at(-31));
+    let raced = false;
+
+    tick(ctx, T0, {
+      maxParallelOf: () => 1,
+      domainsForActivation: () => {
+        if (!raced) {
+          raced = true;
+          setActiveProcesses(ctx, 1);
+        }
+        return [];
+      },
+    });
+
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+  });
+
+  it('a holder that leaves the live set after 30 min times out on the very next tick', () => {
+    const ctx = oneNode();
+    const owner = parkedOwner(ctx, 'running');
+    hold(ctx, owner);
+    entry(ctx, 'a');
+    const since = at(-35);
+    seedDeferral(ctx, 'a', since);
+
+    tick(ctx, T0);
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
+
+    ctx.db.prepare("UPDATE approach_node_runs SET status = 'stale' WHERE id = ?").run(owner);
+
+    tick(ctx, T0);
+    const run = runOf(ctx);
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
   });
 });

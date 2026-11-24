@@ -109,6 +109,19 @@ export function readHostRerunning(store: Store, ticketId: number, nowMs: number 
   return row !== undefined;
 }
 
+/**
+ * The pid that claimed a host re-run of this round and has not ended it (no `end_reason`), or null
+ * when no re-run is in flight: nothing claimed, the claim ended, or no pid was recorded.
+ */
+export function inFlightRerunOwnerPid(store: Store, roundId: number): number | null {
+  const row = store.db
+    .prepare(
+      'SELECT host_rerun_pid AS pid FROM recovery_rounds WHERE id = ? AND (host_rerun_at IS NOT NULL OR no_change_rerun_at IS NOT NULL) AND end_reason IS NULL',
+    )
+    .get(roundId) as { pid: number | null } | undefined;
+  return row?.pid ?? null;
+}
+
 /** The reason a restart gives to a claimed host re-run it finds with no run behind it. */
 export const HOST_RERUN_ORPHANED_REASON = 'the host restarted during the re-run';
 

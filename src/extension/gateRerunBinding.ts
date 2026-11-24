@@ -21,6 +21,8 @@ export interface GateRerunHost {
   readonly liveSinkFor?: GateRerunDeps['liveSinkFor'];
   /** Re-drive a ticket's source stage after a passing re-run. */
   readonly redrive: (ticketId: number) => void;
+  /** Drive the ticket when the host opened the next fix round after a still-failing gate (T1330). */
+  readonly onNextRound: (ticketId: number) => void;
   readonly debug: (message: string) => void;
 }
 
@@ -36,6 +38,7 @@ export function bindGateRerunDeps(host: GateRerunHost): GateRerunDeps {
     git: defaultGitRunner,
     manifest: host.manifest,
     redrive: host.redrive,
+    onNextRound: host.onNextRound,
     hostGateFor: (id) => host.hostGateFor(id)?.(),
     sandboxedFor: (id) => host.gateProcessFor(id) !== undefined,
     regenerateFor: (repo) => regenerateOption(host.manifest(), { repo, names: [repo] }).regenerate,

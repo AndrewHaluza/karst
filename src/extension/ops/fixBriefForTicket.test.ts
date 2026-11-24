@@ -3,7 +3,9 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { reconcilePrFeedback, adoptPrFeedbackIntoRound } from '../../store/prFeedback.js';
-import { openRecoveryRound } from '../../store/recoveryRounds.js';
+import { openRecoveryRound, continueFixRound } from '../../store/recoveryRounds.js';
+import { recordNoChangeReason } from '../../store/fixNoChangeRounds.js';
+import { FIX_CONTINUED_PREFIX } from '../../model/noChange.js';
 import type { PrReviewThread } from '../../model/prReview.js';
 import { recordStallNote } from '../../store/stallNote.js';
 import { recordFindings } from '../../store/reviewFindings.js';
@@ -167,6 +169,24 @@ describe('fixBriefForTicket', () => {
       recordStallNote(store, id, 1, T0, 'split the module');
       const brief = fixBriefForTicket(store, id) ?? '';
       expect(brief).toContain('no longer apply.\n\n---\n\nThe uat gate failed');
+    });
+
+    it('carries the continued-round block for a round the host continued', () => {
+      const id = failedUat('PROJ-11');
+      const round = openRecoveryRound(store, {
+        ticketId: id, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: null,
+        sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'x', maxRounds: 3, startedAt: T0,
+      });
+      recordNoChangeReason(store, round.id, 'no fault in the ticket code', T0);
+      continueFixRound(store, { roundId: round.id, endReason: `${FIX_CONTINUED_PREFIX} lint (web)`, at: T0 });
+      const brief = fixBriefForTicket(store, id) ?? '';
+      expect(brief.split('Continued from fix round 1 of 3:').length - 1).toBe(1);
+      expect(brief).toContain('<<<no-change-reason\nno fault in the ticket code\nno-change-reason>>>');
+    });
+
+    it('has no continued block for a round the host did not continue', () => {
+      const id = failedUat('PROJ-12');
+      expect(fixBriefForTicket(store, id)).not.toContain('Continued from fix round');
     });
   });
 });

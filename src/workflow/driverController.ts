@@ -15,8 +15,8 @@ export function shouldStartDriver(stage: StageKey): boolean {
   return AUTO_GATES.includes(stage);
 }
 
-/** Triggers that mean "the user or host cleared what held the ticket": the unpause command and every resume route. */
-const RESUME_TRIGGERS: readonly string[] = ['unpause', 'stage-resume', 'drain-cancelled'];
+/** Triggers that mean "the user or host cleared what held the ticket": the unpause command, every resume route, and a fix round the host opened after a still-failing gate. */
+const RESUME_TRIGGERS: readonly string[] = ['unpause', 'stage-resume', 'drain-cancelled', 'fix-continued'];
 
 /**
  * Whether a trigger may start the driver at this stage. A resume trigger also starts it
