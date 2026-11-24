@@ -483,6 +483,7 @@ describe('parseAntigravityWindows', () => {
         label: 'Gemini 3 Flash',
         usedPct: 75,
         resetsAt: '2026-10-30T12:00:00Z',
+        secondary: true,
       },
     ]);
   });
@@ -505,6 +506,7 @@ describe('parseAntigravityWindows', () => {
         label: 'Gemini 3 Pro',
         usedPct: 67,
         resetsAt: null,
+        secondary: true,
       },
     ]);
   });
@@ -528,9 +530,9 @@ describe('parseAntigravityWindows', () => {
     };
     const windows = parseAntigravityWindows(raw);
     expect(windows).toEqual([
-      { label: 'M1', usedPct: 50, resetsAt: null },
-      { label: 'M2', usedPct: 50, resetsAt: null },
-      { label: 'M3', usedPct: 50, resetsAt: null },
+      { label: 'M1', usedPct: 50, resetsAt: null, secondary: true },
+      { label: 'M2', usedPct: 50, resetsAt: null, secondary: true },
+      { label: 'M3', usedPct: 50, resetsAt: null, secondary: true },
     ]);
   });
 
@@ -553,9 +555,9 @@ describe('parseAntigravityWindows', () => {
     };
     const windows = parseAntigravityWindows(raw);
     expect(windows).toEqual([
-      { label: 'gemini-fallback', usedPct: 50, resetsAt: null },
-      { label: 'Model', usedPct: 90, resetsAt: null },
-      { label: 'Model', usedPct: 60, resetsAt: null },
+      { label: 'gemini-fallback', usedPct: 50, resetsAt: null, secondary: true },
+      { label: 'Model', usedPct: 90, resetsAt: null, secondary: true },
+      { label: 'Model', usedPct: 60, resetsAt: null, secondary: true },
     ]);
   });
 
@@ -611,6 +613,36 @@ describe('parseAntigravityWindows', () => {
     ]);
   });
 
+  it('tags legacy clientModelConfigs side pools secondary on a paid live read (T1337)', () => {
+    const raw = {
+      planInfo: { teamsTier: 'TEAMS_TIER_PRO' },
+      clientModelConfigs: [
+        { label: '5-hour', quotaInfo: { remainingFraction: 0.12 } },
+        { label: 'Weekly', quotaInfo: { remainingFraction: 0.41 } },
+        { label: 'Claude/GPT (Weekly)', quotaInfo: { remainingFraction: 0 } },
+        { label: 'Argon (Weekly)', quotaInfo: { remainingFraction: 0 } },
+      ],
+    };
+    const windows = parseAntigravityWindows(raw);
+    expect(windows).toEqual([
+      { label: '5-hour', usedPct: 88, resetsAt: null },
+      { label: 'Weekly', usedPct: 59, resetsAt: null },
+      { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: null, secondary: true },
+      { label: 'Argon (Weekly)', usedPct: 100, resetsAt: null, secondary: true },
+    ]);
+    const snapshot = {
+      core: 'antigravity' as const,
+      state: 'ok' as const,
+      windows,
+      source: 'test',
+      readAt: '2026-10-29T10:00:00.000Z',
+    };
+    expect(tightestWindow(snapshot, new Date('2026-10-29T10:00:00.000Z'))).toMatchObject({
+      label: '5-hour',
+      usedPct: 88,
+    });
+  });
+
   it('parses the real language_server_get_user_status fixture', () => {
     const fixture = {
       userStatus: {
@@ -648,6 +680,7 @@ describe('parseAntigravityWindows', () => {
         label: 'Tab Flash Lite Preview',
         usedPct: 0,
         resetsAt: null,
+        secondary: true,
       },
     ]);
   });

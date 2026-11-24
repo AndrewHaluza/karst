@@ -244,6 +244,39 @@ describe('buildQuotaView', () => {
     expect(view.anyNear).toBe(false);
     expect(view.summaryLine).toBeNull();
   });
+
+  it('names the primary window in the summary line, not an exhausted secondary pool (T1337)', () => {
+    const view = buildQuotaView(
+      [ok({
+        core: 'antigravity',
+        windows: [
+          { label: '5-hour', usedPct: 88, resetsAt: iso(2 * HOUR) },
+          { label: 'Weekly', usedPct: 59, resetsAt: iso(4 * DAY) },
+          { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: iso(4 * DAY), secondary: true },
+          { label: 'Argon (Weekly)', usedPct: 100, resetsAt: iso(4 * DAY), secondary: true },
+        ],
+      })],
+      80,
+      NOW,
+    );
+    expect(view.anyNear).toBe(true);
+    expect(view.summaryLine).toBe('Antigravity CLI 5-hour is at 88% used.');
+  });
+
+  it('names an open secondary pool in the summary line only when no primary window is open (T1337)', () => {
+    const view = buildQuotaView(
+      [ok({
+        core: 'antigravity',
+        windows: [
+          { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: iso(4 * DAY), secondary: true },
+        ],
+      })],
+      80,
+      NOW,
+    );
+    expect(view.anyNear).toBe(true);
+    expect(view.summaryLine).toBe('Antigravity CLI Claude/GPT (Weekly) is at 100% used.');
+  });
 });
 
 describe('buildQuotaView — account name (D505)', () => {

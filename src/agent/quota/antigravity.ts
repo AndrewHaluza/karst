@@ -321,12 +321,14 @@ export function parseAntigravityWindows(summaryRaw: unknown, statusRaw?: unknown
               ? cfg.modelId
               : 'Model';
 
-        if (!isPaid) {
-          if (label === '5-hour' || label === 'Weekly') {
-            windows.push({ label, usedPct, resetsAt });
-          }
-        } else {
+        // Same tagging as the groups path (`isPrimaryAntigravityWindow`): a paid
+        // legacy payload's model pools are side pools, and `readCache()` re-derives
+        // the same flags for a snapshot this path wrote, so a live read and a cache
+        // hit of the same payload never pick a different core number.
+        if (isPrimaryAntigravityWindow(label)) {
           windows.push({ label, usedPct, resetsAt });
+        } else if (isPaid) {
+          windows.push({ label, usedPct, resetsAt, secondary: true });
         }
       }
     }
