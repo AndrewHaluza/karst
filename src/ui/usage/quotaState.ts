@@ -2,6 +2,7 @@ import type { AgentProvider } from '../../manifest/types.js';
 import {
   isWindowExpired,
   tightestUsedPct,
+  tightestWindow,
   type QuotaSnapshot,
   type QuotaWindow,
 } from '../../agent/quota/types.js';
@@ -203,18 +204,32 @@ function rowView(snapshot: QuotaSnapshot, thresholdPct: number, now: Date, accou
   };
 }
 
-/** The tightest open window at/above the threshold, as one sentence (US-19). */
-function summaryLineFor(rows: QuotaRowView[], thresholdPct: number): string | null {
-  let best: { row: QuotaRowView; window: QuotaWindowView } | null = null;
-  for (const row of rows) {
-    for (const window of row.windows) {
-      if (window.expired || window.usedDisplay === null || window.usedPct < thresholdPct) continue;
-      if (best === null || window.usedPct > best.window.usedPct) best = { row, window };
+/**
+ * The tightest open window at/above the threshold, as one sentence (US-19).
+ *
+ * The sentence names the SAME window `anyNear` is about (`tightestWindow`): a
+ * primary window wins over a `secondary` side pool, so an exhausted model pool
+ * never hijacks the banner while primary subscription capacity still has room.
+ */
+function summaryLineFor(
+  snapshots: readonly QuotaSnapshot[],
+  rows: readonly QuotaRowView[],
+  thresholdPct: number,
+  now: Date,
+): string | null {
+  let best: { row: QuotaRowView; windowLabel: string; usedPct: number } | null = null;
+  for (let i = 0; i < snapshots.length; i += 1) {
+    const window = tightestWindow(snapshots[i]!, now);
+    if (window === null) continue;
+    const usedPct = Math.round(Math.max(0, Math.min(100, window.usedPct)));
+    if (usedPct < thresholdPct) continue;
+    if (best === null || usedPct > best.usedPct) {
+      best = { row: rows[i]!, windowLabel: window.label, usedPct };
     }
   }
   return best === null
     ? null
-    : `${best.row.label} ${best.window.label} is at ${best.window.usedDisplay}.`;
+    : `${best.row.label} ${best.windowLabel} is at ${best.usedPct}% used.`;
 }
 
 /** Build the Quota tab from the service's snapshots, threshold and clock. */
@@ -234,6 +249,6 @@ export function buildQuotaView(
     rows,
     anyNear,
     subtitle: quotaWarnThresholdText(thresholdPct),
-    summaryLine: anyNear ? summaryLineFor(rows, thresholdPct) : null,
+    summaryLine: anyNear ? summaryLineFor(snapshots, rows, thresholdPct, now) : null,
   };
 }

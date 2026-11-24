@@ -529,6 +529,21 @@
           "type": "string",
           "default": "",
           "description": "Absolute path to the OpenCode v2 launcher (@opencode/cli 2.x). Required for the 'opencode2' agent core: v2 ships a launcher also named 'opencode', so karst never searches PATH for it. Leave empty to keep the core unavailable."
+        },
+        "karst.keepAwake": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off",
+            "always"
+          ],
+          "enumDescriptions": [
+            "Keep the Mac awake on AC power while Karst works: a gate, a ship, an agent or a graph node is live in this window.",
+            "Never keep the Mac awake.",
+            "Keep the Mac awake on battery too."
+          ],
+          "default": "auto",
+          "description": "Whether Karst holds a wake lock (one 'caffeinate' process per window) while a gate, a ship, an agent or a graph node is live in this window. The display can still turn off. macOS only: on another platform the setting does nothing."
         }
       }
     }

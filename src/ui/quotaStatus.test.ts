@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildQuotaIndicator } from './quotaStatus.js';
-import type { QuotaSnapshot } from '../agent/quota/types.js';
+import type { QuotaSnapshot, QuotaWindow } from '../agent/quota/types.js';
 
 const NOW = new Date('2026-01-01T00:00:00.000Z');
 const label = (core: string): string => core;
@@ -104,6 +104,59 @@ describe('buildQuotaIndicator', () => {
     expect(indicator?.level).toBe('ok');
     // The core is not all-expired, so it gets its open-window line only.
     expect(indicator?.tooltip).not.toContain('Reset · waiting for a new read');
+  });
+});
+
+describe('buildQuotaIndicator — secondary pools (T1337)', () => {
+  const LATER = '2026-01-02T00:00:00.000Z';
+  const antigravity = (windows: QuotaWindow[]): QuotaSnapshot => ({
+    core: 'antigravity',
+    state: 'ok',
+    windows,
+    source: 'Antigravity Language Server (Google AI Pro)',
+    readAt: '2026-01-01T00:00:00.000Z',
+  });
+  const coreLabel = (): string => 'Antigravity CLI';
+
+  it('shows the tightest PRIMARY window, not an exhausted side pool', () => {
+    const indicator = buildQuotaIndicator(
+      [
+        antigravity([
+          { label: '5-hour', usedPct: 88, resetsAt: LATER },
+          { label: 'Weekly', usedPct: 59, resetsAt: LATER },
+          { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: LATER, secondary: true },
+          { label: 'Argon (Weekly)', usedPct: 100, resetsAt: LATER, secondary: true },
+        ]),
+      ],
+      80,
+      coreLabel,
+      NOW,
+    );
+
+    expect(indicator?.text).toBe('$(warning) Antigravity CLI 88%');
+    expect(indicator?.level).toBe('near');
+    expect(indicator?.tooltip).toContain('Antigravity CLI: 5-hour: 88% used');
+    expect(indicator?.tooltip).not.toContain('100%');
+    expect(indicator?.tooltip).not.toContain('Claude/GPT (Weekly)');
+  });
+
+  it('stays ok while every primary window is below the threshold, even with exhausted side pools', () => {
+    const indicator = buildQuotaIndicator(
+      [
+        antigravity([
+          { label: '5-hour', usedPct: 50, resetsAt: LATER },
+          { label: 'Weekly', usedPct: 40, resetsAt: LATER },
+          { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: LATER, secondary: true },
+          { label: 'Argon (Weekly)', usedPct: 100, resetsAt: LATER, secondary: true },
+        ]),
+      ],
+      80,
+      coreLabel,
+      NOW,
+    );
+
+    expect(indicator?.text).toBe('$(dashboard) Antigravity CLI 50%');
+    expect(indicator?.level).toBe('ok');
   });
 });
 
