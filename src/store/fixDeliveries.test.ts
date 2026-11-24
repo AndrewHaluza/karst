@@ -108,12 +108,13 @@ describe('fixDeliveries', () => {
     store.db.pragma('foreign_keys = OFF');
     const a = upsert({ recoveryRoundId: roundId });
     claimArmed(store, a, T0);
+    claimEnqueued(store, a, T0);
     claimPointed(store, a, T0);
     claimRepointed(store, a, T0);
     claimPointerFailed(store, a, T0);
-    claimEnqueued(store, a, T0);
     claimRead(store, a, 'pointer', T0);
     supersedeFixDelivery(store, a, T0);
+    expect(getFixDelivery(store, a)).toMatchObject({ enqueuedAt: T0, pointedAt: T0 });
     const again = upsert({ recoveryRoundId: roundId, launchId: 'L2', body: 'new', at: T1 });
     expect(again).toBe(a);
     expect(getFixDelivery(store, a)).toMatchObject({
@@ -185,6 +186,14 @@ describe('fixDeliveries', () => {
     expect(claimRead(store, id, 'pointer', T0)).toBe(true);
     expect(claimRead(store, id, 'seed', T1)).toBe(false);
     expect(getFixDelivery(store, id)).toMatchObject({ readAt: T0, deliveredVia: 'pointer' });
+  });
+
+  it('claimEnqueued loses to a hook that already pointed the row', () => {
+    const id = upsert();
+    claimArmed(store, id, T0);
+    claimPointed(store, id, T0);
+    expect(claimEnqueued(store, id, T1)).toBe(false);
+    expect(getFixDelivery(store, id)!.enqueuedAt).toBeNull();
   });
 
   it('clearEnqueued only clears a set claim', () => {

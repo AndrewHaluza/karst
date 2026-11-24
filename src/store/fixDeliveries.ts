@@ -318,7 +318,6 @@ export function supersedeFixDeliveries(store: Store, ticketId: number, at: strin
 
 type StampColumn =
   | 'armed_at'
-  | 'enqueued_at'
   | 'pointed_at'
   | 'repointed_at'
   | 'pointer_failed_at';
@@ -332,8 +331,16 @@ function claimColumn(store: Store, column: StampColumn, id: number, at: string):
 
 export const claimArmed = (store: Store, id: number, at: string): boolean =>
   claimColumn(store, 'armed_at', id, at);
-export const claimEnqueued = (store: Store, id: number, at: string): boolean =>
-  claimColumn(store, 'enqueued_at', id, at);
+/**
+ * Claim a typed first line in flight. Also refused once a hook pointed the row: the
+ * turn end and the immediate send must never both type a pointer.
+ */
+export function claimEnqueued(store: Store, id: number, at: string): boolean {
+  const info = store.db
+    .prepare('UPDATE fix_deliveries SET enqueued_at = ? WHERE id = ? AND enqueued_at IS NULL AND pointed_at IS NULL')
+    .run(at, id);
+  return Number(info.changes) > 0;
+}
 export const claimPointed = (store: Store, id: number, at: string): boolean =>
   claimColumn(store, 'pointed_at', id, at);
 export const claimRepointed = (store: Store, id: number, at: string): boolean =>
