@@ -212,7 +212,7 @@ import { createLiveHeadlessBinding } from './extension/liveHeadlessBinding.js';
 import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
 import { getPlacement } from './store/placement.js';
 import { createStallBinding } from './extension/stallBinding.js';
-import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
+import { createPlanningOps } from './extension/ops/planningOps.js'; import { sweepPlanningArchive } from './extension/ops/planningAutoArchive.js'; import { prunePlanningScratch } from './extension/ops/planningScratchRetention.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, gitCatFileBatch, repoPathsOf, repoTargetsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
@@ -395,7 +395,7 @@ import {
   defaultGitRunner,
 } from './integrations/git.js';
 import { loadManifest, type Manifest } from './manifest/load.js';
-import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_RESILIENCE } from './manifest/schema.js';
+import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS, DEFAULT_RESILIENCE } from './manifest/schema.js';
 import { repoDisplayPath } from './ui/worktreePath.js';
 import { writeRepoSignals } from './manifest/write.js';
 import { isRunnable } from './manifest/runnable.js';
@@ -6167,6 +6167,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       // Finished planning sessions archive on this tick too (`archivePlanningAfterDays`).
       sweepPlanningArchive({ store: localStore, projectId: project.id, manifest: currentManifest(), isLive: (id) => planning.isLive(id), logError });
+      try {
+        const pruned = prunePlanningScratch({ store: localStore, projectId: project.id,
+          scratchRoot: join(storageDir, 'planning-scratch'),
+          afterDays: currentManifest()?.archivePlanningAfterDays ?? DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS,
+          isLive: (id) => planning.isLive(id), debug: (m) => logger.debug(m) });
+        if (pruned.length > 0) logger.info(`karst: removed ${pruned.length} large folder(s) from archived planning sessions (${Math.round(pruned.reduce((sum, p) => sum + p.bytes, 0) / (1024 * 1024))} MB)`);
+      } catch (e) {
+        logError('karst: planning scratch retention failed', e);
+      }
       await sweepArtifactRetention({ globalStorageRoot: context.globalStorageUri.fsPath, projectId: project.id, manifest: currentManifest(), debug: (m) => logger.debug(m), logError });
       // The ticket sweep above only stamps `archived_at`; it never removes the
       // worktree folder, so an auto-archived ticket's dir would sit on disk
