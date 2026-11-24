@@ -185,6 +185,8 @@ export function routeAction(
       return actions.baselineApprove(msg.blockId, msg.indices);
     case 'baseline-approve-all':
       return actions.baselineApproveAll(msg.blockId);
+    case 'baseline-send-rejections':
+      return actions.baselineSendRejections(msg.blockId);
     case 'tester-skipped-rerun':
       return actions.testerSkippedRerun();
     case 'tester-skipped-accept':

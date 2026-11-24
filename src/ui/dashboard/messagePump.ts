@@ -130,7 +130,9 @@ export function attachMessagePump(panel: DashboardPanel, deps: MessagePumpDeps):
 }
 
 /** The decision messages a user sends from a pending button (UI-R13 exception). */
-const DECISION_TYPES: ReadonlySet<string> = new Set(['baseline-approve', 'baseline-approve-all', 'baseline-reject']);
+const DECISION_TYPES: ReadonlySet<string> = new Set([
+  'baseline-approve', 'baseline-approve-all', 'baseline-send-rejections', 'baseline-reject',
+]);
 
 /** A decision message the parse dropped: tell the pending button, and log the type only (no payload). */
 function refuseDroppedDecision(
