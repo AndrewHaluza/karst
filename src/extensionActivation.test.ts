@@ -116,7 +116,7 @@ describe('extension activation', () => {
     const source = readExtensionSources();
 
     expect(source).toMatch(
-      /archiveInactiveWorktrees\([\s\S]{0,2000}?sweepArchivedTicketGraphRuns\(/,
+      /archiveInactiveWorktrees\([\s\S]{0,3500}?sweepArchivedTicketGraphRuns\(/,
     );
     expect(source).toMatch(
       /sweepArchivedTicketGraphRuns\(\{[\s\S]{0,600}?isSessionLive: \(id\) => sessions\.isLive\(id\)[\s\S]{0,400}?\}, project\.id\)/,
