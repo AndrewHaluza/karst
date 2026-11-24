@@ -213,7 +213,7 @@ function failUat(
     debug: deps.debug,
   });
   deps.debug?.(`[gate] baseline decision ticket ${ticketId}: ${rejected.length} rejected → uat failed, fix`);
-  deps.notify.info(`Sent ${rejected.length} rejected baseline(s) of ${formatId('ticket', ticketId)} to fix.`, ticketId);
+  deps.notify.info(`Sent ${rejected.length} rejected ${rejected.length === 1 ? 'baseline' : 'baselines'} of ${formatId('ticket', ticketId)} to fix.`, ticketId);
   deps.redrive(ticketId);
   return { kind: 'rejected' };
 }

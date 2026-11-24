@@ -216,7 +216,7 @@ describe('decideBaselines — collect rejections, then send them', () => {
     expect(getTicket(store, id).stageCurrent).toBe('fix');
     expect(verdict()).toBe('Visual baseline rejected: a.png: one\nVisual baseline rejected: b.png: two');
     expect(listRecoveryRounds(store, id)).toHaveLength(1);
-    expect(info).toHaveBeenCalledWith(`Sent 2 rejected baseline(s) of T${id} to fix.`, id);
+    expect(info).toHaveBeenCalledWith(`Sent 2 rejected baselines of T${id} to fix.`, id);
   });
 
   it('sends only the rejected entries and leaves the pending ones undecided (AC3)', async () => {
@@ -226,7 +226,7 @@ describe('decideBaselines — collect rejections, then send them', () => {
     expect(verdict()).toBe('Visual baseline rejected: a.png: one');
     expect([...latestBaselineDecisions(store, id).keys()]).toEqual(['/web\0a.png']);
     expect(listRecoveryRounds(store, id)).toHaveLength(1);
-    expect(info).toHaveBeenCalledWith(`Sent 1 rejected baseline(s) of T${id} to fix.`, id);
+    expect(info).toHaveBeenCalledWith(`Sent 1 rejected baseline of T${id} to fix.`, id);
   });
 
   it('refuses Send with nothing rejected and writes nothing (AC4)', async () => {
