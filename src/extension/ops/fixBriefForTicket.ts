@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { activeRecoverySeries } from '../../store/recoveryRounds.js';
+import { previousContinuedRound } from '../../store/fixNoChangeRounds.js';
 import { listPrFeedbackForRound } from '../../store/prFeedback.js';
 import { hasLinkedPrototype, renderFixBrief } from '../../agent/fixBrief.js';
 import { latestReviewBatch, stallNote } from '../../store/stallNote.js';
@@ -27,13 +28,26 @@ export function fixBriefForTicket(
 ): string | null {
   const t = getTicket(store, ticketId);
   const shipRound = activeRecoverySeries(store, ticketId, 'ship');
+  const continued = previousContinuedRound(store, ticketId);
   const brief = renderFixBrief(
     label ?? formatTicketRef(ticketId, t.key),
     t.stages,
     latestReviewBatch(store, ticketId),
     listGateRuns(store, ticketId),
     shipRound === null ? undefined : listPrFeedbackForRound(store, ticketId, shipRound.id),
-    { hasPrototype: hasLinkedPrototype(t), markerAppended },
+    {
+      hasPrototype: hasLinkedPrototype(t),
+      markerAppended,
+      ...(continued === null
+        ? {}
+        : {
+            continuedFrom: {
+              round: continued.round.round,
+              maxRounds: continued.round.maxRounds,
+              reason: continued.reason,
+            },
+          }),
+    },
   );
   // The note of an applied stall option leads the brief (D99 path): the fix
   // agent reads the direction first, and findings on removed scope lapse.
