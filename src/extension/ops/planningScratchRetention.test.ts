@@ -17,6 +17,7 @@ import { createPlanningSession, setPlanningSessionStatus } from '../../store/pla
 import {
   PLANNING_ARCHIVED_DIR_MAX_BYTES,
   prunePlanningScratch,
+  removeScratchDir,
   type PrunedPlanningDir,
 } from './planningScratchRetention.js';
 
@@ -110,6 +111,8 @@ describe('prunePlanningScratch', () => {
     expect(existsSync(join(scratchRoot, String(id), 'proposals.json'))).toBe(true);
     expect(existsSync(join(scratchRoot, String(id), 'karst-instructions.md'))).toBe(true);
     expect(debug.some((m) => m.includes('removed spike'))).toBe(true);
+    // Top-level files are skipped without ever being sized (sizing a file throws).
+    expect(debug.filter((m) => m.includes('failed on session'))).toEqual([]);
   });
 
   it('keeps a directory at exactly the threshold and removes one byte over', () => {
@@ -226,6 +229,22 @@ describe('prunePlanningScratch', () => {
     expect(debug).toEqual([]);
   });
 
+  it('logs a non-ENOENT read error and moves on', () => {
+    const id = session();
+    // `artifacts` as a file makes readdirSync throw ENOTDIR.
+    mkdirSync(join(scratchRoot, String(id)), { recursive: true });
+    writeFileSync(join(scratchRoot, String(id), 'artifacts'), '');
+
+    expect(run()).toEqual([]);
+    expect(debug).toHaveLength(1);
+    expect(debug[0]).toContain('failed to read');
+    expect(debug[0]).toContain('ENOTDIR');
+  });
+
+  it('removeScratchDir tolerates a directory that is already gone', () => {
+    expect(() => removeScratchDir(join(root, 'gone'))).not.toThrow();
+  });
+
   it('logs a per-dir removal error and still prunes the remaining dirs and sessions', () => {
     const first = session();
     const second = session();
@@ -246,7 +265,10 @@ describe('prunePlanningScratch', () => {
     expect(pruned.map((p) => `${p.sessionId}:${p.dir}`).sort()).toEqual(
       [`${first}:ok`, `${second}:ok`].sort(),
     );
-    expect(debug.filter((m) => m.includes('failed on session'))).toHaveLength(2);
+    const failures = debug.filter((m) => m.includes('failed on session'));
+    expect(failures).toHaveLength(2);
+    // The thrown message survives into the log (not `undefined`).
+    expect(failures.every((m) => m.includes('EACCES: denied'))).toBe(true);
     expect(existsSync(join(artifacts(first), 'boom', 'f.bin'))).toBe(true);
     expect(existsSync(join(artifacts(second), 'boom', 'f.bin'))).toBe(true);
   });

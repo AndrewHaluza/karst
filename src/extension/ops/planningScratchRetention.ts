@@ -37,30 +37,31 @@ function sqliteMs(text: string): number {
   return Date.parse(`${text.replace(' ', 'T')}Z`);
 }
 
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-/** Total bytes of regular files under `dir`; symlinks are never followed. */
+/**
+ * Total bytes under `dir`. `lstat` is deliberate: a nested symlink is not a
+ * directory, so it contributes only its own link size and its target is never
+ * walked.
+ */
 function dirBytes(dir: string): number {
   let total = 0;
   for (const name of readdirSync(dir)) {
     const child = join(dir, name);
     const st = lstatSync(child);
-    if (st.isSymbolicLink()) continue;
     if (st.isDirectory()) total += dirBytes(child);
-    else if (st.isFile()) total += st.size;
+    else total += st.size;
   }
   return total;
 }
 
-function errCode(e: unknown): string | undefined {
-  return typeof e === 'object' && e !== null && 'code' in e
-    ? (e as { code?: string }).code
-    : undefined;
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
-function defaultRemoveDir(path: string): void {
+/**
+ * Remove one scratch directory. `force` makes a directory that vanished between
+ * the size walk and this call a no-op instead of an error.
+ */
+export function removeScratchDir(path: string): void {
   rmSync(path, { recursive: true, force: true });
 }
 
@@ -76,7 +77,7 @@ function defaultRemoveDir(path: string): void {
 export function prunePlanningScratch(input: PrunePlanningScratchInput): PrunedPlanningDir[] {
   const cutoff = (input.now ?? new Date()).getTime() - input.afterDays * DAY_MS;
   const pruned: PrunedPlanningDir[] = [];
-  const remove = input.removeDir ?? defaultRemoveDir;
+  const remove = input.removeDir ?? removeScratchDir;
   for (const s of listPlanningSessions(input.store, input.projectId, { includeArchived: true })) {
     if (s.status !== 'archived') continue;
     if (input.isLive(s.id)) continue;
@@ -87,7 +88,7 @@ export function prunePlanningScratch(input: PrunePlanningScratchInput): PrunedPl
     try {
       names = readdirSync(artifactsDir);
     } catch (e) {
-      if (errCode(e) !== 'ENOENT') {
+      if ((e as { code?: string }).code !== 'ENOENT') {
         input.debug(`[planning] scratch retention: failed to read ${artifactsDir}: ${errorMessage(e)}`);
       }
       continue;
@@ -96,7 +97,9 @@ export function prunePlanningScratch(input: PrunePlanningScratchInput): PrunedPl
       try {
         const entryPath = join(artifactsDir, name);
         const st = lstatSync(entryPath);
-        if (st.isSymbolicLink() || !st.isDirectory()) continue;
+        // `lstat` never reports a symlink as a directory, so this skips both
+        // top-level files and symlinked dirs without following the link.
+        if (!st.isDirectory()) continue;
         const bytes = dirBytes(entryPath);
         if (bytes <= PLANNING_ARCHIVED_DIR_MAX_BYTES) continue;
         remove(entryPath);
