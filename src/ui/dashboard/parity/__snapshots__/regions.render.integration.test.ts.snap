@@ -1025,7 +1025,8 @@ exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket
     <div.inside-head title="Implementation">
       <span#inside-title.inside-title> "Inside Implementation"
       <span.inside-live>
-      <span.inside-meta> "started <clock> · <dur> <dur> elapsed"
+      <span.inside-meta> "<dur> <dur> elapsed"
+        <span.clock-start> "started <clock> ·"
     <div.ledger>
       <details.live.op.run data-proc-id="impl:session">
         <summary>
@@ -1252,9 +1253,11 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
       <span.inside-live>
       <span.autofix-chipwrap>
         <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
-          <span> "Auto-fix off · default"
+          <span> "Auto-fix off"
+            <span.autofix-default> "· default"
           <svg.k-icon aria-hidden="true">
-      <span.inside-meta> "<clock> · <dur> <dur>"
+      <span.inside-meta> "<dur> <dur>"
+        <span.clock-start> "<clock> ·"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
         <span#ship-preview-title.sp-title> "Ship preview"
@@ -1426,9 +1429,11 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
       <span.inside-live>
       <span.autofix-chipwrap>
         <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
-          <span> "Auto-fix off · default"
+          <span> "Auto-fix off"
+            <span.autofix-default> "· default"
           <svg.k-icon aria-hidden="true">
-      <span.inside-meta> "<clock> · <dur> <dur>"
+      <span.inside-meta> "<dur> <dur>"
+        <span.clock-start> "<clock> ·"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
         <span#ship-preview-title.sp-title> "Ship preview"
@@ -1601,9 +1606,11 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
       <span.inside-live>
       <span.autofix-chipwrap>
         <button.autofix-chip aria-expanded="false" aria-haspopup="menu" data-act="autopilot-menu" title="Choose how auto-fix runs for this ticket" type="button">
-          <span> "Auto-fix off · default"
+          <span> "Auto-fix off"
+            <span.autofix-default> "· default"
           <svg.k-icon aria-hidden="true">
-      <span.inside-meta> "<clock> · <dur> <dur>"
+      <span.inside-meta> "<dur> <dur>"
+        <span.clock-start> "<clock> ·"
     <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
       <div.sp-head>
         <span#ship-preview-title.sp-title> "Ship preview"
