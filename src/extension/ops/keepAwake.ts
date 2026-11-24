@@ -90,6 +90,7 @@ export function makeKeepAwake(deps: KeepAwakeDeps): KeepAwake {
   /** The sorted live-key signature; `null` until the first tick. */
   let signature: string | null = null;
   let signatureSince = 0;
+  // Stryker disable next-line BooleanLiteral: equivalent — the first tick always sees a new signature and resets this flag before it is read.
   let holdLimitReached = false;
 
   /** Kills the child if one runs; returns the mode it held, or null when none ran. */

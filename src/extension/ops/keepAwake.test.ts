@@ -244,6 +244,13 @@ describe('makeKeepAwake', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('a tick after dispose spawns nothing, even with a live run and no late child event', () => {
+    const { keep, calls } = setup();
+    keep.dispose();
+    keep.tick();
+    expect(calls).toHaveLength(0);
+  });
+
   it('dispose without a child is a no-op', () => {
     const { keep } = setup();
     expect(() => keep.dispose()).not.toThrow();
@@ -277,6 +284,18 @@ describe('makeKeepAwake hold limit', () => {
     keep.tick();
     expect(calls).toHaveLength(1);
     expect(debug.filter((l) => l.includes('hold limit'))).toHaveLength(1);
+  });
+
+  it('keys that differ only by where they split are another live set', () => {
+    const { keep, children, state } = setup();
+    state.keys = ['a', 'b'];
+    keep.tick();
+    state.clock += KEEP_AWAKE_MAX_HOLD_MS - 1;
+    state.keys = ['ab'];
+    keep.tick();
+    state.clock += 1;
+    keep.tick();
+    expect(children[0]!.killed).toBe(0);
   });
 
   it('holds again once the live set changes', () => {
@@ -379,6 +398,14 @@ describe('keepAwakeLiveKeys over a real store', () => {
     ]);
     expect(keepAwakeLiveKeys(store, 999_999, PROJECT, 0, [], NOW)).toEqual([`gate:${elsewhere.id}`]);
     expect(keepAwakeLiveKeys(store, 111_111, PROJECT, 0, [], NOW)).toEqual([]);
+    store.close();
+  });
+
+  it('gives no agent key and no error when the project is unknown', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'K-np', title: 'no project', projectId: PROJECT });
+    addRun(store, "UPDATE tickets SET agent_state = 'running', last_hook_at = ? WHERE id = ?", new Date(NOW).toISOString(), t.id);
+    expect(keepAwakeLiveKeys(store, HOST_PID, undefined, 0, [], NOW)).toEqual([]);
     store.close();
   });
 
