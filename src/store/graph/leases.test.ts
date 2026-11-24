@@ -13,7 +13,6 @@ import { NODE_RUN_TRANSITIONS } from './transitions.js';
 import {
   LIVE_NODE_RUN_STATUSES,
   acquireLease,
-  countLiveNodeRunsForGraphRun,
   heldLeasesForScheduler,
   markLeaseAmbiguous,
 } from './leases.js';
@@ -80,10 +79,11 @@ function holdLease(h: Harness, ownerNodeRunId: number, domain = 'dom-a'): number
 }
 
 /** Every status the node-run transition map knows, split by liveness. The
- *  union assertion below fails when a status is added and not classified. */
-const LIVE = ['launching', 'running', 'completing', 'integrating'];
+ *  union assertion below fails when a status is added and not classified.
+ *  `ready` is live: a claimed run holds its lease (and, for agent/command, its
+ *  process slot) until its drive launches it or executes it (T1333). */
+const LIVE = ['ready', 'launching', 'running', 'completing', 'integrating'];
 const NOT_LIVE = [
-  'ready',
   'waiting-resource',
   'completed',
   'blocked',
@@ -142,11 +142,11 @@ describe('heldLeasesForScheduler owner liveness (T1333)', () => {
     ]);
   });
 
-  it('an agent node run at `ready` stays not live — claimed but never launched', () => {
+  it('a gate node run at `ready` is live — claimed and awaiting its drive', () => {
     const h = harness();
-    const owner = insertNodeRun(h, 'ready');
+    const owner = insertNodeRun(h, 'ready', 'owner', 'gate');
     holdLease(h, owner);
-    expect(heldLeasesForScheduler(h.db)[0]!.ownerLive).toBe(false);
+    expect(heldLeasesForScheduler(h.db)[0]!.ownerLive).toBe(true);
   });
 
   it('a command node run parked in a terminal status is not live either', () => {
@@ -191,51 +191,5 @@ describe('heldLeasesForScheduler owner liveness (T1333)', () => {
     holdLease(h, owner);
     h.db.prepare("UPDATE approach_resource_leases SET status = 'released'").run();
     expect(heldLeasesForScheduler(h.db)).toEqual([]);
-  });
-});
-
-describe('countLiveNodeRunsForGraphRun (T1333)', () => {
-  it('counts live statuses and a command at `ready`, and nothing parked or merely claimed', () => {
-    const h = harness();
-    insertNodeRun(h, 'running', 'a');
-    insertNodeRun(h, 'integrating', 'b');
-    insertNodeRun(h, 'ready', 'c', 'command'); // executing in place
-    insertNodeRun(h, 'ready', 'd'); // agent claimed, not launched
-    insertNodeRun(h, 'blocked', 'e');
-    insertNodeRun(h, 'completed', 'f');
-
-    expect(countLiveNodeRunsForGraphRun(h.db, h.graphRunId)).toBe(3);
-  });
-
-  it('does not count another graph run\'s live node', () => {
-    const h = harness();
-    insertNodeRun(h, 'running', 'a');
-    const foreignGraphRunId = Number(
-      h.db
-        .prepare(
-          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
-           SELECT ticket_id, 'impl', 1, 'foreign-approach', 'running', ?
-           FROM approach_graph_runs WHERE id = ?`,
-        )
-        .run(NOW, h.graphRunId).lastInsertRowid,
-    );
-    const foreignRevisionId = Number(
-      h.db
-        .prepare(
-          `INSERT INTO approach_graph_revisions
-             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
-           VALUES (?, 1, '{}', 'fp-foreign', 'active', ?)`,
-        )
-        .run(foreignGraphRunId, NOW).lastInsertRowid,
-    );
-    h.db
-      .prepare(
-        `INSERT INTO approach_node_runs
-           (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-         VALUES (?, ?, 'foreign', 'agent', 1, 'running')`,
-      )
-      .run(foreignGraphRunId, foreignRevisionId);
-
-    expect(countLiveNodeRunsForGraphRun(h.db, h.graphRunId)).toBe(1);
   });
 });

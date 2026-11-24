@@ -1218,26 +1218,25 @@ describe('H4 live-holder deferral ceiling (T1333)', () => {
     expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
   });
 
-  it('a ready AGENT owner is claimed but never launched — not live, so 31 min times out', () => {
+  it('a freshly claimed agent at `ready` is a live holder — 31 min keeps waiting', () => {
     const ctx = oneNode();
     hold(ctx, liveOwnerInRun(ctx, 'ready'));
     entry(ctx, 'a');
-    seedDeferral(ctx, 'a', at(-31));
+    const since = at(-31);
+    seedDeferral(ctx, 'a', since);
 
     tick(ctx, T0);
 
-    const run = runOf(ctx);
-    expect(run.status).toBe('blocked');
-    expect(run.blocked_reason).toMatch(/^graph-deferral-timeout/);
+    expect(runOf(ctx).status).toBe('running');
+    expect(deferralOf(ctx, 'a')!.wait_since).toBe(since);
   });
 
-  it('parallel-slot-busy at 31 min with a command still running at `ready` keeps waiting', () => {
+  it('parallel-slot-busy at 31 min with a freshly claimed agent at `ready` keeps waiting', () => {
     const ctx = oneNode();
     insertNodeRunRow(ctx.db, {
       graphRunId: ctx.graphRunId,
       revisionId: ctx.revisionId,
       nodeId: 'foreign-owner',
-      nodeKind: 'command',
       status: 'ready',
     });
     setActiveProcesses(ctx, 1);

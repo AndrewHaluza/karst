@@ -201,8 +201,8 @@ export function activationDomainKeys(
  *  the owner's process death is unprovable (then it blocks EVERYTHING), the
  *  claimed paths (`[]` = repository-wide), and whether the owner is still live
  *  (the deferral ceiling's input, `@issue:H4`). `ownerLive` comes from the
- *  store: a live node-run status for any kind, plus a COMMAND owner still
- *  executing at `ready`. */
+ *  store: a claimed run at `ready` or a launched run in a working status,
+ *  whatever the node kind. */
 export interface SchedulerLease {
   physicalDomain: string;
   accessMode: AccessMode;
@@ -237,11 +237,11 @@ export interface SchedulerState {
   /** The manifest's `graph.limits.maxParallel` (the external-process ceiling). */
   maxParallel: number;
   /**
-   * How many node runs of THIS graph run are live right now (T1333): the live
-   * statuses (`launching`, `running`, `completing`, `integrating`) plus a
-   * COMMAND run still executing at `ready`. A `parallel-slot-busy` refusal is
-   * only "live" when a process is behind the occupied slots: this durable
-   * count, or a process this very call admitted.
+   * How many node runs of THIS graph run are live right now (T1333): a
+   * claimed run at `ready` plus the working statuses (`launching`, `running`,
+   * `completing`, `integrating`). A `parallel-slot-busy` refusal is only
+   * "live" when a process is behind the occupied slots: this durable count, or
+   * a process this very call admitted. Another run's live node never counts.
    */
   liveNodeRuns: number;
 }

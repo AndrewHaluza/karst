@@ -28,13 +28,14 @@ import {
 } from '../../../store/graph/graphRuns.js';
 import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import {
-  countLiveNodeRunsForGraphRun,
   heldLeasesForScheduler,
+  LIVE_NODE_RUN_STATUSES,
   type SchedulerLeaseRow,
 } from '../../../store/graph/leases.js';
 import {
   activeProcessesOf,
   clearDeferral,
+  countNodeRunsInStatusesForGraphRun,
   recordDeferral,
   type BaseHead,
 } from '../../../store/graph/nodeRuns.js';
@@ -86,10 +87,10 @@ export const MAX_DEFERRAL_WAIT_MS = 30 * 60_000;
 /**
  * H4, the LONG ceiling: a deferral behind a live holder (T1333). The holder's
  * node run is `launching`, `running`, `completing` or `integrating` — or a
- * COMMAND run still executing at `ready`, which is where a command sits until
- * it finishes — so it is still working and its lease/slot releases when it
- * finishes. Waiting is the correct behaviour, and 30 minutes is shorter than a
- * legitimate long agent run (T1317's holder ran ~40 minutes) or a long build.
+ * claimed run at `ready`, which is still awaiting its drive and holds its lease
+ * and slot until then — so it is still working and releases when it finishes.
+ * Waiting is the correct behaviour, and 30 minutes is shorter than a legitimate
+ * long agent run (T1317's holder ran ~40 minutes) or a long build.
  *
  * It is still a CEILING, not an exemption: issue H4 requires every deferral to
  * have an upper bound, so a hung agent cannot hold the run for ever. Four
@@ -286,8 +287,8 @@ export function runCoordinatorTick(
     activeProcesses: activeProcessesOf(db, opts.graphRunId),
     // T1333: how many node runs of THIS run are live right now — the
     // `parallel-slot-busy` holder-liveness input. Durable status only, no
-    // process probe; a command still executing at `ready` counts.
-    liveNodeRuns: countLiveNodeRunsForGraphRun(db, opts.graphRunId),
+    // process probe; a freshly claimed run at `ready` counts.
+    liveNodeRuns: countNodeRunsInStatusesForGraphRun(db, opts.graphRunId, LIVE_NODE_RUN_STATUSES),
     ceiling: maxParallel ?? Number.MAX_SAFE_INTEGER,
   };
   const waitSinceByNode = new Map(
@@ -380,7 +381,7 @@ export function runCoordinatorTick(
   const holderLiveAfterClaimFailure = (domains: readonly ActivationDomain[]): boolean => {
     const conflict = heldLeaseConflict(domains, heldLeasesForScheduler(db));
     if (conflict !== null) return conflict.holderLive;
-    return countLiveNodeRunsForGraphRun(db, opts.graphRunId) > 0;
+    return countNodeRunsInStatusesForGraphRun(db, opts.graphRunId, LIVE_NODE_RUN_STATUSES) > 0;
   };
 
   /** Record the deferral, and answer whether this node's wait has run out

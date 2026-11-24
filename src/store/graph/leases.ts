@@ -144,26 +144,22 @@ export interface SchedulerLeaseRow {
   ownerLive: boolean;
 }
 
-/** The node-run statuses in which an agent node is still making progress.
- *  Every other status — `ready`, `waiting-resource`, a terminal outcome, an
- *  artifact fault, `launch-unknown`, `termination-unknown`, `stale`,
- *  `cancelled` — means the holder will not release its lease by finishing.
- *  `ready` is the exception for a COMMAND owner only: a command executes in
- *  place, so its run stays `ready` until it has finished and only then moves
- *  to `completing` (see `liveLeaseOwner`). An agent run at `ready` is claimed
- *  but not launched. */
-export const LIVE_NODE_RUN_STATUSES = ['launching', 'running', 'completing', 'integrating'] as const;
+/** The node-run statuses in which a holder still makes progress: `ready` is a
+ *  CLAIMED run (it holds its lease, and its process slot for agent/command,
+ *  until the drive launches it — an agent — or executes it in place — a
+ *  command, which stays `ready` until it finishes), and `launching`, `running`,
+ *  `completing` and `integrating` are the launched, working states. Every other
+ *  status — `waiting-resource`, a terminal outcome, an artifact fault,
+ *  `launch-unknown`, `termination-unknown`, `stale`, `cancelled` — means the
+ *  holder will not release its lease by finishing. */
+export const LIVE_NODE_RUN_STATUSES = ['ready', 'launching', 'running', 'completing', 'integrating'] as const;
 
 const LIVE_NODE_RUN_STATUS_SET: ReadonlySet<string> = new Set(LIVE_NODE_RUN_STATUSES);
 
-/** Whether a lease owner is still making progress. A live status is live for
- *  any node kind; a COMMAND node run at `ready` is live too, because the driver
- *  executes a command in place and transitions it `ready → completing` only
- *  after it finishes — a long build is a live holder, not a parked one. */
-function liveLeaseOwner(ownerStatus: string | null, ownerKind: string | null): boolean {
-  if (ownerStatus === null) return false;
-  if (LIVE_NODE_RUN_STATUS_SET.has(ownerStatus)) return true;
-  return ownerKind === 'command' && ownerStatus === 'ready';
+/** Whether a lease owner is still making progress. The durable status decides,
+ *  never a process probe; liveness does not depend on the node kind (T1333). */
+function liveLeaseOwner(ownerStatus: string | null): boolean {
+  return ownerStatus !== null && LIVE_NODE_RUN_STATUS_SET.has(ownerStatus);
 }
 
 /** Every `held`/`ambiguous-process` lease in the store, other-owner excluded
@@ -173,8 +169,7 @@ function liveLeaseOwner(ownerStatus: string | null, ownerKind: string | null): b
 export function heldLeasesForScheduler(db: GraphDb): SchedulerLeaseRow[] {
   const rows = db
     .prepare(
-      `SELECT l.physical_domain, l.access_mode, l.claimed_paths, l.status,
-              nr.status AS owner_status, nr.node_kind AS owner_kind
+      `SELECT l.physical_domain, l.access_mode, l.claimed_paths, l.status, nr.status AS owner_status
        FROM approach_resource_leases l
        LEFT JOIN approach_node_runs nr ON nr.id = l.owner_node_run_id
        WHERE l.status IN ('held','ambiguous-process')
@@ -186,7 +181,6 @@ export function heldLeasesForScheduler(db: GraphDb): SchedulerLeaseRow[] {
     claimed_paths: string | null;
     status: string;
     owner_status: string | null;
-    owner_kind: string | null;
   }[];
   return rows.map((row) => {
     const ambiguous = row.status === 'ambiguous-process';
@@ -197,27 +191,9 @@ export function heldLeasesForScheduler(db: GraphDb): SchedulerLeaseRow[] {
       paths: decodeLeasePaths(row.claimed_paths),
       // An ambiguous lease blocks everything and is never "live"; a missing
       // owner row is not live either (nothing will release the lease).
-      ownerLive: !ambiguous && liveLeaseOwner(row.owner_status, row.owner_kind),
+      ownerLive: !ambiguous && liveLeaseOwner(row.owner_status),
     };
   });
-}
-
-/** How many of one graph run's node runs are LIVE process holders (T1333) —
- *  the `parallel-slot-busy` liveness input. It mirrors `liveLeaseOwner`: the
- *  live statuses for any kind, plus a COMMAND run at `ready` (executing in
- *  place; it holds its process slot until it completes). An agent run at
- *  `ready` is claimed but not launched and is not counted. Another run's live
- *  node never counts: the ceiling it keeps belongs to this run's slots. */
-export function countLiveNodeRunsForGraphRun(db: GraphDb, graphRunId: number): number {
-  const placeholders = LIVE_NODE_RUN_STATUSES.map(() => '?').join(', ');
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM approach_node_runs
-       WHERE graph_run_id = ?
-         AND (status IN (${placeholders}) OR (node_kind = 'command' AND status = 'ready'))`,
-    )
-    .get(graphRunId, ...LIVE_NODE_RUN_STATUSES) as { n: number };
-  return row.n;
 }
 
 export interface ReleaseLeaseOpts {

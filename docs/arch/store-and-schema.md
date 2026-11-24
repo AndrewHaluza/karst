@@ -120,7 +120,7 @@ The agent identity snapshot is part of the same boundary: `approach_graph_runs.a
 
 The automatic recovery count is part of the same boundary: `auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
 
-`heldLeasesForScheduler` joins `approach_node_runs` for liveness; a command at `ready` is live.
+`heldLeasesForScheduler` joins `approach_node_runs` for liveness; a `ready` run is live.
 
 The claim evidence of a `blocked` node reads `blockedNodeRunsWithoutCategory`. The host reads a clone through `workspacesForNode`.
 
