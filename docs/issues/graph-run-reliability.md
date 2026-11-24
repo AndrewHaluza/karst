@@ -287,6 +287,33 @@ expiry the run parks `blocked` with `graph-deferral-timeout: node <id> waited
 resource, and its wait ends when they do. `recoveryCategoryFor` maps the reason
 to `replan`: a claim the plan cannot satisfy needs a new revision, never a
 retry of the same claim.
+
+**Second pass (T1333): the ceiling depends on the holder.** One ceiling on
+elapsed time alone false-blocked a healthy run: in T1317 run 37 a live agent
+node ran ~40 minutes, and at 30 minutes the waiter's deferral parked the run
+`graph-deferral-timeout` while the holder was still working. There are now two
+ceilings, and `defer` picks one from the refusal's `holderLive`:
+
+- `MAX_LIVE_HOLDER_WAIT_MS` (4 hours) when every holder behind the refusal is
+  live — a lease owner in `launching`, `running`, `completing` or
+  `integrating`, or a freshly claimed run at `ready` (an agent awaiting its
+  drive; a command executes in place from here), or (for `parallel-slot-busy`)
+  at least one live node run of this graph run (a process claimed earlier in
+  the same tick counts).
+- `MAX_DEFERRAL_WAIT_MS` (30 minutes) when ANY blocking holder is parked, dead,
+  ambiguous (`ambiguous-process`) or missing, or when a `parallel-slot-busy`
+  slot has no live node behind it. A hung live agent is still bounded: the
+  four hours are a hard upper bound, not an exemption.
+
+Liveness is the owner node run's durable status, read by
+`heldLeasesForScheduler`'s join inside the store boundary; reconcile already
+moves a dead process to `stale` or `termination-unknown`, so the sweep stays
+synchronous and probes no process. A claim that throws `GraphClaimError` after
+the scheduler admitted it raced another window, so the sweep re-reads the
+conflicting leases and live count (`holderLiveAfterClaimFailure`) before it
+records the deferral. `wait_since` never moves (aging priority still reads it),
+so a holder that leaves the live set after the waiter's 30th minute times out on
+the very next tick.
 END_DOC_BLOCK: [@issue:H4]
 
 ## [@issue:H-INVARIANT] The invariant these four share

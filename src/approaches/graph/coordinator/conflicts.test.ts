@@ -25,6 +25,7 @@ import {
   type SchedulerGroup,
   type SchedulerLease,
   type SchedulerState,
+  type SchedulerDecision,
   type AllowlistCommandAccess,
 } from './conflicts.js';
 import { domainKeyOf } from '../integration/domains.js';
@@ -222,6 +223,7 @@ describe('schedulerReady', () => {
     heldLeases: [],
     activeProcesses: 0,
     maxParallel: 4,
+    liveNodeRuns: 0,
     ...over,
   });
 
@@ -276,14 +278,14 @@ describe('schedulerReady', () => {
 
   it('a held write lease blocks a read; a held read lease blocks only writes', () => {
     const held: SchedulerLease[] = [
-      { physicalDomain: 'd', accessMode: 'write', ambiguous: false, paths: [] },
+      { physicalDomain: 'd', accessMode: 'write', ambiguous: false, paths: [], ownerLive: true },
     ];
     expect(
       schedulerReady([group({ destination: 'a' })], state({ heldLeases: held }))[0]!.admitted,
     ).toBe(false);
 
     const heldRead: SchedulerLease[] = [
-      { physicalDomain: 'd', accessMode: 'read', ambiguous: false, paths: ['src/'] },
+      { physicalDomain: 'd', accessMode: 'read', ambiguous: false, paths: ['src/'], ownerLive: true },
     ];
     // A reader may share a read-held domain…
     expect(
@@ -300,7 +302,7 @@ describe('schedulerReady', () => {
 
   it('an ambiguous-process lease blocks every activation on that domain', () => {
     const held: SchedulerLease[] = [
-      { physicalDomain: 'd', accessMode: 'read', ambiguous: true, paths: [] },
+      { physicalDomain: 'd', accessMode: 'read', ambiguous: true, paths: [], ownerLive: false },
     ];
     const decisions = schedulerReady(
       [group({ destination: 'a', domains: [{ physicalDomain: 'd', accessMode: 'read', paths: [] }] })],
@@ -314,7 +316,9 @@ describe('schedulerReady', () => {
   // The canonical worktree path is the readable half.
   it('names the worktree path, never the NUL-keyed domain, of a held write lease', () => {
     const key = domainKeyOf('/wt/t1', '/wt/.git');
-    const held: SchedulerLease[] = [{ physicalDomain: key, accessMode: 'write', ambiguous: false, paths: [] }];
+    const held: SchedulerLease[] = [
+      { physicalDomain: key, accessMode: 'write', ambiguous: false, paths: [], ownerLive: true },
+    ];
     const decisions = schedulerReady(
       [group({ domains: [{ physicalDomain: key, accessMode: 'write', paths: [] }] })],
       state({ heldLeases: held }),
@@ -327,7 +331,9 @@ describe('schedulerReady', () => {
 
   it('names the worktree path of an ambiguous-process lease and no NUL', () => {
     const key = domainKeyOf('/wt/t1', '/wt/.git');
-    const held: SchedulerLease[] = [{ physicalDomain: key, accessMode: 'read', ambiguous: true, paths: [] }];
+    const held: SchedulerLease[] = [
+      { physicalDomain: key, accessMode: 'read', ambiguous: true, paths: [], ownerLive: false },
+    ];
     const decisions = schedulerReady(
       [group({ domains: [{ physicalDomain: key, accessMode: 'read', paths: [] }] })],
       state({ heldLeases: held }),
@@ -366,6 +372,167 @@ describe('schedulerReady', () => {
   it('a pre-existing active process count is honored across ticks', () => {
     const decisions = schedulerReady([group({ destination: 'a' })], state({ activeProcesses: 4, maxParallel: 4 }));
     expect(decisions[0]).toMatchObject({ admitted: false, refused: { reason: 'parallel-slot-busy' } });
+  });
+});
+
+/**
+ * T1333 — `holderLive` on a refusal: whether EVERY holder blocking this group
+ * is a live node run. The sweep's deferral ceiling reads it (30 min when not
+ * live, 4 h when live). A `dependency-waiting` refusal has no holder at all.
+ */
+describe('schedulerReady holderLive (T1333)', () => {
+  const group = (over: Partial<SchedulerGroup> = {}): SchedulerGroup => ({
+    destination: 'n',
+    nodeKind: 'agent',
+    domains: [{ physicalDomain: 'd', accessMode: 'write', paths: [] }],
+    created: '2026-08-12T00:00:00.000Z',
+    tokenId: 1,
+    forkInstance: 0,
+    forkLineage: 'root',
+    dependencyWaiting: false,
+    ...over,
+  });
+  const state = (over: Partial<SchedulerState> = {}): SchedulerState => ({
+    heldLeases: [],
+    activeProcesses: 0,
+    maxParallel: 4,
+    liveNodeRuns: 0,
+    ...over,
+  });
+  const lease = (over: Partial<SchedulerLease> = {}): SchedulerLease => ({
+    physicalDomain: 'd',
+    accessMode: 'write',
+    ambiguous: false,
+    paths: [],
+    ownerLive: true,
+    ...over,
+  });
+  const holderLiveOf = (decisions: SchedulerDecision[]): boolean | undefined =>
+    decisions[0]!.refused!.holderLive;
+
+  it('a single live lease holder is live', () => {
+    const decisions = schedulerReady([group()], state({ heldLeases: [lease()] }));
+    expect(holderLiveOf(decisions)).toBe(true);
+  });
+
+  it('a single parked holder is not live', () => {
+    const decisions = schedulerReady([group()], state({ heldLeases: [lease({ ownerLive: false })] }));
+    expect(holderLiveOf(decisions)).toBe(false);
+  });
+
+  it('an ambiguous-process lease is never a live holder, even if ownerLive is set', () => {
+    const decisions = schedulerReady(
+      [group()],
+      state({ heldLeases: [lease({ ambiguous: true, ownerLive: true })] }),
+    );
+    expect(holderLiveOf(decisions)).toBe(false);
+  });
+
+  it('two conflicting live leases are both inspected — the holder is live', () => {
+    const decisions = schedulerReady(
+      [group()],
+      state({ heldLeases: [lease(), lease({ physicalDomain: 'd' })] }),
+    );
+    expect(holderLiveOf(decisions)).toBe(true);
+  });
+
+  it('a live lease followed by a parked one makes the holder not live', () => {
+    const decisions = schedulerReady(
+      [group()],
+      state({ heldLeases: [lease(), lease({ ownerLive: false })] }),
+    );
+    expect(holderLiveOf(decisions)).toBe(false);
+  });
+
+  it('a parked lease followed by a live one makes the holder not live', () => {
+    const decisions = schedulerReady(
+      [group()],
+      state({ heldLeases: [lease({ ownerLive: false }), lease()] }),
+    );
+    expect(holderLiveOf(decisions)).toBe(false);
+  });
+
+  it('a non-conflicting parked lease does not count against a live conflicting holder', () => {
+    const decisions = schedulerReady(
+      [group()],
+      state({ heldLeases: [lease(), lease({ physicalDomain: 'other', ownerLive: false })] }),
+    );
+    expect(holderLiveOf(decisions)).toBe(true);
+  });
+
+  it('a read/read lease on the same domain does not conflict and does not count', () => {
+    const decisions = schedulerReady(
+      [
+        group({ domains: [{ physicalDomain: 'd', accessMode: 'read', paths: [] }] }),
+      ],
+      state({
+        heldLeases: [
+          lease({ accessMode: 'read', ownerLive: true }),
+          lease({ accessMode: 'read', ownerLive: false }),
+        ],
+      }),
+    );
+    expect(decisions[0]!.admitted).toBe(true);
+  });
+
+  it('a conflict with a peer already admitted in the same tick is a live holder', () => {
+    const decisions = schedulerReady(
+      [group({ destination: 'a' }), group({ destination: 'b' })],
+      state({ liveNodeRuns: 0 }),
+    );
+    expect(decisions[1]!.refused!.reason).toBe('resource-conflict');
+    expect(holderLiveOf([decisions[1]!])).toBe(true);
+  });
+
+  it('parallel-slot-busy with a live node run in this graph run is a live holder', () => {
+    const decisions = schedulerReady(
+      [group()],
+      state({ activeProcesses: 1, maxParallel: 1, liveNodeRuns: 1 }),
+    );
+    expect(decisions[0]!.refused!.reason).toBe('parallel-slot-busy');
+    expect(holderLiveOf(decisions)).toBe(true);
+  });
+
+  it('parallel-slot-busy with no live node run and no admitted process is not live', () => {
+    const decisions = schedulerReady(
+      [group()],
+      state({ activeProcesses: 1, maxParallel: 1, liveNodeRuns: 0 }),
+    );
+    expect(holderLiveOf(decisions)).toBe(false);
+  });
+
+  it('parallel-slot-busy with an agent admitted earlier in the same tick is a live holder', () => {
+    const decisions = schedulerReady(
+      [
+        group({ destination: 'a', domains: [{ physicalDomain: 'd1', accessMode: 'write', paths: [] }] }),
+        group({ destination: 'b', domains: [{ physicalDomain: 'd2', accessMode: 'write', paths: [] }] }),
+      ],
+      state({ activeProcesses: 0, maxParallel: 1, liveNodeRuns: 0 }),
+    );
+    expect(decisions[0]!.admitted).toBe(true);
+    expect(decisions[1]!.refused!.reason).toBe('parallel-slot-busy');
+    expect(holderLiveOf([decisions[1]!])).toBe(true);
+  });
+
+  it('parallel-slot-busy with only a gate admitted earlier in the same tick is not live', () => {
+    const decisions = schedulerReady(
+      [
+        group({ destination: 'g', nodeKind: 'gate', domains: [{ physicalDomain: 'd1', accessMode: 'write', paths: [] }] }),
+        group({ destination: 'b', domains: [{ physicalDomain: 'd2', accessMode: 'write', paths: [] }] }),
+      ],
+      state({ activeProcesses: 1, maxParallel: 1, liveNodeRuns: 0 }),
+    );
+    expect(decisions[0]!.admitted).toBe(true);
+    expect(decisions[1]!.refused!.reason).toBe('parallel-slot-busy');
+    expect(holderLiveOf([decisions[1]!])).toBe(false);
+  });
+
+  it('a dependency-waiting refusal carries no holder liveness', () => {
+    const decisions = schedulerReady(
+      [group({ destination: 'j', nodeKind: 'join', dependencyWaiting: true })],
+      state(),
+    );
+    expect(decisions[0]!.refused!.holderLive).toBeUndefined();
   });
 });
 

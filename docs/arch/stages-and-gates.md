@@ -614,6 +614,8 @@ The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` r
 | `prompt-resnapshot` | `prompt-config-changed` | no |
 | unknown reason | any other text | no |
 
+A `graph-deferral-timeout` block outlived its ceiling, and the ceiling is two-tier (`@issue:H4`). A live holder — a lease owner in `launching`, `running`, `completing` or `integrating`, a freshly claimed run at `ready`, or a `parallel-slot-busy` slot with a live node behind it — keeps 4 hours (`MAX_LIVE_HOLDER_WAIT_MS`). A parked, dead, ambiguous or missing holder, or a slot with no live node, keeps 30 minutes (`MAX_DEFERRAL_WAIT_MS`). Liveness is the owner's durable status, read synchronously (`wait_since` never moves); the category stays `replan`.
+
 A `graph-workspace-deps` block means a node clone could not get the dependencies of its ticket worktree (`@arch:GRAPHDEPS`). A retry would repeat the same install, so a human installs the dependencies or sets `graphWorkspace`, then runs Replan.
 
 A `graph-preserve-failed` block means the host could not write the work of a superseded clone to a patch. The clone stays on disk. A retry would repeat the same failure, so a human repairs the cause first.

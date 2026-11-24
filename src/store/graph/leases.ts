@@ -125,38 +125,75 @@ function pathSetsOverlap(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /** One held lease as the scheduler's pre-claim admission reads it: the domain,
- *  its access, whether the owner's process death is unprovable, and the
- *  claimed paths ([] = repository-wide). READ-only — the scheduler never
- *  mutates leases; the claim's `acquireDomainLeases` is the writer. */
+ *  its access, whether the owner's process death is unprovable, the claimed
+ *  paths ([] = repository-wide), and whether the owner is still LIVE. READ-only
+ *  — the scheduler never mutates leases; the claim's `acquireDomainLeases` is
+ *  the writer.
+ *
+ *  `ownerLive` is the deferral ceiling's input (T1333, issue H4): a waiter
+ *  behind a live holder keeps a bounded long ceiling, a waiter behind a parked
+ *  or dead one keeps the short ceiling. It is derived from the owner node run's
+ *  durable status, never a process probe — reconcile already moves a dead
+ *  process out of the live set (`stale`/`termination-unknown`), so the sweep
+ *  stays synchronous. */
 export interface SchedulerLeaseRow {
   physicalDomain: string;
   accessMode: 'read' | 'write';
   ambiguous: boolean;
   paths: string[];
+  ownerLive: boolean;
+}
+
+/** The node-run statuses in which a holder still makes progress: `ready` is a
+ *  CLAIMED run (it holds its lease, and its process slot for agent/command,
+ *  until the drive launches it — an agent — or executes it in place — a
+ *  command, which stays `ready` until it finishes), and `launching`, `running`,
+ *  `completing` and `integrating` are the launched, working states. Every other
+ *  status — `waiting-resource`, a terminal outcome, an artifact fault,
+ *  `launch-unknown`, `termination-unknown`, `stale`, `cancelled` — means the
+ *  holder will not release its lease by finishing. */
+export const LIVE_NODE_RUN_STATUSES = ['ready', 'launching', 'running', 'completing', 'integrating'] as const;
+
+const LIVE_NODE_RUN_STATUS_SET: ReadonlySet<string> = new Set(LIVE_NODE_RUN_STATUSES);
+
+/** Whether a lease owner is still making progress. The durable status decides,
+ *  never a process probe; liveness does not depend on the node kind (T1333). */
+function liveLeaseOwner(ownerStatus: string | null): boolean {
+  return ownerStatus !== null && LIVE_NODE_RUN_STATUS_SET.has(ownerStatus);
 }
 
 /** Every `held`/`ambiguous-process` lease in the store, other-owner excluded
- *  by the caller — the snapshot the sweep hands `schedulerReady`. */
+ *  by the caller — the snapshot the sweep hands `schedulerReady`. The owner
+ *  join is inside this store boundary so liveness is one read, not a probe per
+ *  lease at the call site. */
 export function heldLeasesForScheduler(db: GraphDb): SchedulerLeaseRow[] {
   const rows = db
     .prepare(
-      `SELECT physical_domain, access_mode, claimed_paths, status
-       FROM approach_resource_leases
-       WHERE status IN ('held','ambiguous-process')
-       ORDER BY physical_domain, id`,
+      `SELECT l.physical_domain, l.access_mode, l.claimed_paths, l.status, nr.status AS owner_status
+       FROM approach_resource_leases l
+       LEFT JOIN approach_node_runs nr ON nr.id = l.owner_node_run_id
+       WHERE l.status IN ('held','ambiguous-process')
+       ORDER BY l.physical_domain, l.id`,
     )
     .all() as {
     physical_domain: string;
     access_mode: string;
     claimed_paths: string | null;
     status: string;
+    owner_status: string | null;
   }[];
-  return rows.map((row) => ({
-    physicalDomain: row.physical_domain,
-    accessMode: row.access_mode === 'read' ? 'read' : 'write',
-    ambiguous: row.status === 'ambiguous-process',
-    paths: decodeLeasePaths(row.claimed_paths),
-  }));
+  return rows.map((row) => {
+    const ambiguous = row.status === 'ambiguous-process';
+    return {
+      physicalDomain: row.physical_domain,
+      accessMode: row.access_mode === 'read' ? 'read' : 'write',
+      ambiguous,
+      paths: decodeLeasePaths(row.claimed_paths),
+      // An ambiguous lease blocks everything and is never "live"; a missing
+      // owner row is not live either (nothing will release the lease).
+      ownerLive: !ambiguous && liveLeaseOwner(row.owner_status),
+    };
+  });
 }
 
 export interface ReleaseLeaseOpts {
