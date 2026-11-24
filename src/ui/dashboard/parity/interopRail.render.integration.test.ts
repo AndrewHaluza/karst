@@ -143,7 +143,7 @@ describe('React rail / vanilla page interop — outside clicks and Escape', () =
   });
 
   it('Escape closes the open baseline reject form first, and keeps its draft', async () => {
-    const rows = [{ index: 0, path: 'a.png', label: 'a.png', status: 'modified', oldSrc: null, newSrc: null, decision: 'pending', reason: null }];
+    const rows = [{ index: 0, path: 'a.png', label: 'a.png', status: 'modified', oldSrc: null, newSrc: null, decision: 'pending', reason: null, priorRejection: null }];
     const v = await open(blockedAt({ kind: 'baseline-review' }, { baselineReview: rows }));
     await click(v, '[data-act="baseline-open"]');
     await click(v, '[data-act="baseline-reject-open"]');

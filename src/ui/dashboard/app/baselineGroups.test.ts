@@ -9,6 +9,7 @@ const row = (over: Partial<BaselineReviewRow> & { index: number; label: string }
   newSrc: 'new.png',
   decision: 'pending',
   reason: null,
+  priorRejection: null,
   ...over,
 });
 
@@ -34,6 +35,15 @@ describe('normaliseRows', () => {
   it('clamps unknown enums and coerces the index', () => {
     const [r] = normaliseRows([{ ...row({ index: 3.9, label: 'a.png' }), status: 'weird' as never, decision: 'odd' as never, oldSrc: null }]);
     expect(r).toMatchObject({ index: 3, path: 'tests/a.png', status: 'modified', decision: 'pending', oldSrc: '', reason: '' });
+  });
+
+  it('carries a prior-rejection reason as a string, and nulls anything else', () => {
+    const [kept, odd, absent] = normaliseRows([
+      row({ index: 0, label: 'a.png', priorRejection: 'button is clipped' }),
+      { ...row({ index: 1, label: 'b.png' }), priorRejection: 7 as never },
+      row({ index: 2, label: 'c.png' }),
+    ]);
+    expect([kept!.priorRejection, odd!.priorRejection, absent!.priorRejection]).toEqual(['button is clipped', null, null]);
   });
 });
 

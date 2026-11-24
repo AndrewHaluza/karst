@@ -15,6 +15,7 @@ const row = (index: number, label: string, decision = 'pending', over: Record<st
   newSrc: png(`n${index}`),
   decision,
   reason: null,
+  priorRejection: null,
   ...over,
 });
 const ROWS = [
@@ -168,6 +169,37 @@ describe('BaselineOverlay — viewer', () => {
     expect(must('#baselineView .blviewer').textContent).toContain('No preview for this file type — open it from Source Control.');
     expect(must('#baselineView .blviewer').textContent).toContain('Rejected: ledger grew');
     expect(q('#baselineView .blseg')).toBeNull();
+  });
+});
+
+describe('BaselineOverlay — rejected last round', () => {
+  const prior = (index: number, label: string, priorRejection: string) =>
+    row(index, label, 'pending', { priorRejection });
+  const MIXED = [prior(0, 'dark/a.png', 'button is clipped'), row(1, 'dark/b.png')];
+
+  it('shows the earlier reason in the viewer and a marker after the status word in the list row', () => {
+    mount(MIXED);
+    expect(must('#baselineView .blviewer').textContent).toContain('Rejected last round: button is clipped');
+    expect(must('#baselineView .bllist [data-index="0"]').textContent).toContain('· was rejected');
+    // Still pending: the user decides again, so the glyph stays the wait glyph.
+    expect(must('#baselineView .bllist [data-index="0"] .glyph').className).toContain('wait');
+  });
+
+  it('renders a bare sentence when the earlier rejection had no reason', () => {
+    mount([prior(0, 'dark/a.png', '')]);
+    expect(must('#baselineView .blviewer').textContent).toContain('Rejected last round.');
+  });
+
+  it('spells the marker in the picker option text too', () => {
+    mount(MIXED);
+    const option = must<HTMLSelectElement>('#baselineView .blpicker select').querySelectorAll('option')[0]!;
+    expect(option.textContent).toBe('dark — modified · was rejected — Needs review');
+  });
+
+  it('shows neither the note nor the marker for an entry without a prior rejection', () => {
+    mount([row(0, 'dark/a.png')]);
+    expect(must('#baselineView .blviewer').textContent).not.toContain('Rejected last round');
+    expect(must('#baselineView .bllist [data-index="0"]').textContent).not.toContain('was rejected');
   });
 });
 

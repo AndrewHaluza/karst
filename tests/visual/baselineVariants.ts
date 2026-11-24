@@ -21,6 +21,8 @@ interface Row {
   readonly newSrc: string | null;
   readonly decision: Decision;
   readonly reason: string | null;
+  /** The old reason when the user rejected this screenshot in an earlier round; the row stays pending. */
+  readonly priorRejection: string | null;
 }
 
 export interface BaselineVariant {
@@ -52,6 +54,7 @@ const row = (index: number, label: string, over: Partial<Row> = {}): Row => ({
   newSrc: index < WITH_IMAGES ? dataUri('dashboard--loading.png') : null,
   decision: 'pending',
   reason: null,
+  priorRejection: null,
   ...over,
 });
 
@@ -78,6 +81,17 @@ export const BASELINE_VARIANTS: readonly BaselineVariant[] = [
       row(3, 'dark/d.png'),
     ],
     clicks: [OPEN, ALL],
+  },
+  {
+    // The agent re-recorded a rejected screenshot: row 0 is pending again and carries the old reason (T1341).
+    id: 'overlay-prior-rejected',
+    rows: () => [
+      row(0, 'dark/a.png', { priorRejection: 'button is clipped' }),
+      row(1, 'dark/b.png', { decision: 'approved' }),
+      row(2, 'dark/c.png'),
+      row(3, 'dark/d.png'),
+    ],
+    clicks: [OPEN],
   },
   { id: 'overlay-mid', rows: () => many(12), clicks: [OPEN], width: 600 },
   { id: 'overlay-narrow', rows: () => many(12), clicks: [OPEN], width: 380 },

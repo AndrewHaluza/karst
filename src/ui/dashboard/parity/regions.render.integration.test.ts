@@ -197,7 +197,7 @@ const BLOCKED: Case[] = [
   ['blocked', '#blocked', 'awaiting-merge renders no banner', () => withStage('ship', { kind: 'awaiting-merge', reason: 'PRs open', at: AT, resumable: false })],
   ['blocked', '#blocked', 'baseline review with one pending row', () => ({
     ...withStage('uat', { kind: 'baseline-review', reason: '1 baseline changed', at: AT, resumable: false }),
-    baselineReview: [{ index: 0, path: 'e2e/snap/home.png', label: 'home.png', status: 'modified', oldSrc: null, newSrc: null, decision: 'pending', reason: null }],
+    baselineReview: [{ index: 0, path: 'e2e/snap/home.png', label: 'home.png', status: 'modified', oldSrc: null, newSrc: null, decision: 'pending', reason: null, priorRejection: null }],
   })],
 ];
 

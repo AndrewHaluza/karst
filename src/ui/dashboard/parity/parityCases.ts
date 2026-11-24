@@ -133,6 +133,7 @@ const baselineRows = (decision: 'pending' | 'approved' = 'pending') =>
     newSrc: 'https://img.test/new.png',
     decision,
     reason: null,
+    priorRejection: null,
   }));
 /** Two themes of one screenshot: a group with more than one pending entry. */
 const groupState = (): DashboardState =>
@@ -140,7 +141,7 @@ const groupState = (): DashboardState =>
     ...blockedState('baseline-review', false),
     baselineReview: ['dark', 'light'].map((theme, index) => ({
       index, path: `shots/${theme}/a.png`, label: `${theme}/a.png`, status: 'modified',
-      oldSrc: 'https://img.test/old.png', newSrc: 'https://img.test/new.png', decision: 'pending', reason: null,
+      oldSrc: 'https://img.test/old.png', newSrc: 'https://img.test/new.png', decision: 'pending', reason: null, priorRejection: null,
     })),
   }) as DashboardState;
 const baselineState = (): DashboardState =>
