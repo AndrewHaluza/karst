@@ -203,6 +203,7 @@ import { markerStageFor } from './agent/markerStage.js';
 import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
+import { createCodexRolloutWatchLoop, CODEX_ROLLOUT_WATCH_INTERVAL_MS } from './extension/ops/codexRolloutWatchLoop.js';
 import { bridgePaths } from './agent/bridge/bridgeDir.js';
 import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
 import { makeTranscriptReader } from './agent/claudeTranscriptRead.js';
@@ -6305,6 +6306,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   agyWatchLoop.run();
   const agyWatchTimer = setInterval(() => agyWatchLoop.run(), AGY_WATCH_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(agyWatchTimer) });
+
+  // Codex interactive usage watch: the session rollout records a usage-limited turn (AC-42).
+  const codexRolloutWatch = createCodexRolloutWatchLoop({
+    store: localStore,
+    listTerminals: () => vscode.window.terminals,
+    identifyTerminal: (terminal) => terminalIdentity.identify(terminal as vscode.Terminal),
+    onRollout: (id, sid, text) => interactiveUsageLimit.onCodexRollout(id, sid, text),
+    debug: (message) => logger.debug(message),
+    logError,
+  });
+  void codexRolloutWatch.run();
+  const codexRolloutTimer = setInterval(() => void codexRolloutWatch.run(), CODEX_ROLLOUT_WATCH_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(codexRolloutTimer) });
 
   // Claude interactive usage watch: Claude's documented hooks carry no token
   // counters, but Claude Code writes a per-session JSONL transcript at

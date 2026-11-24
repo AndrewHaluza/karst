@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   once: vi.fn(),
   quotaFromHook: vi.fn(),
   trailing: vi.fn(),
+  codexTrailing: vi.fn(),
   getTicket: vi.fn(),
 }));
 vi.mock('vscode', () => ({
@@ -25,7 +26,7 @@ vi.mock('./ops/interactiveUsageLimitOps.js', () => ({
   recordInteractiveUsageLimit: m.record,
   makeOncePerError: () => m.once,
 }));
-vi.mock('../agent/interactiveQuota.js', () => ({ quotaTextFromHook: m.quotaFromHook, claudeTrailingQuota: m.trailing }));
+vi.mock('../agent/interactiveQuota.js', () => ({ quotaTextFromHook: m.quotaFromHook, claudeTrailingQuota: m.trailing, codexTrailingQuota: m.codexTrailing }));
 vi.mock('../store/tickets.js', () => ({ getTicket: m.getTicket }));
 
 import { createInteractiveUsageLimitBinding } from './interactiveUsageLimitBinding.js';
@@ -87,6 +88,27 @@ describe('createInteractiveUsageLimitBinding', () => {
     b.onClaudeTranscript(2, 's2', 'x');
     expect(m.once).toHaveBeenLastCalledWith(2, 's2', 'k');
     expect(m.record.mock.calls[0]![1]).toMatchObject({ ticketId: 2, sessionId: 's2', provider: 'claude', text: 'q' });
+  });
+
+  it('reports a Codex rollout once per error line and forces the codex provider', () => {
+    const b = createInteractiveUsageLimitBinding(deps);
+    m.codexTrailing.mockReturnValue(null);
+    b.onCodexRollout(1, 'u1', 'x');
+    expect(m.record).not.toHaveBeenCalled();
+    m.codexTrailing.mockReturnValue({ key: 'line', text: "You've hit your usage limit." });
+    m.once.mockReturnValueOnce(false);
+    b.onCodexRollout(1, 'u1', 'x');
+    expect(m.record).not.toHaveBeenCalled();
+    m.once.mockReturnValueOnce(true);
+    deps.sessionProviderFor.mockReturnValue('claude');
+    b.onCodexRollout(2, 'u2', 'x');
+    expect(m.once).toHaveBeenLastCalledWith(2, 'u2', 'line');
+    expect(m.record.mock.calls[0]![1]).toMatchObject({
+      ticketId: 2,
+      sessionId: 'u2',
+      provider: 'codex',
+      text: "You've hit your usage limit.",
+    });
   });
 
   it('reports an agy provider error once per error key and forces the antigravity provider', () => {
