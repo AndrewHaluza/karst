@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +8,7 @@ import { createTicket } from '../../store/tickets.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
 import { recordBaselineDecisions } from '../../store/baselineDecisions.js';
 import type { GitBytesRunner, GitRunner } from '../../integrations/git.js';
-import { baselineLabel, isImagePath, loadBaselineRows } from './baselineRows.js';
+import { baselineLabel, isImagePath, loadBaselineRows, withBaselines } from './baselineRows.js';
 
 describe('baselineLabel / isImagePath', () => {
   it('strips the static directory prefix of the matching glob', () => {
@@ -91,7 +92,7 @@ describe('loadBaselineRows', () => {
   });
 
   it('reflects recorded decisions, with the rejection reason', async () => {
-    const sha = (await import('node:crypto')).createHash('sha256').update('new').digest('hex');
+    const sha = createHash('sha256').update('new').digest('hex');
     recordBaselineDecisions(store, ticketId, [
       { repo: '/repo', path: 'tests/visual/__baselines__/a.png', sha256: sha, decision: 'approved', reason: null },
       { repo: '/repo', path: 'tests/visual/__baselines__/b.png', sha256: sha, decision: 'rejected', reason: 'wrong colour' },
@@ -106,5 +107,60 @@ describe('loadBaselineRows', () => {
       ['pending', null],
       ['pending', null],
     ]);
+  });
+
+  describe('priorRejection', () => {
+    const sha = createHash('sha256').update('new').digest('hex');
+    const load = () =>
+      loadBaselineRows({
+        store, manifest: m, git, gitBytes, ticketId, storageRoot: root, toUri: (p) => p,
+        readFile: async () => Buffer.from('new'),
+      });
+    const rejectA = (atSha: string, reason: string | null): void => {
+      recordBaselineDecisions(store, ticketId, [
+        { repo: '/repo', path: 'tests/visual/__baselines__/a.png', sha256: atSha, decision: 'rejected', reason },
+      ], '2026-01-01T00:00:00Z');
+    };
+
+    it('marks a pending entry whose latest rejection is at an older sha, with the old reason', async () => {
+      rejectA('older-sha', 'button is clipped');
+      const [a] = await load();
+      expect(a).toMatchObject({ decision: 'pending', priorRejection: 'button is clipped' });
+    });
+
+    it('does not mark a rejection at the current sha: the entry is rejected, not pending', async () => {
+      rejectA(sha, 'button is clipped');
+      const [a] = await load();
+      expect(a).toMatchObject({ decision: 'rejected', priorRejection: null });
+    });
+
+    it('does not mark an approval at an older sha', async () => {
+      recordBaselineDecisions(store, ticketId, [
+        { repo: '/repo', path: 'tests/visual/__baselines__/a.png', sha256: 'older-sha', decision: 'approved', reason: null },
+      ], '2026-01-01T00:00:00Z');
+      const [a] = await load();
+      expect(a).toMatchObject({ decision: 'pending', priorRejection: null });
+    });
+
+    it('uses the empty string for an earlier rejection with no reason', async () => {
+      rejectA('older-sha', null);
+      const [a] = await load();
+      expect(a).toMatchObject({ decision: 'pending', priorRejection: '' });
+    });
+  });
+
+  it('keeps the field out of the uat-report artifact list, which stays a read list', async () => {
+    recordBaselineDecisions(store, ticketId, [
+      { repo: '/repo', path: 'tests/visual/__baselines__/a.png', sha256: 'older-sha', decision: 'rejected', reason: 'clipped' },
+    ], '2026-01-01T00:00:00Z');
+    const rows = await loadBaselineRows({
+      store, manifest: m, git, gitBytes, ticketId, storageRoot: root, toUri: (p) => p,
+      readFile: async () => Buffer.from('new'),
+    });
+    const state = withBaselines({ artifacts: [{ id: 'uat-report' }, { id: 'plan' }] }, rows);
+    const report = state.artifacts.find((a) => a.id === 'uat-report') as unknown as { baselines?: Array<Record<string, unknown>> };
+    expect(report.baselines).toHaveLength(4);
+    for (const item of report.baselines ?? []) expect(Object.keys(item)).not.toContain('priorRejection');
+    expect(Object.keys(report.baselines?.[0] ?? {}).sort()).toEqual(['decision', 'path', 'reason', 'status']);
   });
 });

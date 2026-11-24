@@ -36,7 +36,9 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1321 DB-5 inside-review-unreadable and DB-1 inside-ship-autofix-header, @ui:UI-R57: 2 Inside cases x 4 width tiers x 1 theme (dark) (+8 screenshots) and their layout runs (+16).
   // T1340 baseline-overlay-mixed (pending, rejected and approved rows, with the Send button in the header), @ui:UI-R57:
   // 1 theme (+1 screenshot) and its layout run (+5); the existing banner-rejected shot now shows the banner's Send button.
-  dashboard: { screenshots: 637, layout: 775 },
+  // T1341 baseline-overlay-prior-rejected (a pending row that shows the reason from the earlier round), @ui:UI-R57:
+  // 1 theme (+1 screenshot) and its layout run (+5).
+  dashboard: { screenshots: 638, layout: 780 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

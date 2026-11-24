@@ -53,6 +53,11 @@ export function BaselineViewer({ row, view, drafts }: { readonly row: Row; reado
         <span className="bl-status">{STATUS_WORD[row.status]}</span>
       </div>
       {row.decision === 'rejected' && row.reason ? <div className="blnote">{`Rejected: ${row.reason}`}</div> : null}
+      {row.priorRejection !== null ? (
+        <div className="blnote">
+          {row.priorRejection === '' ? 'Rejected last round.' : `Rejected last round: ${row.priorRejection}`}
+        </div>
+      ) : null}
       {hasImage ? (
         <>
           <div className="bltools">
