@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
-import { sweepArtifactRetention } from './retention.js';
+import { sweepArtifactRetention, sweepArtifactTrees } from './retention.js';
 
 const DAY_MS = 86_400_000;
 const NOW = new Date('2026-11-24T12:00:00.000Z');
@@ -185,5 +185,63 @@ describe('sweepArtifactRetention', () => {
 
     expect(purged).toEqual([]);
     expect(existsSync(dir)).toBe(true);
+  });
+});
+
+describe('sweepArtifactTrees', () => {
+  // A T2 store failure (a corrupt repo, a git spawn error) used to abort the
+  // whole sweep, so the larger gate-log tree was never reached. The passes are
+  // independent: the store failure is reported and the logs still go.
+  it('still purges archived gate logs when the T2 store pass fails', async () => {
+    const ticketId = ticketIn(1, 'T-7');
+    archiveLongAgo(ticketId);
+    const dir = seedGateLogs(ticketId);
+    const debug: string[] = [];
+    const errors: string[] = [];
+
+    const purged = await sweepArtifactTrees({
+      artifactsRoot: join(root, 'artifacts'),
+      projectId: 1,
+      maxAgeDays: 30,
+      store,
+      ticketStore: {
+        purgeStale: async () => {
+          throw new Error('git is not installed');
+        },
+      },
+      now: () => NOW,
+      debug: (m) => debug.push(m),
+      logError: (m) => errors.push(m),
+    });
+
+    expect(purged).toEqual([ticketId]);
+    expect(existsSync(dir)).toBe(false);
+    expect(errors).toEqual(['karst: artifact store retention sweep failed']);
+    expect(debug).toEqual(['[artifacts] purged 1 archived ticket gate-log dir(s)']);
+  });
+
+  it('reports both passes and returns a ticket that both purged only once', async () => {
+    const ticketId = ticketIn(1, 'T-8');
+    archiveLongAgo(ticketId);
+    const dir = seedGateLogs(ticketId);
+    const debug: string[] = [];
+
+    const purged = await sweepArtifactTrees({
+      artifactsRoot: join(root, 'artifacts'),
+      projectId: 1,
+      maxAgeDays: 30,
+      store,
+      ticketStore: { purgeStale: async () => [ticketId] },
+      now: () => NOW,
+      debug: (m) => debug.push(m),
+      logError: noop.logError,
+    });
+
+    expect(purged).toEqual([ticketId]);
+    expect(existsSync(dir)).toBe(false);
+    expect(debug).toEqual([
+      '[artifacts] purged 1 stale ticket store(s)',
+      '[artifacts] purged 1 archived ticket gate-log dir(s)',
+    ]);
   });
 });

@@ -279,7 +279,10 @@ describe('purgeArchivedGateLogs', () => {
     expect(existsSync(locked)).toBe(true);
     expect(existsSync(lying)).toBe(true);
     expect(existsSync(removable)).toBe(false);
-    expect(debug).toEqual([
+    // `readdir` order is filesystem-dependent (ext4 returns hash order, not
+    // name order), so the two failures are compared as a set, never as a
+    // sequence — the pass visits every dir regardless of arrival order.
+    expect([...debug].sort()).toEqual([
       '[artifacts] gate-log retention: failed on ticket 1: locked by another process',
       '[artifacts] gate-log retention: failed on ticket 2: store said no',
     ]);
