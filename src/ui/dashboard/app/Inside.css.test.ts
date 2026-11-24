@@ -185,7 +185,7 @@ describe('Inside CSS — the container queries', () => {
     expect(tight).toMatch(/#inside \.inside-head \.inside-live\{grid-column:1\/-1;grid-row:2;align-items:flex-start\}/);
     expect(tight).toMatch(/#inside \.inside-live strong\{flex:1 1 0\}/);
     // A row's action takes its own line, so the detail keeps its width.
-    expect(tight).toMatch(/#inside \.evidence-row \.ev-tail:has\(> \[data-act=\"autopilot-stop-after\"\]\)\{grid-column:2\/-1;grid-row:2/);
+    expect(tight).toMatch(/#inside \.evidence-row \.ev-tail:has\(> \[data-act="autopilot-stop-after"\]\)\{grid-column:2\/-1;grid-row:2/);
     // The chip drops "default" and the clock drops its start time here.
     expect(tight).toMatch(/\.autofix-default,[^{]*\.clock-start\{display:none\}/);
   });
