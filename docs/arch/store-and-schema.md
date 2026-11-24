@@ -124,8 +124,6 @@ The automatic recovery count is part of the same boundary: `auto_recovery_count`
 
 The claim evidence of a `blocked` node reads `blockedNodeRunsWithoutCategory`. The host reads a clone through `workspacesForNode`.
 
-Archive ends open graph runs and removes node workspaces (T1342). `graphRunsForArchivedTicketsBefore` finds runs of tickets archived before a cutoff; `archivedSweep.ts` cancels them (`ticket archived`) and cleans terminal ones with `includeStaleNodes` (never a `running` node). Only `workspaces/<node>/` goes; `artifacts/` stays.
-
 A compiled bootstrap plan runs at once: plan acceptance moves the run `planning → running` and the coordinator tick starts it, with no human confirm gate (T1174). The status `awaiting-confirmation` is legacy. It stays in the CHECK on `approach_graph_runs.status`, and the v127 migration moves any such row to `running`. The manifest key `limits.confirmGeneratedGraph` is retired: the loader drops it in memory with one deprecation warning and never rewrites the file on load. An explicit, consented setup manifest proposal does write it: the host write removes the key, and the proposal counts as a change when the write removes a key (`manifestRemovedKeys`), even when the loaded manifest is the same. A setup `change` proposal never writes `.karst/` (`setup/karstGuard.ts`).
 
 The driver claims an agent node run BEFORE it prepares the workspace (`executeReadyNode` in `approaches/graph/driver.ts`). The claim is a database compare-and-swap: `ready → launching` for a ready row, `claimRearmedNodeRunLaunch` for a re-armed `launching` row. A drive that loses the claim returns with no side effect. The claim writes a UUIDv7 `generation`, which holds the claim time. While the clone runs, the row is `launching` with an owner nonce and no process. The window registers the launch in `coordinator/launchInFlight.ts`, and its own reconcile skips that row. Another window reads such a row as `crashed before spawn` only when the claim is older than `LAUNCH_PREPARATION_TIMEOUT_MS`. The host runs one continuation drive per graph run at a time (`approaches/graph/singleFlight.ts`).
@@ -144,7 +142,17 @@ Two deliberate, documented exceptions remain:
   tables: they aggregate cost/token/profile facts across `token_usage`,
   `process_runs`, and the run rows, and reporting observes and never reaches
   back (`docs/arch/diagnostics.md`). They read; they never write state.
+
+Continued in `arch:ST-01` (archived-ticket graph sweeps: end open runs, remove terminal node workspaces).
 END_DOC_BLOCK: [@arch:GRAPHRUN]
+
+## [@arch:ST-01] An archived ticket's graph node workspaces are swept, its run evidence stays
+covers: src/approaches/graph/archivedSweep.ts, src/store/graph/graphRuns.ts#graphRunsForArchivedTicketsBefore
+
+Split out of `arch:GRAPHRUN`.
+
+Archive ends an archived ticket's open graph runs and removes their node workspaces (T1342). `graphRunsForArchivedTicketsBefore` finds runs of tickets archived before a cutoff; `archivedSweep.ts` cancels them (`ticket archived`) and cleans terminal ones with `includeStaleNodes` (never a `running` node). The read is state-driven: it returns an open run, or a terminal run that still has a cleanable node with a workspace-ledger row, so the 60-second PR tick never re-scans a cleaned history; a terminal run whose only leftover is a `running` node is left out. Only `workspaces/<node>/` is removed — `<run>/artifacts/` and every other subtree stay as evidence; the server reap runs first (`@arch:ORPHANS`).
+END_DOC_BLOCK: [@arch:ST-01]
 
 ## [@arch:GRAPHDEPS] A graph node workspace gets the dependencies of its ticket worktree, for any language
 covers: src/approaches/graph/workspace/depsPlan.ts, src/approaches/graph/workspace/workspaceDeps.ts

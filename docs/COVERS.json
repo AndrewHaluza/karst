@@ -244,6 +244,9 @@
   "src/approaches/fetch.ts#installApproach": [
     "arch:APP-01"
   ],
+  "src/approaches/graph/archivedSweep.ts": [
+    "arch:ST-01"
+  ],
   "src/approaches/graph/coordinator/abandonedNodes.ts": [
     "arch:GRAPH-PRESERVE"
   ],
@@ -1061,6 +1064,9 @@
   ],
   "src/store/graph/**": [
     "arch:GRAPHRUN"
+  ],
+  "src/store/graph/graphRuns.ts#graphRunsForArchivedTicketsBefore": [
+    "arch:ST-01"
   ],
   "src/store/hookActivity.ts": [
     "arch:HOOK-LIVE"

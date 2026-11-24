@@ -18,6 +18,7 @@ import {
   graphRunStatus,
   graphRunStatusForTicket,
   graphRunTicketId,
+  graphRunsForArchivedTicketsBefore,
   latestGraphRunForTicket,
   maxGraphRunStageAttemptForTicket,
   nextGraphRunIdForTicketAfter,
@@ -424,6 +425,91 @@ describe('planner-run read helpers (NDL-60)', () => {
     h.db.prepare('UPDATE approach_planner_runs SET launch_attempt = 3 WHERE id = ?').run(id);
     expect(plannerRunLaunchAttempt(h.db, id)).toBe(3);
     expect(plannerRunLaunchAttempt(h.db, 9999)).toBeUndefined();
+  });
+});
+
+describe('archived-ticket sweep selection (T1342)', () => {
+  const ARCHIVED = '2026-08-10 00:00:00';
+  const CUTOFF = '2026-08-12T01:00:00.000Z';
+
+  const projectIdOf = (h: Harness): number =>
+    (
+      h.db.prepare('SELECT project_id FROM tickets WHERE id = ?').get(h.ticketId) as {
+        project_id: number;
+      }
+    ).project_id;
+
+  function archive(h: Harness, archivedAt = ARCHIVED): void {
+    h.db.prepare('UPDATE tickets SET archived_at = ? WHERE id = ?').run(archivedAt, h.ticketId);
+  }
+
+  /** A node run in `status` plus one workspace-ledger row (the sweep's work). */
+  function addNodeWithLedger(h: Harness, nodeId: string, status: string): number {
+    const nodeRunId = createNodeRun(h.db, {
+      graphRunId: h.graphRunId,
+      revisionId: h.revisionId,
+      nodeId,
+      nodeKind: 'agent',
+      visitNumber: 1,
+      now: NOW,
+    });
+    h.db.prepare('UPDATE approach_node_runs SET status = ? WHERE id = ?').run(status, nodeRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_graph_workspaces
+           (graph_run_id, node_run_id, repo_name, cwd, byte_size, created_at)
+         VALUES (?, ?, 'web', ?, 100, ?)`,
+      )
+      .run(h.graphRunId, nodeRunId, `/tmp/karst-graph/${nodeRunId}/web`, NOW);
+    return nodeRunId;
+  }
+
+  const selectedIds = (h: Harness): number[] =>
+    graphRunsForArchivedTicketsBefore(h.db, projectIdOf(h), CUTOFF).map((r) => r.graphRunId);
+
+  it('keeps a terminal run only while it still has a cleanable workspace', () => {
+    const h = harness('cancelled');
+    archive(h);
+    // A terminal run with no ledger has nothing to remove — the tick must not
+    // return it, or it would re-scan a cleaned history forever.
+    expect(selectedIds(h)).toEqual([]);
+
+    // A `running` node's workspace is never cleanable, even inside a terminal run.
+    addNodeWithLedger(h, 'running-node', 'running');
+    expect(selectedIds(h)).toEqual([]);
+
+    addNodeWithLedger(h, 'stale-node', 'stale');
+    expect(selectedIds(h)).toEqual([h.graphRunId]);
+
+    // Several pending nodes still select the run once (UNION dedup).
+    addNodeWithLedger(h, 'completed-node', 'completed');
+    expect(selectedIds(h)).toEqual([h.graphRunId]);
+
+    // Released ledger rows == the work is done; the run drops out.
+    h.db.prepare('DELETE FROM approach_graph_workspaces').run();
+    expect(selectedIds(h)).toEqual([]);
+  });
+
+  it('keeps an open run with no workspaces, but excludes a stale run', () => {
+    const h = harness('blocked');
+    archive(h);
+    expect(selectedIds(h)).toEqual([h.graphRunId]);
+
+    // `stale` is terminal to Cancel and never cleanable by the sweep.
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'stale' WHERE id = ?").run(h.graphRunId);
+    expect(selectedIds(h)).toEqual([]);
+  });
+
+  it('honours the archive cutoff and the project scope', () => {
+    const h = harness('blocked');
+    archive(h, '2026-08-12T01:30:00.000Z');
+    expect(selectedIds(h)).toEqual([]);
+
+    h.db.prepare('UPDATE tickets SET archived_at = ? WHERE id = ?').run(ARCHIVED, h.ticketId);
+    expect(selectedIds(h)).toEqual([h.graphRunId]);
+    expect(
+      graphRunsForArchivedTicketsBefore(h.db, projectIdOf(h) + 1, CUTOFF),
+    ).toEqual([]);
   });
 });
 

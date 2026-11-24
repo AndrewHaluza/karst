@@ -24,6 +24,11 @@
  * else stays as evidence. The 1-hour grace and the live-session check mirror
  * `archiveInactiveWorktrees` with `onlyArchived`.
  *
+ * The store read (`graphRunsForArchivedTicketsBefore`) is STATE-DRIVEN: it
+ * returns an open run, or a terminal run that still has a cleanable node with a
+ * workspace-ledger row. A cleaned terminal run drops out, so the 60-second PR
+ * tick never re-walks the whole run/node history of every archived ticket.
+ *
  * Host-agnostic: store, transaction, process facts, kill and clock are injected;
  * no vscode and no logger.
  */
