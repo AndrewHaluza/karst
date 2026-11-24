@@ -409,6 +409,19 @@ describe('keepAwakeLiveKeys over a real store', () => {
     store.close();
   });
 
+  it('does not query the tickets when the project is unknown', () => {
+    const store = openStore(':memory:');
+    const prepare = store.db.prepare.bind(store.db);
+    const seen: string[] = [];
+    store.db.prepare = ((sql: string) => {
+      seen.push(sql);
+      return prepare(sql);
+    }) as typeof store.db.prepare;
+    keepAwakeLiveKeys(store, HOST_PID, undefined, 0, [], NOW);
+    expect(seen.filter((sql) => sql.includes('FROM tickets'))).toEqual([]);
+    store.close();
+  });
+
   it('counts the tracked in-flight runs the drain tracks', () => {
     const store = openStore(':memory:');
     const t = createTicket(store, { key: 'K-tracked', title: 'tracked', projectId: PROJECT });
