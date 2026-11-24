@@ -142,6 +142,26 @@ describe('fixDeliveryWiring', () => {
     });
   });
 
+  describe('idle push session gets the pointer at arm (T1335)', () => {
+    it('agent idle: arms and types the pointer in the same call', () => {
+      setAgentState(store, ticketId, 'idle');
+      expect(make().deliver(ticketId, null)).toBe(true);
+      const row = currentFixDelivery(store, ticketId)!;
+      expect(row.armedAt).not.toBeNull();
+      expect(row.enqueuedAt).not.toBeNull();
+      expect(nudge).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['running', 'waiting', 'none', 'not-started'] as const)('agent %s: arms only, nothing typed', (agent) => {
+      setAgentState(store, ticketId, agent);
+      expect(make().deliver(ticketId, null)).toBe(true);
+      const row = currentFixDelivery(store, ticketId)!;
+      expect(row.armedAt).not.toBeNull();
+      expect(row.enqueuedAt).toBeNull();
+      expect(nudge).not.toHaveBeenCalled();
+    });
+  });
+
   function getFixDeliveryAgent(): string | null {
     return (store.db.prepare('SELECT agent_state AS s FROM tickets WHERE id = ?').get(ticketId) as { s: string | null }).s;
   }

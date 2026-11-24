@@ -157,6 +157,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     routeFor: (id) => (isSandboxChannel(deps.sessionChannel(id)) ? 'typed' : messageRouteFor(deps.sessionProvider(id), CODEX_STOP_BLOCK_SUPPORTED)),
     currentLaunchId: deps.currentLaunchId,
     isRunning: (id) => getTicket(deps.store, id).agentState === 'running',
+    isIdle: (id) => getTicket(deps.store, id).agentState === 'idle',
     sendPointer: (id, deliveryId, hooks): TypedSendResult => {
       if (!deps.isLive(id) || deps.isGraphTicket(id)) return 'unavailable';
       if (deps.agyBusy(id)) return 'held';

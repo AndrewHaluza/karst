@@ -223,6 +223,33 @@ describe('fixDeliverySweep', () => {
     });
   });
 
+  describe('immediate send to an idle push session (T1335)', () => {
+    it('types at arm, and the 60 s armed fallback never sends a second pointer', () => {
+      h.state.idle = true;
+      const id = deliver();
+      expect(h.sent).toHaveLength(1);
+      expect(row(id).enqueuedAt).not.toBeNull();
+      h.advance(ARMED_FIX_TIMEOUT_MS + 1);
+      sweep();
+      expect(h.sent).toHaveLength(1);
+    });
+
+    it('a dropped immediate line leaves the row armed and rule 3 retries at 60 s', () => {
+      h.state.idle = true;
+      const id = deliver();
+      expect(h.sent).toHaveLength(1);
+      h.sent[0]!.hooks.onDropped!();
+      expect(row(id).enqueuedAt).toBeNull();
+      expect(row(id).armedAt).not.toBeNull();
+      h.advance(ARMED_FIX_TIMEOUT_MS - 1);
+      sweep();
+      expect(h.sent).toHaveLength(1);
+      h.advance(1);
+      sweep();
+      expect(h.sent).toHaveLength(2);
+    });
+  });
+
   describe('rule 3: armed fallback (idle push-route agent)', () => {
     it('types one pointer after 60 s, never before', () => {
       const id = deliver();
