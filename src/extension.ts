@@ -6168,7 +6168,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Finished planning sessions archive on this tick too (`archivePlanningAfterDays`).
       sweepPlanningArchive({ store: localStore, projectId: project.id, manifest: currentManifest(), isLive: (id) => planning.isLive(id), logError });
       try {
-        const pruned = prunePlanningScratch({ store: localStore, projectId: project.id,
+        const pruned = await prunePlanningScratch({ store: localStore, projectId: project.id,
           scratchRoot: join(storageDir, 'planning-scratch'),
           afterDays: currentManifest()?.archivePlanningAfterDays ?? DEFAULT_ARCHIVE_PLANNING_AFTER_DAYS,
           isLive: (id) => planning.isLive(id), debug: (m) => logger.debug(m) });

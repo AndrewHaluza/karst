@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, rmSync } from 'node:fs';
+import { lstat, readdir, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import { listPlanningSessions } from '../../store/planningSessions.js';
@@ -29,7 +29,7 @@ export interface PrunePlanningScratchInput {
   isLive: (sessionId: number) => boolean;
   debug: (message: string) => void;
   /** Optional test seam for simulating per-dir removal errors deterministically. */
-  removeDir?: (path: string) => void;
+  removeDir?: (path: string) => void | Promise<void>;
 }
 
 /** SQLite `datetime('now')` text (UTC, no zone) to epoch ms. */
@@ -37,32 +37,46 @@ function sqliteMs(text: string): number {
   return Date.parse(`${text.replace(' ', 'T')}Z`);
 }
 
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 /**
  * Total bytes under `dir`. `lstat` is deliberate: a nested symlink is not a
  * directory, so it contributes only its own link size and its target is never
- * walked.
+ * walked. Async so the extension host event loop is never blocked.
  */
-function dirBytes(dir: string): number {
+async function dirBytes(dir: string): Promise<number> {
   let total = 0;
-  for (const name of readdirSync(dir)) {
+  for (const name of await readdir(dir)) {
     const child = join(dir, name);
-    const st = lstatSync(child);
-    if (st.isDirectory()) total += dirBytes(child);
+    const st = await lstat(child);
+    if (st.isDirectory()) total += await dirBytes(child);
     else total += st.size;
   }
   return total;
-}
-
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 /**
  * Remove one scratch directory. `force` makes a directory that vanished between
  * the size walk and this call a no-op instead of an error.
  */
-export function removeScratchDir(path: string): void {
-  rmSync(path, { recursive: true, force: true });
+export async function removeScratchDir(path: string): Promise<void> {
+  await rm(path, { recursive: true, force: true });
+}
+
+/**
+ * The physical `artifacts/` dir of one session, or `null` when a symlink on the
+ * way there points somewhere else. `realpath` resolves every component and the
+ * lexical path is rebuilt from the root's real path, so `<id>` or `artifacts`
+ * being a symlink makes the two differ. A refused session is never deleted
+ * into: the recursive remove stays inside the retention root.
+ */
+async function realArtifactsDir(scratchRoot: string, sessionId: number): Promise<string | null> {
+  const root = await realpath(scratchRoot);
+  const expected = planningArtifactsDir(join(root, String(sessionId)));
+  const actual = await realpath(expected);
+  return actual === expected ? actual : null;
 }
 
 /**
@@ -74,7 +88,9 @@ export function removeScratchDir(path: string): void {
  * row still offers `Open artifacts` and `Unarchive`. Per-dir failures are
  * logged and never stop the pass.
  */
-export function prunePlanningScratch(input: PrunePlanningScratchInput): PrunedPlanningDir[] {
+export async function prunePlanningScratch(
+  input: PrunePlanningScratchInput,
+): Promise<PrunedPlanningDir[]> {
   const cutoff = (input.now ?? new Date()).getTime() - input.afterDays * DAY_MS;
   const pruned: PrunedPlanningDir[] = [];
   const remove = input.removeDir ?? removeScratchDir;
@@ -83,26 +99,35 @@ export function prunePlanningScratch(input: PrunePlanningScratchInput): PrunedPl
     if (input.isLive(s.id)) continue;
     const updatedMs = sqliteMs(s.updatedAt);
     if (Number.isNaN(updatedMs) || updatedMs > cutoff) continue;
-    const artifactsDir = planningArtifactsDir(join(input.scratchRoot, String(s.id)));
+    const lexical = planningArtifactsDir(join(input.scratchRoot, String(s.id)));
+    let artifactsDir: string;
     let names: string[];
     try {
-      names = readdirSync(artifactsDir);
+      const real = await realArtifactsDir(input.scratchRoot, s.id);
+      if (real === null) {
+        input.debug(
+          `[planning] scratch retention: refusing symlinked artifacts dir ${lexical}`,
+        );
+        continue;
+      }
+      artifactsDir = real;
+      names = await readdir(artifactsDir);
     } catch (e) {
       if ((e as { code?: string }).code !== 'ENOENT') {
-        input.debug(`[planning] scratch retention: failed to read ${artifactsDir}: ${errorMessage(e)}`);
+        input.debug(`[planning] scratch retention: failed to read ${lexical}: ${errorMessage(e)}`);
       }
       continue;
     }
     for (const name of names) {
       try {
         const entryPath = join(artifactsDir, name);
-        const st = lstatSync(entryPath);
+        const st = await lstat(entryPath);
         // `lstat` never reports a symlink as a directory, so this skips both
         // top-level files and symlinked dirs without following the link.
         if (!st.isDirectory()) continue;
-        const bytes = dirBytes(entryPath);
+        const bytes = await dirBytes(entryPath);
         if (bytes <= PLANNING_ARCHIVED_DIR_MAX_BYTES) continue;
-        remove(entryPath);
+        await remove(entryPath);
         pruned.push({ sessionId: s.id, dir: name, bytes });
         input.debug(`[planning] scratch retention: removed ${name} from session ${s.id} (${bytes} B)`);
       } catch (e) {

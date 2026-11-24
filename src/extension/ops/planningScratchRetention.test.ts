@@ -68,7 +68,7 @@ describe('prunePlanningScratch', () => {
 
   const run = (
     opts: Partial<Parameters<typeof prunePlanningScratch>[0]> = {},
-  ): PrunedPlanningDir[] =>
+  ): Promise<PrunedPlanningDir[]> =>
     prunePlanningScratch({
       store,
       projectId,
@@ -80,11 +80,11 @@ describe('prunePlanningScratch', () => {
       ...opts,
     });
 
-  it('exports a 50 MB threshold', () => {
+  it('exports a 50 MB threshold', async () => {
     expect(PLANNING_ARCHIVED_DIR_MAX_BYTES).toBe(50 * MB);
   });
 
-  it('removes a large nested sub-dir of an archived session past the delay and keeps the plans', () => {
+  it('removes a large nested sub-dir of an archived session past the delay and keeps the plans', async () => {
     const id = session();
     const dir = artifacts(id);
     mkdirSync(join(dir, 'spike', 'repo', 'node_modules'), { recursive: true });
@@ -101,7 +101,7 @@ describe('prunePlanningScratch', () => {
     sparse(join(scratchRoot, String(id), 'proposals.json'), 4);
     sparse(join(scratchRoot, String(id), 'karst-instructions.md'), 4);
 
-    expect(run()).toEqual([{ sessionId: id, dir: 'spike', bytes: 60 * MB }]);
+    expect(await run()).toEqual([{ sessionId: id, dir: 'spike', bytes: 60 * MB }]);
     expect(existsSync(join(dir, 'spike'))).toBe(false);
     expect(existsSync(join(dir, 'notes', 'small.md'))).toBe(true);
     expect(existsSync(join(dir, 'plan.md'))).toBe(true);
@@ -115,7 +115,7 @@ describe('prunePlanningScratch', () => {
     expect(debug.filter((m) => m.includes('failed on session'))).toEqual([]);
   });
 
-  it('keeps a directory at exactly the threshold and removes one byte over', () => {
+  it('keeps a directory at exactly the threshold and removes one byte over', async () => {
     const id = session();
     const dir = artifacts(id);
     mkdirSync(join(dir, 'exact'), { recursive: true });
@@ -123,24 +123,24 @@ describe('prunePlanningScratch', () => {
     mkdirSync(join(dir, 'over'), { recursive: true });
     sparse(join(dir, 'over', 'f.bin'), PLANNING_ARCHIVED_DIR_MAX_BYTES + 1);
 
-    expect(run()).toEqual([
+    expect(await run()).toEqual([
       { sessionId: id, dir: 'over', bytes: PLANNING_ARCHIVED_DIR_MAX_BYTES + 1 },
     ]);
     expect(existsSync(join(dir, 'exact', 'f.bin'))).toBe(true);
     expect(existsSync(join(dir, 'over'))).toBe(false);
   });
 
-  it('leaves an archived session inside the delay untouched', () => {
+  it('leaves an archived session inside the delay untouched', async () => {
     const id = session('archived', INSIDE);
     const dir = artifacts(id);
     mkdirSync(join(dir, 'spike'), { recursive: true });
     sparse(join(dir, 'spike', 'f.bin'), 60 * MB);
 
-    expect(run()).toEqual([]);
+    expect(await run()).toEqual([]);
     expect(existsSync(join(dir, 'spike', 'f.bin'))).toBe(true);
   });
 
-  it('prunes exactly at the cutoff and keeps a session one second inside it', () => {
+  it('prunes exactly at the cutoff and keeps a session one second inside it', async () => {
     const atCutoff = session('archived', AT_CUTOFF);
     mkdirSync(join(artifacts(atCutoff), 'spike'), { recursive: true });
     sparse(join(artifacts(atCutoff), 'spike', 'f.bin'), 60 * MB);
@@ -148,19 +148,19 @@ describe('prunePlanningScratch', () => {
     mkdirSync(join(artifacts(newer), 'spike'), { recursive: true });
     sparse(join(artifacts(newer), 'spike', 'f.bin'), 60 * MB);
 
-    expect(run()).toEqual([{ sessionId: atCutoff, dir: 'spike', bytes: 60 * MB }]);
+    expect(await run()).toEqual([{ sessionId: atCutoff, dir: 'spike', bytes: 60 * MB }]);
     expect(existsSync(join(artifacts(newer), 'spike', 'f.bin'))).toBe(true);
   });
 
-  it('honours a custom afterDays', () => {
+  it('honours a custom afterDays', async () => {
     const id = session('archived', INSIDE);
     mkdirSync(join(artifacts(id), 'spike'), { recursive: true });
     sparse(join(artifacts(id), 'spike', 'f.bin'), 60 * MB);
 
-    expect(run({ afterDays: 0 })).toEqual([{ sessionId: id, dir: 'spike', bytes: 60 * MB }]);
+    expect(await run({ afterDays: 0 })).toEqual([{ sessionId: id, dir: 'spike', bytes: 60 * MB }]);
   });
 
-  it('never touches active or filed sessions', () => {
+  it('never touches active or filed sessions', async () => {
     const active = session('active');
     const filed = session('filed');
     for (const id of [active, filed]) {
@@ -168,32 +168,32 @@ describe('prunePlanningScratch', () => {
       sparse(join(artifacts(id), 'spike', 'f.bin'), 60 * MB);
     }
 
-    expect(run()).toEqual([]);
+    expect(await run()).toEqual([]);
     expect(existsSync(join(artifacts(active), 'spike', 'f.bin'))).toBe(true);
     expect(existsSync(join(artifacts(filed), 'spike', 'f.bin'))).toBe(true);
   });
 
-  it('never touches an archived session with a live terminal', () => {
+  it('never touches an archived session with a live terminal', async () => {
     const id = session();
     mkdirSync(join(artifacts(id), 'spike'), { recursive: true });
     sparse(join(artifacts(id), 'spike', 'f.bin'), 60 * MB);
 
-    expect(run({ isLive: (s) => s === id })).toEqual([]);
+    expect(await run({ isLive: (s) => s === id })).toEqual([]);
     expect(existsSync(join(artifacts(id), 'spike', 'f.bin'))).toBe(true);
   });
 
-  it('never touches another project’s archived session', () => {
+  it('never touches another project’s archived session', async () => {
     const other = upsertProject(store, { slug: 'q' }).id;
     const id = session('archived');
     store.db.prepare('UPDATE planning_sessions SET project_id = ? WHERE id = ?').run(other, id);
     mkdirSync(join(artifacts(id), 'spike'), { recursive: true });
     sparse(join(artifacts(id), 'spike', 'f.bin'), 60 * MB);
 
-    expect(run()).toEqual([]);
+    expect(await run()).toEqual([]);
     expect(existsSync(join(artifacts(id), 'spike', 'f.bin'))).toBe(true);
   });
 
-  it('skips a symlinked directory and never follows it', () => {
+  it('skips a symlinked directory and never follows it', async () => {
     const id = session();
     const dir = artifacts(id);
     mkdirSync(dir, { recursive: true });
@@ -202,12 +202,46 @@ describe('prunePlanningScratch', () => {
     sparse(join(external, 'f.bin'), 60 * MB);
     symlinkSync(external, join(dir, 'link'), 'dir');
 
-    expect(run()).toEqual([]);
+    expect(await run()).toEqual([]);
     expect(lstatSync(join(dir, 'link')).isSymbolicLink()).toBe(true);
     expect(existsSync(join(external, 'f.bin'))).toBe(true);
   });
 
-  it('does not follow a nested symlink while sizing a small dir', () => {
+  it('refuses a symlinked artifacts dir so a delete never leaves the scratch root', async () => {
+    const id = session();
+    const sessionDir = join(scratchRoot, String(id));
+    mkdirSync(sessionDir, { recursive: true });
+    const outside = mkdtempSync(join(tmpdir(), 'karst-plan-outside-'));
+    try {
+      mkdirSync(join(outside, 'spike'), { recursive: true });
+      sparse(join(outside, 'spike', 'f.bin'), 60 * MB);
+      symlinkSync(outside, join(sessionDir, 'artifacts'), 'dir');
+
+      expect(await run()).toEqual([]);
+      expect(existsSync(join(outside, 'spike', 'f.bin'))).toBe(true);
+      expect(debug.some((m) => m.includes('refusing symlinked artifacts dir'))).toBe(true);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a symlinked session dir as well', async () => {
+    const id = session();
+    const outside = mkdtempSync(join(tmpdir(), 'karst-plan-session-'));
+    try {
+      mkdirSync(join(outside, 'artifacts', 'spike'), { recursive: true });
+      sparse(join(outside, 'artifacts', 'spike', 'f.bin'), 60 * MB);
+      symlinkSync(outside, join(scratchRoot, String(id)), 'dir');
+
+      expect(await run()).toEqual([]);
+      expect(existsSync(join(outside, 'artifacts', 'spike', 'f.bin'))).toBe(true);
+      expect(debug.some((m) => m.includes('refusing symlinked artifacts dir'))).toBe(true);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('does not follow a nested symlink while sizing a small dir', async () => {
     const id = session();
     const dir = artifacts(id);
     mkdirSync(join(dir, 'small'), { recursive: true });
@@ -217,35 +251,35 @@ describe('prunePlanningScratch', () => {
     sparse(join(external, 'f.bin'), 60 * MB);
     symlinkSync(external, join(dir, 'small', 'link'), 'dir');
 
-    expect(run()).toEqual([]);
+    expect(await run()).toEqual([]);
     expect(existsSync(join(dir, 'small', 'real.md'))).toBe(true);
     expect(existsSync(join(external, 'f.bin'))).toBe(true);
   });
 
-  it('skips a missing artifacts dir without logging an error', () => {
+  it('skips a missing artifacts dir without logging an error', async () => {
     session();
 
-    expect(run()).toEqual([]);
+    expect(await run()).toEqual([]);
     expect(debug).toEqual([]);
   });
 
-  it('logs a non-ENOENT read error and moves on', () => {
+  it('logs a non-ENOENT read error and moves on', async () => {
     const id = session();
     // `artifacts` as a file makes readdirSync throw ENOTDIR.
     mkdirSync(join(scratchRoot, String(id)), { recursive: true });
     writeFileSync(join(scratchRoot, String(id), 'artifacts'), '');
 
-    expect(run()).toEqual([]);
+    expect(await run()).toEqual([]);
     expect(debug).toHaveLength(1);
     expect(debug[0]).toContain('failed to read');
     expect(debug[0]).toContain('ENOTDIR');
   });
 
-  it('removeScratchDir tolerates a directory that is already gone', () => {
-    expect(() => removeScratchDir(join(root, 'gone'))).not.toThrow();
+  it('removeScratchDir tolerates a directory that is already gone', async () => {
+    await expect(removeScratchDir(join(root, 'gone'))).resolves.toBeUndefined();
   });
 
-  it('logs a per-dir removal error and still prunes the remaining dirs and sessions', () => {
+  it('logs a per-dir removal error and still prunes the remaining dirs and sessions', async () => {
     const first = session();
     const second = session();
     for (const id of [first, second]) {
@@ -255,7 +289,7 @@ describe('prunePlanningScratch', () => {
       sparse(join(artifacts(id), 'ok', 'f.bin'), 60 * MB);
     }
 
-    const pruned = run({
+    const pruned = await run({
       removeDir: (path) => {
         if (path.endsWith('boom')) throw new Error('EACCES: denied');
         rmSync(path, { recursive: true, force: true });
