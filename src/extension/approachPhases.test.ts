@@ -26,12 +26,13 @@ describe('makePhasesOf', () => {
   const phasesOf = (overrides: {
     manifest?: () => Manifest | undefined;
     packageOf?: (id: string) => { workflow?: readonly { name: string }[] } | null | undefined;
+    debug?: (m: string) => void;
   } = {}) =>
     makePhasesOf({
       store,
       manifest: overrides.manifest ?? (() => manifestOf('plan', 'plan')),
       packageOf: overrides.packageOf ?? (() => ({ workflow: [{ name: 'research' }, { name: 'plan' }] })),
-      debug: () => {},
+      debug: overrides.debug ?? (() => {}),
     });
 
   it('takes the names and the order from the package', () => {
@@ -116,7 +117,9 @@ describe('makePhasesOf', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     updateTicketFields(store, t.id, { approach: 'rpi' });
 
-    expect(phasesOf({ packageOf: () => null })(t.id)).toEqual([]);
+    const lines: string[] = [];
+    expect(phasesOf({ packageOf: () => null, debug: (m) => lines.push(m) })(t.id)).toEqual([]);
+    expect(lines).toEqual([]);
   });
 
   it('gives nothing for a blank approach id', () => {
@@ -130,8 +133,11 @@ describe('makePhasesOf', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     updateTicketFields(store, t.id, { approach: 'rpi' });
 
-    expect(phasesOf({ packageOf: () => ({}) })(t.id)).toEqual([]);
-    expect(phasesOf({ packageOf: () => ({ workflow: [] }) })(t.id)).toEqual([]);
+    const lines: string[] = [];
+    const debug = (m: string) => lines.push(m);
+    expect(phasesOf({ packageOf: () => ({}), debug })(t.id)).toEqual([]);
+    expect(phasesOf({ packageOf: () => ({ workflow: [] }), debug })(t.id)).toEqual([]);
+    expect(lines).toEqual([]);
   });
 
   it('gives nothing for an unknown ticket', () => {
