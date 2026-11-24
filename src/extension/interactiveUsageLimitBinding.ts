@@ -6,7 +6,7 @@ import type { AgentSwitchOutcome } from '../agent/sessionSwitch.js';
 import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
 import { getTicket } from '../store/tickets.js';
 import type { HookPayload } from '../hooks/dispatch.js';
-import { claudeTrailingQuota, quotaTextFromHook } from '../agent/interactiveQuota.js';
+import { claudeTrailingQuota, codexTrailingQuota, quotaTextFromHook } from '../agent/interactiveQuota.js';
 import { makeOncePerError, recordInteractiveUsageLimit } from './ops/interactiveUsageLimitOps.js';
 import { makeInteractiveParkActions, runInteractiveOffer } from './ops/interactiveUsageLimitActions.js';
 import { ask, toast } from './toastSeam.js';
@@ -50,6 +50,16 @@ export function createInteractiveUsageLimitBinding(deps: InteractiveUsageLimitBi
       const quota = claudeTrailingQuota(transcript);
       if (!quota || !once(ticketId, sessionId, quota.key)) return;
       binding.report(ticketId, sessionId, quota.text, 'claude');
+    },
+    /**
+     * A Codex session-rollout read; only a trailing `task_complete` carrying
+     * `error.codex_error_info: 'usage_limit_exceeded'` counts. The key is that
+     * entry's raw line, so repeated sweeps of the same rollout offer once.
+     */
+    onCodexRollout(ticketId: number, sessionId: string, text: string): void {
+      const quota = codexTrailingQuota(text);
+      if (!quota || !once(ticketId, sessionId, quota.key)) return;
+      binding.report(ticketId, sessionId, quota.text, 'codex');
     },
     /**
      * An Antigravity conversation-DB provider error (`step_type = 17`). The key

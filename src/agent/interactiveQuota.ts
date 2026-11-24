@@ -72,3 +72,47 @@ export function claudeTrailingQuota(transcript: string): { text: string; key: st
 export function claudeTrailingQuotaText(transcript: string): string | null {
   return claudeTrailingQuota(transcript)?.text ?? null;
 }
+
+/**
+ * The quota text of a Codex session rollout, found by walking the non-empty
+ * lines from the end. Codex records a failed turn as an `event_msg` entry whose
+ * payload is `task_complete` and whose `error.codex_error_info` names the
+ * failure; a usage limit is exactly `'usage_limit_exceeded'`. Only
+ * `task_complete` decides: `task_started` / `turn_aborted` mean a newer turn
+ * began, and every other event (`thread_settings_applied`, `token_count`,
+ * `item_completed`) and every non-`event_msg` line is skipped. Agent prose is
+ * never read — the error is provider-authored structure, not text. A line that
+ * is not valid JSON is a write in progress, so the read yields nothing.
+ *
+ * The key is that entry's raw line, so the same error reported on several ticks
+ * offers once, and a resumed session that appends past it never re-parks.
+ */
+export function codexTrailingQuota(rollout: string): { text: string; key: string } | null {
+  const lines = rollout.split('\n').filter((line) => line.trim() !== '');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]!;
+    let entry: unknown;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (typeof entry !== 'object' || entry === null) continue;
+    const typed = entry as {
+      type?: unknown;
+      payload?: { type?: unknown; error?: { codex_error_info?: unknown; message?: unknown } | null };
+    };
+    if (typed.type !== 'event_msg') continue;
+    const payload = typed.payload;
+    if (typeof payload !== 'object' || payload === null) continue;
+    if (payload.type === 'task_started' || payload.type === 'turn_aborted') return null;
+    if (payload.type !== 'task_complete') continue;
+    const error = payload.error;
+    if (typeof error !== 'object' || error === null) return null;
+    if (error.codex_error_info !== 'usage_limit_exceeded') return null;
+    const message = error.message;
+    if (typeof message !== 'string' || message.trim() === '') return null;
+    return { text: message, key: line };
+  }
+  return null;
+}
