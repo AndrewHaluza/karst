@@ -171,5 +171,38 @@ describe('quotaLaunchWarning', () => {
     expect(message).toContain('Codex is at 82% of 7-day quota (threshold 80%).');
     expect(message).toContain('Karst will not block.');
   });
+
+  it('gives no warning when only a secondary pool is exhausted (T1337)', () => {
+    const snapshot: QuotaSnapshot = {
+      core: 'antigravity',
+      state: 'ok',
+      windows: [
+        { label: '5-hour', usedPct: 50, resetsAt: null },
+        { label: 'Weekly', usedPct: 40, resetsAt: null },
+        { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: null, secondary: true },
+      ],
+      source: 'test',
+      readAt: NOW.toISOString(),
+    };
+    expect(quotaLaunchWarning(snapshot, 80, 'Antigravity CLI', NOW)).toBeNull();
+  });
+
+  it('warns on the primary window, never on a more-exhausted secondary pool (T1337)', () => {
+    const snapshot: QuotaSnapshot = {
+      core: 'antigravity',
+      state: 'ok',
+      windows: [
+        { label: '5-hour', usedPct: 88, resetsAt: null },
+        { label: 'Weekly', usedPct: 59, resetsAt: null },
+        { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: null, secondary: true },
+      ],
+      source: 'test',
+      readAt: NOW.toISOString(),
+    };
+    expect(quotaLaunchWarning(snapshot, 80, 'Antigravity CLI', NOW)).toBe(
+      'Antigravity CLI is at 88% of 5-hour quota (threshold 80%).\n' +
+      'Karst will not block.',
+    );
+  });
 });
 

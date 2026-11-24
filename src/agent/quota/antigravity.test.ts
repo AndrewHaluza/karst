@@ -12,6 +12,7 @@ import {
   antigravitySourceWithTier,
   windowDurationMinutes,
   resolveBucketLabel,
+  isPrimaryAntigravityWindow,
   writeCache,
   readCache,
   parseAntigravityWindows,
@@ -24,7 +25,7 @@ import {
   ANTIGRAVITY_CLI_QUOTA_SOURCE,
   ANTIGRAVITY_CLI_TIMEOUT_MS,
 } from './antigravity.js';
-import type { QuotaKnown } from './types.js';
+import { tightestWindow, type QuotaKnown } from './types.js';
 import { accountReaderEnv, configureAccounts, resetAccounts } from '../accounts/registry.js';
 
 describe('antigravityQuotaCachePath and constants', () => {
@@ -201,6 +202,21 @@ describe('windowDurationMinutes', () => {
   it('returns Infinity for other or custom labels', () => {
     expect(windowDurationMinutes('Model')).toBe(Number.POSITIVE_INFINITY);
     expect(windowDurationMinutes('custom')).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
+describe('isPrimaryAntigravityWindow', () => {
+  it('is true only for the subscription windows 5-hour and Weekly', () => {
+    expect(isPrimaryAntigravityWindow('5-hour')).toBe(true);
+    expect(isPrimaryAntigravityWindow('Weekly')).toBe(true);
+  });
+
+  it('is false for every model-specific side pool and unknown label', () => {
+    expect(isPrimaryAntigravityWindow('Claude/GPT (Weekly)')).toBe(false);
+    expect(isPrimaryAntigravityWindow('Claude/GPT (5-hour)')).toBe(false);
+    expect(isPrimaryAntigravityWindow('Argon (Weekly)')).toBe(false);
+    expect(isPrimaryAntigravityWindow('Argon (5-hour)')).toBe(false);
+    expect(isPrimaryAntigravityWindow('')).toBe(false);
   });
 });
 
@@ -467,6 +483,7 @@ describe('parseAntigravityWindows', () => {
         label: 'Gemini 3 Flash',
         usedPct: 75,
         resetsAt: '2026-10-30T12:00:00Z',
+        secondary: true,
       },
     ]);
   });
@@ -489,6 +506,7 @@ describe('parseAntigravityWindows', () => {
         label: 'Gemini 3 Pro',
         usedPct: 67,
         resetsAt: null,
+        secondary: true,
       },
     ]);
   });
@@ -512,9 +530,9 @@ describe('parseAntigravityWindows', () => {
     };
     const windows = parseAntigravityWindows(raw);
     expect(windows).toEqual([
-      { label: 'M1', usedPct: 50, resetsAt: null },
-      { label: 'M2', usedPct: 50, resetsAt: null },
-      { label: 'M3', usedPct: 50, resetsAt: null },
+      { label: 'M1', usedPct: 50, resetsAt: null, secondary: true },
+      { label: 'M2', usedPct: 50, resetsAt: null, secondary: true },
+      { label: 'M3', usedPct: 50, resetsAt: null, secondary: true },
     ]);
   });
 
@@ -537,9 +555,9 @@ describe('parseAntigravityWindows', () => {
     };
     const windows = parseAntigravityWindows(raw);
     expect(windows).toEqual([
-      { label: 'gemini-fallback', usedPct: 50, resetsAt: null },
-      { label: 'Model', usedPct: 90, resetsAt: null },
-      { label: 'Model', usedPct: 60, resetsAt: null },
+      { label: 'gemini-fallback', usedPct: 50, resetsAt: null, secondary: true },
+      { label: 'Model', usedPct: 90, resetsAt: null, secondary: true },
+      { label: 'Model', usedPct: 60, resetsAt: null, secondary: true },
     ]);
   });
 
@@ -595,6 +613,36 @@ describe('parseAntigravityWindows', () => {
     ]);
   });
 
+  it('tags legacy clientModelConfigs side pools secondary on a paid live read (T1337)', () => {
+    const raw = {
+      planInfo: { teamsTier: 'TEAMS_TIER_PRO' },
+      clientModelConfigs: [
+        { label: '5-hour', quotaInfo: { remainingFraction: 0.12 } },
+        { label: 'Weekly', quotaInfo: { remainingFraction: 0.41 } },
+        { label: 'Claude/GPT (Weekly)', quotaInfo: { remainingFraction: 0 } },
+        { label: 'Argon (Weekly)', quotaInfo: { remainingFraction: 0 } },
+      ],
+    };
+    const windows = parseAntigravityWindows(raw);
+    expect(windows).toEqual([
+      { label: '5-hour', usedPct: 88, resetsAt: null },
+      { label: 'Weekly', usedPct: 59, resetsAt: null },
+      { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: null, secondary: true },
+      { label: 'Argon (Weekly)', usedPct: 100, resetsAt: null, secondary: true },
+    ]);
+    const snapshot = {
+      core: 'antigravity' as const,
+      state: 'ok' as const,
+      windows,
+      source: 'test',
+      readAt: '2026-10-29T10:00:00.000Z',
+    };
+    expect(tightestWindow(snapshot, new Date('2026-10-29T10:00:00.000Z'))).toMatchObject({
+      label: '5-hour',
+      usedPct: 88,
+    });
+  });
+
   it('parses the real language_server_get_user_status fixture', () => {
     const fixture = {
       userStatus: {
@@ -632,6 +680,7 @@ describe('parseAntigravityWindows', () => {
         label: 'Tab Flash Lite Preview',
         usedPct: 0,
         resetsAt: null,
+        secondary: true,
       },
     ]);
   });
@@ -849,11 +898,13 @@ describe('parseAntigravityWindows', () => {
         label: 'Claude/GPT (Weekly)',
         usedPct: 70,
         resetsAt: '2026-11-06T12:00:00Z',
+        secondary: true,
       },
       {
         label: 'Argon (Weekly)',
         usedPct: 60,
         resetsAt: '2026-11-06T12:00:00Z',
+        secondary: true,
       },
     ]);
   });
@@ -884,6 +935,7 @@ describe('parseAntigravityWindows', () => {
         label: 'Claude/GPT (5-hour)',
         usedPct: 10,
         resetsAt: '2026-10-30T14:00:00Z',
+        secondary: true,
       },
     ]);
   });
@@ -946,6 +998,47 @@ describe('parseAntigravityWindows', () => {
       ],
     };
     expect(parseAntigravityWindows(summary, {})).toEqual([]);
+  });
+
+  it('keeps the primary windows as the core number when both side pools are exhausted (T1337)', () => {
+    const summary = {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.12, resetTime: '2026-10-30T14:00:00Z' },
+            { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.41, resetTime: '2026-11-06T12:00:00Z' },
+          ],
+        },
+        {
+          displayName: 'Claude and GPT models',
+          buckets: [
+            { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0, resetTime: '2026-11-06T12:00:00Z' },
+          ],
+        },
+        {
+          displayName: 'Gemini 4 Argon',
+          buckets: [
+            { bucketId: 'argon-weekly', window: 'weekly', remainingFraction: 0, resetTime: '2026-11-06T12:00:00Z' },
+          ],
+        },
+      ],
+    };
+    const status = { planInfo: { teamsTier: 'TEAMS_TIER_PRO' } };
+    const windows = parseAntigravityWindows(summary, status);
+    const snapshot = {
+      core: 'antigravity' as const,
+      state: 'ok' as const,
+      windows,
+      source: 'test',
+      readAt: '2026-10-29T10:00:00.000Z',
+    };
+
+    expect(windows).toHaveLength(4);
+    expect(tightestWindow(snapshot, new Date('2026-10-29T10:00:00.000Z'))).toMatchObject({
+      label: '5-hour',
+      usedPct: 88,
+    });
   });
 });
 
@@ -1080,6 +1173,42 @@ describe('writeCache and readCache helpers', () => {
       );
       const resCustom = await readCache(cachePath, readAtMs, ttlMs);
       expect(resCustom?.source).toBe('Antigravity Language Server (Google AI Pro)');
+    } finally {
+      rmSync(baseDir, { recursive: true, force: true });
+    }
+  });
+
+  it('tags legacy cached side pools as secondary on read while leaving 5-hour/Weekly primary', async () => {
+    const baseDir = createTempDir();
+    try {
+      const cachePath = join(baseDir, 'legacy.json');
+      const readAt = '2026-10-29T10:00:00.000Z';
+      // Written before `secondary` existed: no flags on any window.
+      writeFileSync(
+        cachePath,
+        JSON.stringify({
+          core: 'antigravity',
+          state: 'ok',
+          source: 'Antigravity Language Server (Google AI Pro)',
+          readAt,
+          windows: [
+            { label: '5-hour', usedPct: 88, resetsAt: '2026-10-30T14:00:00Z' },
+            { label: 'Weekly', usedPct: 59, resetsAt: '2026-11-06T12:00:00Z' },
+            { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: '2026-11-06T12:00:00Z' },
+            { label: 'Argon (Weekly)', usedPct: 100, resetsAt: '2026-11-06T12:00:00Z' },
+          ],
+        }),
+      );
+
+      const snapshot = await readCache(cachePath, new Date(readAt).getTime(), 10_000);
+
+      expect(snapshot?.windows).toEqual([
+        { label: '5-hour', usedPct: 88, resetsAt: '2026-10-30T14:00:00Z' },
+        { label: 'Weekly', usedPct: 59, resetsAt: '2026-11-06T12:00:00Z' },
+        { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: '2026-11-06T12:00:00Z', secondary: true },
+        { label: 'Argon (Weekly)', usedPct: 100, resetsAt: '2026-11-06T12:00:00Z', secondary: true },
+      ]);
+      expect(tightestWindow(snapshot!, new Date(readAt))?.label).toBe('5-hour');
     } finally {
       rmSync(baseDir, { recursive: true, force: true });
     }
@@ -1229,8 +1358,18 @@ describe('antigravityQuotaReader', () => {
         windows: [
           { label: '5-hour', usedPct: 20, resetsAt: '2026-10-30T14:00:00Z' },
           { label: 'Weekly', usedPct: 50, resetsAt: '2026-11-06T12:00:00Z' },
-          { label: 'Claude/GPT (Weekly)', usedPct: 80, resetsAt: '2026-11-06T12:00:00Z' },
-          { label: 'Argon (Weekly)', usedPct: 60, resetsAt: '2026-11-06T12:00:00Z' },
+          {
+            label: 'Claude/GPT (Weekly)',
+            usedPct: 80,
+            resetsAt: '2026-11-06T12:00:00Z',
+            secondary: true,
+          },
+          {
+            label: 'Argon (Weekly)',
+            usedPct: 60,
+            resetsAt: '2026-11-06T12:00:00Z',
+            secondary: true,
+          },
         ],
       });
 
@@ -1546,7 +1685,10 @@ describe('antigravityQuotaReader', () => {
       });
 
       const snapshot = await reader.read();
-      expect(snapshot).toEqual(cachedSnapshot);
+      expect(snapshot).toEqual({
+        ...cachedSnapshot,
+        windows: [{ label: 'Flow Credits', usedPct: 10, resetsAt: null, secondary: true }],
+      });
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
     }
@@ -1611,7 +1753,10 @@ describe('antigravityQuotaReader', () => {
       });
 
       const snapshot = await reader.read();
-      expect(snapshot).toEqual(cachedSnapshot);
+      expect(snapshot).toEqual({
+        ...cachedSnapshot,
+        windows: [{ label: 'Flow Credits', usedPct: 10, resetsAt: null, secondary: true }],
+      });
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
     }

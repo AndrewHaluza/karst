@@ -22,6 +22,16 @@ export interface QuotaWindow {
   usedPct: number;
   /** ISO-8601 instant the window resets, or null when the provider gave none. */
   resetsAt: string | null;
+  /**
+   * True for a model-specific SIDE pool (e.g. Antigravity's `Claude/GPT (Weekly)`
+   * or `Argon (Weekly)`).
+   *
+   * A secondary pool stays VISIBLE in the Quota tab — it is real capacity the
+   * user may exhaust — but `tightestWindow()` prefers open primary windows, so an
+   * exhausted side pool never makes the whole core read 100% (status bar badge,
+   * `anyNear`, launch warning) while primary subscription capacity remains.
+   */
+  secondary?: boolean;
 }
 
 /** A core whose quota was read: at least one window, plus provenance. */
@@ -92,13 +102,24 @@ export function tightestUsedPct(snapshot: QuotaSnapshot, now: Date): number | nu
  * recorded used-% is stale and must not keep the badge amber or the launch
  * warning firing until a new session refreshes the read. Null when the core is
  * unknown or every window has expired.
+ *
+ * A PRIMARY window always wins over a `secondary` side pool: when a model pool
+ * like `Claude/GPT (Weekly)` is exhausted but `5-hour`/`Weekly` still has room,
+ * the core's number is the primary one. A secondary window is the answer only
+ * when no open primary window exists at all.
  */
 export function tightestWindow(snapshot: QuotaSnapshot, now: Date): QuotaWindow | null {
   if (snapshot.state !== 'ok') return null;
-  let best: QuotaWindow | null = null;
+  let bestPrimary: QuotaWindow | null = null;
+  let bestSecondary: QuotaWindow | null = null;
   for (const w of snapshot.windows) {
     if (isWindowExpired(w, now, snapshot.readAt)) continue;
-    if (best === null || w.usedPct > best.usedPct) best = w;
+    if (w.secondary) {
+      if (bestSecondary === null || w.usedPct > bestSecondary.usedPct) bestSecondary = w;
+    } else {
+      if (bestPrimary === null || w.usedPct > bestPrimary.usedPct) bestPrimary = w;
+    }
   }
-  return best;
+  if (bestPrimary !== null) return bestPrimary;
+  return bestSecondary;
 }
