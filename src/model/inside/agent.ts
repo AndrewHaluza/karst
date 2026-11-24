@@ -281,16 +281,29 @@ function timelineEvents(
   );
   const lastMark = mine.at(-1);
   // When the derived `implement` row follows, it supersedes the last mark and alone carries the open status.
-  const derivesImplement = lastMark !== undefined && !mine.some((m) => m.phaseName === DERIVED_IMPLEMENT_PHASE);
+  //
+  // A host mark proves a phase was ENTERED, not that the work after it started
+  // (`@arch:RESULTS`): rule A writes the first phase at run start, so deriving
+  // `implement` from it alone would show `plan: pass, implement: running` before
+  // any work — a claim nobody made. The derivation therefore needs at least one
+  // AGENT mark, or a passed run, where the done marker is the recorded fact.
+  const derivesImplement =
+    lastMark !== undefined &&
+    !mine.some((m) => m.phaseName === DERIVED_IMPLEMENT_PHASE) &&
+    (run.status === 'passed' || mine.some((m) => m.source === 'agent'));
   for (const mark of mine) {
     events.push({
       at: mark.markedAt,
       row: {
         status: mark === lastMark && !derivesImplement ? openPhaseStatus(run) : 'pass',
         label: mark.phaseName,
-        // The prototype's acceptance copy: the phase name first, the report
-        // stamp second. Ships pre-worded so the webview renders it verbatim.
-        detail: `reported · ${formatTime(mark.markedAt)}`,
+        // The phase name first, the report stamp second. A host mark was not
+        // reported by anyone — it says who recorded it, so the reader never
+        // attributes an inference to the agent.
+        detail:
+          mark.source === 'host'
+            ? `recorded by karst · ${formatTime(mark.markedAt)}`
+            : `reported · ${formatTime(mark.markedAt)}`,
         // The design's short HH:MM in the timeline's own time cell.
         time: formatShortTime(mark.markedAt),
         role: 'phase',

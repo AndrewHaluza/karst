@@ -20,6 +20,7 @@ import type {
   GraphWorkspaceDef,
   Manifest,
   OutputDef,
+  PhaseEvidence,
   PortSlot,
   PresetSlot,
   ProcessAssignmentConfig,
@@ -90,7 +91,8 @@ const APPROACH: Keys<ApproachDef> = {
   id: true, label: true, description: true, entrypoint: true, source: true, recommended: true, workflow: true,
   outputs: true, checks: true, enabled: true, graph: true,
 };
-const WORKFLOW: Keys<WorkflowPhase> = { name: true, command: true, description: true };
+const WORKFLOW: Keys<WorkflowPhase> = { name: true, command: true, description: true, evidence: true };
+const PHASE_EVIDENCE: Keys<PhaseEvidence> = { outputKind: true };
 const OUTPUT: Keys<OutputDef> = { glob: true, kind: true };
 const GRAPH: Keys<GraphApproachConfig> = { planner: true, profiles: true, commands: true, limits: true };
 const GRAPH_PLANNER: Keys<GraphPlannerConfig> = { profile: true, prompt: true };
@@ -173,6 +175,7 @@ const NODES: readonly Node[] = [
   { name: 'SubtaskLimits', section: 'general', path: 'subtasks', keys: Object.keys(SUBTASKS) },
   { name: 'ApproachDef', section: 'approaches', path: 'approaches.*', keys: Object.keys(APPROACH) },
   { name: 'WorkflowPhase', section: 'approaches', path: 'approaches.*.workflow.*', keys: Object.keys(WORKFLOW) },
+  { name: 'PhaseEvidence', section: 'approaches', path: 'approaches.*.workflow.*.evidence', keys: Object.keys(PHASE_EVIDENCE) },
   { name: 'OutputDef', section: 'approaches', path: 'approaches.*.outputs.*', keys: Object.keys(OUTPUT) },
   { name: 'GraphApproachConfig', section: 'approaches', path: 'approaches.*.graph', keys: Object.keys(GRAPH) },
   { name: 'GraphPlannerConfig', section: 'approaches', path: 'approaches.*.graph.planner', keys: Object.keys(GRAPH_PLANNER) },

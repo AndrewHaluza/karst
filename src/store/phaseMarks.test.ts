@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { setStage } from './stages.js';
-import { recordPhaseMark, listPhaseMarks } from './phaseMarks.js';
+import { recordPhaseMark, listPhaseMarks, type PhaseMarkSource } from './phaseMarks.js';
 import { openImplementationRun } from './implementationRuns.js';
 import { openImplementationSegment } from './implementationRuns.js';
 import { recordSessionLaunchIntent } from './sessionLaunchIntents.js';
@@ -18,7 +18,8 @@ describe('reported phase marks', () => {
     markedAt: string,
     attempt = 0,
     stageKey: 'impl' | 'fix' = 'impl',
-  ) => recordPhaseMark(store, { ticketId, stageKey, attempt, phaseName, markedAt });
+    source: PhaseMarkSource = 'agent',
+  ) => recordPhaseMark(store, { ticketId, stageKey, attempt, phaseName, markedAt, source });
 
   it('returns marks oldest first, in the order they were reported', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
@@ -176,11 +177,57 @@ describe('reported phase marks', () => {
     });
     recordPhaseMark(store, {
       ticketId: t.id, stageKey: 'impl', attempt: 0, phaseName: 'implement',
-      markedAt: '2026-07-20T12:00:00.000Z',
+      markedAt: '2026-07-20T12:00:00.000Z', source: 'agent',
       implementationRunId: run.id, implementationSegmentId: segment.id,
     });
     const m = listPhaseMarks(store, t.id)[0]!;
     expect(m.implementationRunId).toBe(run.id);
     expect(m.implementationSegmentId).toBe(segment.id);
+  });
+
+  it('round-trips the mark source for both values', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    mark(t.id, 'plan', '2026-07-20T12:00:00.000Z', 0, 'impl', 'agent');
+    mark(t.id, 'implement', '2026-07-20T12:05:00.000Z', 0, 'impl', 'host');
+
+    expect(listPhaseMarks(store, t.id).map((m) => m.source)).toEqual(['agent', 'host']);
+  });
+
+  it('writes no host mark when an agent mark exists for the same key', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    mark(t.id, 'plan', '2026-07-20T12:00:00.000Z', 0, 'impl', 'agent');
+
+    expect(mark(t.id, 'plan', '2026-07-20T12:05:00.000Z', 0, 'impl', 'host')).toBe(false);
+    expect(listPhaseMarks(store, t.id)).toHaveLength(1);
+    expect(listPhaseMarks(store, t.id)[0]!.source).toBe('agent');
+  });
+
+  it('writes no agent mark when a host mark exists for the same key, and still exits normally', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    mark(t.id, 'plan', '2026-07-20T12:00:00.000Z', 0, 'impl', 'host');
+
+    expect(mark(t.id, 'plan', '2026-07-20T12:05:00.000Z', 0, 'impl', 'agent')).toBe(false);
+    expect(listPhaseMarks(store, t.id)).toHaveLength(1);
+    expect(listPhaseMarks(store, t.id)[0]!.source).toBe('host');
+  });
+
+  it('writes a host mark at most once for the same key', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    expect(mark(t.id, 'implement', '2026-07-20T12:00:00.000Z', 0, 'impl', 'host')).toBe(true);
+    expect(mark(t.id, 'implement', '2026-07-20T12:05:00.000Z', 0, 'impl', 'host')).toBe(false);
+    expect(listPhaseMarks(store, t.id)).toHaveLength(1);
+  });
+
+  it('writes a host mark for another attempt, phase, stage and ticket', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    const b = createTicket(store, { key: 'B', title: 'b' });
+    mark(a.id, 'plan', '2026-07-20T12:00:00.000Z', 0, 'impl', 'host');
+
+    expect(mark(a.id, 'plan', '2026-07-20T12:05:00.000Z', 1, 'impl', 'host')).toBe(true); // attempt
+    expect(mark(a.id, 'implement', '2026-07-20T12:10:00.000Z', 0, 'impl', 'host')).toBe(true); // phase
+    expect(mark(a.id, 'plan', '2026-07-20T12:15:00.000Z', 0, 'fix', 'host')).toBe(true); // stage
+    expect(mark(b.id, 'plan', '2026-07-20T12:20:00.000Z', 0, 'impl', 'host')).toBe(true); // ticket
+    expect(listPhaseMarks(store, a.id)).toHaveLength(4);
+    expect(listPhaseMarks(store, b.id)).toHaveLength(1);
   });
 });

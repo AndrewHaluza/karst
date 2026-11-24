@@ -265,6 +265,7 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
       attempt: row.attempt,
       phase: safe(row.phaseName),
       markedAt: row.markedAt,
+      source: row.source,
     })))
   } catch {
     metadata.phaseMarks = { status: 'unavailable', reason: 'reader_failed' }

@@ -69,6 +69,21 @@ describe('diagnostic store evidence', () => {
     })
   })
 
+  it('reports the source of every phase mark', () => {
+    store = openStore(':memory:')
+    const ins = store.db.prepare(
+      `INSERT INTO phase_marks (ticket_id, stage_key, attempt, phase_name, marked_at, source)
+       VALUES (7, 'impl', 0, ?, '2026-07-01T00:00:00.000Z', ?)`,
+    )
+    ins.run('plan', 'host')
+    ins.run('implement', 'agent')
+
+    expect(readPhaseMarks(store, 7, 10).rows).toEqual([
+      expect.objectContaining({ phaseName: 'plan', source: 'host' }),
+      expect.objectContaining({ phaseName: 'implement', source: 'agent' }),
+    ])
+  })
+
   it('readServers excludes graph-agent rows', () => {
     store = openStore(':memory:')
     const project = upsertProject(store, { slug: 'p' })
