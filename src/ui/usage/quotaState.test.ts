@@ -218,6 +218,32 @@ describe('buildQuotaView', () => {
     );
     expect(view.rows[0]!.windows.map((w) => w.usedPct)).toEqual([77, 100]);
   });
+
+  it('keeps exhausted secondary pools visible without flagging anyNear (T1337)', () => {
+    const view = buildQuotaView(
+      [ok({
+        core: 'antigravity',
+        windows: [
+          { label: '5-hour', usedPct: 50, resetsAt: iso(2 * HOUR) },
+          { label: 'Weekly', usedPct: 40, resetsAt: iso(4 * DAY) },
+          { label: 'Claude/GPT (Weekly)', usedPct: 100, resetsAt: iso(4 * DAY), secondary: true },
+          { label: 'Argon (Weekly)', usedPct: 100, resetsAt: iso(4 * DAY), secondary: true },
+        ],
+      })],
+      80,
+      NOW,
+    );
+    const row = view.rows[0]!;
+    expect(row.windows.map((w) => w.label)).toEqual([
+      '5-hour',
+      'Weekly',
+      'Claude/GPT (Weekly)',
+      'Argon (Weekly)',
+    ]);
+    expect(row.windows.map((w) => w.level)).toEqual(['ok', 'ok', 'exhausted', 'exhausted']);
+    expect(view.anyNear).toBe(false);
+    expect(view.summaryLine).toBeNull();
+  });
 });
 
 describe('buildQuotaView — account name (D505)', () => {
