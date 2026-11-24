@@ -111,6 +111,9 @@
 /* Untravelled: neutral, and explicitly so. A pending segment must not wear its
    stage hue at full strength — that is what "travelled ground" means here. */
 .track .seg.pending{color:var(--k-text-faint)}
+/* The CURRENT stage keeps readable body text even while it is still pending: it
+   is where the ticket is, and the faint untravelled colour would hide it (UI-R29). */
+.track .seg.cur.pending{color:var(--k-text)}
 /* Travelled segments carry their own stage hue as a wash, so the route changes
    colour as the ticket advances — the one thing a flat progress bar cannot say.
    `--stg-color` carries its own fallback: a stage key with no palette class (a
@@ -254,16 +257,19 @@
 .track .fixm.spent .tk.on{background:var(--k-text-faint)}
 .track .fixm.spent .tx,.track .fixm.spent .ret{color:var(--k-text-faint)}
 
-/* ── narrow widths: THREE measured steps ──────────────────────────────────
+/* ── narrow widths: FOUR measured steps ───────────────────────────────────
    Measured, not keyed to a breakpoint: the threshold depends on the current
    stage's name length and on whether a meter is riding along. In order of what
    costs least to lose — SNUG drops what a segment merely ANNOTATES and keeps
-   every name; TIGHT drops the names too; BARE is the floor, where the passed-by
-   segments become position markers and the current segment sheds its own
-   annotations, keeping glyph, name and action.
+   every name; SHORT shortens the CURRENT name to its stage key (`IMPLEMENTATION`
+   → `IMPL`) and keeps every other name; TIGHT drops the other names too; BARE is
+   the floor, where the passed-by segments become position markers and the
+   current segment sheds its own annotations, keeping glyph, name and action.
 
-   THREE, not two: two was the first draft, and at a 397px lane five of the eight
-   mockup cases were still over after TIGHT. Three clear every case to 300px.
+   FOUR, not three: at a 397px lane the current stage's full name alone could
+   still push the lane over, and hiding every other name first lost what the
+   current one says. The short step is the label the graph uses, so it is a
+   shortening rather than a different name (RD-LADDERS).
 
    Anything a step drops is already in the accessible name, which never
    degrades — the meter's attempt count and its return target included. */
@@ -271,6 +277,10 @@
 .track.snug .seg:not(.cur) .fixm .tx{display:none}
 .track.snug .seg:not(.cur) .fixm{padding-left:var(--k-space-3);margin-left:0}
 .track.snug .seg.cur .pips .pn{display:none}
+/* SHORT. The current segment's own name shortens; every other segment keeps its
+   key name until TIGHT. */
+.track.short .seg.cur .nm .full{display:none}
+.track.short .seg.cur .nm .abbr{display:inline}
 .track.tight .seg:not(.cur) .nm{display:none}
 .track.tight .seg:not(.cur){padding-left:var(--k-space-8);padding-right:var(--k-space-4)}
 .track.tight .seg:not(.cur) .fixm .ret{display:none}
@@ -289,11 +299,11 @@
 .track.bare .seg.cur .pips,
 .track.bare .seg.cur .fixm .tx,
 .track.bare .seg.cur .fixm .ret{display:none}
-/* …and its name shortens to the stage KEY, which is what every other segment
-   shows anyway. "Implementation" is 113px of a 300px panel; `impl` is 30. The
-   abbreviation is the same word the graph uses, so it is a shortening rather
-   than a different label. Both forms ship and CSS picks one — swapping the text
-   in JS would mean re-rendering on every resize. */
+/* …and its name stays the stage KEY, which is what SHORT already chose and what
+   every other segment shows anyway. "Implementation" is 113px of a 300px panel;
+   `impl` is 30. The abbreviation is the same word the graph uses, so it is a
+   shortening rather than a different label. Both forms ship and CSS picks one —
+   swapping the text in JS would mean re-rendering on every resize. */
 .track .seg .nm .abbr{display:none}
 .track.bare .seg.cur .nm .full{display:none}
 .track.bare .seg.cur .nm .abbr{display:inline}

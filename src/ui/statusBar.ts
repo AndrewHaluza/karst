@@ -23,11 +23,16 @@ export interface StatusBarHost {
 /**
  * `T7 · KAR-7 · UAT · Running`: one reference, the stage word and the state word
  * from the shared `GLYPH_WORD` table (SB-4, SB-13). The caller passes `t.key`
- * as-is, so the ref is formatted once. A red glyph prefixes `⚠` (blocker,
+ * as-is, so the ref is formatted once. A stage that is `none` has no word to
+ * show, so its part is omitted rather than rendered as a raw key (DB-K1);
+ * another unknown key still passes through. A red glyph prefixes `⚠` (blocker,
  * multi-channel).
  */
 export function statusBarText(v: StatusTicket): string {
-  const body = `${formatTicketRef(v.ticketId, v.key)} · ${stageWord(v.stage).full} · ${GLYPH_WORD[v.glyph]}`;
+  const parts = [formatTicketRef(v.ticketId, v.key)];
+  if (v.stage !== 'none') parts.push(stageWord(v.stage).full);
+  parts.push(GLYPH_WORD[v.glyph]);
+  const body = parts.join(' · ');
   return v.glyph === 'red' ? `⚠ ${body}` : body;
 }
 

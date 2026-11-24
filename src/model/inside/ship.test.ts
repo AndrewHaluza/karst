@@ -595,22 +595,55 @@ describe('shipProcesses', () => {
       }),
     );
     const merge = views[3]!;
-    expect(merge.detail).toBe('no recorded evidence for this ship');
+    expect(merge.detail).toBe('resolved when ship runs');
   });
 
-  it('renders absence honestly when no ship evidence was ever recorded', () => {
+  it('renders absence once, on the Commit row, when no ship evidence was ever recorded', () => {
     const views = shipProcesses(
       shipInput({
         evidence: evidence({ run: undefined }),
         cell: cell('ship', 'passed', { startedAt: NOW, endedAt: NOW }),
       }),
     );
-    // The evidence-backed processes (commit, push, pr) state the absence; the
-    // merge process answers the live question from current PRs instead.
-    for (const process of views.slice(0, 3)) {
+    // The evidence-backed processes (commit, push, pr) state the absence ONCE,
+    // on the Commit row; the merge process answers the live question from
+    // current PRs instead (DB-14).
+    const [commit, push, pr] = views;
+    expect(commit!.status).toBe('note');
+    expect(commit!.detail).toContain('no recorded evidence');
+    for (const process of [push!, pr!]) {
       expect(process.status).toBe('note');
-      expect(process.detail).toContain('no recorded evidence');
+      expect(process.detail).toBeUndefined();
     }
+  });
+
+  it('does not state an absence on a row the running ship has not reached yet', () => {
+    const views = shipProcesses(
+      shipInput({
+        cell: cell('ship', 'running', { startedAt: NOW }),
+        evidence: evidence({
+          repos: { '/web': repoEvidence('/web', { steps: { push: step('push') } }) },
+        }),
+      }),
+    );
+    const [commit, , pr] = views;
+    expect(commit!.detail).toBe('resolved when ship runs');
+    expect(pr!.detail).toBe('resolved when ship runs');
+  });
+
+  it('keeps the absence on a row that has no evidence when the evidence is partial (DB-14)', () => {
+    const views = shipProcesses(
+      shipInput({
+        evidence: evidence({
+          repos: { '/web': repoEvidence('/web', { steps: { push: step('push') } }) },
+        }),
+      }),
+    );
+    const [commit, push, pr] = views;
+    // No commit row: Commit keeps its own sentence; the recorded push stands.
+    expect(commit!.detail).toBe('no recorded evidence for this ship');
+    expect(push!.detail).toBe('1/1 pushed');
+    expect(pr!.detail).toBe('no recorded evidence for this ship');
   });
 
   describe('process aggregation keeps note honest', () => {

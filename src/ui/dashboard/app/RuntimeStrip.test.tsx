@@ -99,6 +99,13 @@ describe('RuntimeStrip — layout', () => {
     expect(sandboxBtn().querySelector('.rs-sub--warn')).toBeTruthy();
   });
 
+  it('titles the sandbox detail with its full text, so the ellipsis stays reachable (DB-6, UI-R44)', () => {
+    strip(view({ backend: 'host', workspace: 'worktree', network: 'none (host)', hostProtection: 'prompted' }));
+    const sub = sandboxBtn().querySelector<HTMLElement>('.rs-sub--sandbox')!;
+    expect(sub.textContent).toBe('unprotected · worktree');
+    expect(sub.title).toBe('unprotected · worktree');
+  });
+
   it('hides the actions when the sandbox has none', () => {
     strip(view({ actions: false }));
     expect(q('[data-act="sandbox-sync"]')).toBeNull();

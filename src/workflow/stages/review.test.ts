@@ -1866,7 +1866,7 @@ describe('runReview — findings process run (Task 8)', () => {
   // R6b (Task 2.4): a run whose only answer was unreadable must not be
   // recorded as `validated` — that would contradict the `blocked` outcome
   // and read, in the process history, as a review that actually happened.
-  it('finishes the Review process run execution-failed, never validated, on an R6b unreadable block', async () => {
+  it('finishes the Review process run unreadable-output, never validated, on an R6b unreadable block', async () => {
     const res = await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir, manifest: manifest({}, { review: reviewConfig() }) },
@@ -1878,7 +1878,7 @@ describe('runReview — findings process run (Task 8)', () => {
     // Review detail names what actually happened instead of the generic "the
     // agent did not return a result. Retry review." — which sent a reader to a
     // retry when the answer was present and the parser had dropped it.
-    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
+    expect(run).toMatchObject({ resultKind: 'unreadable-output', status: 'failed' });
     expect(run.failureDetail).toContain('unreadable output');
     expect(run.failureDetail).toContain('no findings could be read');
   });

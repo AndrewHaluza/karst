@@ -21,13 +21,20 @@ describe('statusBarText', () => {
   it('formats the ref once — the key arrives raw, so it is never "T7 · T7"', () => {
     expect(statusBarText(base)).toContain('T7 · KAR-7');
     expect(statusBarText(base).match(/T7/g)).toHaveLength(1);
+    const raw = statusBarText({ ...base, key: 'ABC-12', stage: 'none' });
+    expect(raw).toBe('T7 · ABC-12 · Running');
+    expect(raw.match(/T7/g)).toHaveLength(1);
   });
 
   it('shows the stage word, not the raw stage id', () => {
     expect(statusBarText({ ...base, stage: 'uat' })).toBe('T7 · KAR-7 · UAT · Running');
     expect(statusBarText({ ...base, stage: 'impl' })).toBe('T7 · KAR-7 · Implementation · Running');
-    // An unknown stage has no word, so it passes through rather than blank out.
-    expect(statusBarText({ ...base, stage: 'none' })).toBe('T7 · KAR-7 · none · Running');
+    // An unknown stage key still passes through rather than blank out.
+    expect(statusBarText({ ...base, stage: 'promote' })).toBe('T7 · KAR-7 · promote · Running');
+  });
+
+  it('omits the stage part when the stage is none (DB-K1)', () => {
+    expect(statusBarText({ ...base, stage: 'none' })).toBe('T7 · KAR-7 · Running');
   });
 
   it('reads the state word from GLYPH_WORD (SB-13)', () => {

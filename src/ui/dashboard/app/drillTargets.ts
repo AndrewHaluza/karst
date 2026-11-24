@@ -2,6 +2,10 @@
  * What the drill-down surfaces can show for the open ticket, as pure functions of the snapshot: the view pills
  * (Dashboard · Artifacts · Console · Server logs · Env variables), the console streams behind the Console pill, and
  * the label a view has when Back names it. A pill with nothing behind it is not returned (hidden, never disabled).
+ *
+ * A console stream names the PART it shows (DB-K4): the stage stream is `<view> gates` when the stage has a gates
+ * process, and a process stream is `<view> agent` when its own label already names the view. This keeps "UAT gates"
+ * and "UAT agent" distinct in one menu. Every other label stays `<view> · <process>`.
  */
 import type { InsideStatus } from '../../../model/inside/types.js';
 import type { DashboardState } from '../state.js';
@@ -45,11 +49,25 @@ export function consoleStreams(views: DashboardState['insideViews'] | undefined)
     if (view.console) {
       const own = view.processes.find((p) => p.id === 'gates');
       const status = own?.status ?? 'pending';
-      streams.push({ stage: view.stageKey, processId: null, label: view.title, status, word: own?.statusLabel ?? STATUS_WORD[status], age: own?.time ?? '' });
+      streams.push({
+        stage: view.stageKey,
+        processId: null,
+        label: own ? `${view.title} gates` : view.title,
+        status,
+        word: own?.statusLabel ?? STATUS_WORD[status],
+        age: own?.time ?? '',
+      });
     }
     for (const p of view.processes) {
       if (!p.console || p.id === 'gates') continue;
-      streams.push({ stage: view.stageKey, processId: p.id, label: `${view.title} · ${p.label}`, status: p.status, word: p.statusLabel ?? STATUS_WORD[p.status], age: p.time ?? '' });
+      streams.push({
+        stage: view.stageKey,
+        processId: p.id,
+        label: p.label === view.title ? `${view.title} agent` : `${view.title} · ${p.label}`,
+        status: p.status,
+        word: p.statusLabel ?? STATUS_WORD[p.status],
+        age: p.time ?? '',
+      });
     }
   }
   return streams;

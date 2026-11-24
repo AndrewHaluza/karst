@@ -1,4 +1,6 @@
 import type { DashboardState } from './state.js';
+import type { ArtifactSummary } from '../../model/artifacts.js';
+import { UNREADABLE_RESULT_KIND } from '../../model/unreadableRun.js';
 import { STEP_CI_AGENT, STEP_CONFLICT_AGENT, STEP_FETCH_LOG, STEP_GATES_AGAIN, STEP_RESHIP, STEP_SHIP_WAITS, DETAIL_SHIP_WAITS, type AutofixAttemptRow, type AutofixRowView, type AutofixStepRow } from '../../model/inside/autofix.js';
 import { autofixProcess } from '../../model/inside/ship.js';
 import type { GraphNodeListRow, InsideProcessView, InsideNowView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
@@ -223,6 +225,33 @@ const MULTI_REPO = [
   caseFinding({ id: 3, severity: 'high', title: 'API resolver ignores the override', repo: CASE_API, file: 'src/resolve.ts', line: 90, processRunId: 21 }),
 ];
 
+/** T1321 DB-5: the review card of an unreadable answer: `Unknown`, never `Failed`, with the host's own sentence. */
+function unreadableReviewArtifact(): ArtifactSummary {
+  return {
+    id: 'review',
+    stage: 'review',
+    kind: 'review',
+    title: 'Review',
+    scope: null,
+    summary: 'output unreadable',
+    status: 'unknown',
+    freshness: 'current',
+    origin: { kind: 'karst', core: null },
+    versionCount: 1,
+    currentVersionLabel: 'v1',
+    createdAt: null,
+    metrics: [],
+    gates: [],
+    findings: [],
+    prs: [],
+    commits: [],
+    tasks: [],
+    resources: [],
+    detail: null,
+    agentConsole: 'review',
+  };
+}
+
 /** A usage-limit park on a gate stage (V82): non-resumable, the banner carries the actions. */
 const USAGE_PARK = {
   kind: 'usage-limit' as const,
@@ -256,10 +285,13 @@ function lengthen<T>(value: T, key = ''): T {
   return value;
 }
 
-const longViewPatch = (stage: InsideStageKey) => (s: DashboardState): DashboardState => ({
-  ...s,
-  insideViews: { ...s.insideViews, [stage]: lengthen(s.insideViews[stage]) },
-});
+const longViewPatch = (stage: InsideStageKey) => (s: DashboardState): DashboardState => {
+  const base = s.insideViews[stage];
+  // The stage's display title is a short constant (`Implementation`, `UAT`): DB-13 renders it in the heading, so the
+  // long-content cases keep it as it is and lengthen only the content cells.
+  const lengthened = lengthen(base);
+  return { ...s, insideViews: { ...s.insideViews, [stage]: { ...lengthened, title: base.title } } };
+};
 
 /** The stage menu offers actions: Retry only, or Retry plus Send back (UI brief states). */
 const menuPatch = (sendBack: boolean) => (s: DashboardState): DashboardState => ({
@@ -579,6 +611,20 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   },
   {
     stage: 'review',
+    id: 'unreadable',
+    // T1321 DB-5: an AI answer that could not be read is UNKNOWN, not failed (UI-R14, arch:REVIEW R6b). The row and
+    // the review artifact chip must both say so, so the shelf carries the matching artifact.
+    state: fromFacts(
+      'review',
+      {
+        cells: { review: { status: 'running' } },
+        processRuns: [reviewRun({ status: 'failed', resultKind: UNREADABLE_RESULT_KIND, failureDetail: 'unreadable output from /wt/web — no findings could be read' })],
+      },
+      (s) => ({ ...s, artifacts: [unreadableReviewArtifact()] }),
+    ),
+  },
+  {
+    stage: 'review',
     id: 'multi-repo-filter',
     state: fromFacts('review', {
       cells: { review: { status: 'failed' } },
@@ -685,6 +731,18 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     stage: 'ship',
     id: 'ci-failure',
     state: legacy('ship', (s) => ({ ...s, ciFailure: { available: true, repos: ['web'] } })),
+  },
+  {
+    stage: 'ship',
+    id: 'autofix-header',
+    // T1321 DB-1: the auto-fix chip AND the actions menu both render in the header: the chip has its own track, and
+    // the menu one more. The main action is CI; Rebase keeps a rest item behind the ⋯ menu.
+    state: legacy('ship', (s) => ({
+      ...s,
+      autopilot: { override: 'on', projectDefault: true, effective: true, banner: null, roundActive: false },
+      ciFailure: { available: true, repos: ['web'] },
+      rebase: { available: true, stage: 'ship' },
+    })),
   },
 
   // auto-fix on the Merge row and the blocked banner (T1004): HAND-WRITTEN, outside the layout ledger

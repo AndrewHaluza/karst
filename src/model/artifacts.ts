@@ -52,6 +52,8 @@ import { REVIEW_FINDINGS_DEFAULTS } from '../manifest/qualityDefaults.js';
 import { isBlockingSeverity, sortBySeverityDesc } from './severityOrder.js';
 import { scopeReviewFindings, scopeUatFindings } from './findingScope.js';
 import { processRunForAttempt } from './inside/rounds.js';
+import { isCoverageRecord } from './coverageRecord.js';
+import { isUnreadableRun } from './unreadableRun.js';
 
 /** The semantic artifact kinds V1 derives. One artifact per kind per ticket. */
 export type ArtifactKind = 'plan' | 'uat-report' | 'review' | 'ship-summary';
@@ -60,7 +62,7 @@ export type ArtifactKind = 'plan' | 'uat-report' | 'review' | 'ship-summary';
 export type ArtifactStage = 'impl' | 'uat' | 'review' | 'ship';
 
 /** Domain state, distinct from availability: a load failure is NEVER this. */
-export type ArtifactStatus = 'passed' | 'failed' | 'attention' | 'info';
+export type ArtifactStatus = 'passed' | 'failed' | 'attention' | 'info' | 'unknown';
 
 /**
  * Whether the artifact still validates the current implementation. Only
@@ -519,6 +521,28 @@ function gateSummary(entries: readonly GateRun[]): string {
   return `${passed} passed · ${failed} failed${noScript ? ` · ${noScript} no script` : ''}`;
 }
 
+/** A deterministic gate of the shown attempt failed: a red exit code, never a missing script. */
+function gateFailed(entries: readonly GateRun[]): boolean {
+  return entries.some((g) => g.exitCode !== null && g.exitCode !== 0);
+}
+
+/**
+ * The shown attempt's latest AI run produced no readable answer, and no
+ * deterministic gate failed: the readout is UNKNOWN, not passed and not failed
+ * (UI-R14; arch:REVIEW R6b). A red gate still reads failed.
+ */
+function unknownOutcome(
+  run: ProcessRun | undefined,
+  entries: readonly GateRun[],
+  stage: Stage | undefined,
+): boolean {
+  // A stage that later PASSED (a retry that left no newer AI run) is not unknown: the old unreadable run is stale.
+  return run !== undefined && isUnreadableRun(run) && !gateFailed(entries) && stage?.status !== 'passed';
+}
+
+/** The summary of a card whose AI answer was unreadable and left no finding. */
+const OUTPUT_UNREADABLE = 'output unreadable';
+
 /**
  * A stage's span as a person reads it (the same `formatSpanMs` the inside rows
  * use, so the artifact's "duration" metric and the ledger's row durations can
@@ -670,9 +694,11 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
   // The card already labels itself `v<n>`; its observations must be that
   // version's. `uat_findings.process_run_id` is NOT NULL, so a tester run that
   // has recorded nothing yet renders nothing — never the round it replaced.
-  const scopedUat = scopeUatFindings(
-    uatFindings,
-    processRunForAttempt(processRuns, 'tester', null),
+  // The coverage record is advisory (arch:UAT-OBS): it is not a finding, so it
+  // never reaches the list, the count, the summary or the metrics.
+  const testerRun = processRunForAttempt(processRuns, 'tester', null);
+  const scopedUat = scopeUatFindings(uatFindings, testerRun).filter(
+    (f) => !isCoverageRecord(f),
   );
 
   const findings: ArtifactFinding[] = sortBySeverityDesc(
@@ -698,10 +724,13 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
   const createdAt = stage?.endedAt ?? stage?.startedAt ?? null;
   const attemptCount = versionAttempts(allEntries, processRuns, 'uat');
   const failedStage = stage?.status === 'failed';
+  const unknown = unknownOutcome(testerRun, entries, stage);
   const summary =
-    entries.length > 0
-      ? gateSummary(entries)
-      : `${findings.length} observation${findings.length === 1 ? '' : 's'}`;
+    unknown && findings.length === 0
+      ? OUTPUT_UNREADABLE
+      : entries.length > 0
+        ? gateSummary(entries)
+        : `${findings.length} observation${findings.length === 1 ? '' : 's'}`;
   const duration = durationSpan(stage);
   const metrics = [
     ...gateMetrics(entries),
@@ -720,7 +749,7 @@ function uatReport(input: ArtifactInput): ArtifactSummary | null {
     title: KINDS['uat-report'].title,
     scope: null,
     summary,
-    status: failedStage ? 'failed' : aggregatePassed(entries) ? 'passed' : 'info',
+    status: unknown ? 'unknown' : failedStage ? 'failed' : aggregatePassed(entries) ? 'passed' : 'info',
     freshness: freshnessFor(ticket.stages, 'uat', createdAt),
     origin: originFor('uat', processRuns, ticket),
     versionCount: attemptCount || 1,
@@ -749,9 +778,11 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
   // append-only and a clean re-review writes no batch, so an unscoped list
   // renders a fixed round's findings forever under a `v<n>` label that claims
   // otherwise. `scopeReviewFindings` carries the pre-v27 fallback.
-  const scopedFindings = scopeReviewFindings(
-    findings,
-    processRunForAttempt(processRuns, 'review', null),
+  // The coverage record is advisory (arch:UAT-OBS): it is not a finding, so it
+  // never reaches the list, the count, the summary or the metrics.
+  const reviewRun = processRunForAttempt(processRuns, 'review', null);
+  const scopedFindings = scopeReviewFindings(findings, reviewRun).filter(
+    (f) => !isCoverageRecord(f),
   );
 
   const threshold = input.reviewBlockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
@@ -771,6 +802,7 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
     if (p.stageKey === 'review') resourceFrom(p.artifactPath, resources);
   }
 
+  const unknown = unknownOutcome(reviewRun, entries, stage);
   return {
     id: 'review',
     stage: 'review',
@@ -781,8 +813,18 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
       scopedFindings.length > 0
         ? `${scopedFindings.length} finding${scopedFindings.length === 1 ? '' : 's'}`
           + ` · ${blocking} need${blocking === 1 ? 's' : ''} attention`
-        : gateSummary(entries),
-    status: failedStage ? 'failed' : blocking > 0 ? 'attention' : aggregatePassed(entries) ? 'passed' : 'info',
+        : unknown
+          ? OUTPUT_UNREADABLE
+          : gateSummary(entries),
+    status: unknown
+      ? 'unknown'
+      : failedStage
+        ? 'failed'
+        : blocking > 0
+          ? 'attention'
+          : aggregatePassed(entries)
+            ? 'passed'
+            : 'info',
     freshness: freshnessFor(ticket.stages, 'review', createdAt),
     origin: originFor('review', processRuns, ticket),
     versionCount: attemptCount || 1,

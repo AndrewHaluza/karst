@@ -42,6 +42,8 @@ describe('ViewPills', () => {
     fireEvent.click(pill);
     expect(h.overlays.getSnapshot().console).toBeNull();
     expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(2);
+    // Each menu item names the view and its stream (DB-K4).
+    expect(Array.from(document.querySelectorAll('.vp-label')).map((n) => n.textContent)).toEqual(['UAT · A', 'UAT · B']);
     press('Escape');
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(pill);
@@ -49,6 +51,27 @@ describe('ViewPills', () => {
     fireEvent.click(pill);
     fireEvent.click(document.querySelectorAll('[role="menuitem"]')[1]!);
     expect(h.overlays.getSnapshot().console).toEqual({ stage: 'uat', processId: 'b' });
+  });
+
+  it('names the stage stream and the agent stream by their part, and still opens by process id (DB-K4)', () => {
+    const base = stateWithArtifacts({ servers: [] });
+    const state = {
+      ...base,
+      insideViews: {
+        uat: {
+          stageKey: 'uat',
+          title: 'UAT',
+          console: true,
+          processes: [proc('gates', 'gates', 'fail'), proc('tester', 'UAT')],
+        },
+      },
+    } as unknown as DashboardState;
+    const h = mountOverlays(state);
+    h.act(() => h.overlays.openIndex());
+    fireEvent.click(must('[data-view="console"]'));
+    expect(Array.from(document.querySelectorAll('.vp-label')).map((n) => n.textContent)).toEqual(['UAT gates', 'UAT agent']);
+    fireEvent.click(document.querySelectorAll('[role="menuitem"]')[1]!);
+    expect(h.overlays.getSnapshot().console).toEqual({ stage: 'uat', processId: 'tester' });
   });
 
   it('the Dashboard pill goes home and lands on the history', () => {

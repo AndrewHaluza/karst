@@ -102,13 +102,22 @@ Order inside ⋯ equals DOM order; the primary is never inside ⋯ (`ui:RD-NEVER
 
 ### Stage rail (`.stepper`)
 
-| Tier | Renders |
-|---|---|
-| wide / mid | glyph + full label per stage (`IMPLEMENTATION`) |
-| narrow | glyph + short label (`IMPL`) for current stage, glyph only for the rest (current always labelled) |
-| tight | dots only + one text line `IMPL · 3/7` under the rail |
+The rail degrades in FOUR measured steps, not at fixed breakpoints (`Rail.tsx` `place()`): each step drops what a
+segment merely ANNOTATES and never the current label, the status glyph or the action. The current label shortens to
+the stage key before any other name goes (`ui:RD-NEVER` item 6).
 
-Audit: already abbreviates to `IMPL` at 600/400; the tight text line is new.
+| Step | Renders |
+|---|---|
+| fits | glyph + full label per stage (`IMPLEMENTATION`) |
+| `snug` | drops the non-current meta and meter count; every name stays |
+| `short` | the current label becomes its stage key (`IMPL`); every other name stays |
+| `tight` | non-current segments lose their names (glyph only); the current keeps its key |
+| `bare` | non-current segments become position markers; the current keeps glyph, key and action |
+
+A blocked or failed current segment keeps its glyph, its outline and its accessible name at every step.
+
+Audit: the old lazy ladder (snug → tight → bare) hid every other name before shortening the current one; `short` is
+the step that was missing.
 
 ### Status / PR / branch chips
 
@@ -219,7 +228,7 @@ Columns: audited element → ladder → target at each tier. Grid templates use 
 | header | title row | ticket id + title | one row | one row | title own line, actions row below | same, actions = primary + ⋯ |
 | header | core identity | core | full | short model | name | icon |
 | header | `.headerActions` | action row | all | 3 + ⋯ | primary + 2 icons | primary + ⋯ |
-| stage rail | `.stepper` | stage rail | labels | labels | current label | dots + `IMPL · 3/7` |
+| stage rail | `.stepper` | measured steps | labels | labels | current label (`IMPL`) | marker + `IMPL` |
 | `#inside` | `.session-head` (`:1013`) | core, numbers, time | `20px minmax(78px,110px) minmax(0,1fr) auto` | same | `20px minmax(0,1fr) auto` (core name into row 2) | `20px minmax(0,1fr)` + row 2: core icon, tok, time |
 | `#inside` | `.op summary` (`:783`) | time, numbers | 5 tracks | 5 tracks | `20px minmax(0,1fr) auto 16px` | `20px minmax(0,1fr) 16px`, meta as row 2 |
 | `#inside` | `.timeline-row` (`:1028`) | core, time | `var(--timeline-col) minmax(110px,160px) minmax(0,1fr) auto` | same | `var(--timeline-col) minmax(0,1fr) auto`, core icon only | `minmax(0,1fr) auto`, time row 2 |

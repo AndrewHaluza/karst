@@ -10,6 +10,7 @@ import type { ReviewStallDetection, Severity } from '../../manifest/types.js';
 import { stallView } from './stall.js';
 import { isBlockingSeverity, sortBySeverityDesc } from '../severityOrder.js';
 import { criteriaSummary, isCoverageRecord, skipReason } from '../coverageRecord.js';
+import { isUnreadableRun } from '../unreadableRun.js';
 
 /** The advisory coverage record is `info` and never blocks, even at the lowest threshold. */
 const isBlockingFinding = (f: { severity: string; title: string }, threshold: Parameters<typeof isBlockingSeverity>[1]) =>
@@ -112,6 +113,12 @@ function isSettledSelection(
 
 /** Host-authored absence copy for an AI process whose selected attempt recorded no run. */
 const NO_RUN_FOR_ATTEMPT_DETAIL = 'no recorded run for this attempt';
+
+/** Host-authored absence copy for an AI process of the live attempt that has not run yet. */
+const HAS_NOT_RUN_DETAIL = 'has not run';
+
+/** The status word of an unreadable AI run: the answer is unknown, not failed (UI-R14). */
+const UNKNOWN_STATUS_LABEL = 'Unknown';
 
 /**
  * How a skipped row reads, chosen by its closed `skipReason` key and never by its prose. Only a
@@ -378,9 +385,11 @@ export interface QualityProcessesInput {
  * verdicts: a run that died without an outcome is a note, never a pass or a
  * fail. A `passed` run whose result kind names a deterministic failure
  * (`verification-failed` for the Tester) reads as a fail — the verdict came
- * from the recorded boundary, not from inference.
+ * from the recorded boundary, not from inference. An unreadable answer is a
+ * note: it blocks, it does not fail (UI-R14, arch:REVIEW R6b).
  */
 function processRunStatus(run: ProcessRun, failedResultKinds: readonly string[]): InsideStatus {
+  if (isUnreadableRun(run)) return 'note';
   switch (run.status) {
     case 'running':
       return 'run';
@@ -421,6 +430,10 @@ function aiProcessBase(
       : cell.status === 'pending'
         ? 'pending'
         : 'note',
+    // The unreadable row is the ONLY row that carries this word: the answer is
+    // unknown, not failed, so its copy must not come from the status map
+    // (UI-R14; arch:REVIEW R6b).
+    ...(run && isUnreadableRun(run) ? { statusLabel: UNKNOWN_STATUS_LABEL } : {}),
     ...(run?.startedAt
       ? {
           // No end and not running (stale, interrupted): no duration, never a span growing toward `now`.
@@ -1059,7 +1072,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
   const base = aiProcessBase(input.cell, run, input.configured, shownTokens(input, eff, 'tester'), input.now, {
     id: 'tester',
     label: 'Tester',
-    failedResultKinds: ['verification-failed', 'unreadable-output'],
+    failedResultKinds: ['verification-failed'],
   });
   // A run that observed nothing (coverage SKIPPED / NOT RUN, no observation)
   // reads amber ('wait', the advisory-warning tone), never the green of a pass.
@@ -1099,7 +1112,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
         // which would attribute one attempt's evidence to another.
         eff.historical
         ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
-        : {}),
+        : { detail: HAS_NOT_RUN_DETAIL }),
     // The Tester's live output is console-observable whenever it has run: the
     // persisted tail (Task 13) is host-read on request. Host-derived, so the
     // webview renders the console button only for a run that actually happened.
@@ -1194,18 +1207,23 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
                 ? 'no blocking findings'
                 : // handoff §11: an execution failure must never read as
                   // "no findings" — it names what failed and what to do.
-                  run.resultKind === 'execution-failed'
-                  ? executionFailedDetail(
-                      run,
-                      'Review execution failed: the agent did not return a result. Retry review.',
-                    )
-                  : run.resultKind === 'interrupted'
-                    ? 'interrupted — no outcome'
-                    : undefined,
+                  run.resultKind === 'unreadable-output'
+                  ? executionFailedDetail(run, 'output unreadable — no findings could be read')
+                  : run.resultKind === 'execution-failed'
+                    ? executionFailedDetail(
+                        run,
+                        'Review execution failed: the agent did not return a result. Retry review.',
+                      )
+                    : run.resultKind === 'interrupted'
+                      ? 'interrupted — no outcome'
+                      : undefined,
         }
       : eff.historical
         ? { detail: NO_RUN_FOR_ATTEMPT_DETAIL }
-        : {}),
+        : // Findings with no run row (a legacy review) are evidence that it ran: never claim it has not.
+        rows.length > 0
+          ? {}
+          : { detail: HAS_NOT_RUN_DETAIL }),
     evidence: {
       kind: 'findings',
       rows,

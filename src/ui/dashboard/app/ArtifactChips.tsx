@@ -1,14 +1,13 @@
 /**
- * The status word, stale flag and origin chip of an artifact card. Same DOM as the vanilla helpers
- * (`artifactStatusHtml`, `artifactStaleHtml`, `originChip`), which the still-vanilla index and detail
- * views keep using until the full-screen artifact view migrates.
+ * The status word, stale flag and origin chip of an artifact card. `StatusChip` is the one status
+ * renderer; an unreadable AI answer reads `Unknown`, never `Failed` (UI-R14; arch:REVIEW R6b).
  */
 import { memo } from 'react';
 import { AGENT_PROVIDER_LABELS } from '../../../model/agentProviders.js';
 import { AgentIcon } from './AgentIcon.js';
 
-const STATUS_WORD: Record<string, string> = { passed: 'Passed', failed: 'Failed', attention: 'Needs attention', info: 'In progress' };
-const STATUS_CLASS = new Set(['passed', 'failed', 'attention', 'info']);
+const STATUS_WORD: Record<string, string> = { passed: 'Passed', failed: 'Failed', attention: 'Needs attention', info: 'In progress', unknown: 'Unknown' };
+const STATUS_CLASS = new Set(['passed', 'failed', 'attention', 'info', 'unknown']);
 
 export function StatusChip({ status }: { readonly status: string }) {
   return <span className={`art-status ${STATUS_CLASS.has(status) ? status : 'info'}`}>{STATUS_WORD[status] ?? status}</span>;

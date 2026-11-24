@@ -10,6 +10,8 @@ import { RuntimeIcon, agentName } from './AgentIcon.js';
 import { Icon } from './Icon.js';
 import { INSIDE_ACTION_DANGER, INSIDE_ACTION_ICON, INSIDE_ACTION_LABEL, INSIDE_ACTION_OVERFLOW, INSIDE_ACTION_TITLE, insideActionSentence } from './insideText.js';
 import { usePendingAction } from './usePendingAction.js';
+import { useSlice } from './useSlice.js';
+import type { DashboardSnapshot } from './dashboardStore.js';
 
 /** Posts `inside-action` for one opaque action id, runtime-pending until the host answers. The control keeps one className whatever it shows. */
 function useInsideAction(action: TypedInsideAction): (e: MouseEvent<HTMLElement>) => void {
@@ -108,18 +110,18 @@ export function CoreMark({ provider, core, tip }: { readonly provider: string; r
 }
 
 /** [agent name ·] core mark + core · model. The mark is the canonical provider icon, so a provider with no mark degrades to text. */
-export const AgentId = memo(function AgentId({ x }: { readonly x: AgentExecutionView }) {
+export const AgentId = memo(function AgentId({ x, hideIdentityText = false }: { readonly x: AgentExecutionView; readonly hideIdentityText?: boolean }) {
   return (
     <span className="agent-id">
       {x.agentName ? (
         <>
           <span className="agent-name">{x.agentName}</span>
-          <span className="agent-sep">·</span>
+          {hideIdentityText ? null : <span className="agent-sep">·</span>}
         </>
       ) : null}
       {x.provider ? <CoreMark provider={x.provider} core={x.providerLabel || agentName(x.provider)} tip={[x.providerLabel || agentName(x.provider), x.modelLabel].filter(Boolean).join(' · ')} /> : null}
-      {x.providerLabel ? <span className="agent-core">{x.providerLabel}</span> : null}
-      {x.modelLabel ? (
+      {x.providerLabel && !hideIdentityText ? <span className="agent-core">{x.providerLabel}</span> : null}
+      {x.modelLabel && !hideIdentityText ? (
         <>
           <span className="agent-sep">·</span>
           <span className="agent-model">{x.modelLabel}</span>
@@ -129,10 +131,28 @@ export const AgentId = memo(function AgentId({ x }: { readonly x: AgentExecution
   );
 });
 
+/** The strip's agent session identity, as the two strings a ledger row compares against (DB-20). */
+interface SessionIdentity {
+  readonly provider: string;
+  readonly modelLabel: string;
+}
+
+/** Memoised, so a 1 Hz push hands back the same object and the rows do not render again. */
+const selectSessionIdentity = (snapshot: DashboardSnapshot): SessionIdentity | null => {
+  const session = snapshot.state?.agentSession;
+  return session ? { provider: session.provider, modelLabel: session.modelLabel } : null;
+};
+
 /** The identity a row is entitled to show, in the §11 order: what RAN, else what settings SAY will run, else the host's absence copy. Never invented. */
 export function Identity({ p }: { readonly p: InsideProcessView }) {
-  if (p.execution) return <AgentId x={p.execution} />;
-  if (p.configuredExecution) return <AgentId x={p.configuredExecution} />;
+  const session = useSlice(selectSessionIdentity);
+  const x = p.execution ?? p.configuredExecution;
+  if (x) {
+    // The strip's own session is already named above the ledger: a row that ran it keeps the core mark (with its
+    // accessible name and `core · model` tooltip), and drops the repeated profile and model text (DB-20, UI-R10c).
+    const same = session !== null && x.provider === session.provider && x.modelLabel === session.modelLabel;
+    return <AgentId x={x} hideIdentityText={same} />;
+  }
   if (p.identityNote) return <span className="identity-note">{p.identityNote}</span>;
   return null;
 }

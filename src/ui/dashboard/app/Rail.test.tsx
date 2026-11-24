@@ -279,13 +279,14 @@ describe('Rail — layout degradation', () => {
 
   it.each([
     [1, 'track snug'],
-    [2, 'track snug tight'],
-    [3, 'track snug tight bare'],
+    [2, 'track snug short'],
+    [3, 'track snug short tight'],
+    [4, 'track snug short tight bare'],
   ])('measures and drops annotations in steps (still over after %i steps: %s)', (over, want) => {
     const steps = { n: 0 };
     widths((lane) => {
       const t = lane.parentElement!;
-      steps.n = ['snug', 'tight', 'bare'].filter((c) => t.classList.contains(c)).length;
+      steps.n = ['snug', 'short', 'tight', 'bare'].filter((c) => t.classList.contains(c)).length;
       return steps.n < over ? 200 : 100;
     });
     mountRail(railState());

@@ -25,10 +25,17 @@ describe('PrsPanel — header and empty states', () => {
     expect(refreshBtn().disabled).toBe(false);
   });
 
-  it('counts the rows', () => {
+  it('drops the count when the summary already says how many need attention (DB-11)', () => {
     mount(stateWith([pr(), pr({ repo: '/repos/api', repoDisplay: 'api' })]));
-    expect(text('.phead .count')).toBe('2');
+    expect(text('.phead .count')).toBe('');
+    expect(text('.phead .sec-sum')).toBe('2 blocked');
     expect(document.querySelectorAll('#prs .prrow')).toHaveLength(2);
+  });
+
+  it('keeps the count when no summary part is non-zero: every row landed', () => {
+    mount(stateWith([pr({ status: 'merged', merged: 'merged 2 days ago' })]));
+    expect(text('.phead .count')).toBe('1');
+    expect(text('.phead .sec-sum')).toBe('');
   });
 
   it('renders the refresh control with the idle name as both label and title, and the 13px glyph', () => {

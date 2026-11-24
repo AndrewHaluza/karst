@@ -86,8 +86,8 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
             </span>
           </div>
         ) : null}
-        <div className={`inside-head${anyMenu ? ' has-actions' : ''}`} title={view.title || undefined}>
-          <span className="inside-title" id="inside-title">{`Inside ${view.stageKey}`}</span>
+        <div className={`inside-head${anyMenu ? ' has-actions' : ''}${frame.autopilot ? ' has-autofix' : ''}${main ? ' has-main' : ''}`} title={view.title || undefined}>
+          <span className="inside-title" id="inside-title">{`Inside ${view.title}`}</span>
           <span className={`inside-live ${lstatus}`}>
             <LiveLine stage={stage} live={frame.live} />
           </span>

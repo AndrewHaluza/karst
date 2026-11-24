@@ -292,7 +292,7 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
         {agent && sandbox ? <span className="rs-vsep" aria-hidden="true" /> : null}
 
         {sandbox && secondary ? (
-          <div className="rs-cell">
+          <div className="rs-cell rs-cell--sandbox">
             <button
               ref={triggers.sandbox}
               type="button"
@@ -304,7 +304,7 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
             >
               <Icon name={host ? 'device-desktop' : 'box'} />
               <span className="rs-name">{BACKEND_NAME[sandbox.backend]}</span>
-              <span className={secondary.tone ? `rs-sub rs-sub--sandbox rs-sub--${secondary.tone}` : 'rs-sub rs-sub--sandbox'}>{secondary.text}</span>
+              <span className={secondary.tone ? `rs-sub rs-sub--sandbox rs-sub--${secondary.tone}` : 'rs-sub rs-sub--sandbox'} title={secondary.text}>{secondary.text}</span>
               <Icon name="chevron-down" />
             </button>
             <div ref={sandboxPopRef} className={open === 'sandbox' ? 'rs-pop rs-pop--sandbox open' : 'rs-pop rs-pop--sandbox'} role="dialog" aria-label="Sandbox details">

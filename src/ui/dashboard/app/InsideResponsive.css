@@ -20,6 +20,12 @@
   /* has-actions outranks the rule above: keep the menu in its own track on row one. */
   #inside .inside-head.has-actions{grid-template-columns:minmax(0,auto) minmax(0,1fr) auto}
   #inside .inside-head .stageMenuWrap{grid-column:3;grid-row:1}
+  /* DB-1: the auto-fix chip is its own track, and the menu moves one track right when both render. These two-class
+     selectors outrank the base `has-autofix` rules, so the header keeps one row plus the full-width clock. */
+  #inside .inside-head.has-autofix{grid-template-columns:minmax(0,auto) minmax(0,1fr) auto}
+  #inside .inside-head.has-autofix .autofix-chipwrap{grid-column:3;grid-row:1}
+  #inside .inside-head.has-autofix.has-actions{grid-template-columns:minmax(0,auto) minmax(0,1fr) auto auto}
+  #inside .inside-head.has-autofix.has-actions .stageMenuWrap{grid-column:4;grid-row:1}
   /* N2: the time sits under the title, on its own line; it wraps rather than pushing the card wider. */
   #inside .inside-meta{grid-column:1/-1;min-width:0;white-space:normal;overflow-wrap:anywhere}
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) var(--inside-dur-w) 16px;
@@ -53,6 +59,13 @@
   #inside .finding-loc{grid-column:2}
   #inside .finding-time{display:none}
   #inside .done-line{grid-template-columns:76px minmax(0,1fr)}
+  /* The delivery hero stacks: the check and the title share row one, the summary and the time take the rows below. At this
+     width three flex cells crushed the title to one word per line beside a long summary. */
+  #inside .done-hero{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;column-gap:var(--p-s2);row-gap:var(--k-space-1);padding-top:var(--p-s2);padding-bottom:var(--p-s2)}
+  #inside .done-hero>:first-child{grid-column:1;grid-row:1}
+  #inside .done-hero-main{grid-column:2;grid-row:1;overflow-wrap:anywhere}
+  #inside .done-hero-sub{grid-column:2;grid-row:2}
+  #inside .done-hero-time{grid-column:2;grid-row:3;margin-left:0}
   #inside .done-state{grid-column:2}
   /* The receipt grid stacks rather than crushing three columns; the commit
      list and the PR note lose their hanging indent so nothing truncates. */
@@ -89,6 +102,39 @@
 }
 @container (max-width: 399px){
   #inside .inside{margin-left:var(--k-space-1);margin-right:var(--k-space-1)}
+  /* DB-1: at the floor the header is ONE row: the title, the chip, the clock and (when it renders) the menu. Each part
+     is short here: the chip drops its "default" word and the clock drops its start time, so nothing overlaps (UI-R43).
+     The live line, when it exists, takes row two. The `.has-actions` selectors are named: the narrow rules above name
+     `.has-autofix.has-actions`, which outranks the plain `.has-autofix` rules. */
+  #inside .inside-head.has-autofix{grid-template-columns:auto minmax(0,1fr) auto;row-gap:0;min-height:0;padding-top:var(--p-s1);padding-bottom:var(--p-s1)}
+  #inside .inside-head.has-autofix.has-actions{grid-template-columns:auto minmax(0,1fr) auto auto}
+  #inside .inside-head.has-autofix .inside-title{grid-column:1;grid-row:1}
+  #inside .inside-head.has-autofix .autofix-chipwrap,#inside .inside-head.has-autofix.has-actions .autofix-chipwrap{grid-column:2;grid-row:1;justify-self:end;max-width:100%}
+  #inside .inside-head.has-autofix .inside-meta,#inside .inside-head.has-autofix.has-actions .inside-meta{grid-column:3;grid-row:1;white-space:nowrap}
+  #inside .inside-head.has-autofix.has-actions .stageMenuWrap{grid-column:4;grid-row:1}
+  #inside .inside-head.has-autofix .inside-live{grid-column:1/-1;grid-row:2}
+  /* The live line takes its own full row under the title, and its status glyph stays beside the label (it sat alone
+     on a line above the wrapped label). */
+  #inside .inside-head .inside-live{grid-column:1/-1;grid-row:2;align-items:flex-start}
+  #inside .inside-live .glyph{flex:none}
+  #inside .inside-live strong{flex:1 1 0}
+  /* A main button ("Send CI failure") fills the row: the menu takes row one with the title, and the chip and the clock
+     share row two. */
+  #inside .inside-head.has-autofix.has-main{grid-template-columns:minmax(0,1fr) auto}
+  #inside .inside-head.has-autofix.has-main .stageMenuWrap{grid-column:2;grid-row:1}
+  #inside .inside-head.has-autofix.has-main .autofix-chipwrap{grid-column:1;grid-row:2;justify-self:start}
+  #inside .inside-head.has-autofix.has-main .inside-meta{grid-column:2;grid-row:2}
+  #inside .inside-head.has-autofix.has-main .inside-live{grid-row:3}
+  #inside .inside-head.has-autofix .autofix-chip{padding:0 var(--p-s1)}
+  #inside .inside-head.has-autofix .autofix-default,#inside .inside-head.has-autofix .clock-start{display:none}
+  /* A row with no timing gives no track to it, so the detail of a failed gate keeps the width (the dismiss cross and the
+     "Show" disclosure sit beside it). The action row of a step gets room below it. */
+  #inside .evidence-row{grid-template-columns:18px minmax(60px,80px) minmax(0,1fr) auto auto}
+  #inside .op summary>.op-tail,#inside .op-static>.op-tail{padding-bottom:var(--p-s1)}
+  /* The "Last round" action fills its own track and crushes the detail to a few letters per line. At the floor
+     the action takes its own line under the name and the detail (explicit cells, so the row never auto-wraps). */
+  #inside .evidence-row .ev-tail:has(> [data-act="autopilot-stop-after"]){grid-column:2/-1;grid-row:2;justify-self:start}
+  #inside .evidence-row:has(> .ev-tail > [data-act="autopilot-stop-after"]) > :last-child{grid-column:5;grid-row:1}
   #inside .op-body{margin-left:var(--k-space-6);padding-left:var(--p-s1)}
   #inside .evidence-row,#inside .gate-row,#inside .finding,#inside .done-line{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
   #inside .commit-repo-head,#inside .commit-list,#inside .pr-branch,#inside .pr-branch-note,

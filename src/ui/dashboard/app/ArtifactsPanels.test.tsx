@@ -75,6 +75,7 @@ describe('Artifacts shelf', () => {
     ['passed', 'Passed', 'passed'],
     ['failed', 'Failed', 'failed'],
     ['info', 'In progress', 'info'],
+    ['unknown', 'Unknown', 'unknown'],
     ['mystery', 'mystery', 'info'],
   ])('status %s reads %s with class %s', (status, word, cls) => {
     mount(stateWith({ artifacts: [art('plan', { status })] }));
