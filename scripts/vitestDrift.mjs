@@ -151,7 +151,9 @@ const UNHANDLED_ENTER = /Unhandled (?:Rejection|Errors?)/i;
 const SECTION_DIVIDER = /⎯{3,}.*(?:Failed Tests|Failed Suites)/i;
 const FRAME = /^\s*(?:at|❯)\s+(.*)$/;
 const PAREN_PATH = /\(([^()]+?):\d+(?::\d+)?\)/;
-const BARE_PATH = /^(?:async\s+)?(.+?):\d+(?::\d+)?$/;
+// A bare frame is `path:line[:col]` or Vitest's named form `name path:line[:col]`
+// (`❯ leak scripts/a.test.mjs:3:18`): take the test-file path token, never the name.
+const BARE_PATH = /(?:^|\s)(\S*\.(?:test|spec)\.[cm]?[jt]sx?):\d+(?::\d+)?$/;
 
 /**
  * The test files a failed vitest run names: the file of every FAIL/× line, plus
@@ -195,6 +197,9 @@ export function failingFilesFromOutput(output, cwd = null) {
  */
 export function planUnparseableFlakeRerun(output, { env = {}, cap = FLAKE_FILE_CAP, cwd = null } = {}) {
   if (env.GITHUB_ACTIONS === 'true') return { kind: 'skip', reason: 'flake re-run skipped: GitHub Actions never excuses a failure' };
+  // A run with no Test Files summary aborted before it could account for its files, so a
+  // partial read is not the full failing set and must never be excused as flaky.
+  if (!ranTests(output)) return { kind: 'skip', reason: 'flake re-run skipped: no Test Files summary, so the run did not finish' };
   const files = failingFilesFromOutput(output, cwd);
   if (files.length === 0) return { kind: 'skip', reason: 'flake re-run skipped: no failing test files' };
   const reported = /^\s*Test Files\s+(?:(\d+) failed)?/m.exec(output.replace(ANSI, ''));

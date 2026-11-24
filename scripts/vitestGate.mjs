@@ -285,7 +285,10 @@ async function main() {
   }
   // Unparseable: the ids cannot carry a drift verdict, but a single-file re-run at HEAD
   // still tells a flake from a break. An unfinished run (hung or signaled) is never excused.
-  if (first.hung || first.signaled) finish(first.status);
+  if (first.hung || first.signaled) {
+    console.error('flake re-run skipped: the run was hung or signaled, so it is never excused');
+    finish(first.status);
+  }
   const ok = await flakeCheckUnparseable(cwd, args, first.out).catch(() => false);
   finish(ok ? 0 : first.status);
 }

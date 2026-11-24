@@ -198,6 +198,16 @@ describe('failingFilesFromOutput', () => {
     ].join('\n');
     expect(failingFilesFromOutput(out, '/repo')).toEqual(['src/d.test.ts', 'src/e.test.ts', 'scripts/f.test.mjs']);
   });
+  it('keeps only the path of a named Vitest ❯ frame, never the function name', () => {
+    const out = [
+      '⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯',
+      'Error: leaked',
+      ' ❯ leak scripts/a.test.mjs:3:18',
+      ' ❯ runWithTimeout ../../../node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10',
+      ' Test Files  1 failed (1)',
+    ].join('\n');
+    expect(failingFilesFromOutput(out)).toEqual(['scripts/a.test.mjs']);
+  });
   it('dedupes in first-seen order', () => {
     const out = [
       ' FAIL  src/a.test.ts > suite > a',
@@ -233,11 +243,11 @@ describe('planUnparseableFlakeRerun', () => {
     expect(plan.reason).toBe('flake re-run skipped: GitHub Actions never excuses a failure');
   });
   it('reads the file of an unhandled-error stack when there is no FAIL line', () => {
-    const out = ['     Errors  1 error', '⎯⎯ Unhandled Error ⎯⎯', ' ❯ src/d.test.ts:12:5'].join('\n');
+    const out = ['     Errors  1 error', '⎯⎯ Unhandled Error ⎯⎯', ' ❯ src/d.test.ts:12:5', ' Test Files  1 failed (1)'].join('\n');
     expect(planUnparseableFlakeRerun(out, { cwd: null })).toEqual({ kind: 'run', files: ['src/d.test.ts'] });
   });
   it('plans nothing above the file cap', () => {
-    const out = Array.from({ length: FLAKE_FILE_CAP + 1 }, (_, i) => ` FAIL  src/f${i}.test.ts`).join('\n');
+    const out = [...Array.from({ length: FLAKE_FILE_CAP + 1 }, (_, i) => ` FAIL  src/f${i}.test.ts`), ` Test Files  ${FLAKE_FILE_CAP + 1} failed (${FLAKE_FILE_CAP + 1})`].join('\n');
     const plan = planUnparseableFlakeRerun(out);
     expect(plan.kind).toBe('skip');
     expect(plan.reason).toContain(`flake re-run skipped: ${FLAKE_FILE_CAP + 1} files`);
@@ -247,6 +257,12 @@ describe('planUnparseableFlakeRerun', () => {
     const plan = planUnparseableFlakeRerun(out);
     expect(plan.kind).toBe('skip');
     expect(plan.reason).toBe('flake re-run skipped: only 1 of 2 failed test files could be read');
+  });
+  it('plans nothing when the run printed no Test Files summary, so its failing set is unknown', () => {
+    const out = [' FAIL  src/a.test.ts > suite > a', '⎯⎯ Unhandled Rejection ⎯⎯', 'Error: leaked'].join('\n');
+    const plan = planUnparseableFlakeRerun(out);
+    expect(plan.kind).toBe('skip');
+    expect(plan.reason).toBe('flake re-run skipped: no Test Files summary, so the run did not finish');
   });
 });
 

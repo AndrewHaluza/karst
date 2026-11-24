@@ -197,6 +197,16 @@ describe('vitestGate flake re-run', () => {
     expect(run.stderr).not.toContain('NOTICE: flaky:');
     expect(run.status).not.toBe(0);
   }, 120_000);
+
+  it('never excuses a hung unparseable run, and says the flake re-run was skipped', () => {
+    const dir = flakyRepo("import {it} from 'vitest';\nit('hangs', () => new Promise(() => {}));\n");
+    const run = gate(dir, 'develop', { KARST_GATE_IDLE_MS: '2000' });
+    rmSync(dir, { recursive: true, force: true });
+    expect(run.stderr).toContain('gate hang');
+    expect(run.stderr).toContain('flake re-run skipped: the run was hung or signaled, so it is never excused');
+    expect(run.stderr).not.toContain('re-running');
+    expect(run.status).not.toBe(0);
+  }, 120_000);
 });
 
 describe('vitestGate CI mode', () => {
