@@ -152,6 +152,37 @@ describe('decideBaselines', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it('refuses when the block clears during the entry derivation and writes nothing', async () => {
+    const res = await decideBaselines(
+      {
+        ...deps,
+        deriveEntries: async () => {
+          store.db.prepare("UPDATE stages SET blocked_kind = NULL WHERE ticket_id = ? AND stage_key = 'uat'").run(id);
+          return ENTRIES;
+        },
+      },
+      { kind: 'approve', indices: [0] },
+    );
+    expect(res).toEqual({ kind: 'refused', reason: `T${id} is no longer waiting for a baseline review.` });
+    expect(latestBaselineDecisions(store, id).size).toBe(0);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('refuses when the stage moves on during the entry derivation although the block stays', async () => {
+    const res = await decideBaselines(
+      {
+        ...deps,
+        deriveEntries: async () => {
+          store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('fix', id);
+          return ENTRIES;
+        },
+      },
+      { kind: 'approve', indices: [0] },
+    );
+    expect(res).toEqual({ kind: 'refused', reason: `T${id} is no longer waiting for a baseline review.` });
+    expect(latestBaselineDecisions(store, id).size).toBe(0);
+  });
+
   it('writes nothing when the entries cannot be re-derived', async () => {
     const res = await decideBaselines(
       { ...deps, deriveEntries: async () => { throw new Error('git broke'); } },
