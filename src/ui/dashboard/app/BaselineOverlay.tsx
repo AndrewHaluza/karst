@@ -7,14 +7,16 @@
  * text field. Each one clicks the control the user could click, so pending and disabled states apply the same way.
  * Escape is the overlay stack's: `Overlays.tsx` closes an open reject form first, then the overlay.
  *
- * Widths follow `@ui:RD-TIERS` (`BaselineOverlay.css`). When the block clears (the last approve, or a rejection that
- * sends the ticket to fix) the overlay closes itself and the dashboard shows again.
+ * Widths follow `@ui:RD-TIERS` (`BaselineOverlay.css`). When the block clears (the last approve, or Send, which sends
+ * the rejected entries to `fix` in one round) the overlay closes itself and the dashboard shows again. A rejection
+ * alone records the decision and leaves the overlay open, so the user can reject every wrong screenshot first.
  */
 import { memo, useEffect, useRef, type KeyboardEvent } from 'react';
-import { ApproveButton, BaselineActions, useApprove } from './BaselineActions.js';
+import { ApproveButton, BaselineActions, SendRejectionsButton, useApprove } from './BaselineActions.js';
 import { BaselineChips, BaselineList } from './BaselineList.js';
 import { BaselineViewer } from './BaselineViewer.js';
 import type { BaselineDrafts } from './baselineDrafts.js';
+import { approveSendLabel } from './baselineGroups.js';
 import { useBaselineDraftsState, useOverlay, useOverlays } from './DashboardAppContext.js';
 import { DrillHeader } from './DrillHeader.js';
 import { RegionPortal } from './RegionPortal.js';
@@ -45,13 +47,25 @@ function onKeys(e: KeyboardEvent<HTMLElement>): void {
 function Review({ model, drafts }: { readonly model: BaselineModel; readonly drafts: BaselineDrafts }) {
   const approve = useApprove(model, drafts);
   const pending = model.rows.filter((r) => r.decision === 'pending').map((r) => r.index);
+  const rejected = model.counts.rejected;
   const { selected } = model;
   return (
     <>
       <DrillHeader
         trail={[{ label: 'Baselines' }]}
         actions={
-          pending.length > 0 ? <ApproveButton indices={pending} label={`Approve all (${pending.length})`} primary={false} approve={approve} all /> : null
+          <>
+            {pending.length > 0 ? (
+              <ApproveButton
+                indices={pending}
+                label={rejected > 0 ? approveSendLabel(pending.length, rejected) : `Approve all (${pending.length})`}
+                primary={false}
+                approve={approve}
+                all
+              />
+            ) : null}
+            {rejected > 0 ? <SendRejectionsButton count={rejected} /> : null}
+          </>
         }
       />
       <div className="blsub">{`${model.ticketLabel} · ${model.stageKey} · ${model.counts.pending} open`}</div>
