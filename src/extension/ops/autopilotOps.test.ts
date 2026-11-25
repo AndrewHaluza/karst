@@ -1946,12 +1946,55 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     expect(later.notes.length).toBe(1);
   });
 
-  it('records the decision refusal without retrying', async () => {
+  it('records the decision refusal once, not on every tick', async () => {
     failedServerErrorShip();
     const r = retry({ shipRetry: { worktreeClean: async () => ({ ok: true as const, clean: false }), localHead: async () => HEAD } });
     expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
     expect(r.retryShip).not.toHaveBeenCalled();
     expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry (the worktree of r has uncommitted changes)');
+    expect(r.debug.mock.calls.filter(([m]) => String(m).includes('no ship retry')).length).toBe(1);
+  });
+
+  it('keeps the retry off while any stop reason is on record', async () => {
+    failedServerErrorShip();
+    setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+    const r = retry();
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect(r.retryShip).not.toHaveBeenCalled();
+    expect(r.debug.mock.calls.filter(([m]) => String(m).includes('ship retry')).length).toBe(0);
+  });
+
+  it('pauses when the retry opens no run, so a throwing saga never repeats every tick', async () => {
+    failedServerErrorShip();
+    const retryShip = vi.fn(async () => ({ kind: 'failed' as const, reason: 'the sandbox is out of sync' }));
+    const r = retry({ retryShip });
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix stopped: ship retry could not run (the sandbox is out of sync)');
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(r.notes).toEqual([[
+      'Autopilot: auto-fix stopped: ship retry could not run (the sandbox is out of sync)',
+      'AP-1: the ship retry did not open a run; the failed ship keeps its Retry ship. Start it by hand, then set the auto-fix mode again.',
+    ]]);
+    // Paused: the next tick does not touch it again.
+    await autopilotTick(r.deps);
+    expect(retryShip).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts a retry that failed after opening its run as sent', async () => {
+    failedServerErrorShip();
+    const retryShip = vi.fn(async () => {
+      // The saga opened its run and then failed: the run history bounds the next attempt.
+      const run = openShipRun(store, { ticketId: id, attempt: 2, startedAt: '2026-11-25T12:09:00.000Z' });
+      const step = openShipRepoStep(store, { shipRunId: run.id, repo: 'r', step: 'pr', detail: 'run', startedAt: '2026-11-25T12:09:00.000Z' });
+      finishShipRepoStep(store, step.id, { status: 'failed', detail: 'gh: HTTP 502 Bad Gateway', endedAt: '2026-11-25T12:09:30.000Z' });
+      closeShipRun(store, run.id, 'failed', '2026-11-25T12:09:30.000Z');
+      return { kind: 'failed' as const, reason: 'ship failed for 1 repo(s)' };
+    });
+    const r = retry({ retryShip });
+    expect((await autopilotTick(r.deps)).kind).toBe('shipRetried');
+    expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
+    expect(r.notes[0]![0]).toBe('Autopilot: retried ship after a GitHub server error (1/5)');
   });
 
   it('reports busy when the host drains, and records no event', async () => {

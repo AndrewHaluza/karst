@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { getStage } from '../../store/stages.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { hasAttendedShipRun, listShipRuns, listShipRepoSteps, newestPushIntentHead, type ShipRun } from '../../store/shipRuns.js';
+import { hasAttendedShipRun, listShipRuns, listShipRepoSteps, newestPushIntentHead, type ShipRepoStep, type ShipRun } from '../../store/shipRuns.js';
 import { isGitHubServerError } from '../../integrations/githubServerError.js';
 import { planRetryShip } from '../../ui/dashboard/insideActions.js';
 
@@ -25,7 +25,11 @@ export const AUTO_SHIP_RETRY_STOP_REASON = `auto-fix stopped: GitHub server erro
  * What the Retry ship seam reports: the saga started (it records its own failure on the ship stage), or the host drains
  * for a reload and the ship did not run.
  */
-export type ShipRetryOutcome = { readonly kind: 'sent' } | { readonly kind: 'busy' };
+export type ShipRetryOutcome =
+  | { readonly kind: 'sent' }
+  | { readonly kind: 'busy' }
+  /** The saga threw. It opened no run when the engine still reads the same newest run: the retry must stop, not repeat. */
+  | { readonly kind: 'failed'; readonly reason: string };
 
 /**
  * The worktree reads of rule 5, injected so tests use fakes. An unreadable state (a failed `git`, no worktree) is never
@@ -50,9 +54,13 @@ export type ShipRetryDecision =
 
 const none = (why: string): ShipRetryDecision => ({ kind: 'none', why });
 
+/** The run's failed steps, in insertion order. */
+function failedSteps(store: Store, run: ShipRun): ShipRepoStep[] {
+  return listShipRepoSteps(store, run.id).filter((s) => s.status === 'failed');
+}
+
 /** Rule 4: the run has failed steps and EVERY one is a push/pr step whose detail is a GitHub server error. */
-function serverErrorOnly(store: Store, run: ShipRun): boolean {
-  const failed = listShipRepoSteps(store, run.id).filter((s) => s.status === 'failed');
+function allServerErrors(failed: readonly ShipRepoStep[]): boolean {
   return failed.length > 0 && failed.every((s) => (s.step === 'push' || s.step === 'pr') && isGitHubServerError(s.detail));
 }
 
@@ -76,7 +84,12 @@ export async function shipRetryDecision(store: Store, ticketId: number, now: num
   if (newest.status !== 'failed') return none('the newest ship run did not fail');
   // Rule 3: a person's Confirm/Retry ship opened this ship's series (an unattended resume can only follow one).
   if (!hasAttendedShipRun(store, ticketId)) return none('no person confirmed a ship');
-  if (!serverErrorOnly(store, newest)) return none('the failed ship was not a GitHub server error');
+  const failed = failedSteps(store, newest);
+  if (!allServerErrors(failed)) return none('the failed ship was not a GitHub server error');
+  // The repos Retry ship names come from the per-repo latest evidence, which can predate this run: a repo whose latest
+  // failure is another kind must keep the click, never ride along on this server-error retry.
+  const failedRepos = new Set(failed.map((s) => s.repo));
+  if (plan.repos.some((repo) => !failedRepos.has(repo))) return none('a repo the ship would re-run failed on another error');
   // Nothing new would be published: every repo Retry ship would re-run must hold exactly the pushed head.
   for (const repo of plan.repos) {
     const state = await seams.worktreeClean(repo);
@@ -89,7 +102,7 @@ export async function shipRetryDecision(store: Store, ticketId: number, now: num
   // Rule 6: the consecutive newest runs that failed only on server errors. A passed run or another failure stops it.
   let n = 0;
   for (const r of runs) {
-    if (r.status !== 'failed' || !serverErrorOnly(store, r)) break;
+    if (r.status !== 'failed' || !allServerErrors(failedSteps(store, r))) break;
     n += 1;
   }
   if (n > MAX_AUTO_SHIP_RETRIES) return { kind: 'park', reason: AUTO_SHIP_RETRY_STOP_REASON, runId: newest.id };

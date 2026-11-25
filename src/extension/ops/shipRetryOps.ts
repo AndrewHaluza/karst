@@ -58,7 +58,7 @@ export function makeRetryShip(d: RetryShipDeps): (repos: readonly string[]) => P
     } catch (e) {
       if (e instanceof ShipDrainingError) return { kind: 'busy' };
       d.debug(`[ship] autopilot ticket ${d.label}: the ship retry ended (${e instanceof Error ? e.message : String(e)})`);
-      return { kind: 'sent' };
+      return { kind: 'failed', reason: e instanceof Error ? e.message : String(e) };
     }
   };
 }

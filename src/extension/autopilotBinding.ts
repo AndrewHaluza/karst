@@ -266,6 +266,16 @@ export function startAutopilot(d: AutopilotBindingDeps): {
     if (!claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS)) return false;
     try { return await run(); } finally { claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS); }
   };
+  // A ship retry runs longer than the sweep lease: hold the ticket for a whole round while it runs, so a second window
+  // starts no second retry beside it, then give the short lease back (@arch:AC-37, @arch:AP-11).
+  const shipRetryHeld = async (id: number, repos: readonly string[]): Promise<ShipRetryOutcome> => {
+    if (!claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS)) return { kind: 'busy' };
+    try {
+      return await d.retryShip!(id, repos);
+    } finally {
+      claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS);
+    }
+  };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
   // One sweep at a time: overlapping sweeps must not spend the budget twice.
   let sweeping = false;
@@ -298,7 +308,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
         ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseHeld(id, () => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) }))) } : {}),
         ...(d.shipRetry ? { shipRetry: d.shipRetry(id) } : {}),
-        ...(d.retryShip ? { retryShip: (repos: readonly string[]) => d.retryShip!(id, repos) } : {}),
+        ...(d.retryShip ? { retryShip: (repos: readonly string[]) => shipRetryHeld(id, repos) } : {}),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };

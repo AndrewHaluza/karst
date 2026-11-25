@@ -14,6 +14,7 @@ import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.j
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
 import { MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
+import { listShipRuns } from '../../store/shipRuns.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
@@ -421,12 +422,19 @@ function shipRetryNoted(store: Store): Set<string> {
  */
 async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
   if (!d.shipRetry || !d.retryShip) return { kind: 'idle' };
+  // Rule 1 (@arch:AP-11): a stop reason of ANY kind keeps the retry off; only a person clears it.
+  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== null) return { kind: 'idle' };
   const seen = shipRetryNoted(d.store);
   const decision = await shipRetryDecision(d.store, d.ticketId, (d.now ?? Date.now)(), d.shipRetry);
   switch (decision.kind) {
-    case 'none':
-      d.debug(`${LOG} ticket ${d.key}: no ship retry (${decision.why})`);
+    case 'none': {
+      const key = `${flightKeyOf(d)}:no-ship-retry:${decision.why}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        d.debug(`${LOG} ticket ${d.key}: no ship retry (${decision.why})`);
+      }
       return { kind: 'idle' };
+    }
     case 'wait': {
       const key = `${flightKeyOf(d)}:ship-retry:${decision.until}`;
       if (!seen.has(key)) {
@@ -445,10 +453,21 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
       return { kind: 'idle' };
     }
     case 'retry': {
+      const before = listShipRuns(d.store, d.ticketId, 1)[0]!;
       const outcome = await d.retryShip(decision.repos);
       if (outcome.kind === 'busy') {
         d.debug(`${LOG} ticket ${d.key}: no ship retry, the host drains for a reload`);
         return { kind: 'busy' };
+      }
+      // A saga that threw BEFORE opening its run leaves the same failed run, so the run history would never bound the
+      // 2 s tick: pause with a visible reason and keep the failed stage's Retry ship (@arch:AP-11).
+      if (outcome.kind === 'failed' && listShipRuns(d.store, d.ticketId, 1)[0]!.id === before.id) {
+        const reason = `auto-fix stopped: ship retry could not run (${outcome.reason})`;
+        setAutopilotStopped(d.store, d.ticketId, reason);
+        setAutopilotPaused(d.store, d.ticketId, reason);
+        d.note(`Autopilot: ${reason}`, `${d.key}: the ship retry did not open a run; the failed ship keeps its Retry ship. Start it by hand, then set the auto-fix mode again.`);
+        d.debug(`${LOG} ticket ${d.key}: ${reason}; paused`);
+        return { kind: 'parked', reason };
       }
       const n = `${decision.n}/${MAX_AUTO_SHIP_RETRIES}`;
       d.note(`Autopilot: retried ship after a GitHub server error (${n})`, `${d.key}: ran Retry ship for ${decision.repos.join(', ')} after a GitHub server error (retry ${n}).`);

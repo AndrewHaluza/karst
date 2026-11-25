@@ -71,10 +71,15 @@ describe('makeRetryShip', () => {
     expect(debug).not.toHaveBeenCalled();
   });
 
-  it('reports sent for a failed ship: the saga recorded it on the stage and opened its run', async () => {
+  it('reports the failure: the engine decides from the run history whether a ship attempt happened', async () => {
     const debug = vi.fn();
     const runShip = vi.fn(async () => { throw new Error('ship failed for 1 repo(s)'); });
-    await expect(makeRetryShip(deps(runShip, debug))(['r'])).resolves.toEqual({ kind: 'sent' });
+    await expect(makeRetryShip(deps(runShip, debug))(['r'])).resolves.toEqual({ kind: 'failed', reason: 'ship failed for 1 repo(s)' });
     expect(debug).toHaveBeenCalledWith('[ship] autopilot ticket T1: the ship retry ended (ship failed for 1 repo(s))');
+  });
+
+  it('reports a non-Error rejection with its text', async () => {
+    const runShip = vi.fn(async () => { throw 'nope'; });
+    await expect(makeRetryShip(deps(runShip))(['r'])).resolves.toEqual({ kind: 'failed', reason: 'nope' });
   });
 });

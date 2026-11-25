@@ -190,6 +190,15 @@ describe('shipRetryDecision', () => {
       .toEqual(none('the head of r is not the head the ship pushed'));
   });
 
+  it('never rides along a repo whose latest failure is another kind', async () => {
+    // An older run left repo 'old' failing on a bad credential; the newest run failed only on a server error for 'r'.
+    run({ repo: 'old', steps: [['pr', 'failed', 'remote: HTTP 401 Bad credentials']], endedAt: '2026-11-25T11:00:00.000Z' });
+    run();
+    failedShip();
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams()))
+      .toEqual(none('a repo the ship would re-run failed on another error'));
+  });
+
   it('reads the repos planRetryShip names and retries each one', async () => {
     run({ steps: [['push', 'failed', 'HTTP 503 Service Unavailable'], ['pr', 'passed', 'ok']] });
     failedShip();
