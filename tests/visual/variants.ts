@@ -216,15 +216,39 @@ const insideCaseVariants = (): Variant[] =>
   );
 
 /**
- * T1090: every Inside case at the mid, narrow and tight tiers (@ui:RD-TIERS). The `width` is a screenshot field: each
- * tier variant shares the layout run of its base case, which opens the same page at every width (layoutPlan()). The widths sit inside the
- * tier they name: mid 700-999, narrow 400-699, tight <=399. The live-tokens and stage-menu cases carry their own tier sets.
+ * T1090: the Inside cases at the mid, narrow and tight tiers (@ui:RD-TIERS). The `width` is a screenshot field: each
+ * tier variant shares the layout run of its base case, which opens the same page at every width (layoutPlan()). The
+ * widths sit inside the tier they name: mid 700-999, narrow 400-699, tight <=399.
+ *
+ * T1352 (@ui:VISUAL-VARIANTS): only the representative responsive / long-text / overflow-prone cases record the tiers,
+ * and only in `dark` — wrapping is theme-independent and an `allThemes` case's base shot already records light and hc.
+ * Every other case keeps its base shot alone; `layout.layout.ts` still opens every page at every width.
  */
 const INSIDE_TIERS = [['mid', 800], ['narrow', 500], ['tight', 360]] as const;
+const INSIDE_TIER_CASES: ReadonlySet<string> = new Set([
+  'impl-running',
+  'impl-graph-long-reason',
+  'impl-bounded-timeline',
+  'uat-running',
+  'uat-fix-parked-gate',
+  'uat-gates-wait-and-run',
+  'review-rounds-12',
+  'review-long-attempt-note',
+  'review-long-gate-detail',
+  'review-long-finding-title',
+  'review-multi-repo-filter',
+  'ship-long-repo-names',
+  'ship-autofix-header',
+  'ship-deliver-auto-failed',
+  'ship-auto-budget-spent',
+  'done-long-text',
+]);
 const insideTierVariants = (): Variant[] =>
-  INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').flatMap((c) =>
+  INSIDE_CASES.filter(
+    (c) => c.aliasOf === undefined && c.id !== 'live-tokens' && INSIDE_TIER_CASES.has(`${c.stage}-${c.id}`),
+  ).flatMap((c) =>
     INSIDE_TIERS.map(([tier, width]) =>
-      variant('dashboard', `inside-${c.stage}-${c.id}-${tier}`, () => stateMessage(c.state()), { width, ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
+      variant('dashboard', `inside-${c.stage}-${c.id}-${tier}`, () => stateMessage(c.state()), { width }),
     ),
   );
 
@@ -275,6 +299,12 @@ const stallVariants = (): Variant[] => {
 
 /** The four container tiers (UI-R49): a viewport width inside each. */
 const DRILL_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 500], ['tight', 360]] as const;
+/**
+ * T1352 (@ui:VISUAL-VARIANTS): `index` keeps every tier, because its artifact pill bar wraps. The three content
+ * surfaces (`env`, `logs`, `console`) record `wide` only — they add no wrapping of their own. `long-identity` keeps
+ * every tier too, from its own tier map below.
+ */
+const DRILL_MULTI_WIDTH_SURFACES: ReadonlySet<string> = new Set(['index']);
 const DRILL_SURFACES = [['index', []], ['env', ['Env variables']], ['logs', ['Server logs']], ['console', ['Console']]] as const;
 /** T871: the artifact index restored from the persisted view, so the drill-down pills are on screen. */
 const drillCorpus = (mutate: (s: DashboardState) => DashboardState = (s) => s): (() => ViewCorpus) => () => {
@@ -290,10 +320,12 @@ const withConsoles = (s: DashboardState): DashboardState => ({
   insideViews: Object.fromEntries(Object.entries(s.insideViews ?? {}).map(([k, v]) => [k, { ...v, console: true }])) as unknown as DashboardState['insideViews'],
 });
 
-/** Every drill-down surface at every tier, and the long identity at the extremes. */
+/** Every `index` tier, the long identity at every tier, and one wide shot per content surface. */
 const drillDownVariants = (): Variant[] => [
   ...DRILL_SURFACES.flatMap(([surface, pills]) =>
-    DRILL_TIERS.map(([tier, width]) => variant('dashboard', `drill-${surface}-${tier}`, drillCorpus(withConsoles), { width, pills, skipLayout: true })),
+    (DRILL_MULTI_WIDTH_SURFACES.has(surface) ? DRILL_TIERS : DRILL_TIERS.slice(0, 1)).map(([tier, width]) =>
+      variant('dashboard', `drill-${surface}-${tier}`, drillCorpus(withConsoles), { width, pills, skipLayout: true }),
+    ),
   ),
   ...DRILL_TIERS.map(([tier, width]) =>
     variant('dashboard', `drill-long-identity-${tier}`, drillCorpus((s) => ({ ...s, title: LONG_TITLE, key: 'PLATFORM-INFRA-1234567' })), { width, skipLayout: true }),
@@ -385,19 +417,24 @@ const DETAILS_TABS: Readonly<Record<string, readonly (TicketDetailsSteps['tab'] 
   rich: [undefined, 'desc', 'raw'], draft: [undefined, 'raw'], plain: [undefined, 'raw'], empty: [undefined],
 };
 
-/** T1060: the four states x their tabs at wide, mid and narrow. The drawer is a fixed overlay: no layout run of its own, and the shot is the viewport, not the page below it. */
+/**
+ * T1060: the four states x their tabs. The drawer is a fixed overlay: no layout run of its own, and the shot is the
+ * viewport, not the page below it. T1352 (@ui:VISUAL-VARIANTS): only the two overflow-prone `rich` tabs (structured
+ * metadata and raw markdown with unbroken URLs) record `mid` and `narrow`; the other six state x tab pairs record `wide`.
+ */
 const ticketDetailsVariants = (): Variant[] =>
   DETAILS_STATES.flatMap(([name, patch]) =>
-    (DETAILS_TABS[name] ?? []).flatMap((tab) =>
-      DETAILS_TIERS.map(([tier, width]) =>
+    (DETAILS_TABS[name] ?? []).flatMap((tab) => {
+      const tiers = name === 'rich' && (tab === undefined || tab === 'raw') ? DETAILS_TIERS : DETAILS_TIERS.slice(0, 1);
+      return tiers.map(([tier, width]) =>
         variant('dashboard', `ticket-details-${name}${tab ? `-${tab}` : ''}-${tier}`, dashboardScenario('running', 2, patch), {
           skipLayout: true,
           width,
           capture: 'viewport',
           ticketDetails: tab ? { tab } : {},
         }),
-      ),
-    ),
+      );
+    }),
   );
 
 type SandboxView = NonNullable<DashboardState['sandbox']>;
@@ -420,7 +457,6 @@ const HOST_VIEW: SandboxView = {
   shell: { available: false, why: 'No sandbox yet' },
 };
 
-/** The runtime strip: one scenario per state. Each state shoots at wide, mid and narrow. */
 const RUNTIME_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState]> = [
   ['docker', (s) => ({ ...s, sandbox: SBX_VIEW })],
   ['sbx', (s) => ({ ...s, sandbox: { ...SBX_VIEW, backend: 'sbx', network: 'sbx network policy (allowlist)' } })],
@@ -434,9 +470,15 @@ const RUNTIME_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => Das
 ];
 const RUNTIME_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
 
+/**
+ * The runtime strip, one scenario per state. T1352 (@ui:VISUAL-VARIANTS): every state records `wide`; only the full
+ * strip and the long wrapping note also record `mid` and `narrow`. Both open popovers keep every tier.
+ */
+const RUNTIME_MULTI_WIDTH: ReadonlySet<string> = new Set(['docker', 'host-note']);
+
 const runtimeStripVariants = (): Variant[] => [
   ...RUNTIME_STATES.flatMap(([id, patch]) =>
-    RUNTIME_TIERS.map(([tier, width]) =>
+    (RUNTIME_MULTI_WIDTH.has(id) ? RUNTIME_TIERS : RUNTIME_TIERS.slice(0, 1)).map(([tier, width]) =>
       variant('dashboard', `runtime-${id}-${tier}`, dashboardScenario('running', 2, patch), { skipLayout: true, width }),
     ),
   ),
@@ -453,10 +495,13 @@ const runtimeStripVariants = (): Variant[] => [
   variant('dashboard', 'sandbox-on', dashboardScenario('running', 2, (s) => ({ ...s, sandbox: SBX_VIEW }))),
 ];
 
-/** T1063: every Servers / Worktrees / Pull requests state at wide, mid and narrow, plus the narrow sub-task row. */
+/**
+ * T1063: every Servers / Worktrees / Pull requests state at `wide`, plus the `mid` and `narrow` tiers of a
+ * representative `multiWidth` state, and the narrow sub-task row (@ui:VISUAL-VARIANTS, T1352).
+ */
 const panelStateVariants = (): Variant[] => [
   ...PANEL_VARIANTS.flatMap((v) =>
-    PANEL_TIERS.map(([tier, width]) =>
+    (v.multiWidth === true ? PANEL_TIERS : PANEL_TIERS.slice(0, 1)).map(([tier, width]) =>
       variant('dashboard', `panel-${v.id}-${tier}`, dashboardScenario('running', 2, v.patch), {
         skipLayout: true,
         width,
