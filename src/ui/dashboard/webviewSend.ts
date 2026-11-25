@@ -155,6 +155,11 @@ export function createSender(api: WebviewApi) {
       stageKey: Msg<'stage-resume'>['stageKey'],
       requestId?: string,
     ) => send({ type: 'stage-resume', ticketId, stageKey }, requestId),
+    stageReplan: (
+      ticketId: Msg<'stage-replan'>['ticketId'],
+      stageKey: Msg<'stage-replan'>['stageKey'],
+      requestId?: string,
+    ) => send({ type: 'stage-replan', ticketId, stageKey }, requestId),
     runGateOnHost: (
       ticketId: Msg<'run-gate-on-host'>['ticketId'],
       stageKey: Msg<'run-gate-on-host'>['stageKey'],

@@ -17,16 +17,21 @@
 import type { Store } from '../../store/db.js';
 import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
 import type { Manifest } from '../../manifest/types.js';
+import type { GraphBlockRecovery, GraphInsideInput } from '../../model/inside/graph.js';
 import type { GraphTopology } from '../../model/inside/graphDag.js';
-import type { GraphInsideInput } from '../../model/inside/graph.js';
 import type { SupervisedAgentSession } from '../../approaches/graph/transport/agentTransport.js';
 import { NODE_OVERRIDE_KINDS, nodeRunGraphRunId, nodeRunsForGraphRunDisplay } from '../../store/graph/nodeRuns.js';
 import {
+  graphRunIdStatusBlockedReason,
   graphRunOrdinal as runOrdinal,
+  graphRunStatusReplanCount,
   latestGraphRunForTicket,
 } from '../../store/graph/graphRuns.js';
 import type { GraphRunRow as FullGraphRunRow } from '../../store/graph/graphRuns.js';
 import { plannerRunGraphRunId, plannerRunsForGraphRun } from '../../store/graph/plannerRuns.js';
+import { activeRevision } from '../../store/graph/revisions.js';
+import { parseGraphDocument } from '../../approaches/graph/parse.js';
+import { recoveryCategoryFor } from '../../approaches/graph/coordinator/recovery.js';
 
 export interface GraphInsideDeps {
   store: Store;
@@ -133,6 +138,49 @@ function readTopology(
   if (memo.size >= TOPOLOGY_CACHE_SIZE) memo.delete(memo.keys().next().value as string);
   memo.set(revision.fingerprint, topology ?? null);
   return topology;
+}
+
+/**
+ * Which recovery control actually works on a blocked graph run (T1359, D793).
+ *
+ * The blocked banner's primary action must not offer a Resume that
+ * `recoverGraphRun` is guaranteed to refuse. Resume refuses every
+ * `explicit-resolution` reason (`integration-conflict`,
+ * `graph-topology-deadlock`, a null or unknown reason) and every
+ * `config-then-resume` reason (a reparable block or a spent document budget),
+ * and a `replan` / `compile-new-revision` block has nothing left to elect once
+ * the revision's own `budgets.maxReplans` is spent. Everything else resumes.
+ *
+ * Reads the run, its accepted replan count and the ACTIVE revision's canonical
+ * document — the same rows `electReplan` reads, parsed through the same
+ * `parseGraphDocument`. A missing or unparseable revision leaves
+ * `maxReplans: null`, so the run reads as resumable: without a document there
+ * is no budget to prove spent.
+ *
+ * Lives in `src/ui/**` (which may read `src/approaches/**`) so the category
+ * table stays single-copied; `src/model/**` only receives the plain verdict.
+ */
+export function graphBlockRecovery(
+  store: Store,
+  graphRunId: number,
+  _projectMaxReplans?: number,
+): GraphBlockRecovery {
+  const run = graphRunIdStatusBlockedReason(store.db, graphRunId);
+  const replanCount = graphRunStatusReplanCount(store.db, graphRunId)?.replan_count ?? 0;
+  const revision = activeRevision(store.db, graphRunId);
+  let maxReplans: number | null = null;
+  if (revision) {
+    const parsed = parseGraphDocument(revision.canonical_graph);
+    if (parsed.ok) maxReplans = parsed.document.budgets.maxReplans;
+  }
+  const category = recoveryCategoryFor(run?.blocked_reason ?? null);
+  const replan =
+    category === 'explicit-resolution' ||
+    category === 'config-then-resume' ||
+    ((category === 'replan' || category === 'compile-new-revision') &&
+      maxReplans !== null &&
+      replanCount >= maxReplans);
+  return { primary: replan ? 'replan' : 'resume', replanCount, maxReplans };
 }
 
 export function buildGraphInsideInput(
@@ -259,6 +307,9 @@ export function buildGraphInsideInput(
       stageAttempt: run.stage_attempt,
       createdAt: run.created_at,
       blockedReason: run.blocked_reason,
+      ...(run.status === 'blocked'
+        ? { recovery: graphBlockRecovery(deps.store, run.id, limits.maxReplans) }
+        : {}),
       ...(depsWarning === undefined ? {} : { depsWarning }),
     },
     plannerRuns: plannerRuns.map((p) => ({

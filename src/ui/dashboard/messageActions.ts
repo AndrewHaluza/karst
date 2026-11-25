@@ -167,6 +167,14 @@ export interface DashboardActions {
    * place, right against the store it is about to mutate.
    */
   resumeStage: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
+  /**
+   * Replan a blocked graph stage (T1359, D793): the blocked banner's primary
+   * action when the host's verdict says Resume would refuse. Takes the
+   * message's ids VERBATIM, exactly like `resumeStage`, so the host applies
+   * every check — same ticket, same current stage, actually a graph block —
+   * against the store it is about to mutate.
+   */
+  replanStage: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
   /** Resource-killed park: rerun the killed gate(s) on the host, then resume the stage. */
   runGateOnHost: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
   usageLimitPick: (ticketId: number, stageKey: StageKey) => void | Promise<void>;

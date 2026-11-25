@@ -45,7 +45,7 @@ export const INSIDE_ACTION_TITLE: Readonly<Partial<Record<InsideActionKind, stri
   'graph-discard-node': 'Discard unknown process — it may still be running',
   // The per-node override edit is an ORDINARY secondary control (reversible editing, nothing lost on click).
   'graph-edit-override': "Edit this node's profile/provider/model/effort/prompt overrides before it claims",
-  'graph-edit-workspace-deps': 'Open karst.yml at this repository to set graphWorkspace, then Resume',
+  'graph-edit-workspace-deps': 'Open karst.yml at this repository to set graphWorkspace, then Replan',
 };
 
 /** kind to Tabler glyph (@ui:ICONS-02). Every Inside action button carries one; a kind not listed shows its label alone. */

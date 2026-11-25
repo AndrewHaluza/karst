@@ -81,7 +81,7 @@ export const blockedState = (blocked: Record<string, unknown> | undefined, over:
     ...over,
   });
 
-const SENDERS = ['shipTicket', 'retryShip', 'resumeTicket', 'mergePr', 'resolveConflicts', 'resolveAllConflicts', 'stageResume', 'runGateOnHost', 'usageLimitPick', 'usageLimitRetry', 'usageLimitDismiss', 'stallApply', 'stallRetry', 'stallPlanning', 'baselineApprove', 'baselineApproveAll', 'baselineSendRejections', 'baselineReject', 'testerSkippedRerun', 'testerSkippedAccept', 'fixParkedRetry', 'fixParkedAccept', 'pushDivergedOverwrite', 'pushDivergedIntegrate', 'autopilotApproveOne', 'autopilotRetry', 'cancelReload', 'sendCiFailure', 'sandboxDiff'] as const;
+const SENDERS = ['shipTicket', 'retryShip', 'resumeTicket', 'mergePr', 'resolveConflicts', 'resolveAllConflicts', 'stageResume', 'stageReplan', 'runGateOnHost', 'usageLimitPick', 'usageLimitRetry', 'usageLimitDismiss', 'stallApply', 'stallRetry', 'stallPlanning', 'baselineApprove', 'baselineApproveAll', 'baselineSendRejections', 'baselineReject', 'testerSkippedRerun', 'testerSkippedAccept', 'fixParkedRetry', 'fixParkedAccept', 'pushDivergedOverwrite', 'pushDivergedIntegrate', 'autopilotApproveOne', 'autopilotRetry', 'cancelReload', 'sendCiFailure', 'sandboxDiff'] as const;
 
 export interface RailHarness {
   readonly send: Record<(typeof SENDERS)[number], ReturnType<typeof vi.fn>>;
