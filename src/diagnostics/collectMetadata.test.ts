@@ -1207,4 +1207,38 @@ describe('collectMetadata', () => {
     expect(draft.metadata.graph).toEqual({ status: 'unavailable', reason: 'reader_failed' })
     expect(JSON.stringify(draft)).not.toContain('PRIVATE_GRAPH_FAILURE')
   })
+
+  it('reports who recorded each phase mark', async () => {
+    store = openStore(':memory:')
+    const project = upsertProject(store, { slug: 'one' })
+    const ticket = createTicket(store, { projectId: project.id, key: 'X', title: 'x' })
+    const ins = store.db.prepare(
+      `INSERT INTO phase_marks (ticket_id, stage_key, attempt, phase_name, marked_at, source)
+       VALUES (?, 'impl', 0, ?, '2026-07-28T00:00:00.000Z', ?)`,
+    )
+    ins.run(ticket.id, 'plan', 'host')
+    ins.run(ticket.id, 'implement', 'agent')
+
+    const draft = await collectMetadata({
+      store,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1', editorVersion: '1', platform: 'darwin', arch: 'arm64',
+        remoteNamePresent: false, uiKind: 'desktop', developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-phase-source',
+      generatedAt: '2026-07-28T00:00:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(9)),
+    })
+    expect(draft.metadata.phaseMarks).toEqual({
+      status: 'available',
+      data: [
+        expect.objectContaining({ phase: 'plan', source: 'host' }),
+        expect.objectContaining({ phase: 'implement', source: 'agent' }),
+      ],
+    })
+  })
 })

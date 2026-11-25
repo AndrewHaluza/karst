@@ -501,6 +501,7 @@ describe('buildDashboardState', () => {
       attempt: 0,
       phaseName: 'plan',
       markedAt: '2026-08-01T08:20:00.000Z',
+      source: 'agent',
     });
 
     const state = buildDashboardState(
@@ -1604,6 +1605,7 @@ describe('buildDashboardState', () => {
       attempt: 0,
       phaseName: 'research',
       markedAt: '2026-08-02T10:00:00.000Z',
+      source: 'agent',
     });
 
     const state = buildDashboardState(store, t.id, undefined, undefined, () => [

@@ -184,7 +184,8 @@ END_DOC_BLOCK: [@gloss:GL-03]
 - **Evidence** — the append-only records (`gate_runs`, `phase_marks`,
   `review_findings`, `uat_findings`) that survive a stage-row overwrite. Written
   *when it happens*, inside the transaction that commits with the stage outcome.
-  See *Stage run*.
+  A `phase_marks` row carries `source`: `agent` when `karst phase` reported it,
+  `host` when karst inferred the phase from evidence it already held. See *Stage run*.
 - **Stage run record** — `stage_runs` (v25): one row opened before a run's first
   gate, marked `stale` when superseded or when the activation sweep finds a dead
   pid. Exists to resolve the never-started / in-flight / destroyed ambiguity a
@@ -489,7 +490,9 @@ END_DOC_BLOCK: [@gloss:GL-10]
   the one function whose job is refusing a forged `stage ship pass`.
 - **`phase`** — records an approach phase marker (`phase_marks`, append-only
   evidence). Parses elsewhere, produces no `Verdict`, never imports the machine
-  — the worst a fully-injected call does is append a row. Phase names are a
+  — the worst a fully-injected call does is append a row. It is the AGENT's
+  writer (`source = 'agent'`); the host is the other one, from evidence it
+  already holds (a run opening, a captured output — *Evidence*). Phase names are a
   shell token interpolated into the command, so one charset
   (`approaches/phaseName.ts`) is enforced at install, at compose, and again on
   receipt; trailing argv is rejected, not ignored.

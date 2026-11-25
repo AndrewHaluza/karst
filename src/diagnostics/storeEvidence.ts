@@ -23,6 +23,8 @@ export interface PhaseEvidence {
   readonly attempt: number
   readonly phaseName: string
   readonly markedAt: string
+  /** Who recorded it: the agent's `karst phase`, or the host's evidence. */
+  readonly source: string
 }
 
 export interface StageEvidence {
@@ -126,7 +128,7 @@ export function readGateRuns(store: Store, ticketId: number, cap: number): Bound
 export function readPhaseMarks(store: Store, ticketId: number, cap: number): BoundedRows<PhaseEvidence> {
   const limit = checkedCap(cap)
   const rows = store.db.prepare(
-    `SELECT stage_key, attempt, phase_name, marked_at, COUNT(*) OVER() AS total_count
+    `SELECT stage_key, attempt, phase_name, marked_at, source, COUNT(*) OVER() AS total_count
        FROM phase_marks
       WHERE ticket_id = ?
       ORDER BY id DESC
@@ -136,6 +138,7 @@ export function readPhaseMarks(store: Store, ticketId: number, cap: number): Bou
     attempt: number
     phase_name: string
     marked_at: string
+    source: string
     total_count: number
   }>
   const result = bounded(rows, limit, rows[0]?.total_count ?? 0)
@@ -146,6 +149,7 @@ export function readPhaseMarks(store: Store, ticketId: number, cap: number): Bou
       attempt: row.attempt,
       phaseName: row.phase_name,
       markedAt: row.marked_at,
+      source: row.source,
     })),
   }
 }

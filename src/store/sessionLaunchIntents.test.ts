@@ -6,6 +6,7 @@ import { openStore, type Store } from './db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { transition } from '../workflow/machine.js';
 import { listImplementationTimeline, currentImplementationRun, interruptImplementationRun } from './implementationRuns.js';
+import { listPhaseMarks } from './phaseMarks.js';
 import { openRecoveryRound } from './recoveryRounds.js';
 import {
   recordSessionLaunchIntent,
@@ -212,6 +213,40 @@ describe('session launch intents', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // Rule A (@arch:RESULTS) through the launch seam: the first-phase host mark is
+  // written exactly when the run OPENS. A reused (running or interrupted) run is
+  // a run whose first phase the host already marked, so a relaunch adds nothing.
+  it('writes the first-phase host mark when the run opens, and not when a run is reused', () => {
+    record('l1', { firstPhase: 'plan' });
+    expect(listPhaseMarks(store, ticketId)).toHaveLength(1);
+
+    // A second launch reuses the running run.
+    record('l2', { at: '2026-08-01T10:05:00.000Z', firstPhase: 'plan' });
+    expect(listPhaseMarks(store, ticketId)).toHaveLength(1);
+
+    // And an interrupted run is reused too.
+    interruptImplementationRun(store, ticketId, '2026-08-01T10:06:00.000Z');
+    record('l3', { at: '2026-08-01T10:07:00.000Z', firstPhase: 'plan' });
+    expect(listPhaseMarks(store, ticketId)).toHaveLength(1);
+  });
+
+  it('writes no first-phase host mark for a fix launch', () => {
+    const round = openRecoveryRound(store, {
+      ticketId,
+      sourceStage: 'uat',
+      sourceProcessId: 'gates',
+      sourceStageRunId: null,
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+      triggerDetail: 'exit 1',
+      maxRounds: 3,
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+    record('l-fix', { purpose: 'fix', recoveryRoundId: round.id, firstPhase: 'plan' });
+
+    expect(listPhaseMarks(store, ticketId)).toEqual([]);
   });
 });
 

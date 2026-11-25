@@ -1511,6 +1511,69 @@ describe('approaches', () => {
     }
   });
 
+  it('parses a workflow phase evidence output kind', () => {
+    const yaml = withApproaches(
+      '  - id: rpi\n' +
+      '    label: RPI\n' +
+      '    workflow:\n' +
+      '      - { name: plan, evidence: { outputKind: plan } }\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).approaches![0]!.workflow).toEqual([
+        { name: 'plan', evidence: { outputKind: 'plan' } },
+      ]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses an unknown evidence output kind, naming the path and the legal kinds', () => {
+    const yaml = withApproaches(
+      '  - id: rpi\n' +
+      '    label: RPI\n' +
+      '    workflow:\n' +
+      '      - { name: plan, evidence: { outputKind: blueprint } }\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /approaches\[0\]\.workflow\[0\]\.evidence\.outputKind must be one of plan\|research\|spec\|review\|meta\|script\|other/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses an evidence string, an empty evidence object and an unknown evidence key', () => {
+    const cases = [
+      '      - { name: plan, evidence: plan }\n',
+      '      - { name: plan, evidence: {} }\n',
+      '      - { name: plan, evidence: { outputKind: plan, extra: 1 } }\n',
+    ];
+    for (const phase of cases) {
+      const yaml = withApproaches('  - id: rpi\n' + '    label: RPI\n' + '    workflow:\n' + phase);
+      const { path, cleanup } = fixture(yaml);
+      try {
+        expect(() => loadManifest(path)).toThrow(/evidence/i);
+      } finally {
+        cleanup();
+      }
+    }
+  });
+
+  it('leaves a workflow phase without evidence with no evidence property', () => {
+    const yaml = withApproaches(
+      '  - id: rpi\n' + '    label: RPI\n' + '    workflow:\n' + '      - { name: plan }\n',
+    );
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).approaches![0]!.workflow![0]!).not.toHaveProperty('evidence');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('leaves workflow absent when omitted', () => {
     const yaml = withApproaches('  - { id: rpi, label: RPI }\n');
     const { path, cleanup } = fixture(yaml);

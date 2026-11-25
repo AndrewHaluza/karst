@@ -72,7 +72,7 @@ export function parsePhaseArgs(argv: string[]): ParsedPhase {
 
 /** The writes the command performs — injected so it is unit-testable. */
 export interface PhaseDeps {
-  record: (store: Store, mark: PhaseMarkInput) => void;
+  record: (store: Store, mark: PhaseMarkInput) => boolean;
   attemptOf: (store: Store, ticketId: number, stageKey: StageKey) => number;
   now: () => string;
 }
@@ -102,6 +102,7 @@ export function runPhaseCommand(
     attempt: deps.attemptOf(store, ticketId, PHASE_MARK_STAGE),
     phaseName,
     markedAt: deps.now(),
+    source: 'agent',
   });
   return phaseName;
 }

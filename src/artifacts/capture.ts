@@ -33,6 +33,8 @@ export interface RevisionEvent {
   sha: string;
   /** Tree path: `<repo>/<relPath>`. */
   path: string;
+  /** A removal revision: the file left the ticket's diff. Never new evidence. */
+  deleted?: true;
 }
 
 export interface CaptureTarget {
@@ -145,7 +147,13 @@ export async function captureWorktree(
       if (sha !== null) {
         committed += 1;
         try {
-          deps.onRevision?.({ ticketId: target.ticketId, kind: trailers.kind ?? output.kind, sha, path: `${repo}/${change.relPath}` });
+          deps.onRevision?.({
+            ticketId: target.ticketId,
+            kind: trailers.kind ?? output.kind,
+            sha,
+            path: `${repo}/${change.relPath}`,
+            ...(change.kind === 'deleted' ? { deleted: true as const } : {}),
+          });
         } catch (err) {
           debug(`[artifacts] revision listener failed: ${String(err)}`);
         }

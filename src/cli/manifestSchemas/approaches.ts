@@ -32,6 +32,9 @@ const SOURCE: JsonSchema = {
 
 const OUTPUT = strictObject({ glob: TRIMMED_STRING, kind: enumOf(OUTPUT_KINDS) }, ['glob', 'kind']);
 
+/** One phase's declared evidence: the output kind whose first capture proves it. */
+const PHASE_EVIDENCE = strictObject({ outputKind: enumOf(OUTPUT_KINDS) }, ['outputKind']);
+
 const PROFILE = strictObject(
   { provider: enumOf(AGENT_PROVIDER_VALUES), model: { type: 'string', maxLength: 512, pattern: MODEL_ID_PATTERN }, effort: SHORT_STRING },
   ['provider', 'model'],
@@ -73,7 +76,12 @@ const APPROACH = lenientObject(
     entrypoint: NON_EMPTY_STRING,
     source: SOURCE,
     recommended: BOOLEAN,
-    workflow: arrayOf(lenientObject({ name: NON_EMPTY_STRING, command: NON_EMPTY_STRING, description: NON_EMPTY_STRING }, ['name'])),
+    workflow: arrayOf(
+      lenientObject(
+        { name: NON_EMPTY_STRING, command: NON_EMPTY_STRING, description: NON_EMPTY_STRING, evidence: PHASE_EVIDENCE },
+        ['name'],
+      ),
+    ),
     outputs: arrayOf(OUTPUT),
     checks: arrayOf(enumOf(CHAIN_EDGES)),
     enabled: BOOLEAN,

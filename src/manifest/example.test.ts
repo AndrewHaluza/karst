@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { load } from 'js-yaml';
 import { loadManifestWithDiagnostics } from './load.js';
+import { effectiveOutputs } from '../approaches/outputs.js';
 import { detectInertKeys } from './inertKeys.js';
 
 /**
@@ -71,6 +72,29 @@ describe('karst.example.yml', () => {
     const { manifest } = loadManifestWithDiagnostics(path);
     const approach = manifest.approaches?.find((a) => a.id === 'superpowers:writing-plans');
     expect(approach?.workflow?.map((p) => p.name)).toEqual(['plan', 'implement']);
+  });
+
+  it('declares phase evidence only for an output kind the approach actually captures', () => {
+    // `evidence.outputKind` is what the host's capture rule reads, so a phase
+    // that names a kind no `outputs` entry (declared or defaulted) can produce
+    // would declare evidence that never arrives — checkable, never inert.
+    const { manifest } = loadManifestWithDiagnostics(path);
+    const outputs = effectiveOutputs(manifest);
+    for (const approach of manifest.approaches ?? []) {
+      for (const phase of approach.workflow ?? []) {
+        if (phase.evidence === undefined) continue;
+        const kinds = outputs.filter((o) => o.approachId === approach.id).map((o) => o.kind);
+        expect(kinds, `${approach.id}/${phase.name}`).toContain(phase.evidence.outputKind);
+      }
+    }
+    // Pin the three approaches whose evidence the ticket names.
+    const evidenceOf = (id: string) =>
+      manifest.approaches?.find((a) => a.id === id)?.workflow
+        ?.filter((p) => p.evidence !== undefined)
+        .map((p) => [p.name, p.evidence!.outputKind]);
+    expect(evidenceOf('rpi')).toEqual([['research', 'research'], ['plan', 'plan']]);
+    expect(evidenceOf('speckit')).toEqual([['specify', 'spec']]);
+    expect(evidenceOf('superpowers:writing-plans')).toEqual([['plan', 'plan']]);
   });
 
   it('declares no avoidable inert key — the example must teach shape, never dead config', () => {

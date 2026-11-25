@@ -3147,5 +3147,13 @@ function migrateLocked(db: Database): void {
     db.exec(FIX_ROUND_ACCEPTANCES_DDL);
   }
 
+  if (current < 139) {
+    // v139: `phase_marks.source` — WHO wrote the mark: the agent through `karst phase` ('agent'), or the host inferring phase entry from evidence it already holds ('host'). A host mark is evidence, never a verdict (@arch:RESULTS). Additive; every existing row is an 'agent' row (the only writer before this version), no backfill.
+    const markCols139 = tableColumns(db, 'phase_marks');
+    if (markCols139.size > 0 && !markCols139.has('source')) {
+      db.exec("ALTER TABLE phase_marks ADD COLUMN source TEXT NOT NULL DEFAULT 'agent' CHECK (source IN ('agent', 'host'))");
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
