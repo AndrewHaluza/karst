@@ -41,7 +41,11 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1346 empty panels (Q3, @ui:UI-R57): the five missing panel states (srv-not-runnable, srv-one, wt-one,
   // subtask-empty, subtask-one) x 3 width tiers (+15 screenshots); `empty-panels` and its tight 360 shot (+2),
   // and the one new all-empty page x 5 layout widths (+5) that `empty-panels-tight` shares.
-  dashboard: { screenshots: 655, layout: 785 },
+  // T1352 (@ui:VISUAL-VARIANTS, @ui:SWEEP-BUDGET): the width-tier prune removes 321 redundant full-page shots across
+  //   the five dashboard families — inside-* 240 (186 dark + 27 light + 27 hc: tiers are now dark-only and only the 16
+  //   representative cases carry them), panel-* 46, runtime-* 14, ticket-details-* 12, drill-* 9. Every state keeps its
+  //   default/wide shot and `layout.layout.ts` still opens every page at every width, so `layout` is unchanged (785).
+  dashboard: { screenshots: 334, layout: 785 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

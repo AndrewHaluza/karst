@@ -1,6 +1,8 @@
 /**
- * T1063: the Servers, Worktrees and Pull requests panel states (ui:UI-R57), each at wide, mid and narrow.
- * Screenshot-only (`skipLayout`): the layout gate already opens the populated dashboard route.
+ * T1063: the Servers, Worktrees and Pull requests panel states (ui:UI-R57). Every state records the `wide` (1100 px)
+ * shot; only a representative `multiWidth` state (responsive, overflow-prone or popover) also records `mid` (800) and
+ * `narrow` (400) — T1352 width-tier prune, @ui:VISUAL-VARIANTS. Screenshot-only (`skipLayout`): the layout gate
+ * already opens the populated dashboard route at every width.
  */
 import type { Reason } from '../../src/model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../src/model/prPanelView.js';
@@ -14,6 +16,11 @@ export interface PanelVariantSpec {
   readonly click?: string;
   /** A selector hovered after load and after any click (a hover-state screenshot). */
   readonly hover?: string;
+  /**
+   * T1352 (@ui:VISUAL-VARIANTS): also record the `mid` (800) and `narrow` (400) tiers. Only a representative
+   * responsive / overflow-prone / popover state sets it; every other state records its `wide` shot alone.
+   */
+  readonly multiWidth?: boolean;
 }
 
 export const PANEL_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
@@ -132,6 +139,7 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   {
     id: 'srv-mixed',
     patch: (s) => ({ ...withServers([server(1, 'web', 'running', 5173), server(2, 'api', 'failed', null), server(3, 'worker', 'stopped', null)])(s), sharedServers: sharedServerFixtures() }),
+    multiWidth: true,
   },
   { id: 'srv-fault', patch: withServers([server(1, 'web', 'failed', null), server(2, 'api', 'failed', null)]) },
   { id: 'srv-stopped', patch: withServers([server(1, 'web', 'stopped', null), server(2, 'api', 'stopped', null)]) },
@@ -143,14 +151,14 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   { id: 'subtask-empty', patch: (s) => ({ ...s, subtasks: [], subtaskProgress: { done: 0, total: 0 }, canAddSubtask: true }) },
   { id: 'subtask-one', patch: (s) => ({ ...s, subtasks: s.subtasks.slice(0, 1), subtaskProgress: { done: 0, total: 1 }, canAddSubtask: true }) },
   { id: 'wt-normal', patch: (s) => s },
-  { id: 'wt-base', patch: (s) => s, click: '[data-act="toggle-base-form"]' },
-  { id: 'wt-ext', patch: withWorktrees((w) => w.map((x, i) => ({ ...x, launchable: true, branch: i === 0 ? x.branch : 'feat/other-branch' }))) },
+  { id: 'wt-base', patch: (s) => s, click: '[data-act="toggle-base-form"]', multiWidth: true },
+  { id: 'wt-ext', patch: withWorktrees((w) => w.map((x, i) => ({ ...x, launchable: true, branch: i === 0 ? x.branch : 'feat/other-branch' }))), multiWidth: true },
   { id: 'wt-empty', patch: withWorktrees(() => []) },
-  { id: 'pr-mixed', patch: withPrs([READY, BLOCKED, DISMISSED]) },
+  { id: 'pr-mixed', patch: withPrs([READY, BLOCKED, DISMISSED]), multiWidth: true },
   { id: 'pr-ready', patch: withPrs([READY]) },
   { id: 'pr-optional-failing', patch: withPrs([READY_OPTIONAL_FAILING]) },
   { id: 'pr-stale-checks', patch: withPrs([STALE_CHECKS]) },
-  { id: 'pr-ready-info', patch: withPrs([READY]), click: '[data-act="toggle-pr-info"]' },
+  { id: 'pr-ready-info', patch: withPrs([READY]), click: '[data-act="toggle-pr-info"]', multiWidth: true },
   // T1190: a disabled Merge keeps its disabled look under the pointer and shows its visible reason.
   { id: 'pr-disabled-merge-hover', patch: withPrs([BLOCKED]), hover: '.pacts .k-btn--secondary:disabled' },
   { id: 'pr-rule', patch: withPrs([RULE]) },
@@ -160,9 +168,9 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
     id: 'pr-autofix-running',
     patch: (s) => ({ ...withPrs([READY, FIX_RUNNING])(s), autopilot: { ...(s.autopilot ?? { override: 'inherit', projectDefault: true, effective: true, banner: null }), roundRunning: true } }),
   },
-  { id: 'pr-autofix-parked', patch: withPrs([READY, FIX_PARKED]) },
+  { id: 'pr-autofix-parked', patch: withPrs([READY, FIX_PARKED]), multiWidth: true },
   { id: 'pr-blocked-2-closed', patch: withPrs([BLOCKED_2]) },
-  { id: 'pr-blocked-2-open', patch: withPrs([BLOCKED_2]), click: '.prblock-fold > summary' },
+  { id: 'pr-blocked-2-open', patch: withPrs([BLOCKED_2]), click: '.prblock-fold > summary', multiWidth: true },
   { id: 'pr-blocked-2-autofix', patch: withPrs([FIX_RUNNING_2]) },
   { id: 'pr-blocked-1', patch: withPrs([BLOCKED_1]) },
   { id: 'pr-empty', patch: withPrs([]) },
