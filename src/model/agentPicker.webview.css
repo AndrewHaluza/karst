@@ -75,7 +75,9 @@ select.ap-effort[data-ap-preset]{appearance:none;-webkit-appearance:none;text-ov
 .ap-warn[hidden]{display:none}
 .ap-effort{width:100%;min-height:var(--k-control-h-lg);
   background:var(--k-surface);color:var(--k-text);
-  border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);
+  /* The light theme sets --k-input-edge (designComponents.webview.css), as for .k-input: the panel
+     border is under 3:1 on white there (SET-57). Other themes keep the shared border. */
+  border:var(--k-border-w) solid var(--k-input-edge, var(--k-border));border-radius:var(--k-radius-sm);
   padding:var(--k-space-2) var(--k-space-4);font-family:inherit;font-size:var(--k-text-md)}
 .ap-effort:disabled{opacity:.45;cursor:default}
 

@@ -38,6 +38,7 @@ import { formatAgentsHash } from '../../src/ui/settings/app/sections/agentsRoute
 import type { SettingsSection } from '../../src/ui/settings/sections.js';
 import { settingsRoutes } from './settingsRoutes.js';
 import { PANEL_TIERS, PANEL_VARIANTS } from './panelVariants.js';
+import { REALISTIC_TICKET_FORM, ROUTED_MODEL_CATALOG } from './realisticTicketForm.js';
 import { BASELINE_VARIANTS, baselineState } from './baselineVariants.js';
 import {
   CLICKUP_SETTINGS,
@@ -210,11 +211,28 @@ function dashboardScenario(
   };
 }
 
+/**
+ * T1357 (@ui:VISUAL-VARIANTS): the screenshot step of an Inside case whose state shows only after a click. Without
+ * it the page equals a sibling case. Keyed `${stage}-${id}`. `click` is screenshot-only: the layout key stays.
+ */
+export const INSIDE_CASE_CLICK: Readonly<Record<string, string>> = {
+  // The revalidation caption is in the Gates evidence body (EvidenceRows.tsx `gates-caption`); the row is a <details>.
+  'uat-gates-revalidation': '[data-proc-id="uat:gates"] > summary',
+  // A closed ticket differs from a passed one only in its menu: Reopen in place of Close.
+  'done-closed': '#moreBtn',
+  // The two review menu cases differ only in the open stage menu: Retry alone here, Retry and Send back in the other.
+  'review-menu-retry-only': '[data-stage-menu="review"]',
+};
+
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
 const insideCaseVariants = (): Variant[] =>
-  INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').map((c) =>
-    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), { ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
-  );
+  INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').map((c) => {
+    const click = INSIDE_CASE_CLICK[`${c.stage}-${c.id}`];
+    return variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), {
+      ...(c.allThemes ? { themes: ALL_THEMES } : {}),
+      ...(click === undefined ? {} : { click }),
+    });
+  });
 
 /**
  * T1090: the Inside cases at the mid, narrow and tight tiers (@ui:RD-TIERS). The `width` is a screenshot field: each
@@ -386,7 +404,9 @@ const agentPopoverVariants = (): Variant[] => [
   ...['codex', 'antigravity', 'opencode'].map((core) => agentPopoverVariant(`${core}-wide`, { core }, 1100)),
   agentPopoverVariant('search-wide', { core: 'opencode', q: 'pickle' }, 1100),
   agentPopoverVariant('zero-count-tab-wide', { core: 'opencode', q: 'pickle', cap: 'text-only' }, 1100),
-  agentPopoverVariant('no-effort-model-wide', { core: 'opencode', model: 'opencode/big-pickle' }, 1100),
+  // T1357: the core switch already stages the recent Big Pickle, so picking it changed nothing. Kimi K3 Free also has
+  // no efforts and is not pre-staged, so the pick moves the selection and hides the effort control.
+  agentPopoverVariant('no-effort-model-wide', { core: 'opencode', model: 'opencode/kimi-k3-free' }, 1100),
   agentPopoverVariant('opencode-narrow', { core: 'opencode', q: 'pickle' }, 400),
 ];
 
@@ -458,11 +478,13 @@ const HOST_VIEW: SandboxView = {
   shell: { available: false, why: 'No sandbox yet' },
 };
 
-const RUNTIME_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState]> = [
+/** `[id, patch, open]`: `open` is the popover a state needs open to show what it changes (T1357). */
+const RUNTIME_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState, RuntimeOpen?]> = [
   ['docker', (s) => ({ ...s, sandbox: SBX_VIEW })],
   ['sbx', (s) => ({ ...s, sandbox: { ...SBX_VIEW, backend: 'sbx', network: 'sbx network policy (allowlist)' } })],
   ['carry', (s) => ({ ...s, sandbox: { ...SBX_VIEW, carry: true } })],
-  ['shell-off', (s) => ({ ...s, sandbox: { ...SBX_VIEW, shell: { available: false, why: 'Sandbox is stopped' } } })],
+  // The disabled shell and its reason show only in the ⋯ menu; the closed strip equals the docker state.
+  ['shell-off', (s) => ({ ...s, sandbox: { ...SBX_VIEW, shell: { available: false, why: 'Sandbox is stopped' } } }), 'more'],
   ['host-ok', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'core-native' } })],
   ['host-warn', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'prompted' } })],
   ['host-note', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'prompted', note: 'antigravity: sbx backend unsupported' } })],
@@ -478,9 +500,13 @@ const RUNTIME_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
 const RUNTIME_MULTI_WIDTH: ReadonlySet<string> = new Set(['docker', 'host-note']);
 
 const runtimeStripVariants = (): Variant[] => [
-  ...RUNTIME_STATES.flatMap(([id, patch]) =>
+  ...RUNTIME_STATES.flatMap(([id, patch, open]) =>
     (RUNTIME_MULTI_WIDTH.has(id) ? RUNTIME_TIERS : RUNTIME_TIERS.slice(0, 1)).map(([tier, width]) =>
-      variant('dashboard', `runtime-${id}-${tier}`, dashboardScenario('running', 2, patch), { skipLayout: true, width }),
+      variant('dashboard', `runtime-${id}-${tier}`, dashboardScenario('running', 2, patch), {
+        skipLayout: true,
+        width,
+        ...(open === undefined ? {} : { runtimeOpen: open }),
+      }),
     ),
   ),
   ...(['sandbox', 'more'] as const).flatMap((open) =>
@@ -675,8 +701,8 @@ const dashboardVariants = (): Variant[] => [
       },
     },
   })), { skipLayout: true }),
-  // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
-  variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'], skipLayout: true }),
+  // T820's subtask-blocked shot left in T1357: it recorded the same picture as `populated` (dashboard-running),
+  // whose Sub-tasks panel already shows the blocked blocker, the PR, the agent and the queued row.
   // T1266: a graph ticket's header names expert / worker / fast, the approach fallback included.
   variant('dashboard', 'graph-header', dashboardScenario('running', 2, (s) => ({
     ...s,
@@ -1054,7 +1080,8 @@ const serverLogsVariants = (): Variant[] => {
       fill: { selector: '#logsSearch', text: 'timeout' },
       replies: [{ type: 'server-logs-match-text', seq: 1, text: logMatchText(1) }],
     }),
-    variant('serverLogs', 'empty', () => logs()),
+    // T1357: a service whose log has no line yet. `no-services` is the page with no service at all.
+    variant('serverLogs', 'empty', () => logs(entry('api', '', { state: 'empty', message: 'api has not written to its log yet.' }))),
     variant('serverLogs', 'loading', LOADING),
     variant('serverLogs', 'error', () => logs(entry('api', '2026-01-01T00:00:00.000Z \u001b[31merror\u001b[0m ECONNREFUSED 127.0.0.1:5432\n'))),
     variant('serverLogs', 'long-content', () =>
@@ -1310,61 +1337,6 @@ const gettingStartedVariants = (): Variant[] => {
   ];
 };
 
-/**
- * The routed-model catalog the `routed-model` variant seeds: a gateway with a
- * vendor segment (OpenRouter), a vendor-less subscription route (OpenCode Go),
- * a `:free` suffix and a `-free` suffix — the id shapes the picker must read.
- */
-const ROUTED_MODEL_CATALOG = {
-  claude: [{ id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'], efforts: ['low', 'medium', 'high'] }],
-  codex: [],
-  antigravity: [],
-  opencode: [],
-  opencode2: [
-    {
-      id: 'opencode-go/deepseek-v4.1-flash',
-      label: 'OpenCode Go \u00b7 DeepSeek v4.1 Flash',
-      providers: ['opencode2'],
-      efforts: ['low', 'high', 'max'],
-    },
-    { id: 'openrouter/mancer/weaver', label: 'weaver', providers: ['opencode2'] },
-    { id: 'openrouter/liquid/lfm-2.5-2.6b:free', label: 'LFM 2.5 2.6B', providers: ['opencode2'] },
-    { id: 'opencode/big-pickle-free', label: 'big-pickle-free', providers: ['opencode2'] },
-  ],
-};
-
-/** Layout B′ realistic state (ui:UI-R57): clickup, 3 repos (one non-runnable), 3 described approaches, 2 presets, 1 attachment. */
-const REALISTIC_TICKET_FORM = {
-  provider: 'clickup',
-  ticketSearchEnabled: true,
-  canCreateProviderTicket: true,
-  sourceRef: '869e889uh',
-  title: 'Add per-repo base branch override to the ticket form',
-  description: 'Let a ticket pick its base branch per repository, defaulting to the manifest baseline.',
-  intent: 'Pick a base branch per repo, save, and confirm the worktree starts from it.',
-  repos: [
-    { service: 'karst', signals: [], score: 0, runnable: true, docker: false, selected: true },
-    { service: 'docs-site', signals: [], score: 0, runnable: true, docker: false, selected: false },
-    { service: 'infra', signals: [], score: 0, runnable: false, docker: false, selected: false },
-  ],
-  repoBases: [
-    { repo: 'karst', value: '', default: 'develop', source: 'manifest', candidates: ['develop', 'main'] },
-  ],
-  approaches: [
-    { id: 'tdd', label: 'TDD', description: 'Write failing tests first, then the smallest change.', recommended: true, installed: true },
-    { id: 'research', label: 'Research first', description: 'Investigate and write findings before any code.', installed: true },
-    { id: 'quick', label: 'Quick fix', description: 'Small, low-risk edit without a plan.', installed: true },
-  ],
-  selectedApproach: 'tdd',
-  agentProviders: ['claude', 'codex'],
-  agentPresetNames: ['fast', 'deep'],
-  selectedAgentPreset: 'fast',
-  modelCatalog: ROUTED_MODEL_CATALOG,
-  recentModels: {},
-  sessionOpen: false,
-  attachments: [{ id: 1, kind: 'image', name: 'layout-at-480px.png', byteSize: 48213, src: '' }],
-};
-
 const BRIEF_FULL = {
   title: 'Add per-repo base branch override',
   description: Array.from({ length: 2 }, (_, i) => `Requirement line ${i + 1}: keep the manifest baseline as the default.`).join('\n'),
@@ -1467,6 +1439,8 @@ const ticketFormVariants = (): Variant[] => {
     variant('ticketForm', 'graph-roles', graphRoles, { themes: ALL_THEMES }),
     variant('ticketForm', 'graph-roles-legacy-core', graphRolesLegacyCore),
     variant('ticketForm', 'graph-roles-legacy-core-tight-320', graphRolesLegacyCore, { width: 320 }),
+    // T1357: the realistic create page (`getCorpus`), so it differs from `empty`. SET-63: every theme, for the light
+    // input edge and the HC switch/primary edge (SET-56/57).
     variant('ticketForm', 'populated', () => getCorpus('ticketForm'), { baseline: 'ticketForm', themes: ALL_THEMES }),
     variant('ticketForm', 'empty', () => withState({})),
     variant('ticketForm', 'loading', LOADING),
@@ -1567,13 +1541,11 @@ const ticketFormVariants = (): Variant[] => {
     // footer must never cover the settings column.
     variant('ticketForm', 'edit-core-model-tight', editCoreModel, { width: 1212 }),
     variant('ticketForm', 'edit-core-model-tight-320', editCoreModel, { width: 320 }),
-    // Layout B′ (ui:UI-R57, prototype docs/design/ticket-form-b-prime.html).
-    // SET-63: the realistic create page at every theme — the light input edge and the
-    // HC switch/primary edge are only visible where they were missing (SET-56/57).
-    variant('ticketForm', 'realistic-create', () => withState(REALISTIC_TICKET_FORM), { themes: ALL_THEMES }),
+    // Layout B′ (ui:UI-R57, prototype docs/design/ticket-form-b-prime.html). The realistic
+    // create page at every theme is the `populated` variant (T1357, it was `realistic-create`).
     // SET-56 proof (T1301): the Auto-improve switch goes Off while Pull base stays On,
     // so one HC shot holds both switch states and the 3:1 track edge. The toggle changes
-    // no geometry, so it shares realistic-create's covered layout instead of a new page
+    // no geometry, so it shares the populated page's covered layout instead of a new page
     // (a variant with no dark fixture page cannot join the dark-only layout project).
     variant('ticketForm', 'realistic-create-switches', () => withState(REALISTIC_TICKET_FORM), {
       themes: ['hc'],

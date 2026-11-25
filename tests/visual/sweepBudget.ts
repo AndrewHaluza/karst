@@ -48,7 +48,9 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1343 Q1 inside-ship-merge-blocked (the banner owns the one Resolve) and DB-9 inside-review-unreadable-blocked (the
   // short label beside the banner), @ui:UI-R57: 2 Inside cases x 1 theme (dark), default shot only after the T1352 prune
   // (+2 screenshots), and their layout runs (+16).
-  dashboard: { screenshots: 336, layout: 801 },
+  // T1357 panel-wt-normal removed: it recorded the same picture as panel-srv-running, @ui:VISUAL-VARIANTS (-1 screenshot).
+  // T1357 subtask-blocked removed: it recorded the same picture as populated (dashboard-running) in dark and light, @ui:VISUAL-VARIANTS (-2 screenshots; it had no layout run).
+  dashboard: { screenshots: 333, layout: 801 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21
@@ -68,7 +70,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // +3 screenshots; +2 distinct pages x 5 widths = +10 layout runs, because --no-services sends the same
   // zero-service `server-logs` message as `empty` and so shares its page), and --long-content-nowrap (+1
   // screenshot; it shares the long-content layout run, since Wrap off is a click, not a different page).
-  serverLogs: { screenshots: 13, layout: 40 },
+  // T1357 empty is now a service with an empty log, not the no-services page, @ui:VISUAL-VARIANTS (+5 layout: the two no longer share one layout run).
+  serverLogs: { screenshots: 13, layout: 45 },
   // T1228 accounts-sbx-token (the sbx token cell, set and not set), @ui:UI-R57: 3 themes (+3 screenshots); skipLayout, because accounts-several already runs the same route.
   // T1237 the Sandbox tab route (#agents/sandbox), @ui:UI-R57: 3 themes (+3 screenshots) and 6 layout widths (+6); agents-sandbox-error: 1 theme (dark) (+1 screenshot); skipLayout.
   // T1236 nav-narrow variants (the nav chip row on general, agents roles and autopilot at 630 and 320 px), @ui:UI-R57: 6 variants x 1 theme (+6 screenshots); skipLayout, because the route layout runs already cover these routes.
@@ -96,9 +99,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   sidebar: { screenshots: 75, layout: 110 },
   // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
   // T1301 agent-picker-open (the open agent-core menu at the wide 799-tall window, RD-AGENT-MENU), @ui:UI-R57: 1 theme (dark) (+1 screenshot); the page shares the edit-core-model layout run, so no layout tests are added.
-  // T1301 SET-63 realistic-create / graph-roles / error at ALL_THEMES, SET-56's HC realistic-create-switches (Auto-improve Off), and SET-65's open approach picker, @ui:UI-R57: 7 screenshots (3 variants x 2 added themes = +6, the HC switch variant = +1); skipLayout, because the switch toggle adds no geometry and realistic-create already runs the page.
+  // T1301 SET-63 realistic-create / graph-roles / error at ALL_THEMES, SET-56's HC realistic-create-switches (Auto-improve Off), and SET-65's open approach picker, @ui:UI-R57: 7 screenshots (3 variants x 2 added themes = +6, the HC switch variant = +1); skipLayout, because the switch toggle adds no geometry and the realistic create page already runs it.
   // T1308 graph-roles-legacy-core / graph-roles-legacy-core-tight-320 (a graph ticket with a stale core: the preset-only picker, arch:AC-63), @ui:UI-R57: 2 variants x 1 theme (dark) (+2 screenshots) and their layout runs (+5).
-  ticketForm: { screenshots: 41, layout: 100 },
+  // T1357 realistic-create removed: the populated page now renders the same realistic create state at ALL_THEMES, @ui:VISUAL-VARIANTS (-3 screenshots; the layout run stays, now under populated).
+  ticketForm: { screenshots: 38, layout: 100 },
   // T1302 state matrix (@ui:UI-R57): populated-narrow/tight, long-key wide + mid, host-failure, and the five
   // quota states (+14 screenshots); their layout runs add 6 distinct pages x 6 widths and 8 pages x the 360 tier (+44).
   usage: { screenshots: 24, layout: 84 },

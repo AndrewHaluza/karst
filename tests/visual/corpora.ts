@@ -4,8 +4,9 @@
  * Each entry provides the postMessage payload that seeds the webview's
  * initial render.  Six views (dashboard, sidebar, usage, resources,
  * gettingStarted, diffs) seed from the checked-in renderFixtures corpus
- * their own render tests use; serverLogs seeds through its own protocol.
- * The remaining two use a MINIMAL empty/initial state — the smallest
+ * their own render tests use; serverLogs seeds through its own protocol;
+ * ticketForm seeds from the realistic create state (`realisticTicketForm.ts`).
+ * Settings uses a MINIMAL empty/initial state — the smallest
  * payload that the webview's own render function can handle without
  * crashing.
  *
@@ -27,6 +28,7 @@ import { gettingStartedRenderFixtures } from '../../src/ui/gettingStarted/render
 import { diffsRenderFixtures } from '../../src/ui/diffs/renderFixtures.js';
 import type { DashboardState } from '../../src/ui/dashboard/state.js';
 import type { WebviewName } from '../../src/model/webviewChains.js';
+import { REALISTIC_TICKET_FORM } from './realisticTicketForm.js';
 
 export type ViewId = WebviewName;
 
@@ -262,7 +264,8 @@ const MINIMAL_CORPORA: Record<ViewId, ViewCorpus> = {
   // all render.
   diffs: fromRenderFixtures('diffs', diffsRenderFixtures(), 'populated'),
   settings: { messages: [{ type: 'state', state: MINIMAL_SETTINGS }] },
-  ticketForm: { messages: [{ type: 'state', state: MINIMAL_TICKET_FORM }] },
+  // The realistic create page over the MINIMAL base, the same merge the named variants use (T1357).
+  ticketForm: { messages: [{ type: 'state', state: { ...MINIMAL_TICKET_FORM, ...REALISTIC_TICKET_FORM } }] },
   // 'partial' over 'fresh' or 'complete': a half-done checklist is the only
   // state that renders both the done and the outstanding row treatments.
   gettingStarted: fromRenderFixtures(
@@ -283,11 +286,11 @@ export function getCorpus(view: ViewId): ViewCorpus {
  *
  * Dashboard is excluded — its corpus exists today.  `serverLogs` is excluded
  * too: it seeds through its own `server-logs` protocol rather than the generic
- * `state` message this ratchet's members must speak.
+ * `state` message this ratchet's members must speak.  `ticketForm` left in
+ * T1357: its populated page is the realistic create state.
  */
 export const MINIMAL_RATCHET: readonly ViewId[] = [
   'settings',
-  'ticketForm',
 ];
 
 /** All nine view ids. */

@@ -21,7 +21,7 @@ const SHOWN = `(() => {
 karstTest.describe('T820: Sub-tasks panel compaction ladder', () => {
   for (const width of TIERS) {
     karstTest(`${width}px: no horizontal overflow and the ladder holds`, async ({ gotoView, page }) => {
-      await gotoView('dashboard', { variant: 'subtask-blocked' });
+      await gotoView('dashboard', { variant: 'populated' });
       await page.evaluate((w) => {
         const panel = document.getElementById('subtaskPanel') as HTMLElement;
         panel.style.width = `${w}px`;

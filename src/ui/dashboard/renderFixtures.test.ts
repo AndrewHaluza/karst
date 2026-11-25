@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   implementationPrototypeFixture,
   renderFixtures,
@@ -7,6 +7,7 @@ import {
   renderStateFor,
   populatedStateFor,
   sharedServerFixtures,
+  FIXTURE_NOW_MS,
   type InsideRenderFixture,
 } from './renderFixtures.js';
 import { EVIDENCE_KINDS } from '../../model/inside/types.js';
@@ -398,5 +399,30 @@ describe('sharedServerFixtures (D203 dashboard corpus)', () => {
     expect(rows[0]!.sharedWith).toContain('shared with');
     expect(rows[1]!.sharedWith).toBe('no other live tickets');
     for (const r of rows) expect(r.id === null || (r.id >= 900001 && r.id <= 999999)).toBe(true);
+  });
+});
+
+describe('fixture clock (T1357)', () => {
+  const stateAt = (ms: number): string => {
+    vi.useFakeTimers({ now: ms, toFake: ['Date'] });
+    try {
+      return JSON.stringify(populatedStateFor('impl'));
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  it('builds the same populated state at any wall-clock time', () => {
+    expect(stateAt(Date.UTC(2030, 0, 1))).toBe(stateAt(Date.UTC(2026, 0, 1)));
+  });
+
+  it('ages the sub-task stamps from FIXTURE_NOW_MS, the instant the visual sweep pins', () => {
+    const since = populatedStateFor('impl').subtasks.map((s) => s.stageSince);
+    expect(since).toEqual([
+      new Date(FIXTURE_NOW_MS - 5.5 * 3_600_000).toISOString(),
+      new Date(FIXTURE_NOW_MS - 4.5 * 3_600_000).toISOString(),
+      null,
+    ]);
+    expect(FIXTURE_NOW_MS).toBe(Date.parse('2026-10-27T22:00:00.000Z'));
   });
 });
