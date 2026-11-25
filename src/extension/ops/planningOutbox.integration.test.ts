@@ -800,12 +800,14 @@ describe('planning outbox', () => {
 
     it('clears checking when the probe adds no warning', async () => {
       put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
-      withRepo({ commitExists: async () => true }).scan();
+      const onWarnings = vi.fn();
+      withRepo({ commitExists: async () => true, onWarnings }).scan();
       expect(readProposalIndex(scratch)[0]!.checking).toBe(true);
       await flush();
       const entry = readProposalIndex(scratch)[0]!;
       expect('checking' in entry).toBe(false);
       expect('warnings' in entry).toBe(false);
+      expect(onWarnings).not.toHaveBeenCalled();
     });
 
     it('clears checking when the probe fails', async () => {

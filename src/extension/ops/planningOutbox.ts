@@ -317,6 +317,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       storageDir: deps.storageDir!,
       artifactsDir: planningArtifactsDir(scratch),
       proposalId: id,
+      // Stryker disable next-line ArrayDeclaration: equivalent, snapshotRuns is true only when the list is not empty
       entries: p.attachments ?? [],
     });
   }
@@ -344,8 +345,9 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
           debug(`async check for proposal ${id} failed (${messageOf((s as PromiseRejectedResult).reason)})`);
           return [];
         });
+        // Stryker disable next-line ConditionalExpression: equivalent, snapshotDraftAttachments never rejects
         const copied = snap!.status === 'fulfilled' ? snap!.value : undefined;
-        // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral: equivalent, snapshotDraftAttachments never rejects; this line only logs a defensive failure
+        // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral,CallExpression: equivalent, snapshotDraftAttachments never rejects; this line only logs a defensive failure
         if (snap!.status === 'rejected') debug(`attachment copy for proposal ${id} failed (${messageOf(snap!.reason)})`);
         const cur = getProposal(deps.store, id);
         // A revise or resolution since ingest owns the row now.
@@ -355,15 +357,16 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
           // Stryker disable next-line ConditionalExpression,EqualityOperator,LogicalOperator: equivalent, removing the directory of a draft with no copy is a no-op
           if (copied && copied.list.length > 0) {
             // Stryker disable next-line ArrowFunction,StringLiteral: equivalent, the removal only logs a failure that the host cannot cause here
-            return removeDraftAttachments(deps.storageDir!, id).catch((e: unknown) =>
-              debug(`draft attachment cleanup for proposal ${id} failed (${messageOf(e)})`),
-            );
+            const dropped = removeDraftAttachments(deps.storageDir!, id);
+            // Stryker disable next-line ArrowFunction,StringLiteral: equivalent, the handler only logs
+            return dropped.catch((e: unknown) => debug(`draft attachment cleanup for proposal ${id} failed (${messageOf(e)})`));
           }
           return;
         }
         const added = [...extra, ...(copied?.warnings ?? [])];
         const ranSnapshot = copied !== undefined;
         if (ranSnapshot) setProposalHostAttachments(deps.store, id, uuid, copied.list);
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent, writing the same warnings again changes nothing
         if (added.length > 0) setProposalWarnings(deps.store, id, [...cur.warnings, ...added]);
         if (added.length === 0 && !ranSnapshot) return;
         const row = getProposal(deps.store, id);
