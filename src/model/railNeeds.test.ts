@@ -38,8 +38,8 @@ describe('railNeeds', () => {
     for (const stage of ['impl', 'uat', 'review', 'fix', 'ship']) {
       expect(railNeeds(input({ stage, blockedKind: 'usage-limit' })), stage).toEqual({
         detail: 'the provider is out of quota',
-        action: 'Open session',
-        cta: { kind: 'open-session' },
+        action: 'Pick another model',
+        cta: { kind: 'usage-limit-pick' },
       });
     }
   });

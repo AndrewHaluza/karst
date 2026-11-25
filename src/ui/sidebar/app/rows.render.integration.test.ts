@@ -317,6 +317,24 @@ describe('expanded mini-dashboard', () => {
     expect(h.queryAll('.peek-strip button')).toHaveLength(0);
   });
 
+  it('renders Open dashboard for usage-limit-pick with no amber ring on the Session tool', async () => {
+    const h = await mount(
+      stateWith({
+        current: [
+          peeked({
+            title: 'Waiting for you',
+            needs: { detail: 'the provider is out of quota', action: 'Pick another model', cta: { kind: 'usage-limit-pick' } },
+          }),
+        ],
+      }),
+    );
+    expect(h.query('.peek-tools [data-act="open-session"]')!.classList.contains('needs-ring')).toBe(false);
+    const btn = h.query<HTMLButtonElement>('.peek-strip .k-btn--primary')!;
+    expect(text(btn)).toBe('Open dashboard');
+    await h.click(btn);
+    expect(h.posted.at(-1)).toMatchObject({ type: 'open-dashboard', ticketId: 910001 });
+  });
+
   it('posts each rail cta with the right payload', async () => {
     const cases = [
       [{ kind: 'ship-confirm' }, 'ship-ticket', {}, 'Confirm ship'],

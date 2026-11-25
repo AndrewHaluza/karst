@@ -30,6 +30,7 @@ export function ctaSpec(cta: RailCta, id: number): { spec: ActionSpec; label: st
     case 'merge-panel':
     case 'resolve-panel':
     case 'graph-panel':
+    case 'usage-limit-pick':
       return { spec: { act: 'open-dashboard', id }, label: 'Open dashboard' };
     case 'open-session':
       return null;

@@ -31,6 +31,7 @@ import { fixtureMessages, resourcesRenderFixtures, type ResourcesScenario } from
 import { gettingStartedRenderFixtures } from '../../src/ui/gettingStarted/renderFixtures.js';
 import { diffsRenderFixtures } from '../../src/ui/diffs/renderFixtures.js';
 import { logMatchText } from '../../src/model/notifyText.js';
+import { buildStageRail } from '../../src/model/stageRail.js';
 import { WEBVIEW_NAMES, type WebviewName } from '../../src/model/webviewChains.js';
 import { layoutWidthsFor } from '../../src/ui/layout/layoutBreakpoints.js';
 import { formatAgentsHash } from '../../src/ui/settings/app/sections/agentsRoute.js';
@@ -655,15 +656,28 @@ const dashboardVariants = (): Variant[] => [
   variant('dashboard', 'confirm-ship', () => stateMessage(shipPreviewStateFor('ready'))),
   variant('dashboard', 'ship-blocked', () => stateMessage(shipPreviewStateFor('blocked'))),
   variant('dashboard', 'ship-error', () => stateMessage(shipPreviewStateFor('error'))),
-  // D159: a quota block is non-resumable; its banner carries Pick/Retry/Dismiss.
-  variant('dashboard', 'usage-limit-blocked', dashboardScenario('running', 2, (s) => ({
-    ...s,
-    currentStage: {
-      stageKey: 'review',
-      status: 'running',
-      blocked: { kind: 'usage-limit', reason: 'anthropic: monthly quota exceeded', at: '2026-01-01T00:00:00.000Z', resumable: false },
-    },
-  }))),
+  // D159: a quota block is non-resumable; its banner carries Pick/Retry/Dismiss and the rail mirrors "Pick another model".
+  variant('dashboard', 'usage-limit-blocked', dashboardScenario('running', 2, (s) => {
+    const blocked = { kind: 'usage-limit' as const, reason: 'anthropic: monthly quota exceeded', at: '2026-01-01T00:00:00.000Z', resumable: false };
+    const stepper = s.stepper.map((c) =>
+      c.stageKey === 'impl' || c.stageKey === 'uat'
+        ? { ...c, status: 'passed' as const }
+        : c.stageKey === 'review'
+          ? { ...c, status: 'running' as const, blocked }
+          : c,
+    );
+    return {
+      ...s,
+      stageCurrent: 'review',
+      currentStage: { stageKey: 'review', status: 'running', blocked },
+      stepper,
+      rail: buildStageRail(stepper, stepper, {
+        current: 'review',
+        needsUser: true,
+        needs: { detail: 'the provider is out of quota', action: 'Pick another model', cta: { kind: 'usage-limit-pick' } },
+      }),
+    };
+  })),
   // T938: the same park in the UAT lane; the title names the lane ("Provider out of quota — UAT Tester").
   variant('dashboard', 'usage-limit-blocked-uat', dashboardScenario('running', 2, (s) => ({
     ...s,

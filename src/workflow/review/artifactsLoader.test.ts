@@ -15,6 +15,21 @@ function fakeStore(files: Record<string, { kind: string; text: string }>, report
 }
 
 describe('makeReviewArtifactsLoader', () => {
+  const ATT = [{ kind: 'file', path: '/s/attachments/1/a.html', name: 'proto.html' }];
+  it('returns the attachments alone when nothing else exists', async () => {
+    const load = makeReviewArtifactsLoader({ intentOf: () => null, attachmentsOf: () => ATT, checksOf: () => new Set(), storeFor: () => null });
+    expect(await load(1)).toEqual({ intent: null, spec: null, plan: null, attachments: ATT });
+  });
+  it('adds the attachments next to the intent', async () => {
+    const load = makeReviewArtifactsLoader({ intentOf: () => 'I', attachmentsOf: () => ATT, checksOf: () => new Set(), storeFor: () => null });
+    expect(await load(1)).toEqual({ intent: 'I', spec: null, plan: null, attachments: ATT });
+  });
+  it('omits the field for an empty list', async () => {
+    const load = makeReviewArtifactsLoader({ intentOf: () => 'I', attachmentsOf: () => [], checksOf: () => new Set(), storeFor: () => null });
+    expect(await load(1)).toEqual({ intent: 'I', spec: null, plan: null });
+    const none = makeReviewArtifactsLoader({ intentOf: () => null, attachmentsOf: () => [], checksOf: () => new Set(), storeFor: () => null });
+    expect(await none(1)).toBeUndefined();
+  });
   it('returns undefined with no intent and no spec/plan', async () => {
     const load = makeReviewArtifactsLoader({
       intentOf: () => null,

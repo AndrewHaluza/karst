@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import type { Manifest } from '../manifest/types.js';
 import { openStore, type Store } from '../store/db.js';
 import { updateTicketFields } from '../store/tickets.js';
+import { insertAttachment } from '../store/attachments.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { makeReviewArtifactsBinding } from './reviewArtifactsBinding.js';
 
@@ -43,11 +44,22 @@ const specPlan: Files = {
 };
 
 describe('makeReviewArtifactsBinding', () => {
+  it('lists the ticket attachments as host paths under the storage dir, in insertion order', async () => {
+    const registry = openStore(':memory:');
+    const id = ticket(registry, { intent: 'I' });
+    insertAttachment(registry, { ticketId: id, kind: 'file', storedName: 'aa.html', originalName: 'proto.html', byteSize: 10 });
+    insertAttachment(registry, { ticketId: id, kind: 'image', storedName: 'bb.png', originalName: 'shot.png', byteSize: 20 });
+    const load = makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/store/artifacts', manifest: () => undefined, fallbackProjectId: () => undefined });
+    expect((await load(id))?.attachments).toEqual([
+      { kind: 'file', path: join('/store', 'attachments', String(id), 'aa.html'), name: 'proto.html' },
+      { kind: 'image', path: join('/store', 'attachments', String(id), 'bb.png'), name: 'shot.png' },
+    ]);
+  });
   it('opens the store of the ticket project under the artifacts root, preferring it over the fallback', async () => {
     const registry = openStore(':memory:');
     const id = ticket(registry, { intent: 'I', projectId: 5 });
     const { opened, createStore } = fakeFactory(specPlan);
-    const load = makeReviewArtifactsBinding({ registry, artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => 9, createStore });
+    const load = makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => 9, createStore });
     const a = await load(id);
     expect(opened.at(-1)).toEqual({ artifactsRoot: '/root', projectId: 5 });
     expect(a?.intent).toBe('I');
@@ -58,28 +70,28 @@ describe('makeReviewArtifactsBinding', () => {
     const registry = openStore(':memory:');
     const id = ticket(registry, { intent: 'I' });
     const { opened, createStore } = fakeFactory(specPlan);
-    await makeReviewArtifactsBinding({ registry, artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => 9, createStore })(id);
+    await makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => 9, createStore })(id);
     expect(opened.at(-1)?.projectId).toBe(9);
   });
   it('no project anywhere → intent only, no store opened', async () => {
     const registry = openStore(':memory:');
     const id = ticket(registry, { intent: 'I' });
     const { opened, createStore } = fakeFactory(specPlan);
-    const a = await makeReviewArtifactsBinding({ registry, artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => undefined, createStore })(id);
+    const a = await makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => undefined, createStore })(id);
     expect(opened).toEqual([]);
     expect(a).toEqual({ intent: 'I', spec: null, plan: null });
   });
   it('no intent and no artifacts → undefined', async () => {
     const registry = openStore(':memory:');
     const id = ticket(registry);
-    const load = makeReviewArtifactsBinding({ registry, artifactsRoot: '/r', manifest: () => undefined, fallbackProjectId: () => undefined, createStore: fakeFactory({}).createStore });
+    const load = makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/r', manifest: () => undefined, fallbackProjectId: () => undefined, createStore: fakeFactory({}).createStore });
     expect(await load(id)).toBeUndefined();
   });
   it('an approach that checks intent-spec itself drops the spec; the built-in speckit default does not', async () => {
     const registry = openStore(':memory:');
     const { createStore } = fakeFactory(specPlan);
     const bind = (approach: string, approaches: unknown[]) =>
-      makeReviewArtifactsBinding({ registry, artifactsRoot: '/r', manifest: manifestWith(approaches), fallbackProjectId: () => 1, createStore })(
+      makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/r', manifest: manifestWith(approaches), fallbackProjectId: () => 1, createStore })(
         ticket(registry, { intent: 'I', approach }),
       );
     expect((await bind('mine', [{ id: 'mine', label: 'M', checks: ['intent-spec'] }]))?.spec).toBeNull();
@@ -90,7 +102,7 @@ describe('makeReviewArtifactsBinding', () => {
     const registry = openStore(':memory:');
     const id = ticket(registry, { intent: 'I' });
     const load = makeReviewArtifactsBinding({
-      registry, artifactsRoot: '/r', manifest: manifestWith([{ id: '', label: 'blank', checks: ['intent-spec'] }]), fallbackProjectId: () => 1, createStore: fakeFactory(specPlan).createStore,
+      registry, storageDir: '/store', artifactsRoot: '/r', manifest: manifestWith([{ id: '', label: 'blank', checks: ['intent-spec'] }]), fallbackProjectId: () => 1, createStore: fakeFactory(specPlan).createStore,
     });
     expect((await load(id))?.spec).toContain('SPECBODY');
   });
@@ -99,7 +111,7 @@ describe('makeReviewArtifactsBinding', () => {
     const { createStore } = fakeFactory(specPlan);
     for (const manifest of [() => undefined, () => ({}) as unknown as Manifest]) {
       const id = ticket(registry, { intent: 'I', approach: 'speckit' });
-      const a = await makeReviewArtifactsBinding({ registry, artifactsRoot: '/r', manifest, fallbackProjectId: () => 1, createStore })(id);
+      const a = await makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/r', manifest, fallbackProjectId: () => 1, createStore })(id);
       expect(a?.spec).toContain('SPECBODY');
     }
   });
@@ -117,7 +129,7 @@ describe('makeReviewArtifactsBinding — operator manifest', () => {
       recordFixRoundManifest(registry, r.id, path, createHash('sha256').update(round).digest('hex'));
     }
     const b = makeReviewArtifactsBinding({
-      registry, artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined,
+      registry, storageDir: '/store', artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined,
       manifestPath: () => path, createStore: fakeFactory({}).createStore,
     });
     return { b, id, path };
@@ -143,14 +155,14 @@ describe('makeReviewArtifactsBinding — operator manifest', () => {
     const id = ticket(registry);
     const r = openRecoveryRound(registry, { ticketId: id, sourceStage: 'review', sourceProcessId: 'review', sourceStageRunId: null, sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 't', maxRounds: 10, startedAt: '2026-01-01T00:00:00Z' });
     recordFixRoundManifest(registry, r.id, path, 'other-sha');
-    const b = makeReviewArtifactsBinding({ registry, artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined, manifestPath: () => path, createStore: fakeFactory({}).createStore });
+    const b = makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined, manifestPath: () => path, createStore: fakeFactory({}).createStore });
     expect(await b(id)).toEqual({ intent: null, spec: null, plan: null, operatorManifest: { path, content: 'k: 2', changed: true } });
   });
   it('gives no manifest for no path, an unreadable path, or a mismatching round without a sha', async () => {
     const registry = openStore(':memory:');
     const id = ticket(registry, { intent: 'I' });
     const mk = (manifestPath?: () => string | null) =>
-      makeReviewArtifactsBinding({ registry, artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined, manifestPath, createStore: fakeFactory({}).createStore });
+      makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/a', manifest: () => undefined, fallbackProjectId: () => undefined, manifestPath, createStore: fakeFactory({}).createStore });
     expect(await mk()(id)).not.toHaveProperty('operatorManifest');
     expect(await mk(() => '')(id)).not.toHaveProperty('operatorManifest');
     expect(await mk(() => '/nonexistent/karst.yml')(id)).not.toHaveProperty('operatorManifest');
@@ -193,7 +205,7 @@ describe('makeReviewArtifactsBinding — no-change claim', () => {
     recordFindings(registry, { ticketId: id, attempt: 1, runAt: at, findings: [
       { severity: 'high', repo: '', file: 'f.ts', line: 7, title: 'egress open', detail: 'd', source: 'agent' },
     ] });
-    const load = makeReviewArtifactsBinding({ registry, artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => undefined, createStore: fakeFactory({}).createStore });
+    const load = makeReviewArtifactsBinding({ registry, storageDir: '/store', artifactsRoot: '/root', manifest: () => undefined, fallbackProjectId: () => undefined, createStore: fakeFactory({}).createStore });
     const a = await load(id);
     expect(a?.noChangeClaim).toEqual({ reason: 'needs a real run', items: ['[high] egress open (f.ts:7)'] });
   });

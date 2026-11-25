@@ -37,14 +37,16 @@ export interface RailNeeds {
 /**
  * The rail's needs-you control's BEHAVIOUR, decided host-side.
  *
- * `ship-confirm`, `retry-ship`, `merge` and `resolve-conflicts` ACT: they post the same
- * message the header's Confirm ship button, the PR panel's Merge button and
- * the blocked banner's Resolve button post. The host's confirmation still guards the
- * irreversible merge (it keeps its modal), and `resolve-conflicts` re-derives
- * the brief from the store before handing it to a session. The rest NAVIGATE:
- * a multi-repo wait or conflict has no single repo to act on, and the live
- * session belongs to the header, so the control scrolls the owning control
- * into view rather than duplicating it.
+ * `ship-confirm`, `retry-ship`, `merge`, `resolve-conflicts` and `open-session`
+ * ACT: they post the same message the header's Confirm ship button, the PR
+ * panel's Merge button, the blocked banner's Resolve button, and the session
+ * launcher post. The host's confirmation still guards the irreversible merge
+ * (it keeps its modal), and `resolve-conflicts` re-derives the brief from the
+ * store before handing it to a session. The rest NAVIGATE: a multi-repo wait or
+ * conflict has no single repo to act on, graph waits belong to the Inside graph
+ * view, and a quota block (`usage-limit-pick`) belongs to the blocked banner's
+ * pick control, so the rail scrolls the owning control into view and posts
+ * nothing.
  */
 export type RailCta =
   | { kind: 'ship-confirm' }
@@ -54,6 +56,7 @@ export type RailCta =
   | { kind: 'resolve-conflicts'; repo: string }
   | { kind: 'resolve-panel' }
   | { kind: 'graph-panel' }
+  | { kind: 'usage-limit-pick' }
   | { kind: 'open-session' };
 
 export interface RailNeedsInput {
@@ -156,8 +159,8 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
   if (input.blockedKind === 'usage-limit') {
     return {
       detail: 'the provider is out of quota',
-      action: 'Open session',
-      cta: { kind: 'open-session' },
+      action: 'Pick another model',
+      cta: { kind: 'usage-limit-pick' },
     };
   }
 

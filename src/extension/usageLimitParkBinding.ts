@@ -169,6 +169,7 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
     deps.loadArtifacts ??
     makeReviewArtifactsBinding({
       registry: deps.store,
+      storageDir: dirname(dirname(deps.artifactDirFor(0))),
       artifactsRoot: dirname(deps.artifactDirFor(0)),
       manifest: deps.manifest,
       fallbackProjectId: deps.projectId ?? (() => undefined),
