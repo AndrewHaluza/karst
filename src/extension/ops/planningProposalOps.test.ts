@@ -355,14 +355,14 @@ describe('planningProposalOps', () => {
     });
 
     it('Review opens a draft that lists no file', async () => {
-      await ops().review(proposalId);
+      await ops({ isChecking: () => true }).review(proposalId);
       expect(forms).toHaveLength(1);
       expect(warns).toEqual([]);
     });
 
     it('Review opens when every listed file was refused', async () => {
       const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['attachment refused: a.txt (missing)']);
-      await ops().review(id);
+      await ops({ isChecking: () => true }).review(id);
       expect(forms).toHaveLength(1);
       expect(warns).toEqual([]);
     });
@@ -376,6 +376,20 @@ describe('planningProposalOps', () => {
       const t = createTicket(store, { key: 'K-9', title: 'T', projectId });
       forms[0]!.onCreated(t.id);
       expect(warns.join()).toContain('was revised while you were editing');
+    });
+
+    it.each([
+      ['the same files', ['1111111111111111.txt'], false],
+      ['one more file', ['1111111111111111.txt', '2222222222222222.txt'], true],
+    ])('warns on accept only when the host files changed: %s', async (_n, after, warned) => {
+      const payload = { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] };
+      const id = insertProposal(store, sessionId, payload, 'u1');
+      const row = (storedName: string) => ({ name: storedName, storedName, kind: 'file' as const, byteSize: 1 });
+      setProposalHostAttachments(store, id, 'u1', [row('1111111111111111.txt')]);
+      await ops().review(id);
+      setProposalHostAttachments(store, id, 'u1', after.map(row));
+      forms[0]!.onCreated(createTicket(store, { key: 'K-8', title: 'T', projectId }).id);
+      expect(warns.some((w) => w.includes('was revised while you were editing'))).toBe(warned);
     });
 
     it('prefill lists the host attachments, binding first', async () => {
