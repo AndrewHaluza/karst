@@ -145,8 +145,20 @@ describe('graphRefusalContext', () => {
     const { store, graphRunId } = seed('blocked', 'integration-conflict: api/src/a.ts', 1);
     expect(graphRefusalContext(store.db, graphRunId, 4)).toEqual({
       blockedReason: 'integration-conflict: api/src/a.ts',
+      recoveryCategory: 'explicit-resolution',
       replanCount: 1,
       projectMaxReplans: 4,
+    });
+    store.close();
+  });
+
+  it('maps the block reason to the recovery category that refused it', () => {
+    // The category is what tells a resumable refusal from a Replan-only one:
+    // an artifact fault refuses `explicit-resolution` too, but the banner
+    // offers Resume for it.
+    const { store, graphRunId } = seed('blocked', 'output-artifact-missing: artifact "r" produced nothing');
+    expect(graphRefusalContext(store.db, graphRunId, 2)).toMatchObject({
+      recoveryCategory: 'artifact-recheck',
     });
     store.close();
   });
@@ -155,6 +167,7 @@ describe('graphRefusalContext', () => {
     const { store, graphRunId } = seed('blocked', null);
     expect(graphRefusalContext(store.db, graphRunId, 2)).toEqual({
       blockedReason: null,
+      recoveryCategory: 'explicit-resolution',
       replanCount: 0,
       projectMaxReplans: 2,
     });
@@ -165,6 +178,7 @@ describe('graphRefusalContext', () => {
     const { store } = seed('blocked', 'x');
     expect(graphRefusalContext(store.db, 987654, 2)).toEqual({
       blockedReason: null,
+      recoveryCategory: 'explicit-resolution',
       replanCount: 0,
       projectMaxReplans: 2,
     });
@@ -231,6 +245,87 @@ describe('graphRecoveryRefusalNotice', () => {
       );
       expect(atCeiling).not.toContain('Raise limits.maxReplans');
     }
+  });
+
+  it('names the spent project cap before any reparable prefix, never a dead Replan', () => {
+    // The high review finding: a reparable prefix used to win over the cap, so
+    // a run that had spent `limits.maxReplans` was told to repair the block and
+    // click Replan — the one control the cap refuses. The cap is the exit's
+    // real state, so it comes first at every cap the run can reach.
+    const reparables = [
+      'graph-workspace-deps: node run 3 (web: x)',
+      'graph-preserve-failed: node run 3 (patch failed)',
+      'graph-budget-exhausted: node run 7 (workspace ceiling)',
+    ];
+    for (const blockedReason of reparables) {
+      const notice = graphRecoveryRefusalNotice(7, 'replan', 'config-then-resume', {
+        blockedReason,
+        replanCount: 2,
+        projectMaxReplans: 2,
+      });
+      expect(notice, blockedReason).toContain('The replan limit is reached.');
+      expect(notice).not.toContain('Install the dependencies');
+      expect(notice).not.toContain('could not be written to a patch');
+      expect(notice).not.toContain('limits.maxAggregateWorkspaceBytes');
+
+      const atCeiling = graphRecoveryRefusalNotice(7, 'replan', 'config-then-resume', {
+        blockedReason,
+        replanCount: GRAPH_HARD_CEILINGS.maxReplans,
+        projectMaxReplans: GRAPH_HARD_CEILINGS.maxReplans,
+      });
+      expect(atCeiling, blockedReason).toContain(
+        'The maximum is reached. Cancel the graph or switch the approach.',
+      );
+      expect(atCeiling).not.toContain('Install the dependencies');
+      expect(atCeiling).not.toContain('could not be written to a patch');
+      expect(atCeiling).not.toContain('limits.maxAggregateWorkspaceBytes');
+    }
+  });
+
+  it('names Resume and the correction when a resumable category refuses explicit-resolution', () => {
+    // The high review finding: the same refusal reason is returned by the
+    // artifact re-check, the prompt re-snapshot and the planner relaunch, where
+    // Resume IS the offered control. Never deny it.
+    const cases = [
+      ['artifact-recheck', 'output-artifact-missing: artifact "r" produced nothing'],
+      ['artifact-recheck', 'artifact-unsafe: artifact "r" failed validation'],
+      ['prompt-resnapshot', 'prompt-config-changed: profile prompt'],
+      ['planner-relaunch', 'planner-stale: no planner ever submitted'],
+      ['launch-retry', 'node-blocked: node 5 (agent said blocked)'],
+    ] as const;
+    for (const [recoveryCategory, blockedReason] of cases) {
+      const notice = graphRecoveryRefusalNotice(7, 'resume', 'explicit-resolution', {
+        blockedReason,
+        recoveryCategory,
+      });
+      expect(notice, blockedReason).toContain(
+        'Correct the artifact or prompt fault this block reports, then click Resume.',
+      );
+      expect(notice, blockedReason).not.toContain('Resume cannot clear this block');
+    }
+  });
+
+  it('recognises a resumable explicit-resolution refusal by its reason when no category was read', () => {
+    // A caller that has not read the category still must not deny Resume for a
+    // reason whose refusal keeps it: the artifact pair, a prompt re-snapshot
+    // and a dead bootstrap planner all name themselves.
+    for (const blockedReason of [
+      'output-artifact-missing: artifact "r" produced nothing',
+      'artifact-unsafe: artifact "r" failed validation',
+      'prompt-config-changed: profile prompt',
+      'planner-stale: no planner ever submitted',
+    ]) {
+      const notice = graphRecoveryRefusalNotice(7, 'resume', 'explicit-resolution', {
+        blockedReason,
+      });
+      expect(notice, blockedReason).toContain('then click Resume');
+      expect(notice, blockedReason).not.toContain('Resume cannot clear this block');
+    }
+    // An unrecognized reason has no such exit: the default stays Replan-only.
+    const unknown = graphRecoveryRefusalNotice(7, 'resume', 'explicit-resolution', {
+      blockedReason: 'failed-to-launch: folder trust',
+    });
+    expect(unknown).toContain('Resume cannot clear this block');
   });
 
   it('names the repair for each reparable config-then-resume block, then Replan', () => {
@@ -321,6 +416,17 @@ describe('graphRecoveryRefusalNotice', () => {
       { reason: 'explicit-resolution', ctx: { blockedReason: 'integration-conflict: x' } },
       { reason: 'explicit-resolution', ctx: { blockedReason: 'graph-topology-deadlock' } },
       { reason: 'explicit-resolution', ctx: { blockedReason: null } },
+      {
+        reason: 'explicit-resolution',
+        ctx: {
+          blockedReason: 'integration-conflict: x',
+          recoveryCategory: 'explicit-resolution',
+        },
+      },
+      {
+        reason: 'explicit-resolution',
+        ctx: { blockedReason: 'output-artifact-missing: x', recoveryCategory: 'artifact-recheck' },
+      },
       { reason: 'discard-required' },
       { reason: 'launch-loop' },
     ];

@@ -641,6 +641,14 @@ describe('recoverGraphRun', () => {
         replanCount: GRAPH_HARD_CEILINGS.maxReplans,
         projectMaxReplans: GRAPH_HARD_CEILINGS.maxReplans,
       },
+      // A reparable prefix never hides the cap: with every project replan
+      // spent, Replan is refused, so the cap is what the diagnostic names.
+      { reason: 'graph-workspace-deps: node run 3 (web: x)', replanCount: 2, projectMaxReplans: 2 },
+      {
+        reason: 'graph-budget-exhausted: node run 7 (workspace ceiling)',
+        replanCount: GRAPH_HARD_CEILINGS.maxReplans,
+        projectMaxReplans: GRAPH_HARD_CEILINGS.maxReplans,
+      },
     ];
     for (const [index, c] of cases.entries()) {
       const { ticketId, graphRunId } = blockedGraph(

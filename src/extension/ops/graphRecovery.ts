@@ -23,6 +23,7 @@ import { parkNodeLaunchExit, type GraphDriverDeps } from '../../approaches/graph
 import type { LaunchFailure } from '../../approaches/graph/transport/supervisedCliTransport.js';
 import {
   GRAPH_FAILED_BLOCKER,
+  recoveryCategoryFor,
   type GraphRecoveryMode,
   type RecoveryRefusalReason,
   type RecoveryResult,
@@ -153,9 +154,13 @@ export function graphRecoveryRefusalNotice(
 }
 
 /**
- * The guidance context for one refused run: its recorded block reason and its
- * accepted replan count against the project's `limits.maxReplans` cap. Store
- * reads only (no raw SQL) — the same rows `recoverGraphRun` decides on.
+ * The guidance context for one refused run: its recorded block reason, the
+ * recovery category that reason maps to, and its accepted replan count against
+ * the project's `limits.maxReplans` cap. Store reads only (no raw SQL) — the
+ * same rows `recoverGraphRun` decides on. The category matters because one
+ * refusal reason covers two exits: `explicit-resolution` is Replan-only for
+ * the true category, but the artifact re-check, prompt re-snapshot and
+ * planner relaunch refuse with it while Resume is what the banner offers.
  */
 export function graphRefusalContext(
   db: GraphDb,
@@ -166,6 +171,7 @@ export function graphRefusalContext(
   const count = graphRunStatusReplanCount(db, graphRunId);
   return {
     blockedReason: run?.blocked_reason ?? null,
+    recoveryCategory: recoveryCategoryFor(run?.blocked_reason ?? null),
     replanCount: count?.replan_count ?? 0,
     projectMaxReplans: cap,
   };
