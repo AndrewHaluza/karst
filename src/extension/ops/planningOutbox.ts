@@ -347,6 +347,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         });
         const cur = getProposal(deps.store, id);
         // A revise or resolution since ingest owns the row now.
+        // Stryker disable next-line OptionalChaining: equivalent, a proposal row is never deleted
         if (cur?.sourceUuid !== uuid || cur.status !== 'pending' || extra.length === 0) return;
         setProposalWarnings(deps.store, id, [...cur.warnings, ...extra]);
         const row = getProposal(deps.store, id);
@@ -357,6 +358,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       .then((copied) => {
         if (copied === undefined) return undefined;
         const cur = getProposal(deps.store, id);
+        // Stryker disable next-line OptionalChaining: equivalent, a proposal row is never deleted
         if (cur?.sourceUuid !== uuid) return undefined;
         if (cur.status !== 'pending') {
           // Resolved before the copy ended: nothing will read the host copy, so drop it.
@@ -365,12 +367,13 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
           );
         }
         setProposalHostAttachments(deps.store, id, uuid, copied.list);
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent, writing the same warnings again changes nothing
         if (copied.warnings.length > 0) setProposalWarnings(deps.store, id, [...cur.warnings, ...copied.warnings]);
         const row = getProposal(deps.store, id);
+        // Stryker disable next-line ConditionalExpression: equivalent, the row of a pending draft always exists
         if (row) deps.onWarnings?.(row);
         return undefined;
       })
-      // Stryker disable next-line ArrowFunction,StringLiteral: equivalent, snapshotDraftAttachments never rejects; this only logs a defensive failure
       .catch((e: unknown) => debug(`attachment copy for proposal ${id} failed (${messageOf(e)})`));
     void Promise.all([probes, copying]).finally(() => {
       if (checking.get(id) !== uuid) return;

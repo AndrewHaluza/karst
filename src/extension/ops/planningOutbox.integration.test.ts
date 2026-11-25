@@ -1339,7 +1339,7 @@ describe('planning outbox', () => {
 
     it('a copy that ends after a revise writes nothing onto the new draft', async () => {
       withFile('p.html', 'x');
-      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }, { path: 'gone.txt' }] });
       const onWarnings = vi.fn();
       const ob = make({ storageDir: storageDir(), onWarnings });
       ob.scan();
@@ -1348,7 +1348,31 @@ describe('planning outbox', () => {
       ob.scan();
       await drain(ob);
       expect(getProposal(store, id)!.attachments).toEqual([]);
+      expect(getProposal(store, id)!.warnings).toEqual([]);
       expect(onWarnings).not.toHaveBeenCalled();
+    });
+
+    it('logs a copy whose announce throws and still clears checking', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const debug = vi.fn();
+      const ob = make({ storageDir: storageDir(), debug, onWarnings: () => { throw new Error('boom'); } });
+      ob.scan();
+      const id = pending()[0]!.id;
+      await drain(ob);
+      expect(debug).toHaveBeenCalledWith(`[planning] attachment copy for proposal ${id} failed (boom)`);
+      expect(ob.checkingIds().size).toBe(0);
+    });
+
+    it('a git probe with no warning and no listed file announces nothing and logs no failure', async () => {
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      const debug = vi.fn();
+      const onWarnings = vi.fn();
+      const ob = make({ repoPaths: () => ['/nowhere'], commitExists: async () => true, debug, onWarnings });
+      ob.scan();
+      await drain(ob);
+      expect(onWarnings).not.toHaveBeenCalled();
+      expect(debug.mock.calls.map((c) => String(c[0])).join()).not.toMatch(/failed/);
     });
 
     it('a clean copy adds no warning and needs no onWarnings callback', async () => {
