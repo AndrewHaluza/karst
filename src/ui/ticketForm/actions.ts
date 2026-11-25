@@ -655,7 +655,16 @@ export function buildTicketFormActions(
      * Attach every staged draft file to the ticket, under its original name. The staged
      * list empties only when every file is attached. A failure removes the files it attached and throws.
      */
-    const ingestStaged = async (ticketId: number): Promise<void> => {
+    const ingestStaged = (ticketId: number): Promise<void> => {
+      // One ingest at a time: a Save and a paste at the same moment must not attach the same
+      // files twice, and a failed ingest must not detach the rows of the other one.
+      const run = ingestQueue.then(() => ingestStagedNow(ticketId));
+      ingestQueue = run.catch(() => undefined);
+      return run;
+    };
+    let ingestQueue: Promise<void> = Promise.resolve();
+
+    const ingestStagedNow = async (ticketId: number): Promise<void> => {
       const draftId = ctx.stagedDraftId;
       if (draftId === undefined) return;
       // Read every file first: an unreadable host copy then fails before any file is attached.

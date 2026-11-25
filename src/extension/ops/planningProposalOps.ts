@@ -154,6 +154,15 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
         deps.notify.warn(`Draft ${formatId('draft', id)} still copies its files. Open Review again in a moment.`);
         return;
       }
+      // No copy runs now, so listed files with no copy and no refusal belong to a copy that stopped (a reload, an error).
+      const lost = uncopied(p);
+      if (lost > 0) {
+        const files = lost === 1 ? '1 file' : `${lost} files`;
+        const them = lost === 1 ? 'it' : 'them';
+        deps.notify.warn(
+          `Draft ${formatId('draft', id)} lists ${files} that the host did not copy (the copy stopped, for example on a window reload). Ask the planner to revise the draft to copy ${them} again.`,
+        );
+      }
       deps.openForm(prefillOf(p));
     },
 
@@ -193,10 +202,15 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
   };
   return ops;
 
+  /** The number of listed files when the draft shows neither a host copy nor a refusal for any of them, else 0. */
+  function uncopied(p: PlanningProposal): number {
+    const listed = p.payload.attachments?.length ?? 0;
+    return p.attachments.length === 0 && !p.warnings.some((w) => w.startsWith('attachment refused:')) ? listed : 0;
+  }
+
   /** True while a running host copy of the listed files has neither a file nor a refusal to show. */
   function stillCopying(p: PlanningProposal): boolean {
-    const listed = p.payload.attachments?.length ?? 0;
-    return deps.isChecking?.(p.id) === true && listed > 0 && p.attachments.length === 0 && !p.warnings.some((w) => w.startsWith('attachment refused:'));
+    return deps.isChecking?.(p.id) === true && uncopied(p) > 0;
   }
 
   /** The review form prefill of a proposal; `onCreated` links the saved ticket to it. */

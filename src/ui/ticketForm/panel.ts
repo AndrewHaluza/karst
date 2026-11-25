@@ -1,13 +1,12 @@
 import type { Store } from '../../store/db.js';
 import type { RestoredPanel } from '../shared/restoredPanel.js';
 import { deleteTicket, getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.js';
+import { listAttachments } from '../../store/attachments.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
 import { applyPrefill, buildTicketFormState, stagedAttachmentRows, type DesignConstraintsView, type TicketFormState } from './state.js';
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { draftAttachmentDir } from '../../planning/draftAttachments.js';
 import { reapAttachments } from '../../attachments/reap.js';
 import { appendConstraintsToBrief } from '../../planning/constraintBrief.js';
@@ -208,10 +207,20 @@ export interface ProposalOutcome {
 
 /** The identity a ticket-form webview saves under `karstPanel`: a create form, or an edit form of one ticket. */
 export type RestoredTicketFormIdentity =
-  | { mode: 'create'; prefilled: boolean; draftId?: number; mintedTicketId?: number }
+  | { mode: 'create'; prefilled: boolean; draftId?: number; mintedTicketId?: number; unstagedFiles?: string[] }
   | { mode: 'edit'; ticketId: number };
 
 const positiveInt = (v: unknown): number | undefined => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined);
+
+/** The stored name of a draft file: a 16-hex content key and an extension. */
+const STORED_NAME = /^[0-9a-f]{16}\.[a-z0-9]{1,16}$/;
+
+/** The stored names in a saved `unstagedFiles` list; any other entry is dropped. */
+const storedNames = (v: unknown): string[] | undefined => {
+  if (!Array.isArray(v)) return undefined;
+  const names = v.filter((n): n is string => typeof n === 'string' && STORED_NAME.test(n));
+  return names.length > 0 ? names : undefined;
+};
 
 /** Read the `karstPanel` identity of a restored ticket-form state; undefined when it is invalid. */
 export function restoredTicketFormIdentity(state: unknown): RestoredTicketFormIdentity | undefined {
@@ -220,14 +229,18 @@ export function restoredTicketFormIdentity(state: unknown): RestoredTicketFormId
   if (typeof identity !== 'object' || identity === null) return undefined;
   const { mode, ticketId } = identity as { mode?: unknown; ticketId?: unknown };
   if (mode === 'create') {
-    const { prefilled, draftId, mintedTicketId } = identity as { prefilled?: unknown; draftId?: unknown; mintedTicketId?: unknown };
+    const { prefilled, draftId, mintedTicketId, unstagedFiles } = identity as {
+      prefilled?: unknown; draftId?: unknown; mintedTicketId?: unknown; unstagedFiles?: unknown;
+    };
     const draft = positiveInt(draftId);
     const minted = positiveInt(mintedTicketId);
+    const unstaged = storedNames(unstagedFiles);
     return {
       mode,
       prefilled: prefilled === true,
       ...(draft !== undefined ? { draftId: draft } : {}),
       ...(minted !== undefined ? { mintedTicketId: minted } : {}),
+      ...(unstaged !== undefined ? { unstagedFiles: unstaged } : {}),
     };
   }
   if (mode === 'edit' && typeof ticketId === 'number' && Number.isInteger(ticketId) && ticketId > 0) {
@@ -411,7 +424,7 @@ export class TicketFormManager {
     if ((mintedId !== undefined && this.panels.has(mintedId)) || (draftId !== undefined && this.openDrafts.has(draftId))) {
       return close('form for this proposal already open');
     }
-    this.open(this.nextCreateKey--, 'create', undefined, prefill, restored, mintedId);
+    this.open(this.nextCreateKey--, 'create', undefined, prefill, restored, mintedId, identity.unstagedFiles);
     return true;
   }
 
@@ -422,6 +435,7 @@ export class TicketFormManager {
     prefill?: TicketFormPrefill,
     restored?: RestoredPanel<TicketFormPanel>,
     mintedTicketId?: number,
+    unstagedFiles: readonly string[] = [],
   ): void {
     const existing = this.panels.get(key);
     if (existing) {
@@ -462,12 +476,11 @@ export class TicketFormManager {
     let prefillCommitted = false;
     // Draft files the review form lists before the ticket exists. Save ingests them, then each leaves.
     // A form that opens on an existing ticket (a restored review) stages nothing: the stored ticket is the truth.
-    // A form stages only the files whose host copy is still there: an attached or removed file loses
-    // its copy, so it never returns. With no storage root, only a form that minted nothing stages.
-    const kept = (f: StagedAttachment): boolean =>
-      this.storageDir === undefined || prefill?.draftId === undefined
-        ? mintedTicketId === undefined
-        : existsSync(join(draftAttachmentDir(this.storageDir, prefill.draftId), f.storedName));
+    // A restored form skips the files its minted ticket holds (same content key) and the files the
+    // user removed before the reload. The host copies stay until the draft is accepted or discarded.
+    let unstaged: readonly string[] = unstagedFiles;
+    const held = new Set(mintedTicketId === undefined ? [] : listAttachments(this.store, mintedTicketId).map((r) => r.storedName));
+    const kept = (f: StagedAttachment): boolean => !held.has(f.storedName) && !unstaged.includes(f.storedName);
     let staged: StagedAttachment[] = ticketId === undefined ? (prefill?.attachments ?? []).filter(kept) : [];
     // The row THIS prefilled panel minted (bind from unbound). Deleted on
     // dispose unless the user's Save/Submit committed it; a pre-existing row
@@ -511,7 +524,10 @@ export class TicketFormManager {
             : built;
       const dc = prefill ? designConstraintsView(prefill) : undefined;
       // The webview saves this flag with its identity so a reload can tell a proposal review form apart.
-      const flagged = prefill && !prefillCommitted ? { ...overlaid, prefilled: true } : overlaid;
+      // The removed staged files ride along too, so a restored form does not stage them again.
+      const flagged = prefill && !prefillCommitted
+        ? { ...overlaid, prefilled: true, ...(unstaged.length > 0 ? { unstagedFiles: [...unstaged] } : {}) }
+        : overlaid;
       const state = dc ? { ...flagged, designConstraints: dc } : flagged;
       // The state builder emits filesystem paths; only the panel can turn one
       // into a URI the webview is allowed to load. Mapped here, at the last
@@ -598,11 +614,9 @@ export class TicketFormManager {
       },
       unstage: (storedName: string) => {
         staged = staged.filter((a) => a.storedName !== storedName);
-        // The copy leaves with the row, so a restored form cannot stage the file again.
-        if (this.storageDir !== undefined && prefill?.draftId !== undefined) {
-          const file = join(draftAttachmentDir(this.storageDir, prefill.draftId), storedName);
-          void rm(file, { force: true }).catch((e: unknown) => this.logError('ticket form: staged copy removal failed', e));
-        }
+        // The host copy stays: a Review closed without Save must not lose the draft's evidence.
+        // The webview saves this list, so a restored form does not stage the file again.
+        if (!unstaged.includes(storedName)) unstaged = [...unstaged, storedName];
       },
       commitPrefill: () => {
         // The user's own Save/Submit persisted this prefilled page — the ONLY

@@ -1673,6 +1673,22 @@ describe('buildTicketFormActions', () => {
       expect(order).toEqual(['commit']);
     });
 
+    it('two attaches at the same time attach each staged file once and post no error', async () => {
+      writeBlob(11, '0123456789abcdef.txt', 'hello');
+      const { ctx, left } = stagedCtx(11, [{ name: 'notes.txt', storedName: '0123456789abcdef.txt' }]);
+      // Each ingest reads the staged list once: the second one runs after the first and finds it empty.
+      const reads: number[] = [];
+      Object.defineProperty(ctx, 'stagedAttachments', { get: () => { const l = left(); reads.push(l.length); return l; } });
+      const actions = buildTicketFormActions(deps)(ctx);
+      const png = (n: number) => Buffer.from([0x89, 0x50, 0x4e, 0x47, n]).toString('base64');
+      await Promise.all([actions.attachBytes('one.png', png(1), fields), actions.attachBytes('two.png', png(2), fields)]);
+      expect(ctx.posted.filter((m) => m.type === 'error')).toEqual([]);
+      const names = listAttachments(deps.store, ctx.boundTicketId!).map((r) => r.originalName).sort();
+      expect(names).toEqual(['notes.txt', 'one.png', 'two.png']);
+      expect(left()).toEqual([]);
+      expect(reads).toEqual([1, 0]);
+    });
+
     it('save throws before commitPrefill when a staged file cannot be read', async () => {
       const { ctx, order } = stagedCtx(6, [{ name: 'gone.txt', storedName: 'ffffffffffffffff.txt' }]);
       await buildTicketFormActions(deps)(ctx).save(fields);

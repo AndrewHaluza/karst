@@ -1290,7 +1290,7 @@ describe('planning outbox', () => {
       expect(ob.checkingIds().size).toBe(0);
     });
 
-    it('a revise keeps the old list until the new copy ends', async () => {
+    it('a revise drops the old list at once, so a Review never stages the files of the old revision', async () => {
       withFile('a.txt', 'aaa');
       withFile('b.txt', 'bbb');
       put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'a.txt' }] });
@@ -1300,8 +1300,10 @@ describe('planning outbox', () => {
       const id = pending()[0]!.id;
       put(`${UUID(2)}.json`, { ...good, id, attachments: [{ path: 'b.txt' }] });
       ob.scan();
-      expect(getProposal(store, id)!.attachments.map((a) => a.name)).toEqual(['a.txt']);
+      expect(getProposal(store, id)!.attachments).toEqual([]);
+      expect(ob.checkingIds().has(id)).toBe(true);
       await drain(ob);
+      expect(getProposal(store, id)!.attachments.map((a) => a.name)).toEqual(['b.txt']);
     });
 
     it('records the copy before a slow git probe settles', async () => {

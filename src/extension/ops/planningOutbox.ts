@@ -426,9 +426,10 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         return;
       }
       updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value, scratch, requestedId));
-      // A revise that lists no files drops the old list at once; its blobs stay until accept or discard.
+      // A revise drops the old list at once, so a Review waits for the new copy and never stages the
+      // files of the old revision. The old blobs stay until accept or discard.
       // Stryker disable next-line ArrayDeclaration: equivalent, the store drops an entry that has no stored name
-      if (!snapshotRuns(read.value)) setProposalHostAttachments(deps.store, requestedId, uuid, []);
+      setProposalHostAttachments(deps.store, requestedId, uuid, []);
       // A revise owns the latch: drop the old uuid's latch first, then set it
       // again only when this revision runs its own async check.
       checking.delete(requestedId);

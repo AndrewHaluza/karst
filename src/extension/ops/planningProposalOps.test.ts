@@ -339,12 +339,32 @@ describe('planningProposalOps', () => {
       expect(forms).toEqual([]);
     });
 
-    it('Review opens when no copy runs for the listed files, so a lost copy never blocks it', async () => {
+    it('Review opens with a warning when no copy runs for the listed files, so a lost copy never blocks it', async () => {
       const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
       await ops({ isChecking: () => false }).review(id);
       expect(forms).toHaveLength(1);
+      const lost = `Draft ${formatId('draft', id)} lists 1 file that the host did not copy (the copy stopped, for example on a window reload). Ask the planner to revise the draft to copy it again.`;
+      expect(warns).toEqual([lost]);
       await ops().review(id);
       expect(forms).toHaveLength(2);
+      expect(warns).toEqual([lost, lost]);
+    });
+
+    it('the lost-copy warning counts the listed files', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }, { path: 'b.txt' }] });
+      await ops().review(id);
+      expect(warns).toEqual([`Draft ${formatId('draft', id)} lists 2 files that the host did not copy (the copy stopped, for example on a window reload). Ask the planner to revise the draft to copy them again.`]);
+    });
+
+    it('Review gives no lost-copy warning when the listed file was copied or refused', async () => {
+      const copied = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
+      setProposalHostAttachments(store, copied, '', [{ name: 'a.txt', storedName: '1111111111111111.txt', kind: 'file', byteSize: 1 }]);
+      const refused = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['attachment refused: a.txt (missing)']);
+      await ops().review(copied);
+      await ops().review(refused);
+      await ops().review(proposalId);
+      expect(forms).toHaveLength(3);
+      expect(warns).toEqual([]);
     });
 
     it('Review opens when the listed file was copied', async () => {

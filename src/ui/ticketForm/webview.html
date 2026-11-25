@@ -780,6 +780,7 @@
         // the host cannot re-link it, so it must restore as a proposal form, not a plain edit form.
         // The planning draft id and the draft row the form minted ride along, so the host can
         // re-link the form to its proposal (the draft id is kept once seen: a bound page drops it).
+        // The draft files the user removed ride along too, so a restore does not stage them again.
         const draftId = state.briefSource && state.briefSource.kind === 'draft' && Number.isInteger(state.briefSource.draftId)
           ? state.briefSource.draftId
           : identity && Number.isInteger(identity.draftId) ? identity.draftId : undefined;
@@ -788,6 +789,7 @@
             mode: 'create', prefilled: true,
             ...(draftId !== undefined ? { draftId } : {}),
             ...(state.mode === 'edit' && Number.isInteger(state.ticketId) ? { mintedTicketId: state.ticketId } : {}),
+            ...(Array.isArray(state.unstagedFiles) && state.unstagedFiles.length > 0 ? { unstagedFiles: state.unstagedFiles } : {}),
           }
           : state.mode === 'edit' && Number.isInteger(state.ticketId)
             ? { mode: 'edit', ticketId: state.ticketId }

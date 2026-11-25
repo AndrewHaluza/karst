@@ -161,6 +161,8 @@ export interface TicketFormState {
   mode: 'create' | 'edit';
   /** True while the page reviews a planning-proposal prefill that still has to report back. */
   prefilled?: boolean;
+  /** Stored names of the draft files the user removed from a prefilled form; the webview saves them for a restore. */
+  unstagedFiles?: string[];
   ticketId?: number;
   /**
    * Host-built id label for the page header: `T583 · KEY` for a ticket, `D88`
