@@ -691,6 +691,9 @@
     "arch:AP-01",
     "arch:GATE-BASE-MOVED"
   ],
+  "src/extension/ops/shipRetryOps.ts": [
+    "arch:AP-11"
+  ],
   "src/extension/ops/storedArtifactOps.ts": [
     "arch:APP-00"
   ],
