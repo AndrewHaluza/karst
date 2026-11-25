@@ -6,6 +6,7 @@ import {
   getProposal,
   insertProposal,
   setProposalBaseShas,
+  setProposalHostAttachments,
   setProposalWarnings,
   updateProposalPayload,
   validateProposalDependsOn,
@@ -25,6 +26,7 @@ import {
   type GitBatch,
   type PathRepoTarget,
 } from './planningConstraintChecks.js';
+import { removeDraftAttachments, snapshotDraftAttachments, type SnapshotResult } from '../../planning/draftAttachments.js';
 import { listOverlapCandidates } from '../../store/draftOverlap.js';
 import { formatId } from '../../model/entityId.js';
 import { recordOutboxRejection, refreshProposalIndex } from './planningIndex.js';
@@ -73,6 +75,8 @@ export interface PlanningOutboxDeps {
   pathTargets?(names: string[]): PathRepoTarget[];
   /** Async `git cat-file --batch-check`, one per target; absent = path check skipped. */
   gitBatch?: GitBatch;
+  /** The storage root that holds the host copies of a draft's attachments; absent = attachments are not copied. */
+  storageDir?: string;
   /** A late (async) check added warnings or base shas to a stored proposal. */
   onWarnings?(p: PlanningProposal): void;
 }
@@ -296,9 +300,25 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     return targets.length > 0 && paths.length > 0 ? { paths, targets } : undefined;
   }
 
-  /** True when an async check (commit or path probe) will run for this draft. */
+  /** True when the draft lists files and a storage root exists for the host copy. */
+  function snapshotRuns(p: Proposal): boolean {
+    return deps.storageDir !== undefined && (p.attachments?.length ?? 0) > 0;
+  }
+
+  /** True when an async check (commit or path probe, or the attachment copy) will run for this draft. */
   function willVerify(p: Proposal): boolean {
-    return commitProbeRuns(p) || pathProbe(p) !== undefined;
+    return commitProbeRuns(p) || pathProbe(p) !== undefined || snapshotRuns(p);
+  }
+
+  /** Copy the listed files; a failure is one debug line and an empty result, never a throw. */
+  async function snapshotOf(scratch: string, id: number, p: Proposal): Promise<SnapshotResult> {
+    if (!snapshotRuns(p)) return { list: [], warnings: [] };
+    return snapshotDraftAttachments({
+      storageDir: deps.storageDir!,
+      artifactsDir: planningArtifactsDir(scratch),
+      proposalId: id,
+      entries: p.attachments ?? [],
+    });
   }
 
   /**
@@ -316,18 +336,33 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         commitWarnings(p.constraints ?? [], deps.repoPaths!(p.repos), deps.commitExists!, debug)
       : Promise.resolve<string[]>([]);
     const missing = probe ? missingPathWarnings(probe.paths, probe.targets, deps.gitBatch!, debug) : Promise.resolve<string[]>([]);
-    void Promise.allSettled([commits, missing])
-      .then((settled) => {
-        const extra = settled.flatMap((s) => {
-          if (s.status === 'fulfilled') return s.value;
-          debug(`async check for proposal ${id} failed (${messageOf(s.reason)})`);
+    const snapshot = snapshotOf(scratch, id, p);
+    void Promise.allSettled([commits, missing, snapshot])
+      .then(([c, m, snap]) => {
+        const extra = [c, m].flatMap((s) => {
+          if (s!.status === 'fulfilled') return s!.value as string[];
+          debug(`async check for proposal ${id} failed (${messageOf((s as PromiseRejectedResult).reason)})`);
           return [];
         });
-        if (extra.length === 0) return;
+        const copied = snap!.status === 'fulfilled' ? snap!.value : undefined;
+        if (snap!.status === 'rejected') debug(`attachment copy for proposal ${id} failed (${messageOf(snap!.reason)})`);
         const cur = getProposal(deps.store, id);
-        // A revise or resolution since ingest owns the warnings now.
-        if (!cur || cur.status !== 'pending' || cur.sourceUuid !== uuid) return;
-        setProposalWarnings(deps.store, id, [...cur.warnings, ...extra]);
+        // A revise or resolution since ingest owns the row now.
+        if (!cur || cur.sourceUuid !== uuid) return;
+        if (cur.status !== 'pending') {
+          // Resolved before the copy ended: nothing will read the host copy, so drop it.
+          if (copied && copied.list.length > 0) {
+            return removeDraftAttachments(deps.storageDir!, id).catch((e: unknown) =>
+              debug(`draft attachment cleanup for proposal ${id} failed (${messageOf(e)})`),
+            );
+          }
+          return;
+        }
+        const added = [...extra, ...(copied?.warnings ?? [])];
+        const ranSnapshot = copied !== undefined && snapshotRuns(p);
+        if (ranSnapshot) setProposalHostAttachments(deps.store, id, uuid, copied.list);
+        if (added.length > 0) setProposalWarnings(deps.store, id, [...cur.warnings, ...added]);
+        if (added.length === 0 && !ranSnapshot) return;
         const row = getProposal(deps.store, id);
         if (row) deps.onWarnings?.(row);
       })
@@ -381,6 +416,8 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         return;
       }
       updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value, scratch, requestedId));
+      // A revise that lists no files drops the old list at once; its blobs stay until accept or discard.
+      if (!snapshotRuns(read.value)) setProposalHostAttachments(deps.store, requestedId, uuid, []);
       // A revise owns the latch: drop the old uuid's latch first, then set it
       // again only when this revision runs its own async check.
       checking.delete(requestedId);
