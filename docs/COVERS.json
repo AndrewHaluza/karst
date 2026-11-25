@@ -1428,6 +1428,9 @@
   "src/workflow/review/aggregate.ts#gatesOutcomeBeforeFindings": [
     "arch:GATE-CAPABILITY"
   ],
+  "src/workflow/review/conformance.ts#buildAttachmentsBlock": [
+    "arch:APP-12"
+  ],
   "src/workflow/review/conformance.ts#buildConformanceBlock": [
     "arch:APP-12"
   ],
