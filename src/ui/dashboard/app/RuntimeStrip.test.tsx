@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { fireEvent } from '@testing-library/react';
+import { cleanup, fireEvent } from '@testing-library/react';
 import type { DashboardSandboxView } from '../sandboxView.js';
 import { $, headerState, installHeaderDoubles, mountRuntime } from './fixtures/headerKit.js';
 
@@ -69,6 +69,39 @@ describe('RuntimeStrip — layout', () => {
   it('adds no suffix when no round is active', () => {
     strip(view(), { agentState: 'running', autopilot: ROUND(false) });
     expect($('#agentButton .rs-state').textContent).toBe('running');
+  });
+
+  it('draws an interrupted agent with its own word and the attention classes', () => {
+    strip(view(), { agentState: 'interrupted', autopilot: ROUND(false) });
+    expect($('#agentButton .rs-state').textContent).toBe('interrupted');
+    expect($('#agentButton .rs-state').className).toBe('rs-state interrupted');
+    expect($('#agentButton .rs-dot').className).toBe('rs-dot interrupted');
+  });
+
+  it('keeps the interrupted word over a live auto-fix round, so the round stays a suffix', () => {
+    strip(view(), { agentState: 'interrupted', autopilot: ROUND(true) });
+    expect($('#agentButton .rs-state').textContent).toBe('interrupted · auto-fix');
+    expect($('#agentButton .rs-state').className).toBe('rs-state interrupted');
+    expect($('#agentButton .rs-dot').className).toBe('rs-dot interrupted');
+  });
+
+  it('leaves the classes of idle, running and a waiting round untouched', () => {
+    strip(view(), { agentState: 'idle', autopilot: ROUND(false) });
+    expect($('#agentButton .rs-state').className).toBe('rs-state');
+    expect($('#agentButton .rs-dot').className).toBe('rs-dot idle');
+    cleanup();
+    strip(view(), { agentState: 'running', autopilot: ROUND(false) });
+    expect($('#agentButton .rs-state').className).toBe('rs-state running');
+    expect($('#agentButton .rs-dot').className).toBe('rs-dot running');
+    cleanup();
+    strip(view(), { agentState: 'waiting', autopilot: ROUND(true) });
+    expect($('#agentButton .rs-state').className).toBe('rs-state');
+    expect($('#agentButton .rs-dot').className).toBe('rs-dot idle');
+  });
+
+  it('still reads idle for a waiting agent without a round (current behavior)', () => {
+    strip(view(), { agentState: 'waiting', autopilot: ROUND(false) });
+    expect($('#agentButton .rs-state').textContent).toBe('idle');
   });
 
   it('locks the agent dropdown during a fix recovery', () => {

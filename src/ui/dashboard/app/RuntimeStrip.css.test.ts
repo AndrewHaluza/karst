@@ -38,3 +38,10 @@ describe('RuntimeStrip.css — the sandbox safety fact stays visible (DB-6, UI-R
     expect(rule).toContain('min-width: 0');
   });
 });
+
+describe('RuntimeStrip.css — an interrupted agent reads in the attention tone (UI-R28, UI-R57)', () => {
+  it('colors the interrupted dot and word with --k-attention', () => {
+    expect(block('.rs-dot.interrupted {')).toContain('background: var(--k-attention)');
+    expect(block('.rs-state.interrupted {')).toContain('color: var(--k-attention)');
+  });
+});
