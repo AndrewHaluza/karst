@@ -18,7 +18,6 @@ import { integrateAndReleaseParent } from '../subtaskIntegration.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
 import {
-  openPr,
   findOpenPr,
   fetchPrDetail,
   fetchPrBody,
@@ -95,6 +94,7 @@ import {
   divergedReason,
   isNonFastForward,
   manualLeaseCommand,
+  openPrWithServerErrorRetry,
   pushWithServerErrorRetry,
   type ForeignCommit,
 } from './shipPushRecovery.js';
@@ -1831,7 +1831,22 @@ export async function shipTicket(
               },
               prAt,
             );
-            const created = await openPr(gh, { cwd: wt.path, title: prTitle, body, base, head: wt.branch ?? undefined });
+            // A GitHub server error (@arch:GH-10) is retried here, and a PR that the
+            // failed create made is adopted: it then takes the adopted branch below.
+            const created = await openPrWithServerErrorRetry(
+              gh,
+              { cwd: wt.path, title: prTitle, body, base, head: wt.branch ?? undefined },
+              {
+                wait: opts.wait ?? defaultWait,
+                onRetry: (n, max, delayMs) =>
+                  onProgress({
+                    repo: wt.repo,
+                    step: 'pr',
+                    status: 'note',
+                    detail: `GitHub server error at PR creation, retry ${n}/${max} in ${delayMs / 1000}s`,
+                  }),
+              },
+            );
             if (created.adopted) {
               // The probe above answered null but a PR existed anyway — it is
               // branch-inferred, so bad auth or an ambiguous base repo looks exactly

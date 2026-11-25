@@ -1,5 +1,8 @@
 import type { GitRunner } from '../../integrations/git.js';
 import { pushBranch, remoteRefSha, type PushBranchOptions } from '../../integrations/git.js';
+import type { GhRunner, OpenPrOpts, CreatedPr } from '../../integrations/github.js';
+import { findOpenPr, openPr } from '../../integrations/github.js';
+import { isGitHubServerError } from '../../integrations/githubServerError.js';
 
 /** Matches git's rejection of a push that is not a fast-forward of the remote ref. */
 const NON_FAST_FORWARD = /non-fast-forward|fetch first|tip of your current branch is behind/i;
@@ -47,6 +50,54 @@ export async function pushWithServerErrorRetry(
     await deps.wait(PUSH_SERVER_ERROR_RETRY_DELAY_MS);
     await pushBranch(git, cwd, opts);
   }
+}
+
+/** Delays before the 2 retries of a PR create that GitHub failed with a server error (3 attempts in total). */
+export const PR_SERVER_ERROR_RETRY_DELAYS_MS: readonly number[] = [15_000, 45_000];
+
+export interface PrRetryDeps {
+  /** Waits `ms`; injected so a test does not wait for real time. */
+  wait: (ms: number) => Promise<void>;
+  /** Called before each wait: retry `n` of `max`, after `delayMs`. */
+  onRetry: (n: number, max: number, delayMs: number) => void;
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * `openPr`, retried after a delay while the error is a GitHub server error
+ * (`isGitHubServerError`). Before each retry, probe the branch for an open PR:
+ * a failed create can still have made the PR, so the probe's PR is adopted and
+ * never created a second time. Any other error, and the error of the last
+ * attempt, propagates unchanged.
+ */
+export async function openPrWithServerErrorRetry(
+  gh: GhRunner,
+  opts: OpenPrOpts,
+  deps: PrRetryDeps,
+): Promise<CreatedPr> {
+  const max = PR_SERVER_ERROR_RETRY_DELAYS_MS.length;
+  let last: unknown;
+  try {
+    return await openPr(gh, opts);
+  } catch (err) {
+    last = err;
+  }
+  for (const [index, delayMs] of PR_SERVER_ERROR_RETRY_DELAYS_MS.entries()) {
+    if (!isGitHubServerError(errorText(last))) throw last;
+    deps.onRetry(index + 1, max, delayMs);
+    await deps.wait(delayMs);
+    const found = await findOpenPr(gh, opts.cwd);
+    if (found) return { url: found.url, number: found.number, adopted: true };
+    try {
+      return await openPr(gh, opts);
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last;
 }
 
 export interface ForeignCommit {
