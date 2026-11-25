@@ -157,13 +157,15 @@ It is opened read-only, so the extension does not need to be stopped first.
   alone loads `openStore`/better-sqlite3. `export.test.ts` fails when the
   committed JSON is stale, so regenerate after a `state.ts` or seed change.
 - **Sanitizer guarantees** (deterministic, independent of traversal order or the
-  wall clock): ticket ids move into 900001–999999, absolute paths become
-  `/fixture/path/<n>`, URLs `fixture:url/<n>`, external refs `fixture:ref/<n>`,
-  emails `developer@fixture.invalid`, token shapes `fixture-token-redacted`;
-  every ISO timestamp is rebased onto `FIXTURE_NOW_MS` (the instant
+  wall clock): ticket ids move into 900001–999999, absolute paths and relative
+  paths that climb out of the project root (`../../Users/...`, the relative
+  `repoDisplay` of a real repo) become `/fixture/path/<n>`, URLs
+  `fixture:url/<n>`, external refs `fixture:ref/<n>`, emails
+  `developer@fixture.invalid`, token shapes `fixture-token-redacted`; every ISO
+  and SQLite `datetime()` timestamp is rebased onto `FIXTURE_NOW_MS` (the instant
   `tests/visual/fixtures.ts` pins the page clock to), so relative ages are
-  stable. A final leak scan **fails the export** on any leftover absolute path,
-  email, http(s) URL or token shape; `npm run -s gate:secrets` sees only
+  stable. A final leak scan **fails the export** on any leftover absolute or
+  climbing relative path, email, http(s) URL or token shape; `npm run -s gate:secrets` sees only
   placeholders.
 
 Built from store: the three showcase JSON files above. Store-seeded fixtures are

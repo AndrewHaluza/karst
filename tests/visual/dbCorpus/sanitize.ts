@@ -55,14 +55,37 @@ export { FIXTURE_NOW_MS };
  * rule consumes those first anyway.
  */
 const ABS_PATH = /(^|[\s"'([=,:;])((?:\/(?!\/)[A-Za-z0-9._@+%~-]+){2,})/g;
+/**
+ * A relative path that climbs out of the project root (`../../Users/nd/repo`).
+ * `repoDisplayPath` renders every repo outside the fixture project root this
+ * way, so on a real database it carries the operator's home directory without
+ * a leading `/`. A `./`-led path stays below the fixture root and is left alone.
+ */
+const REL_PATH = /(^|[\s"'([=,:;])((?:\.\.\/)+[A-Za-z0-9._@+%~-]+(?:\/[A-Za-z0-9._@+%~-]+)*)/g;
 /** A Windows absolute path (`C:\Users\…`). */
 const WIN_PATH = /(^|[\s"'(=])([A-Za-z]:\\[^\s"']+)/g;
 /** An http(s) URL, up to the first delimiter. */
 const URL_RE = /\bhttps?:\/\/[^\s"'<>)\]}]+/g;
 /** An email address. */
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
-/** An ISO-8601 UTC instant, the one timestamp format karst writes. */
+/** An ISO-8601 UTC instant, the timestamp format the karst state builders write. */
 const ISO_UTC = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z\b/g;
+/**
+ * A SQLite `datetime('now')` value (`2026-01-02 03:04:05`, UTC, no zone mark).
+ * Several store columns default to it, so it is rebased like an ISO instant.
+ */
+const SQLITE_UTC = /\b(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d{1,3})?\b/g;
+
+/** The UTC instant of a SQLite datetime match, or NaN. */
+function sqliteMs(date: string, time: string, frac: string | undefined): number {
+  return Date.parse(`${date}T${time}${frac ?? ''}Z`);
+}
+
+/** Format an instant in the SQLite datetime form, with the fraction only when the source had one. */
+function formatSqlite(ms: number, withFraction: boolean): string {
+  const iso = new Date(ms).toISOString();
+  return iso.slice(0, withFraction ? 23 : 19).replace('T', ' ');
+}
 
 /**
  * Secret shapes that must never survive: GitHub tokens, OpenAI-style keys,
@@ -244,6 +267,7 @@ export class CorpusSanitizer {
   }
 
   private collectString(text: string): void {
+    for (const match of text.matchAll(REL_PATH)) this.paths.add(match[2]!);
     for (const match of text.matchAll(ABS_PATH)) {
       const path = match[2]!;
       if (!path.startsWith(FIXTURE_PATH_PREFIX)) this.paths.add(path);
@@ -252,6 +276,10 @@ export class CorpusSanitizer {
     for (const match of text.matchAll(URL_RE)) this.urls.add(trimUrl(match[0]));
     for (const match of text.matchAll(ISO_UTC)) {
       const ms = Date.parse(match[0]);
+      if (Number.isFinite(ms)) this.instants.add(ms);
+    }
+    for (const match of text.matchAll(SQLITE_UTC)) {
+      const ms = sqliteMs(match[1]!, match[2]!, match[3]);
       if (Number.isFinite(ms)) this.instants.add(ms);
     }
     for (const match of text.matchAll(TICKET_REF)) {
@@ -308,6 +336,8 @@ export class CorpusSanitizer {
       const url = trimUrl(match);
       return this.urlFor(url) + match.slice(url.length);
     });
+    // Relative paths before absolute ones: `../../Users/nd` holds `/Users/nd`.
+    out = out.replace(REL_PATH, (match, lead: string, path: string) => lead + this.pathFor(path));
     out = out.replace(ABS_PATH, (match, lead: string, path: string) =>
       lead + (path.startsWith(FIXTURE_PATH_PREFIX) ? path : this.pathFor(path)),
     );
@@ -324,6 +354,11 @@ export class CorpusSanitizer {
       const ms = Date.parse(match);
       if (!Number.isFinite(ms)) return match;
       return new Date(ms + this.shift).toISOString();
+    });
+    out = out.replace(SQLITE_UTC, (match, date: string, time: string, frac: string | undefined) => {
+      const ms = sqliteMs(date, time, frac);
+      if (!Number.isFinite(ms)) return match;
+      return formatSqlite(ms + this.shift, frac !== undefined);
     });
     out = out.replace(TICKET_REF, (match, digits: string) => `T${this.ticketFor(Number(digits))}`);
     return out;
@@ -373,6 +408,7 @@ export function scanForLeaks(value: unknown): Leak[] {
     if (!leaks.some((l) => l.kind === kind && l.text === found)) leaks.push({ kind, text: found });
   };
 
+  for (const match of text.matchAll(REL_PATH)) add('path', match[2]!);
   for (const match of text.matchAll(ABS_PATH)) {
     const path = match[2]!;
     if (!path.startsWith(FIXTURE_PATH_PREFIX)) add('path', path);
