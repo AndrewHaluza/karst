@@ -92,12 +92,12 @@ describe('buildPeek — state word, tone and age', () => {
     expect(peek.needs?.cta).toEqual({ kind: 'open-session' });
   });
 
-  it('a quota park (needs open-session, no agent state) reads "Waiting for you"', () => {
+  it('a quota park (needs usage-limit-pick, no agent state) reads "Waiting for you"', () => {
     const peek = buildPeek(
       input({
         stageCurrent: 'review',
         current: stage({ stageKey: 'review', status: 'failed' }),
-        needs: { detail: 'the provider is out of quota', action: 'Open session', cta: { kind: 'open-session' } },
+        needs: { detail: 'the provider is out of quota', action: 'Pick another model', cta: { kind: 'usage-limit-pick' } },
       }),
     );
     expect(peek.title).toBe('Waiting for you');
