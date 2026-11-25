@@ -12,7 +12,9 @@ import {
   classifyHeadRerun,
   flakyNotice,
   headRerunLines,
+  ledgerLines,
   reportLines,
+  splitLedgered,
 } from './baseDrift.mjs';
 
 const shot = (project, title, path) => ({
@@ -46,6 +48,11 @@ describe('failingScreenshots', () => {
       screenshots: [],
       others: [{ project: 'dark', title: 'boom', message: '' }],
     });
+  });
+
+  it('keeps the spec file, which the visual ledger key needs', () => {
+    const rep = report({ ...shot('dark', 'dashboard', '/repo/x.png'), file: 'pages.visual.ts' });
+    expect(failingScreenshots(rep, '/repo').screenshots[0].file).toBe('pages.visual.ts');
   });
 
   it('walks nested suites', () => {
@@ -272,4 +279,40 @@ describe('failedTests', () => {
     ['a failure with no title', run([spec('dark', '')], 1)],
     ['more than BASE_RERUN_CAP failures', run(Array.from({ length: BASE_RERUN_CAP + 1 }, (_, i) => spec('dark', `t${i}`)), BASE_RERUN_CAP + 1)],
   ])('is null for %s', (_, rep) => expect(failedTests(rep, BOOKENDS)).toBeNull());
+});
+
+describe('splitLedgered', () => {
+  const a = { project: 'dark', file: 'pages.visual.ts', title: 'a', baseline: 'tests/visual/__baselines__/dark/a.png' };
+  const b = { project: 'dark', file: 'pages.visual.ts', title: 'b', baseline: 'tests/visual/__baselines__/dark/b.png' };
+  const other = { project: 'layout-teardown', title: 'layout ledger verdict', message: '' };
+
+  it('excuses the screenshots the ledger lists and keeps the rest for the base check', () => {
+    const r = splitLedgered({ screenshots: [a, b], others: [other] }, ['dark|pages.visual.ts::a'], new Set());
+    expect(r.known).toEqual([a]);
+    expect(r.failing).toEqual({ screenshots: [b], others: [other] });
+  });
+
+  it('never excuses a baseline the ticket recorded', () => {
+    const r = splitLedgered({ screenshots: [a], others: [] }, ['dark|pages.visual.ts::a'], new Set([a.baseline]));
+    expect(r.known).toEqual([]);
+    expect(r.failing.screenshots).toEqual([a]);
+  });
+
+  it('does not excuse the same title in another project', () => {
+    const r = splitLedgered({ screenshots: [{ ...a, project: 'light' }], others: [] }, ['dark|pages.visual.ts::a'], new Set());
+    expect(r.known).toEqual([]);
+  });
+});
+
+describe('ledgerLines', () => {
+  it('is empty without known failures', () => {
+    expect(ledgerLines([])).toEqual([]);
+  });
+
+  it('names the ledger and each known failure', () => {
+    expect(ledgerLines([{ project: 'dark', title: 'a' }])).toEqual([
+      'known failures (listed in tests/visual/visual-known-failures.json) — 1:',
+      '  - dark: a',
+    ]);
+  });
 });

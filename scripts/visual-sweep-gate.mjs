@@ -1,7 +1,7 @@
 /**
  * CI gate for the visual sweep (.github/workflows/ci.yml).
  *
- * A red screenshot blocks a PR only when the PR is to blame. Blocking:
+ * Blocking, on a pull request and on a push to develop alike:
  *
  * - A run that executed zero tests. Before NDL-218 the webServer died on
  *   startup (ENOENT webviewSend.webview.js) and `continue-on-error: true` still
@@ -9,15 +9,18 @@
  *   a single test.
  * - On a pull request, a baseline the PR ITSELF added or changed, failing its
  *   own screenshot (#769): its new pixels are not the ones CI renders.
- * - On a pull request, a NEW break: a screenshot that fails here but is not in
- *   develop's red set (`visual-red-develop.json`, published by every develop
- *   push run). A PR that shifts shared UI without re-recording the screens it
- *   affected used to land green and let develop drift.
+ * - A red screenshot that the committed ledger
+ *   (tests/visual/visual-known-failures.json, scripts/visualLedger.mjs) does
+ *   not list. The ledger replaced develop's advisory red set: a screenshot red
+ *   on develop used to stay exempt for good, because nothing made it shrink.
+ * - On a full run only, a STALE ledger entry: its test passes, or no longer
+ *   exists. A scoped run cannot tell, so it judges no entry stale.
+ *   `KARST_VISUAL_PRUNE=1` removes the stale entries, and refuses on a partial
+ *   or non-authoritative run (npm run -s test:visual:docker:prune).
+ * - On a pull request, a ledger entry that the PR adds: the ledger only shrinks.
  *
- * Advisory: screenshots already red on develop ("pre-existing on develop"),
- * so a PR is never blamed for inherited drift. When no develop red set is
- * available the rule falls back to the own-baseline rule only, and the summary
- * says so; a missing artifact never fails the job.
+ * A flaky screenshot (failed, then passed on retry) blocks nothing; the summary
+ * names it.
  *
  * - In the sharded CI sweep, a test of the full listing (`VISUAL_LISTED_REPORT`)
  *   that the merged report does not hold: a shard that did not report must
@@ -37,6 +40,7 @@ import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync }
 import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LEDGER_REL, judgeLedger, ledgerGrowth, ledgerKey, parseLedger, pruneLedger, readLedger, serializeLedger } from './visualLedger.mjs';
 
 // Real path, not the import URL's: on macOS a checkout under /tmp (or any
 // symlinked directory) would otherwise resolve to /private/tmp here while
@@ -47,8 +51,8 @@ const root = realpathSync(dirname(dirname(fileURLToPath(import.meta.url))));
 /** The JSON reporter's output (playwright.config.ts). */
 export const RESULTS_PATH = join(root, 'tests', 'visual', '.results.json');
 
-/** This run's red set; develop push runs upload it as `visual-red-develop.json`. */
-export const RED_PATH = join(root, 'tests', 'visual', 'visual-red-develop.json');
+/** The committed visual ledger (scripts/visualLedger.mjs). */
+export const LEDGER_PATH = join(root, LEDGER_REL);
 
 /** The one directory baselines live in (playwright.config.ts `snapshotPathTemplate`). */
 export const BASELINES_DIR = 'tests/visual/__baselines__';
@@ -78,9 +82,8 @@ export function repoRelative(path, rootDir = root) {
  * The baselines this pull request added or changed.
  *
  * Empty on every other event: a push to develop owns no baseline diff of its
- * own, and the sweep there stays fully advisory. A `git` failure THROWS — the
- * guard must not silently degrade into the advisory behaviour it exists to
- * replace.
+ * own. A `git` failure THROWS — the guard must not silently degrade into an
+ * advisory rule.
  */
 export function prChangedBaselines({ env = process.env, gitRun = runGit } = {}) {
   if (env.GITHUB_EVENT_NAME !== 'pull_request') return new Set();
@@ -114,6 +117,25 @@ export function prChangedBaselines({ env = process.env, gitRun = runGit } = {}) 
  */
 export function gitArgs(repoRoot, args) {
   return ['-c', `safe.directory=${repoRoot}`, ...args];
+}
+
+/**
+ * The ledger at the PR's base tip (HEAD^1), to find the entries the PR adds.
+ * Null on every other event, and when the base has no ledger yet. A `git`
+ * failure THROWS, as in prChangedBaselines.
+ */
+export function prLedgerBase({ env = process.env, gitRun = runGit } = {}) {
+  if (env.GITHUB_EVENT_NAME !== 'pull_request') return null;
+  const gitOrThrow = (args) => {
+    const result = gitRun(args);
+    if (result.error || result.status !== 0) {
+      const detail = result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}`;
+      throw new Error(`visual-sweep-gate: cannot read ${LEDGER_REL} at the PR's base (HEAD^1): ${detail}`);
+    }
+    return result.stdout ?? '';
+  };
+  if (gitOrThrow(['ls-tree', '--name-only', 'HEAD^1', '--', LEDGER_REL]).trim() === '') return null;
+  return parseLedger(gitOrThrow(['show', `HEAD^1:${LEDGER_REL}`]), `HEAD^1:${LEDGER_REL}`);
 }
 
 function runGit(args) {
@@ -214,20 +236,38 @@ export function baselineProblems(rep, changed, rootDir = root) {
 const ANSI = /\u001b\[[0-9;]*m/g;
 const DIFF_LINE = /(\d+ pixels? \(ratio [\d.]+[^)]*\) are different|Expected an image [^\n]+)/;
 
-/** Every failing screenshot of a report (`unexpected` by default): its id, project and diff size. */
+const isLayoutProject = (project) => project === 'layout' || project === 'layout-teardown';
+
+/** Every failing screenshot of a report (`unexpected` by default): its ledger key, id, project and diff size. */
 export function failingScreenshots(rep, statuses = ['unexpected']) {
   const failing = [];
   for (const spec of projectSpecs(rep, undefined)) {
     if (!statuses.includes(spec.status)) continue;
-    if (spec.project === 'layout' || spec.project === 'layout-teardown') continue;
+    if (isLayoutProject(spec.project)) continue;
     const message = spec.errors.join('\n').replace(ANSI, '');
     failing.push({
+      key: ledgerKey(spec),
       id: `${spec.file ?? ''}::${spec.title}`,
       project: spec.project ?? '',
       diff: DIFF_LINE.exec(message)?.[1] ?? 'diff size unavailable',
     });
   }
   return failing;
+}
+
+/**
+ * The outcome of every screenshot test of a report, by ledger key (the layout projects have their own ledger).
+ * A key seen twice (a merged report, or one leaf title under two describe blocks) keeps `unexpected`: a later
+ * pass must never hide a failure.
+ */
+export function screenshotStatuses(rep) {
+  const statuses = new Map();
+  for (const spec of projectSpecs(rep, undefined)) {
+    if (isLayoutProject(spec.project)) continue;
+    const key = ledgerKey(spec);
+    if (statuses.get(key) !== 'unexpected') statuses.set(key, spec.status);
+  }
+  return statuses;
 }
 
 /**
@@ -239,51 +279,28 @@ export function neverRanCount(rep) {
   return [...projectSpecs(rep, undefined)].filter((s) => s.status === 'skipped' && s.resultCount === 0).length;
 }
 
-const redKey = (f) => `${f.project}|${f.id}`;
-
 /**
- * Split failures into new breaks and pre-existing ones.
- *
- * `developRed` is develop's `visual-red-develop.json` (array of {id, project})
- * or null when no artifact was available: then nothing is a new break.
+ * True when the report holds the whole sweep: the CI listing is given
+ * (`VISUAL_LISTED_REPORT`), no listed test is missing, and every test started.
+ * Only a full run judges stale entries or prunes the ledger.
  */
-export function classifyFailures(failing, developRed) {
-  if (!developRed) return { newBreaks: [], preExisting: [], developKnown: false };
-  const red = new Set(developRed.map(redKey));
-  return {
-    newBreaks: failing.filter((f) => !red.has(redKey(f))),
-    preExisting: failing.filter((f) => red.has(redKey(f))),
-    developKnown: true,
-  };
+export function isFullRun({ listed, missing, neverRan }) {
+  return listed && missing === 0 && neverRan === 0;
 }
+
+const failureLine = (f) => `- \`${f.project}\` ${f.id}: ${f.diff}`;
 
 /** Markdown for the run summary. */
-export function summaryMarkdown({ newBreaks, preExisting, developKnown, owned }) {
+export function summaryMarkdown({ unexpected, known, stale, flaky, grown, owned, fullRun }) {
   const lines = ['## Visual gate', ''];
-  if (!developKnown) {
-    lines.push('No develop red set available: only the zero-run and own-baseline rules applied. Other diffs are advisory.', '');
-  }
+  if (!fullRun) lines.push('Partial run: stale ledger entries were not judged.', '');
   if (owned.length > 0) lines.push('**Own baselines failing:**', ...owned.map((o) => `- ${o}`), '');
-  if (newBreaks.length > 0) {
-    lines.push('**New breaks caused by this PR (green on develop):**');
-    lines.push(...newBreaks.map((f) => `- \`${f.project}\` ${f.id}: ${f.diff}`), '');
-  }
-  if (preExisting.length > 0) {
-    lines.push('**Pre-existing on develop (advisory):**');
-    lines.push(...preExisting.map((f) => `- \`${f.project}\` ${f.id}: ${f.diff}`), '');
-  }
+  if (unexpected.length > 0) lines.push('**Failures the ledger does not list:**', ...unexpected.map(failureLine), '');
+  if (stale.length > 0) lines.push('**Stale ledger entries (they pass now; prune them):**', ...stale.map((k) => `- ${k}`), '');
+  if (grown.length > 0) lines.push('**Ledger entries this PR adds (the ledger only shrinks):**', ...grown.map((k) => `- ${k}`), '');
+  if (known.length > 0) lines.push(`**Known failures (listed in ${LEDGER_REL}):**`, ...known.map(failureLine), '');
+  if (flaky.length > 0) lines.push('**Flaky (passed on retry; not blocking):**', ...flaky.map((k) => `- ${k}`), '');
   return lines.join('\n');
-}
-
-function readDevelopRed() {
-  const path = process.env.VISUAL_RED_DEVELOP;
-  if (!path || !existsSync(path)) return null;
-  try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'));
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 const MISSING_SHOWN = 20;
@@ -339,37 +356,31 @@ function main() {
   // Layout-sanity gate (ui:LAYOUT-SANITY). Geometry never fails a `layout` test,
   // so `unexpected` there is a harness error; in `layout-teardown` it is the
   // ledger verdict (a new or stale entry, or a seed/prune refusal). Screenshot
-  // diffs in the other projects stay advisory.
+  // diffs in the other projects go to the visual ledger below.
   const layoutProblems = layoutGateProblems(report);
   if (layoutProblems.length > 0) {
     fail(`visual-sweep-gate: layout gate failed:\n- ${layoutProblems.join('\n- ')}`);
   }
 
   let changed;
+  let baseLedger;
   try {
     changed = prChangedBaselines();
+    baseLedger = prLedgerBase();
   } catch (err) {
     fail(err.message);
   }
 
   const owned = baselineProblems(report, changed);
-  const failing = failingScreenshots(report);
-  // Every run records its red set; the workflow uploads it from develop pushes.
-  // Flaky screenshots (failed, then passed on retry) are unstable, not a clean
-  // baseline: record them as red so a flake on develop never blames a PR.
-  // A partial sweep (tests that never started) would leave those tests out of
-  // the red set and blame the next PR for them, so it publishes nothing.
-  const unstable = failingScreenshots(report, ['unexpected', 'flaky']);
-  const notStarted = neverRanCount(report);
-  if (notStarted === 0) {
-    writeFileSync(RED_PATH, JSON.stringify(unstable.map(({ id, project }) => ({ id, project }))));
-  } else {
-    console.warn(`visual-sweep-gate: ${notStarted} test(s) never started; not publishing a red set.`);
-  }
-
-  const isPr = process.env.GITHUB_EVENT_NAME === 'pull_request';
-  const { newBreaks, preExisting, developKnown } = classifyFailures(failing, isPr ? readDevelopRed() : null);
-  const summary = summaryMarkdown({ newBreaks, preExisting, developKnown, owned });
+  const fullRun = isFullRun({ listed: Boolean(process.env.VISUAL_LISTED_REPORT), missing: missing.length, neverRan: neverRanCount(report) });
+  const statuses = screenshotStatuses(report);
+  const ledger = currentLedger(statuses, fullRun);
+  const verdict = judgeLedger({ statuses, ledger, fullRun });
+  const byKey = new Map(failingScreenshots(report).map((f) => [f.key, f]));
+  const unexpected = verdict.unexpected.map((key) => byKey.get(key));
+  const known = verdict.known.map((key) => byKey.get(key));
+  const grown = ledgerGrowth(baseLedger, ledger);
+  const summary = summaryMarkdown({ unexpected, known, stale: verdict.stale, flaky: verdict.flaky, grown, owned, fullRun });
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
 
   if (owned.length > 0) {
@@ -378,22 +389,57 @@ function main() {
         `screenshot (record baselines in the pinned image: npm run -s test:visual:docker:update):\n- ${owned.join('\n- ')}`,
     );
   }
-  if (newBreaks.length > 0) {
-    fail(
-      'visual-sweep-gate: this pull request breaks screenshots that are green on develop ' +
-        `(re-record them with npm run -s test:visual:docker:update, or fix the regression):\n- ${newBreaks
-          .map((f) => `${f.project} ${f.id}: ${f.diff}`)
-          .join('\n- ')}`,
-    );
-  }
+  const problems = ledgerProblems({ unexpected, stale: verdict.stale, grown });
+  if (problems.length > 0) fail(`visual-sweep-gate: ${problems.join('\n\n')}`);
 
   console.log(
     `visual-sweep-gate: ${ran} test(s) executed ` +
       `(expected=${stats.expected ?? 0}, unexpected=${stats.unexpected ?? 0}, ` +
       `flaky=${stats.flaky ?? 0}, skipped=${stats.skipped ?? 0}). ` +
-      `Own-baseline failures: ${owned.length}; new breaks: ${newBreaks.length}; ` +
-      `pre-existing on develop: ${preExisting.length}${developKnown ? '' : ' (no develop red set; advisory)'}.`,
+      `Own-baseline failures: ${owned.length}; known (ledgered) failures: ${known.length}; ` +
+      `flaky: ${verdict.flaky.length}${fullRun ? '' : '; partial run, stale entries not judged'}.`,
   );
+}
+
+/** The committed ledger, pruned first when `KARST_VISUAL_PRUNE=1` (full authoritative runs only). */
+function currentLedger(statuses, fullRun) {
+  let ledger;
+  try {
+    ledger = readLedger(LEDGER_PATH);
+    if (process.env.KARST_VISUAL_PRUNE !== '1') return ledger;
+    const guard = { authoritative: process.env.KARST_VISUAL_AUTHORITATIVE === '1', fullRun };
+    const kept = pruneLedger({ statuses, ledger, guard });
+    writeFileSync(LEDGER_PATH, serializeLedger(kept));
+    console.log(`visual ledger pruned: ${ledger.length - kept.length} stale entr(ies) removed`);
+    return kept;
+  } catch (err) {
+    fail(`visual-sweep-gate: ${err.message}`);
+  }
+}
+
+/** The blocking ledger verdicts, one message each. */
+function ledgerProblems({ unexpected, stale, grown }) {
+  const problems = [];
+  if (unexpected.length > 0) {
+    problems.push(
+      `${unexpected.length} screenshot(s) fail that ${LEDGER_REL} does not list ` +
+        `(fix the regression, or re-record with npm run -s test:visual:docker:update):\n- ${unexpected
+          .map((f) => `${f.project} ${f.id}: ${f.diff}`)
+          .join('\n- ')}`,
+    );
+  }
+  if (stale.length > 0) {
+    problems.push(
+      `${stale.length} STALE ledger entr(ies) no longer fail — run npm run -s test:visual:docker:prune:\n- ${stale.join('\n- ')}`,
+    );
+  }
+  if (grown.length > 0) {
+    problems.push(
+      `this pull request adds ${grown.length} entr(ies) to ${LEDGER_REL}; the ledger only shrinks ` +
+        `(fix or re-record the screenshot instead):\n- ${grown.join('\n- ')}`,
+    );
+  }
+  return problems;
 }
 
 if (process.argv[1] && process.argv[1].endsWith('visual-sweep-gate.mjs')) {

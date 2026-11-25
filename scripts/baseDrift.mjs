@@ -8,6 +8,7 @@
 // Pure functions only; scripts/dockerGate.mjs does the git/docker work.
 
 import { isAbsolute, relative } from 'node:path';
+import { LEDGER_REL, ledgerKey } from './visualLedger.mjs';
 
 /** Most screenshots re-run at the base; above it the base is not checked (a ticket failure). */
 export const BASE_RERUN_CAP = 40;
@@ -15,7 +16,7 @@ export const BASE_RERUN_CAP = 40;
 function* specsOf(node, project) {
   for (const spec of node.specs ?? []) {
     for (const t of spec.tests ?? []) {
-      yield { project: t.projectName ?? project, title: spec.title, status: t.status, results: t.results ?? [] };
+      yield { project: t.projectName ?? project, file: spec.file, title: spec.title, status: t.status, results: t.results ?? [] };
     }
   }
   for (const child of node.suites ?? []) yield* specsOf(child, project);
@@ -55,7 +56,7 @@ export function failingScreenshots(report, root) {
       others.push({ project: spec.project, title: spec.title, message: failureMessage(spec.results) });
       continue;
     }
-    screenshots.push({ project: spec.project, title: spec.title, baseline: posixRelative(expected.path, root) });
+    screenshots.push({ project: spec.project, file: spec.file, title: spec.title, baseline: posixRelative(expected.path, root) });
   }
   return { screenshots, others };
 }
@@ -93,6 +94,26 @@ function otherFailuresReason(others) {
   if (others.length > MAX_NAMED) named.push(`+${others.length - MAX_NAMED} more`);
   const head = others.length === 1 ? '1 failure is not a screenshot mismatch' : `${others.length} failures are not screenshot mismatches`;
   return `${head}: ${named.join('; ')}`;
+}
+
+/**
+ * Split off the failing screenshots that the committed visual ledger lists (scripts/visualLedger.mjs): they are
+ * known failures, judged in CI, and never reach the flake re-run or the base check. A ledgered screenshot whose
+ * baseline the ticket recorded (`ownBaselines`) stays failing: a recorded baseline must match its own screenshot.
+ * A local run never judges stale entries: it is not the full, authoritative sweep.
+ */
+export function splitLedgered({ screenshots, others }, ledger, ownBaselines) {
+  const listed = new Set(ledger);
+  const known = [];
+  const rest = [];
+  for (const s of screenshots) (listed.has(ledgerKey(s)) && !ownBaselines.has(s.baseline) ? known : rest).push(s);
+  return { known, failing: { screenshots: rest, others } };
+}
+
+/** The gate-output lines for the ledgered failures. */
+export function ledgerLines(known) {
+  if (known.length === 0) return [];
+  return [`known failures (listed in ${LEDGER_REL}) — ${known.length}:`, ...collapseList(known.map(label)).map((l) => `  - ${l}`)];
 }
 
 /**
