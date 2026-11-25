@@ -428,7 +428,7 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
   const decision = await shipRetryDecision(d.store, d.ticketId, (d.now ?? Date.now)(), d.shipRetry);
   switch (decision.kind) {
     case 'none': {
-      const key = `${flightKeyOf(d)}:no-ship-retry:${decision.why}`;
+      const key = JSON.stringify([flightKeyOf(d), decision.why]);
       if (!seen.has(key)) {
         seen.add(key);
         d.debug(`${LOG} ticket ${d.key}: no ship retry (${decision.why})`);
@@ -436,7 +436,7 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
       return { kind: 'idle' };
     }
     case 'wait': {
-      const key = `${flightKeyOf(d)}:ship-retry:${decision.until}`;
+      const key = JSON.stringify([flightKeyOf(d), decision.until]);
       if (!seen.has(key)) {
         seen.add(key);
         d.debug(`${LOG} ticket ${d.key}: the ship retry waits until ${new Date(decision.until).toISOString()}`);
@@ -444,7 +444,7 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
       return { kind: 'idle' };
     }
     case 'park': {
-      const key = `${flightKeyOf(d)}:ship-retry-park:${decision.runId}`;
+      const key = JSON.stringify([flightKeyOf(d), decision.runId]);
       if (!seen.has(key)) {
         seen.add(key);
         d.note(`Autopilot: ${decision.reason}`, `${d.key}: every ship run since the person's confirm failed on a GitHub server error; the failed ship keeps its Retry ship.`);

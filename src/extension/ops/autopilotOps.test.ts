@@ -1956,6 +1956,20 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     expect(r.debug.mock.calls.filter(([m]) => String(m).includes('no ship retry')).length).toBe(1);
   });
 
+  it('throttles the refusal per ticket: two tickets each report their own reason', async () => {
+    const id2 = createTicket(store, { key: 'AP-3', title: 't3' }).id;
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id2, from, { kind: 'passed' });
+    failedServerErrorShip();
+    failedServerErrorShip(1, ENDED, id2);
+    const dirty = { worktreeClean: async () => ({ ok: true as const, clean: false }), localHead: async () => HEAD };
+    const first = rig({ now: () => AT, retryShip: vi.fn(), shipRetry: dirty });
+    const second = rig({ ticketId: id2, key: 'AP-3', now: () => AT, retryShip: vi.fn(), shipRetry: dirty });
+    await autopilotTick(first.deps);
+    await autopilotTick(second.deps);
+    expect(first.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry (the worktree of r has uncommitted changes)');
+    expect(second.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-3: no ship retry (the worktree of r has uncommitted changes)');
+  });
+
   it('keeps the retry off while any stop reason is on record', async () => {
     failedServerErrorShip();
     setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
@@ -1971,6 +1985,8 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     const r = retry({ retryShip });
     expect((await autopilotTick(r.deps)).kind).toBe('parked');
     expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix stopped: ship retry could not run (the sandbox is out of sync)');
+    expect(getAutopilotTicket(store, id).stoppedReason).toBe('auto-fix stopped: ship retry could not run (the sandbox is out of sync)');
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: auto-fix stopped: ship retry could not run (the sandbox is out of sync); paused');
     expect(stageBlock(store, id, 'ship')).toBeNull();
     expect(r.notes).toEqual([[
       'Autopilot: auto-fix stopped: ship retry could not run (the sandbox is out of sync)',
