@@ -7,15 +7,31 @@
  */
 
 import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
-import { graphRunNodeRunCount, graphRunStatusReplanCount } from '../../store/graph/graphRuns.js';
+import {
+  graphRunIdStatusBlockedReason,
+  graphRunNodeRunCount,
+  graphRunStatusReplanCount,
+} from '../../store/graph/graphRuns.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
+import type { Store } from '../../store/db.js';
+import type { StageKey } from '../../model/types.js';
+import { getTicket } from '../../store/tickets.js';
+import { stageBlock } from '../../store/stageBlocks.js';
+import { blockedGraphRunFor } from '../../workflow/graphMarkerGuard.js';
 import type { CompileContext } from '../../approaches/graph/compile.js';
 import { parkNodeLaunchExit, type GraphDriverDeps } from '../../approaches/graph/driver.js';
 import type { LaunchFailure } from '../../approaches/graph/transport/supervisedCliTransport.js';
-import type {
-  GraphRecoveryMode,
-  RecoveryRefusalReason,
+import {
+  GRAPH_FAILED_BLOCKER,
+  type GraphRecoveryMode,
+  type RecoveryRefusalReason,
+  type RecoveryResult,
 } from '../../approaches/graph/coordinator/recovery.js';
+import {
+  recoveryGuidance,
+  type RecoveryGuidanceContext,
+} from '../../approaches/graph/coordinator/recoveryGuidance.js';
+import { dispatchGraphRecovery, type GraphRecoverySeams } from './graphRecoveryDispatch.js';
 import { formatId } from '../../model/entityId.js';
 
 /**
@@ -57,8 +73,14 @@ export function graphRefusalHandling(
   ticketId: number,
   mode: GraphRecoveryMode,
   reason: RecoveryRefusalReason,
+  ctx?: RecoveryGuidanceContext,
 ): GraphRefusalHandling {
-  const notice = graphRecoveryRefusalNotice(ticketId, mode === 'replan' ? 'replan' : 'resume', reason);
+  const notice = graphRecoveryRefusalNotice(
+    ticketId,
+    mode === 'replan' ? 'replan' : 'resume',
+    reason,
+    ctx,
+  );
   const offerForce = reason === 'launch-loop' && mode === 'resume';
   // The Force mention rides ONLY where the button does — the modal. The plain
   // notice is shown by Resume routes that offer no Force, so promising one
@@ -114,28 +136,94 @@ export function compileSpentNodeRuns(db: GraphDb | undefined, graphRunId: number
  * debug off the user saw only the bare refusal reason and no next step. This
  * composes the SAME guidance into the message the Resume/Replan controls
  * actually show — in every configuration, not just debug.
+ *
+ * The guidance itself has ONE source (`recoveryGuidance`), shared with that
+ * diagnostic; a pin test holds both to the same text so they cannot drift.
+ * `ctx` is optional so a caller that has not read the run's replan counts still
+ * compiles and still gets the truthful short fallback.
  */
 export function graphRecoveryRefusalNotice(
   ticketId: number,
   mode: 'resume' | 'replan',
   reason: RecoveryRefusalReason,
+  ctx?: RecoveryGuidanceContext,
 ): string {
   const head = `Ticket ${formatId('ticket', ticketId)}: the implementation graph cannot ${mode} itself (${reason}).`;
-  switch (reason) {
-    case 'config-then-resume':
-      return (
-        `${head} Replan bypasses the revision document's frozen replan budget. ` +
-        `Raise limits.maxReplans (up to its maximum) and click Replan — if it is ` +
-        `already at the maximum, no further replans are possible.`
-      );
-    case 'explicit-resolution':
-      return `${head} Correct the flagged artifacts or claims — or Replan — then Resume.`;
-    case 'discard-required':
-      return `${head} Discard the unknown process, then Resume.`;
-    case 'launch-loop':
-      return (
-        `${head} The same node launched twice and exited before starting — the agent ` +
-        `CLI is probably not trusting this folder; check its folder trust, then Replan.`
-      );
+  return `${head} ${recoveryGuidance(reason, ctx)}`;
+}
+
+/**
+ * The guidance context for one refused run: its recorded block reason and its
+ * accepted replan count against the project's `limits.maxReplans` cap. Store
+ * reads only (no raw SQL) — the same rows `recoverGraphRun` decides on.
+ */
+export function graphRefusalContext(
+  db: GraphDb,
+  graphRunId: number,
+  cap: number,
+): RecoveryGuidanceContext {
+  const run = graphRunIdStatusBlockedReason(db, graphRunId);
+  const count = graphRunStatusReplanCount(db, graphRunId);
+  return {
+    blockedReason: run?.blocked_reason ?? null,
+    replanCount: count?.replan_count ?? 0,
+    projectMaxReplans: cap,
+  };
+}
+
+/** The host-side stage Replan control's deps. `dashboardActions.ts` stays a
+ *  thin binding over this (vscode-free, so the guards below are unit- and
+ *  mutation-tested). */
+export interface ReplanBlockedStageDeps {
+  store: Store;
+  /** The ticket this dashboard panel is pinned to. */
+  panelTicketId: number;
+  /** The ticket id the click message carried. */
+  msgTicketId: number;
+  /** The stage the banner is rendered for. */
+  stageKey: StageKey;
+  seams: GraphRecoverySeams;
+  /** The project's `limits.maxReplans` for the run, read from the manifest. */
+  projectMaxReplansOf: (graphRunId: number) => number | undefined;
+  onRefused: (notice: string) => void;
+}
+
+/**
+ * The blocked banner's primary Replan: recover the blocked graph run in
+ * `replan` mode, and report a refusal through `onRefused` with the same
+ * truthful guidance every other refusal surface shows.
+ *
+ * Every precondition that would make the click a lie is a `no-op`: a stale
+ * panel, a stage that moved on, no graph block (or a different blocker kind),
+ * or a block whose run is gone. The dispatch itself is shared with Resume, so
+ * the launch and refresh follow-up cannot drift.
+ */
+export function replanBlockedStage(deps: ReplanBlockedStageDeps): RecoveryResult {
+  if (deps.msgTicketId !== deps.panelTicketId) return { kind: 'no-op' };
+  const ticket = getTicket(deps.store, deps.panelTicketId);
+  if (ticket.stageCurrent !== deps.stageKey) return { kind: 'no-op' };
+  const block = stageBlock(deps.store, deps.panelTicketId, deps.stageKey);
+  if (!block || block.kind !== GRAPH_FAILED_BLOCKER) return { kind: 'no-op' };
+  const graphRunId = blockedGraphRunFor(deps.store, deps.panelTicketId);
+  if (graphRunId === undefined) return { kind: 'no-op' };
+  const recovery = dispatchGraphRecovery(deps.seams, {
+    ticketId: deps.panelTicketId,
+    graphRunId,
+    mode: 'replan',
+  });
+  if (recovery.kind === 'refused') {
+    deps.onRefused(
+      graphRecoveryRefusalNotice(
+        deps.panelTicketId,
+        'replan',
+        recovery.reason,
+        graphRefusalContext(
+          deps.store.db,
+          graphRunId,
+          projectMaxReplans(deps.projectMaxReplansOf(graphRunId)),
+        ),
+      ),
+    );
   }
+  return recovery;
 }

@@ -34,6 +34,7 @@ import {
   type RecoveryDeps,
   type RecoveryResult,
 } from './recovery.js';
+import { recoveryGuidance } from './recoveryGuidance.js';
 
 describe('recoverGraphRun', () => {
   let store: Store;
@@ -609,10 +610,93 @@ describe('recoverGraphRun', () => {
     expect(runRow(graphRunId).status).toBe('blocked');
     expect(stageBlock(store, ticketId, 'impl')).not.toBeNull();
     // The truth: the ceiling is frozen into the revision, so Replan (the
-    // bypass) is the exit — raising limits.maxReplans helps only at the cap.
+    // bypass) is the exit. With replans still in the project budget no config
+    // change is needed, so the notice must NOT send the user to raise a limit.
     const told = lines.join('\n');
     expect(told).toContain('Replan');
-    expect(told).toContain('limits.maxReplans');
+    expect(told).toContain('2 of 2 replans remain');
+    expect(told).toContain('No config change is needed');
+    expect(told).not.toContain('limits.maxReplans');
+  });
+
+  it('pins every config-then-resume diagnostic to the one guidance source', () => {
+    // The diagnostic and the always-visible refusal notice must word the same
+    // advice; this pins the coordinator half to `recoveryGuidance`.
+    const cases: { reason: string; replanCount: number; projectMaxReplans: number }[] = [
+      // The three reparable blocks name their repair, then Replan.
+      { reason: 'graph-workspace-deps: node run 3 (web: x)', replanCount: 0, projectMaxReplans: 2 },
+      { reason: 'graph-preserve-failed: node run 3 (patch failed)', replanCount: 0, projectMaxReplans: 2 },
+      {
+        reason: 'graph-budget-exhausted: node run 7 (workspace ceiling)',
+        replanCount: 0,
+        projectMaxReplans: 2,
+      },
+      // Project headroom remains: no config change needed, count the rest.
+      { reason: 'graph-budget-exhausted', replanCount: 1, projectMaxReplans: 2 },
+      // The project cap is reached below the hard ceiling: raise it, Replan.
+      { reason: 'graph-budget-exhausted', replanCount: 2, projectMaxReplans: 2 },
+      // At the hard ceiling there is nothing left to raise.
+      {
+        reason: 'graph-budget-exhausted',
+        replanCount: GRAPH_HARD_CEILINGS.maxReplans,
+        projectMaxReplans: GRAPH_HARD_CEILINGS.maxReplans,
+      },
+    ];
+    for (const [index, c] of cases.entries()) {
+      const { ticketId, graphRunId } = blockedGraph(
+        c.reason,
+        [{ id: 100 + index, status: 'blocked' }],
+        '{}',
+        c.replanCount,
+      );
+      const lines: string[] = [];
+      const result = recoverGraphRun(
+        makeDeps({ projectMaxReplans: c.projectMaxReplans, debug: (m) => lines.push(m) }),
+        { ticketId, graphRunId },
+      );
+      expect(result).toEqual({ kind: 'refused', reason: 'config-then-resume' });
+      const expected = recoveryGuidance('config-then-resume', {
+        blockedReason: c.reason,
+        replanCount: c.replanCount,
+        projectMaxReplans: c.projectMaxReplans,
+      });
+      expect(lines.join('\n'), c.reason).toContain(
+        `refused (config-then-resume): ${c.reason} — ${expected}`,
+      );
+    }
+  });
+
+  it('pins every explicit-resolution diagnostic to the one guidance source, never promising Resume', () => {
+    const reasons: (string | null)[] = [
+      'integration-conflict: merge-tree conflict in api/src/a.ts',
+      'graph-topology-deadlock',
+      null,
+      'weird-unmapped-failure: something',
+    ];
+    for (const [index, reason] of reasons.entries()) {
+      const { ticketId, graphRunId } = blockedGraph(reason ?? 'placeholder', [
+        { id: 200 + index, status: 'blocked' },
+      ]);
+      if (reason === null) {
+        store.db
+          .prepare('UPDATE approach_graph_runs SET blocked_reason = NULL WHERE id = ?')
+          .run(graphRunId);
+      }
+      const lines: string[] = [];
+      const result = recoverGraphRun(makeDeps({ debug: (m) => lines.push(m) }), {
+        ticketId,
+        graphRunId,
+      });
+      expect(result).toEqual({ kind: 'refused', reason: 'explicit-resolution' });
+      const expected = recoveryGuidance('explicit-resolution', { blockedReason: reason });
+      const told = lines.join('\n');
+      expect(told).toContain(
+        `refused (explicit-resolution): ${reason ?? 'unknown reason'} — ${expected}`,
+      );
+      // Resume refuses every reason in this category, so the advice never
+      // routes the user back to it.
+      expect(told).not.toContain('then Resume');
+    }
   });
 
   it('a human Replan bypasses the document budget when the project limit allows', () => {
