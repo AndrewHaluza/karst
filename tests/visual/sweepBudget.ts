@@ -54,7 +54,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // primary Replan, its "replans used n of m" line, and the no-budget case), @ui:UI-R57: 3 states x 1 theme (dark)
   // (+3 screenshots) and, because a graph block needs the layout gate to prove the banner row wraps at every width,
   // 3 new pages x the 5 dashboard widths (+15 layout runs).
-  dashboard: { screenshots: 336, layout: 816 },
+  // T1361 (@ui:VISUAL-VARIANTS): the Dynamic Graph states. Screenshots (+6): inside-impl-graph-running at dark/light/hc
+  //   (+3), inside-impl-graph-dag and its explicit narrow (500 px) shot at dark (+2), inside-impl-graph-failed dark (+1).
+  //   Layout (+24): 3 distinct pages x 8 widths; the narrow DAG shot shares inside-impl-graph-dag's run.
+  dashboard: { screenshots: 342, layout: 840 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

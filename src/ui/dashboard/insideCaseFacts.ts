@@ -2,7 +2,9 @@ import type { StepperCell } from '../../model/stepper.js';
 import type { GateLiveState } from '../../model/inside/gateWait.js';
 import type { StageKey, StageStatus } from '../../model/types.js';
 import { STAGE_KEYS } from '../../model/types.js';
-import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
+import type { InsideStageKey, InsideStageView, TypedInsideAction } from '../../model/inside/types.js';
+import type { GraphActionTarget, GraphInsideInput } from '../../model/inside/graph.js';
+import { graphInsideProcess } from '../../model/inside/graph.js';
 import type { ResolvedGate, ServiceStatusView } from '../../model/inside/gates.js';
 import type { SessionConfiguredInput, SessionTokensInput } from '../../model/inside/agent.js';
 import type { GateRun } from '../../store/gateRuns.js';
@@ -46,6 +48,13 @@ export interface CaseFacts {
   liveGates?: Partial<Record<'uat' | 'review', Readonly<Record<string, GateLiveState>>>>;
   findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>;
   reviewBlockingSeverity?: 'critical' | 'high' | 'medium' | 'low' | 'info' | 'none';
+  /**
+   * The graph runtime's rows for a graph ticket (T1361). Projected through the
+   * real `graphInsideProcess` reducer, so `GraphNodeList` and the `GraphDag`
+   * strip come from `graphLedger.ts` / `graphDag.ts` rather than hand-written
+   * casts. Absent/null → no graph process, exactly as a non-graph ticket.
+   */
+  graphInside?: (Omit<GraphInsideInput, 'now'> & { now?: string }) | null;
 }
 
 const at = (minute: number): string => `2026-10-27T09:${String(minute).padStart(2, '0')}:00.000Z`;
@@ -161,6 +170,23 @@ export const CASE_CONFIGURED: SessionConfiguredInput = {
 } as unknown as SessionConfiguredInput;
 
 /**
+ * Deterministic graph attach for a case fixture: the projection hands each
+ * target to this closure exactly as it would hand it to the host's registry.
+ * The action id is minted from the target's own fields only (never a
+ * snapshot-scoped counter), so two calls with the same rows produce the same
+ * view and `layoutIdentity()` stays stable.
+ */
+export function caseGraphAttach(target: GraphActionTarget): TypedInsideAction {
+  const actionId =
+    target.kind === 'graph-open-session'
+      ? `case:graph:${target.kind}:${target.session.kind}:${target.session.runId}`
+      : target.kind === 'graph-discard-node' || target.kind === 'graph-edit-override'
+        ? `case:graph:${target.kind}:${target.nodeRunId}`
+        : `case:graph:${target.kind}:${target.graphRunId}`;
+  return { actionId, kind: target.kind };
+}
+
+/**
  * Project fixed rows onto the six Inside views. Stages without a cell in
  * `facts.cells` read as pending, exactly as an unentered stage does.
  */
@@ -205,7 +231,9 @@ export function buildCaseViews(facts: CaseFacts): Record<InsideStageKey, InsideS
     ...(facts.liveGates ? { liveGates: facts.liveGates } : {}),
     findingsRepoSelection: facts.findingsRepoSelection,
     repoNameFor: (repo) => (repo === CASE_WEB ? 'web' : repo === CASE_API ? 'api' : undefined),
-    graphInsideProcessOnce: null,
+    graphInsideProcessOnce: facts.graphInside
+      ? graphInsideProcess({ ...facts.graphInside, now: facts.graphInside.now ?? CASE_NOW })
+      : null,
     uatSwitch: switches.uatSwitch,
     reviewSwitch: switches.reviewSwitch,
     uatRoundSwitcher: switches.uatRoundSwitcher,

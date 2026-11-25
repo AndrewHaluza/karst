@@ -96,6 +96,11 @@
      widths is 869e-graph-node-overflow. */
   #inside .graph-node{grid-template-columns:18px minmax(56px,76px) minmax(0,1fr) auto}
   #inside .graph-node-meta{display:none}
+  /* The node's facts wrap instead of escaping the detail track: a control in the `auto` track
+     narrows that track, and the `override model,effort` badge (105 px) is wider than the 81 px
+     track it lands in at 399/400. Every fact stays inside the bordered box (T1361). */
+  #inside .graph-node-detail>*{min-width:0}
+  #inside .graph-node-visit,#inside .graph-node-age,#inside .graph-node-override{white-space:normal;overflow-wrap:anywhere}
 }
 /* Tight (<=399) down to 320: chrome thins, nothing is hidden. The status and the name never drop (handoff §10). Every
    agent core is icon-only (UI-R10c tight exception: aria-label = the core name, tooltip = core · model), and only the
@@ -139,6 +144,11 @@
      the action takes its own line under the name and the detail (explicit cells, so the row never auto-wraps). */
   #inside .evidence-row .ev-tail:has(> [data-act="autopilot-stop-after"]){grid-column:2/-1;grid-row:2;justify-self:start}
   #inside .evidence-row:has(> .ev-tail > [data-act="autopilot-stop-after"]) > :last-child{grid-column:5;grid-row:1}
+  /* A node row that carries a control gives it own line at the floor, as the evidence row above
+     does: `Open session` / `Edit override` in the `auto` track leave the detail 2 px, which is how
+     the node's visit, age and override badge escaped the row. The label stays (RD-NEVER #1). */
+  #inside .graph-node:has(> .ev-tail){grid-template-columns:18px minmax(56px,76px) minmax(0,1fr)}
+  #inside .graph-node:has(> .ev-tail)>.ev-tail{grid-column:2/-1;grid-row:2;justify-self:start;padding-bottom:var(--p-s1)}
   #inside .op-body{margin-left:var(--k-space-6);padding-left:var(--p-s1)}
   #inside .evidence-row,#inside .gate-row,#inside .finding,#inside .done-line{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
   #inside .commit-repo-head,#inside .commit-list,#inside .pr-branch,#inside .pr-branch-note,
