@@ -726,6 +726,9 @@
     "arch:GH-03",
     "arch:GH-04"
   ],
+  "src/integrations/githubServerError.ts#isGitHubServerError": [
+    "arch:GH-10"
+  ],
   "src/integrations/prChecks.ts": [
     "arch:GH-00"
   ],
@@ -1464,6 +1467,9 @@
   ],
   "src/workflow/stages/shipPushRecovery.ts#classifyRejectedPush": [
     "arch:GH-08"
+  ],
+  "src/workflow/stages/shipPushRecovery.ts#openPrWithServerErrorRetry": [
+    "arch:GH-10"
   ],
   "src/workflow/stages/shipResume.ts": [
     "arch:SHIP-RESUME"

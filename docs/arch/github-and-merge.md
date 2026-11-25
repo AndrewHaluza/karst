@@ -14,7 +14,7 @@ Everything karst believes about a PR is re-probed state, never assumed. Related:
 covers: src/integrations/github*.ts, src/integrations/prChecks.ts, src/integrations/git.ts, src/store/prs.ts, src/store/mergeChecks.ts, src/store/prFeedback.ts, src/store/shipRuns.ts, src/workflow/merge*.ts, src/workflow/stages/ship*.ts, src/workflow/pr*.ts, src/workflow/dismissPr.ts, src/workflow/mergedNothingNew.ts
 
 ### Purpose
-The GitHub integration governs pull request lifecycle management, mergeability probes, and the merge gate that advances tickets from ship to done. Everything karst tracks about a PR is re-probed state, treating GitHub as upstream truth while SQLite owns local tracking, merge verification, and auditability. Landing a PR is never assumed from exit codes and remains a verified, human-gated transition.
+The GitHub integration governs pull request lifecycle management, mergeability probes, and the merge gate that advances tickets from ship to done. Everything karst tracks about a PR is re-probed state, treating GitHub as upstream truth while SQLite owns local tracking, merge verification, and auditability. Landing a PR is never assumed from an exit code: it is a verified, human-gated transition.
 
 ### Connections
 - in: @arch:DOC-01 — architecture doc template and overview rules.
@@ -89,7 +89,7 @@ sequenceDiagram
 | Ship tail loses `awaiting-merge` block write | `settleShipGate` detects passed `ship_runs` without active run | Automatically repairs lost `awaiting-merge` block on next sweep tick. |
 
 ### Rules
-@arch:GH-02 · @arch:GH-03 · @arch:GH-04 · @arch:GH-05 · @arch:GH-06 · @arch:GH-07 · @arch:GH-08
+@arch:GH-02 · @arch:GH-03 · @arch:GH-04 · @arch:GH-05 · @arch:GH-06 · @arch:GH-07 · @arch:GH-08 · @arch:GH-10
 END_DOC_BLOCK: [@arch:GH-00]
 
 ## [@arch:GH-02] A merge probe's file list is PARSED output, and the format is not what it looks like
@@ -157,3 +157,15 @@ Merge all (`merge-all-prs`) is one host operation. The webview posts no payload 
 The ticket reaches `done` through the normal settle path of the last merge (`completedTicket`), not through a Merge all special case. The host pushes the state again on every exit, so the button never stays pending. A merge that GitHub queues and does not complete reads as a failure by the `@arch:GH-04` rule.
 `planMergeAll` skips a PR while its own repo holds commits that the PR lacks, host or sandbox (the `unpushed` reason of `@arch:GH-03`; the count is per repo, so one repo never blocks another); `mergeTicketPr` re-checks it per PR.
 END_DOC_BLOCK: [@arch:GH-09]
+
+## [@arch:GH-10] PR creation retries a GitHub server error twice and probes for the PR before each retry
+covers: src/integrations/githubServerError.ts#isGitHubServerError, src/workflow/stages/shipPushRecovery.ts#openPrWithServerErrorRetry
+
+Ship's `pr` step creates the PR with `openPrWithServerErrorRetry`, not with a bare `openPr`. A create that fails with a GitHub server error is retried 2 times, after 15 seconds and then 45 seconds (`PR_SERVER_ERROR_RETRY_DELAYS_MS`, 3 attempts in total). Each retry writes the `pr` note `GitHub server error at PR creation, retry <n>/<max> in <s>s`, and the wait is the injected `wait` of the ship options.
+
+1. Only the closed list of `isGitHubServerError` is a server error: `HTTP 5xx`, `Something went wrong while executing your query`, `502 Bad Gateway`, `503 Service Unavailable`, `504 Gateway Timeout`. An auth, validation, "already exists" or "No commits between" error fails at once, with no wait.
+2. Before each retry, ship probes the branch with `findOpenPr`. A failed GraphQL call can still create the PR, so a PR that the probe finds is adopted (`adopted: true`) and never created a second time. It then takes the same adopted path as a PR that gh named (`@arch:GH-03`): an empty description is filled, a written one is kept.
+3. The error of the last attempt, or a non-server error, propagates unchanged, so a long outage fails ship with gh's own words, as before.
+
+The share of the classifier is deliberate: a later Autopilot ship retry reads the same rule. A gh text that GitHub rewords is a miss, and a miss only restores the loud failure.
+END_DOC_BLOCK: [@arch:GH-10]
