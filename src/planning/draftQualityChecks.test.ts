@@ -120,6 +120,23 @@ describe('draftQualityWarnings', () => {
     it('flags a leak in the summary too', () => {
       expect(draftQualityWarnings(draft(WELL_DESC, `${WELL_SUM} ~/.claude/plans/p.md`))).toContain(LEAK_WARNING);
     });
+    it('does not flag a cite of a listed attachment (path or bare name)', () => {
+      const d = {
+        ...draft(`${WELL_DESC} See /artifacts/proto/a.html and a.html, or $KARST_ARTIFACTS/proto/a.html for the layout.`),
+        attachments: [{ path: 'proto/a.html' }],
+      };
+      expect(draftQualityWarnings(d)).not.toContain(LEAK_WARNING);
+    });
+    it('keeps the warning for a path that is not listed', () => {
+      const d = {
+        ...draft(`${WELL_DESC} See /tmp/x/artifacts/proto/b.html for the layout.`),
+        attachments: [{ path: 'proto/a.html' }],
+      };
+      expect(draftQualityWarnings(d)).toContain(LEAK_WARNING);
+    });
+    it('uses the attachments wording', () => {
+      expect(LEAK_WARNING).toBe('plan path not in attachments (attach or inline)');
+    });
     it.each(['docs/artifacts/spec.md', 'src/artifacts/x.ts', '.codex/config.toml', 'my.claude/plans/x'])('does not flag %s', (ok) => {
       expect(draftQualityWarnings(draft(`${WELL_DESC} ${ok}`))).not.toContain(LEAK_WARNING);
     });
