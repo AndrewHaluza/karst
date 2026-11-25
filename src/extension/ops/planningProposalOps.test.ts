@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createPlanningSession, listPlanningTickets } from '../../store/planningSessions.js';
-import { getProposal, insertProposal, updateProposalPayload } from '../../store/planningProposals.js';
+import { getProposal, insertProposal, setProposalHostAttachments, updateProposalPayload } from '../../store/planningProposals.js';
 import { listTickets, createTicket, getTicket } from '../../store/tickets.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
 import type { PlanningProposalOpsDeps } from './planningProposalOps.js';
@@ -313,6 +313,39 @@ describe('planningProposalOps', () => {
     it('refreshes the index of the draft session after a change', async () => {
       await ops().setPriority(proposalId, 'high');
       expect(refreshed).toEqual([sessionId]);
+    });
+  });
+
+  describe('draft attachments', () => {
+    const list = [
+      { name: 'b.txt', storedName: '2222222222222222.txt', kind: 'file', byteSize: 1 },
+      { name: 'a.html', storedName: '1111111111111111.html', kind: 'file', byteSize: 1, binding: true },
+    ];
+    const withList = (): void => {
+      setProposalHostAttachments(store, proposalId, '', list);
+    };
+
+    it('prefill lists the host attachments, binding first', async () => {
+      withList();
+      await ops().review(proposalId);
+      expect(forms[0]!.attachments!.map((a) => a.name)).toEqual(['a.html', 'b.txt']);
+    });
+
+    it('removes the host copy after accept and never throws when the removal fails', async () => {
+      const removeDir = vi.fn().mockRejectedValue(new Error('boom'));
+      await ops({ storageDir: '/s', removeDir }).review(proposalId);
+      const ticket = createTicket(store, { key: 'K-1', title: 't', projectId });
+      expect(() => forms[0]!.onCreated(ticket.id)).not.toThrow();
+      await flush();
+      expect(removeDir).toHaveBeenCalledWith('/s', proposalId);
+      expect(getProposal(store, proposalId)!.status).toBe('accepted');
+      expect(debugs.some((d) => d.includes('attachment cleanup failed'))).toBe(true);
+    });
+
+    it('removes the host copy after discard', async () => {
+      const removeDir = vi.fn().mockResolvedValue(undefined);
+      await ops({ storageDir: '/s', removeDir }).discard(proposalId);
+      expect(removeDir).toHaveBeenCalledWith('/s', proposalId);
     });
   });
 });

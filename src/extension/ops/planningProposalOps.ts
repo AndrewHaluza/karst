@@ -9,6 +9,7 @@ import {
   type PlanningProposal,
   type ProposalStatus,
 } from '../../store/planningProposals.js';
+import { removeDraftAttachments } from '../../planning/draftAttachments.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
 import type { PriorityLevel } from '../../planning/proposal.js';
 import { formatId } from '../../model/entityId.js';
@@ -37,6 +38,10 @@ export interface PlanningProposalOpsDeps {
   /** Rewrite the session's on-disk proposal index after a state change. */
   refreshIndex?(sessionId: number): void;
   debug?: (line: string) => void;
+  /** The storage root that holds the host copies of draft attachments; absent = nothing to clean up. */
+  storageDir?: string;
+  /** Remove one draft's host copy; defaults to `removeDraftAttachments`. A seam for tests. */
+  removeDir?: (storageDir: string, proposalId: number) => Promise<void>;
 }
 
 export interface PlanningProposalOps {
@@ -87,6 +92,13 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       await deps.notify.error(`Couldn't ${what} draft ${formatId('draft', id)}: ${errText(e)}`);
     }
     deps.onChange();
+  }
+
+  /** Remove the host copy of a draft's attachments. Logs a failure and never throws. */
+  function removeHostCopy(id: number): Promise<void> {
+    if (deps.storageDir === undefined) return Promise.resolve();
+    const remove = deps.removeDir ?? removeDraftAttachments;
+    return remove(deps.storageDir, id).catch((e: unknown) => debug(`proposal ${id}: attachment cleanup failed: ${errText(e)}`));
   }
 
   /**
@@ -153,6 +165,7 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
         }
         for (const sessionId of sessions) refresh(sessionId);
       });
+      await removeHostCopy(id);
     },
 
     async setPriority(id, level) {
@@ -183,6 +196,15 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       constraints,
       constraintDocs: deps.archDocs?.(repos, constraints) ?? {},
       warnings: p.warnings,
+      attachments: [...p.attachments]
+        .sort((a, b) => Number(b.binding === true) - Number(a.binding === true))
+        .map(({ name, storedName, kind, byteSize, binding }) => ({
+          name,
+          storedName,
+          kind,
+          byteSize,
+          ...(binding === true ? { binding } : {}),
+        })),
       // Rethrows after the toast: the form must not start a ticket whose draft link failed.
       onCreated: (ticketId) => {
         try {
@@ -197,6 +219,8 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
             );
           }
           refresh(p.sessionId);
+          // The ticket attachments exist by now (Save ingests them first), so the host copy can go.
+          void removeHostCopy(id);
         } catch (e) {
           debug(`proposal ${id}: link failed: ${errText(e)}`);
           void deps.notify.error(`Couldn't link draft ${formatId('draft', id)}: ${errText(e)}`);

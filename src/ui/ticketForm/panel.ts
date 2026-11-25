@@ -136,6 +136,17 @@ export type TicketFormActionsFactory = (ctx: TicketFormActionsCtx) => TicketForm
  * injected host actions.
  */
 /** Initial values for a create page (a planning proposal under review). */
+/** A host-held evidence file a planning draft carries; Review stages it and Save attaches it to the ticket. */
+export interface StagedAttachment {
+  /** The original file name; the ticket attachment keeps it. */
+  name: string;
+  /** The content-addressed file name inside the draft's host directory. */
+  storedName: string;
+  kind: string;
+  byteSize: number;
+  binding?: boolean;
+}
+
 export interface TicketFormPrefill {
   title: string;
   description: string;
@@ -154,6 +165,8 @@ export interface TicketFormPrefill {
   constraintDocs?: Record<string, string>;
   /** Host check warnings on the draft; shown above the constraints, never copied into the brief. */
   warnings?: string[];
+  /** Evidence files the draft carries, binding first; staged in the form until Save ingests them. */
+  attachments?: readonly StagedAttachment[];
   /**
    * Sub-task parent ticket id when known at create time (e.g. from an approved
    * proposal prefill), so create mode resolves effective subtask defaults.
