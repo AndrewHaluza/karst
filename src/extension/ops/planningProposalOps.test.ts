@@ -328,21 +328,29 @@ describe('planningProposalOps', () => {
 
     it('Review waits with a notice while the listed files are still being copied', async () => {
       const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
-      await ops().review(id);
+      await ops({ isChecking: () => true }).review(id);
       expect(forms).toEqual([]);
       expect(warns).toEqual([`Draft ${formatId('draft', id)} still copies its files. Open Review again in a moment.`]);
     });
 
     it('Review keeps waiting when the only warning is not a refusal', async () => {
       const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['plan path not in attachments (attach or inline)']);
-      await ops().review(id);
+      await ops({ isChecking: () => true }).review(id);
       expect(forms).toEqual([]);
+    });
+
+    it('Review opens when no copy runs for the listed files, so a lost copy never blocks it', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
+      await ops({ isChecking: () => false }).review(id);
+      expect(forms).toHaveLength(1);
+      await ops().review(id);
+      expect(forms).toHaveLength(2);
     });
 
     it('Review opens when the listed file was copied', async () => {
       const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
       setProposalHostAttachments(store, id, '', [{ name: 'a.txt', storedName: '1111111111111111.txt', kind: 'file', byteSize: 1 }]);
-      await ops().review(id);
+      await ops({ isChecking: () => true }).review(id);
       expect(forms).toHaveLength(1);
     });
 
@@ -357,6 +365,17 @@ describe('planningProposalOps', () => {
       await ops().review(id);
       expect(forms).toHaveLength(1);
       expect(warns).toEqual([]);
+    });
+
+    it('warns when a revise changed only the file content, not the payload', async () => {
+      const payload = { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] };
+      const id = insertProposal(store, sessionId, payload, 'u1');
+      setProposalHostAttachments(store, id, 'u1', [{ name: 'a.txt', storedName: '1111111111111111.txt', kind: 'file', byteSize: 1 }]);
+      await ops().review(id);
+      setProposalHostAttachments(store, id, 'u1', [{ name: 'a.txt', storedName: '2222222222222222.txt', kind: 'file', byteSize: 1 }]);
+      const t = createTicket(store, { key: 'K-9', title: 'T', projectId });
+      forms[0]!.onCreated(t.id);
+      expect(warns.join()).toContain('was revised while you were editing');
     });
 
     it('prefill lists the host attachments, binding first', async () => {

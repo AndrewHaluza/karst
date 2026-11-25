@@ -681,6 +681,8 @@ export function buildTicketFormActions(
         throw error;
       }
       for (const { staged } of loaded) ctx.unstage?.(staged.storedName);
+      // Push now: a later step of the caller can fail or still run, and the form must not show attached files as staged.
+      if (loaded.length > 0) ctx.pushState();
     };
 
     /** Remove the attachment rows of a ticket that are not in `before`. */

@@ -40,6 +40,8 @@ export interface PlanningProposalOpsDeps {
   debug?: (line: string) => void;
   /** The storage root that holds the host copies of draft attachments; absent = nothing to clean up. */
   storageDir?: string;
+  /** True while the host still checks or copies the files of this draft; absent = never wait. */
+  isChecking?(proposalId: number): boolean;
   /** Remove one draft's host copy; defaults to `removeDraftAttachments`. A seam for tests. */
   removeDir?: (storageDir: string, proposalId: number) => Promise<void>;
 }
@@ -61,6 +63,10 @@ export interface PlanningProposalOps {
   /** Set (or clear with `null`) the user's priority on a pending draft of this project. */
   setPriority(id: number, level: PriorityLevel | null): Promise<void>;
 }
+
+/** The same host files: a revise with new file content changes a stored name, not the payload. */
+const sameFiles = (a: readonly { storedName: string }[], b: readonly { storedName: string }[]): boolean =>
+  a.length === b.length && a.every((f, i) => f.storedName === b[i]!.storedName);
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -187,10 +193,10 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
   };
   return ops;
 
-  /** True while the host copy of the listed files has neither a file nor a refusal to show. */
+  /** True while a running host copy of the listed files has neither a file nor a refusal to show. */
   function stillCopying(p: PlanningProposal): boolean {
     const listed = p.payload.attachments?.length ?? 0;
-    return listed > 0 && p.attachments.length === 0 && !p.warnings.some((w) => w.startsWith('attachment refused:'));
+    return deps.isChecking?.(p.id) === true && listed > 0 && p.attachments.length === 0 && !p.warnings.some((w) => w.startsWith('attachment refused:'));
   }
 
   /** The review form prefill of a proposal; `onCreated` links the saved ticket to it. */
@@ -198,6 +204,7 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     const id = p.id;
     const { title, description, summary, repos, constraints = [] } = p.payload;
     const reviewed = p.payload;
+    const reviewedFiles = p.attachments;
     return {
       draftId: id,
       title,
@@ -224,7 +231,7 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
           // The form's ticket is what the human saw and saved, so it is
           // linked regardless; but if the agent revised the draft while the
           // form was open, say so rather than dropping it silently.
-          if (current && !proposalPayloadEquals(current.payload, reviewed)) {
+          if (current && (!proposalPayloadEquals(current.payload, reviewed) || !sameFiles(current.attachments, reviewedFiles))) {
             deps.notify.warn(
               `Draft ${formatId('draft', id)} was revised while you were editing; your saved ticket is linked and the newer revision was discarded.`,
             );

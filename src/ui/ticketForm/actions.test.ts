@@ -1712,6 +1712,16 @@ describe('buildTicketFormActions', () => {
       expect(left()).toEqual([]);
     });
 
+    it('pushes the state once the staged files are attached, also when the picked file then fails', async () => {
+      writeBlob(11, '0123456789abcdef.txt', 'hello');
+      const { ctx, left } = stagedCtx(11, [{ name: 'a.txt', storedName: '0123456789abcdef.txt' }]);
+      deps.pickAttachment = async () => [join(deps.storageDir, 'no-such-file.png')];
+      await buildTicketFormActions(deps)(ctx).attachPick();
+      expect(left()).toEqual([]);
+      expect(ctx.pushes).toBe(1);
+      expect(ctx.posted.some((m) => (m as { type: string }).type === 'error')).toBe(true);
+    });
+
     it('unstageAttachment drops one staged file and pushes the state', () => {
       const { ctx, left } = stagedCtx(7, [{ name: 'a.txt', storedName: '0123456789abcdef.txt' }]);
       buildTicketFormActions(deps)(ctx).unstageAttachment('0123456789abcdef.txt');

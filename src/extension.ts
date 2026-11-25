@@ -802,7 +802,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archDocs: (repos, constraints) => archDocFiles(constraints, repoPathsOf(currentManifest(), repos)),
     openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
     refreshIndex: refreshPlanningIndex,
-    notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m), storageDir });
+    notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m), storageDir,
+    isChecking: (id) => planningCheckingIds().has(id) });
   // Onboarding setup sessions (§ ONBOARDING-SETUP-AGENT): a read-only agent
   // terminal that discovers the workspace and proposes a manifest + consented
   // repo changes. The binding lives in setupWiring.ts so this file stays thin.
