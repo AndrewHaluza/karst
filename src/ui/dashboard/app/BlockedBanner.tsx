@@ -22,12 +22,18 @@
  * banner is the ONLY owner of that reason and action (Q1, UI-R40); the rail, the chip and the PR panel only mirror
  * the state. Resume is never offered for this kind: it refuses `awaiting-merge` (@arch:BLOCKED).
  *
+ * A graph block (`approach-graph-failed`, T1359/D793) carries the host's recovery verdict (`state.graphBlock`) and
+ * renders the ONE action that will not refuse: Replan when the verdict says so (the whole `explicit-resolution` and
+ * `config-then-resume` families, and a replan category whose revision budget is spent), else Resume. The verdict is
+ * computed host-side; this file never matches a reason prefix.
+ *
  * The buttons are runtime-pending and keep one className each: the runtime's `is-pending` lives on that node.
  * The key they carry is `data-stagekey`, NOT `data-stage`: the vanilla delegator selects a stage on any
  * `[data-stage]` ancestor, so these buttons must never also re-point the Inside panel.
  */
 import { memo, useCallback, useLayoutEffect, useState } from 'react';
 import type { BaselineReviewRow } from '../baselineRows.js';
+import type { GraphBlockRecovery } from '../../../model/inside/graph.js';
 import { BaselineBanner } from './BaselineBanner.js';
 import type { StallView } from '../stateTypes.js';
 import type { DashboardSnapshot } from './dashboardStore.js';
@@ -60,6 +66,8 @@ interface BannerSlice {
   readonly autofix: AutofixBannerView | null;
   /** Only while a merge conflict parks the ticket on the user: one entry per conflicted repo. */
   readonly conflicts: readonly ConflictRepo[];
+  /** Only while an `approach-graph-failed` block reports one: the host's recovery verdict. */
+  readonly graphBlock: GraphBlockRecovery | null;
 }
 
 interface ConflictRepo {
@@ -93,6 +101,7 @@ const selectBanner = (snapshot: DashboardSnapshot): BannerSlice | null => {
     stall: blocked.kind === 'review-stalled' ? s.stall : null,
     autofix: blocked.kind === 'awaiting-merge' && isAutoFixPark(blocked) ? (s.autopilot?.banner ?? null) : null,
     conflicts,
+    graphBlock: blocked.kind === 'approach-graph-failed' ? (s.graphBlock ?? null) : null,
   };
 };
 
@@ -296,6 +305,32 @@ function Resume({ ticketId, stageKey }: ActionProps) {
   );
 }
 
+/**
+ * The graph block's primary action (T1359, D793). Rendered ONLY when the host's verdict says Resume
+ * would refuse — the banner never reads a reason prefix to decide, because the category table lives in
+ * `approaches/**` and the webview cannot import it. Replan starts a new revision from the recorded
+ * failure evidence; it is not a retry of the same one.
+ */
+function Replan({ ticketId, stageKey }: ActionProps) {
+  const send = useDashboardSend();
+  const key = stageKey as Parameters<typeof send.stageReplan>[1];
+  const onClick = usePendingAction(useCallback((requestId: string) => send.stageReplan(ticketId, key, requestId), [send, ticketId, key]));
+  return (
+    <div className="facts">
+      <button
+        type="button"
+        className="k-btn k-btn--primary k-btn--sm"
+        data-act="stage-replan"
+        data-stagekey={stageKey}
+        title="Start a new graph revision from the recorded failure evidence"
+        onClick={onClick}
+      >
+        Replan
+      </button>
+    </div>
+  );
+}
+
 function Body({ slice }: { readonly slice: BannerSlice }) {
   const { ticketId, stageKey, kind, reason } = slice;
   if (kind === 'usage-limit') {
@@ -357,6 +392,20 @@ function Body({ slice }: { readonly slice: BannerSlice }) {
     );
   }
   if (kind === 'awaiting-merge') return <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />;
+  // A graph block Resume is guaranteed to refuse (T1359, D793): the host's verdict names Replan as the
+  // only action that works, so the banner offers exactly that and keeps the FULL reason — a claim
+  // violation or an integration conflict names the evidence the replacement revision is planned from.
+  // `replans used n of m` rides along only when a readable revision carries a budget.
+  if (kind === 'approach-graph-failed' && slice.graphBlock?.primary === 'replan') {
+    const { replanCount, maxReplans } = slice.graphBlock;
+    const displayReason = maxReplans === null ? reason : `${reason} · replans used ${replanCount} of ${maxReplans}`;
+    return (
+      <>
+        <Head title={blockFaultTitle(kind, stageKey)} reason={displayReason} />
+        <Replan ticketId={ticketId} stageKey={stageKey} />
+      </>
+    );
+  }
   return (
     <>
       <Head title={blockFaultTitle(kind, stageKey)} reason={reason} />

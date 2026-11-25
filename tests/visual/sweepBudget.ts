@@ -48,7 +48,11 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1343 Q1 inside-ship-merge-blocked (the banner owns the one Resolve) and DB-9 inside-review-unreadable-blocked (the
   // short label beside the banner), @ui:UI-R57: 2 Inside cases x 1 theme (dark), default shot only after the T1352 prune
   // (+2 screenshots), and their layout runs (+16).
-  dashboard: { screenshots: 336, layout: 801 },
+  // T1359 (D793) graph-blocked-config / graph-blocked-explicit / graph-blocked-replans-exhausted (the blocked banner's
+  // primary Replan, its "replans used n of m" line, and the no-budget case), @ui:UI-R57: 3 states x 1 theme (dark)
+  // (+3 screenshots) and, because a graph block needs the layout gate to prove the banner row wraps at every width,
+  // 3 new pages x the 5 dashboard widths (+15 layout runs).
+  dashboard: { screenshots: 339, layout: 816 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

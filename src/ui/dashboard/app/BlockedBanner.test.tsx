@@ -406,3 +406,68 @@ describe('BlockedBanner — push diverged', () => {
     expect(h.send.pushDivergedOverwrite).toHaveBeenCalledWith('req-1');
   });
 });
+
+describe('BlockedBanner — a graph block whose Resume would refuse (T1359, D793)', () => {
+  const REASON = 'approach-graph-failed: integration-conflict: git apply refused in src/api.ts (graph run 1)';
+  /** An impl graph block plus the host's recovery verdict; `verdict === undefined` omits it (a pre-T1359 snapshot). */
+  const graphState = (verdict: Record<string, unknown> | undefined, reason = REASON) =>
+    railState({
+      stageCurrent: 'impl',
+      currentStage: { stageKey: 'impl', status: 'running', blocked: block('approach-graph-failed', { reason }) },
+      ...(verdict === undefined ? {} : { graphBlock: verdict }),
+    });
+
+  it('offers Replan as the ONLY action, keeps the full reason and shows the spent count', () => {
+    mountRail(graphState({ primary: 'replan', replanCount: 1, maxReplans: 2 }));
+    expect(shown()).toBe(true);
+    expect(text('.ftitle')).toBe('Implementation is blocked');
+    expect(text('.freason')).toBe(` · ${REASON} · replans used 1 of 2`);
+    const replan = btn('stage-replan');
+    expect(replan.textContent).toBe('Replan');
+    expect(replan.className).toBe('k-btn k-btn--primary k-btn--sm');
+    expect(replan.dataset.stagekey).toBe('impl');
+    expect(replan.hasAttribute('data-stage')).toBe(false);
+    expect(replan.title).toBe('Start a new graph revision from the recorded failure evidence');
+    expect(replan.closest('.facts')).not.toBeNull();
+    // Resume is guaranteed to refuse here; the banner must not offer it.
+    expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
+    expect(banner().textContent).not.toContain('Resume');
+  });
+
+  it('posts stage-replan once with the ticket, the stage key and a request id, and is pending afterwards', () => {
+    const h = mountRail(graphState({ primary: 'replan', replanCount: 1, maxReplans: 2 }));
+    const b = btn('stage-replan');
+    fireEvent.click(b);
+    fireEvent.click(b);
+    expect(h.send.stageReplan).toHaveBeenCalledTimes(1);
+    expect(h.send.stageReplan).toHaveBeenCalledWith(TICKET, 'impl', 'req-1');
+    expect(h.send.stageResume).not.toHaveBeenCalled();
+    expect(b.classList.contains('is-pending')).toBe(true);
+    expect(b.getAttribute('aria-busy')).toBe('true');
+    expect(b.disabled).toBe(true);
+  });
+
+  it('omits the spend line when no readable revision carries a budget, and still keeps the whole reason', () => {
+    mountRail(graphState({ primary: 'replan', replanCount: 0, maxReplans: null }));
+    expect(text('.freason')).toBe(` · ${REASON}`);
+    expect(banner().textContent).not.toContain('replans used');
+    expect(btn('stage-replan').dataset.stagekey).toBe('impl');
+  });
+
+  it('keeps Resume — and never Replan — when the verdict says resume or is absent', () => {
+    mountRail(graphState({ primary: 'resume', replanCount: 0, maxReplans: 2 }));
+    expect(btn('stage-resume').dataset.stagekey).toBe('impl');
+    expect(text('.freason')).toBe(` · ${REASON}`);
+    expect(q('#blocked [data-act="stage-replan"]')).toBeNull();
+    cleanupRail();
+    mountRail(graphState(undefined));
+    expect(btn('stage-resume').dataset.stagekey).toBe('impl');
+    expect(q('#blocked [data-act="stage-replan"]')).toBeNull();
+  });
+
+  it('ignores a verdict carried by a non-graph block', () => {
+    mountRail(blockedState(block('boot-failed'), { graphBlock: { primary: 'replan', replanCount: 2, maxReplans: 2 } }));
+    expect(btn('stage-resume')).toBeTruthy();
+    expect(q('#blocked [data-act="stage-replan"]')).toBeNull();
+  });
+});

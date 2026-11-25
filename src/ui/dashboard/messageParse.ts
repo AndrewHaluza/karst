@@ -226,6 +226,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
         ? { type: 'stage-resume', ticketId: m.ticketId as number, stageKey: m.stageKey }
         : null;
+    case 'stage-replan':
+      return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
+        ? { type: 'stage-replan', ticketId: m.ticketId as number, stageKey: m.stageKey }
+        : null;
     case 'run-gate-on-host':
       return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
         ? { type: 'run-gate-on-host', ticketId: m.ticketId as number, stageKey: m.stageKey }

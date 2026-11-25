@@ -82,6 +82,7 @@ function actions(): DashboardActions {
     copyTicketMarkdown: vi.fn(),
     openTicketMarkdown: vi.fn(),
     resumeStage: vi.fn(),
+    replanStage: vi.fn(),
     usageLimitPick: vi.fn(),
     usageLimitRetry: vi.fn(),
     runGateOnHost: vi.fn(),
@@ -821,6 +822,25 @@ describe('routeAction', () => {
     expect(
       parseWebviewMessage({ type: 'stage-resume', ticketId: 7 }),
     ).toBeNull();
+  });
+
+  it('parses a well-formed stage-replan and dispatches it with both fields', () => {
+    const a = actions();
+    expect(parseWebviewMessage({ type: 'stage-replan', ticketId: 7, stageKey: 'impl' })).toEqual({
+      type: 'stage-replan',
+      ticketId: 7,
+      stageKey: 'impl',
+    });
+    routeAction({ type: 'stage-replan', ticketId: 7, stageKey: 'impl' }, a);
+    expect(a.replanStage).toHaveBeenCalledWith(7, 'impl');
+    // The two controls are distinct actions: a Replan click never resumes.
+    expect(a.resumeStage).not.toHaveBeenCalled();
+  });
+
+  it('drops stage-replan with a malformed ticketId, an unrecognized stage key, or a missing field', () => {
+    expect(parseWebviewMessage({ type: 'stage-replan', ticketId: '7', stageKey: 'impl' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'stage-replan', ticketId: 7, stageKey: 'nonsense' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'stage-replan', ticketId: 7 })).toBeNull();
   });
 
   it('parses a well-formed set-disabled-gates message', () => {

@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import { type Store } from '../store/db.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { resolveAllConflictsClick, resolveConflictClick } from './ops/conflictResolveOps.js';
-import { graphRecoveryRefusalNotice } from './ops/graphRecovery.js';
+import { graphRecoveryRefusalNotice, graphRefusalContext, projectMaxReplans, replanBlockedStage } from './ops/graphRecovery.js';
 import type { Notify } from './ops/notify.js';
 import { conflictRounds, armConflictRound } from './ops/autoDeliverOps.js';
 import { makeDependencyOps } from './ops/dependencyOps.js';
@@ -32,7 +32,7 @@ import { type StoredArtifactActions } from './storedArtifactBinding.js';
 import { type UsageLimitParkActions } from './usageLimitParkBinding.js';
 import { SessionManager } from '../ui/session.js';
 import { type DriveProcessBundle } from '../agent/processAssignment.js';
-import { dispatchGraphRecovery } from './ops/graphRecoveryDispatch.js';
+import { dispatchGraphRecovery, type GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
 import { recoverGraphRun, type RecoveryDeps } from '../approaches/graph/coordinator/recovery.js';
 import type { ReplanLaunchRequest } from '../approaches/graph/coordinator/replan.js';
 import type { BootstrapRelaunchRequest } from '../approaches/graph/coordinator/recovery.js';
@@ -211,6 +211,23 @@ export function makeDashboardActions(
   };
   // The ticket name every toast of this dashboard uses (@arch:NTF-03), read at the time of the toast.
   const label = (): string => ticketToastLabel(store, ticketId);
+  /**
+   * The truthful refusal context (T1359): the run's recorded block reason and its accepted replan
+   * count against the project's `limits.maxReplans`, so the notice can say whether a config change is
+   * actually needed and never promises a Resume that refuses by design.
+   */
+  const refusalContext = (graphRunId: number) =>
+    graphRefusalContext(store.db, graphRunId, projectMaxReplans(graphRecoveryDeps(graphRunId).projectMaxReplans));
+  // The one graph-recovery dispatch both controls share (T1359): Resume and Replan differ only in mode.
+  const recoverySeams: GraphRecoverySeams = {
+    recover: (input) => recoverGraphRun(graphRecoveryDeps(input.graphRunId), input),
+    launchReplan: graphReplanLaunch,
+    launchBootstrap: graphBootstrapRelaunch,
+    onRecovered: () => {
+      afterServerChange();
+      driveAfterResume(ticketId);
+    },
+  };
   const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
     {
@@ -532,23 +549,35 @@ export function makeDashboardActions(
       if (outcome.kind === 'graph-recovery') {
         // The graph block is NOT cleared by a generic Resume (Slice-3 T9) —
         // the typed action runs graph-aware recovery instead.
-        const recovery = dispatchGraphRecovery(
-          {
-            recover: (input) => recoverGraphRun(graphRecoveryDeps(input.graphRunId), input),
-            launchReplan: graphReplanLaunch,
-            launchBootstrap: graphBootstrapRelaunch,
-            onRecovered: () => {
-              afterServerChange();
-              driveAfterResume(ticketId);
-            },
-          },
-          { ticketId: outcome.ticketId, graphRunId: outcome.graphRunId },
-        );
+        const recovery = dispatchGraphRecovery(recoverySeams, {
+          ticketId: outcome.ticketId,
+          graphRunId: outcome.graphRunId,
+        });
         if (recovery.kind === 'refused') {
           void toast.info(
-            graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
+            graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason, refusalContext(outcome.graphRunId)),
           );
         }
+      }
+    },
+    // The blocked banner's primary Replan (T1359, D793): the banner renders it only when the host's
+    // verdict says Resume would refuse, so this must be the real recovery, not a retry of the same
+    // revision. Every precondition (same panel, same current stage, actually a graph block) is
+    // checked vscode-free in `replanBlockedStage`; a refusal reuses the same truthful notice.
+    replanStage: (msgTicketId, stageKey) => {
+      const recovery = replanBlockedStage({
+        store,
+        panelTicketId: ticketId,
+        msgTicketId,
+        stageKey,
+        seams: recoverySeams,
+        projectMaxReplansOf: (graphRunId) => graphRecoveryDeps(graphRunId).projectMaxReplans,
+        onRefused: (notice) => void toast.info(notice),
+      });
+      if (recovery.kind === 'replanned') {
+        void toast.info(`${label()}: the implementation graph was replanned.`);
+      } else if (recovery.kind === 'relaunched') {
+        void toast.info(`${label()}: the planner of the implementation graph started again.`);
       }
     },
     // Pause: stamp the store flag FIRST so any in-flight driver round that
