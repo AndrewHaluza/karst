@@ -1,0 +1,531 @@
+{
+  "activity": {
+    "hasMore": false,
+    "rows": [],
+    "total": 0,
+    "unread": 0
+  },
+  "counts": {
+    "all": 6,
+    "archived": 1,
+    "done": 1,
+    "failed": 1,
+    "input": 1,
+    "running": 3
+  },
+  "done": [],
+  "facets": [
+    "all"
+  ],
+  "filter": "",
+  "planning": [],
+  "queue": {
+    "drafts": 0,
+    "rows": [],
+    "sessions": 0,
+    "tickets": 0
+  },
+  "rows": [],
+  "sections": {
+    "awaitingReview": [
+      {
+        "archived": false,
+        "artifacts": 0,
+        "autostart": null,
+        "blockedBy": [],
+        "blocker": null,
+        "canClose": true,
+        "canDetach": false,
+        "canReopen": false,
+        "ciFailing": false,
+        "collapsible": true,
+        "conflicted": false,
+        "description": "ship (running)",
+        "glyph": "blue",
+        "idLabel": "T900002",
+        "isActive": false,
+        "kind": "ticket",
+        "label": "FIX-102 — Persist the sidebar filter across reloads",
+        "lastActiveAt": "2026-10-23T20:00:00.000Z",
+        "model": null,
+        "parentKey": null,
+        "paused": false,
+        "peek": {
+          "agent": {
+            "activeAt": null,
+            "activity": "idle",
+            "model": null,
+            "provider": "claude"
+          },
+          "attempt": null,
+          "gates": null,
+          "needs": null,
+          "next": null,
+          "pausedNote": null,
+          "repos": [
+            {
+              "number": 129,
+              "repo": "/fixture/workspace/web",
+              "state": "ready"
+            }
+          ],
+          "since": {
+            "at": "2026-10-23T20:00:00.000Z",
+            "kind": "for"
+          },
+          "title": "Awaiting merge",
+          "tone": "blue"
+        },
+        "priority": null,
+        "priorityEditable": false,
+        "prioritySource": null,
+        "providerLabel": "provider",
+        "providerPriority": null,
+        "prs": [
+          {
+            "number": 129,
+            "repo": "/fixture/workspace/web",
+            "status": "open",
+            "url": "fixture:url/2"
+          }
+        ],
+        "servers": [],
+        "sessionAction": {
+          "detail": "picks up at ship",
+          "kind": "resume",
+          "label": "Resume"
+        },
+        "stageChip": "ship",
+        "stageClass": "stg-ship",
+        "stageCurrent": "ship",
+        "stageLabel": "Shipping",
+        "subtaskChildCount": 0,
+        "subtaskDepth": 0,
+        "subtaskGuides": [],
+        "subtaskIsLast": false,
+        "subtaskParentId": null,
+        "subtaskParentKey": null,
+        "ticketId": 900002,
+        "worktrees": [
+          {
+            "baseRef": "develop",
+            "branch": "karst/FIX-102",
+            "createdAt": "2026-10-17T22:00:00.000Z",
+            "depsMode": "inherited",
+            "launchable": false,
+            "path": "/fixture/workspace/web/.karst/worktrees/FIX-102",
+            "repo": "/fixture/workspace/web",
+            "repoDisplay": "./web",
+            "ticketId": 900002
+          }
+        ]
+      }
+    ],
+    "current": [
+      {
+        "archived": false,
+        "artifacts": 0,
+        "autostart": null,
+        "blockedBy": [],
+        "blocker": {
+          "attempt": 0,
+          "reason": "test (api) exited 1 after the probe flaked twice"
+        },
+        "canClose": true,
+        "canDetach": false,
+        "canReopen": false,
+        "ciFailing": false,
+        "collapsible": true,
+        "conflicted": false,
+        "description": "uat (failed)",
+        "glyph": "red",
+        "idLabel": "T900007",
+        "isActive": false,
+        "kind": "ticket",
+        "label": "FIX-107 — Fix the flaky merge-check probe",
+        "lastActiveAt": "2026-10-23T04:00:00.000Z",
+        "model": null,
+        "parentKey": null,
+        "paused": false,
+        "peek": {
+          "agent": {
+            "activeAt": null,
+            "activity": "idle",
+            "model": null,
+            "provider": "claude"
+          },
+          "attempt": null,
+          "gates": {
+            "text": "1 failed: test",
+            "tone": "failed"
+          },
+          "needs": null,
+          "next": null,
+          "pausedNote": null,
+          "repos": null,
+          "since": {
+            "at": "2026-10-23T04:00:00.000Z",
+            "kind": "ago"
+          },
+          "title": "UAT failed",
+          "tone": "red"
+        },
+        "priority": null,
+        "priorityEditable": false,
+        "prioritySource": null,
+        "providerLabel": "provider",
+        "providerPriority": null,
+        "prs": [],
+        "servers": [],
+        "sessionAction": {
+          "detail": "picks up at uat",
+          "kind": "resume",
+          "label": "Resume"
+        },
+        "stageChip": "uat",
+        "stageClass": "stg-uat",
+        "stageCurrent": "uat",
+        "stageLabel": "UAT failed",
+        "subtaskChildCount": 0,
+        "subtaskDepth": 0,
+        "subtaskGuides": [],
+        "subtaskIsLast": false,
+        "subtaskParentId": null,
+        "subtaskParentKey": null,
+        "ticketId": 900007,
+        "worktrees": [
+          {
+            "baseRef": "develop",
+            "branch": "karst/FIX-107",
+            "createdAt": "2026-10-22T22:00:00.000Z",
+            "depsMode": "inherited",
+            "launchable": false,
+            "path": "/fixture/workspace/api/.karst/worktrees/FIX-107",
+            "repo": "/fixture/workspace/api",
+            "repoDisplay": "./api",
+            "ticketId": 900007
+          }
+        ]
+      },
+      {
+        "archived": false,
+        "artifacts": 0,
+        "autostart": null,
+        "blockedBy": [],
+        "blocker": null,
+        "canClose": true,
+        "canDetach": false,
+        "canReopen": false,
+        "ciFailing": false,
+        "collapsible": true,
+        "conflicted": false,
+        "description": "impl (running)",
+        "glyph": "blue",
+        "idLabel": "T900004",
+        "isActive": false,
+        "kind": "ticket",
+        "label": "FIX-104 — Rate-limit the corpus exporter",
+        "lastActiveAt": "2026-10-23T15:00:00.000Z",
+        "model": null,
+        "parentKey": null,
+        "paused": false,
+        "peek": {
+          "agent": null,
+          "attempt": null,
+          "gates": null,
+          "needs": null,
+          "next": null,
+          "pausedNote": null,
+          "repos": null,
+          "since": {
+            "at": "2026-10-23T15:00:00.000Z",
+            "kind": "for"
+          },
+          "title": "No active session",
+          "tone": "blue"
+        },
+        "priority": null,
+        "priorityEditable": false,
+        "prioritySource": null,
+        "providerLabel": "provider",
+        "providerPriority": null,
+        "prs": [],
+        "servers": [],
+        "sessionAction": {
+          "detail": "re-seed from context",
+          "kind": "start",
+          "label": "Start"
+        },
+        "stageChip": "impl",
+        "stageClass": "stg-impl",
+        "stageCurrent": "impl",
+        "stageLabel": "Implementing",
+        "subtaskChildCount": 0,
+        "subtaskDepth": 0,
+        "subtaskGuides": [],
+        "subtaskIsLast": false,
+        "subtaskParentId": null,
+        "subtaskParentKey": null,
+        "ticketId": 900004,
+        "worktrees": [
+          {
+            "baseRef": "develop",
+            "branch": "karst/FIX-104",
+            "createdAt": "2026-10-19T22:00:00.000Z",
+            "depsMode": "inherited",
+            "launchable": false,
+            "path": "/fixture/workspace/api/.karst/worktrees/FIX-104",
+            "repo": "/fixture/workspace/api",
+            "repoDisplay": "./api",
+            "ticketId": 900004
+          }
+        ]
+      },
+      {
+        "archived": false,
+        "artifacts": 0,
+        "autostart": null,
+        "blockedBy": [],
+        "blocker": null,
+        "canClose": true,
+        "canDetach": false,
+        "canReopen": false,
+        "ciFailing": false,
+        "collapsible": true,
+        "conflicted": false,
+        "description": "uat (running)",
+        "glyph": "amber",
+        "idLabel": "T900003",
+        "isActive": false,
+        "kind": "ticket",
+        "label": "FIX-103 — Narrow the staging database before each UAT run",
+        "lastActiveAt": "2026-10-23T19:00:00.000Z",
+        "model": null,
+        "parentKey": null,
+        "paused": false,
+        "peek": {
+          "agent": {
+            "activeAt": null,
+            "activity": "idle",
+            "model": null,
+            "provider": "claude"
+          },
+          "attempt": null,
+          "gates": {
+            "text": "1 passed",
+            "tone": "neutral"
+          },
+          "needs": null,
+          "next": null,
+          "pausedNote": null,
+          "repos": null,
+          "since": {
+            "at": "2026-10-23T19:00:00.000Z",
+            "kind": "for"
+          },
+          "title": "Gates running",
+          "tone": "amber"
+        },
+        "priority": null,
+        "priorityEditable": false,
+        "prioritySource": null,
+        "providerLabel": "provider",
+        "providerPriority": null,
+        "prs": [],
+        "servers": [],
+        "sessionAction": {
+          "detail": "picks up at uat",
+          "kind": "resume",
+          "label": "Resume"
+        },
+        "stageChip": "uat",
+        "stageClass": "stg-uat",
+        "stageCurrent": "uat",
+        "stageLabel": "Needs you",
+        "subtaskChildCount": 0,
+        "subtaskDepth": 0,
+        "subtaskGuides": [],
+        "subtaskIsLast": false,
+        "subtaskParentId": null,
+        "subtaskParentKey": null,
+        "ticketId": 900003,
+        "worktrees": [
+          {
+            "baseRef": "develop",
+            "branch": "karst/FIX-103",
+            "createdAt": "2026-10-18T22:00:00.000Z",
+            "depsMode": "inherited",
+            "launchable": false,
+            "path": "/fixture/workspace/api/.karst/worktrees/FIX-103",
+            "repo": "/fixture/workspace/api",
+            "repoDisplay": "./api",
+            "ticketId": 900003
+          }
+        ]
+      },
+      {
+        "archived": false,
+        "artifacts": 0,
+        "autostart": null,
+        "blockedBy": [],
+        "blocker": null,
+        "canClose": true,
+        "canDetach": false,
+        "canReopen": false,
+        "ciFailing": false,
+        "collapsible": true,
+        "conflicted": false,
+        "description": "review (running)",
+        "glyph": "blue",
+        "idLabel": "T900001",
+        "isActive": true,
+        "kind": "ticket",
+        "label": "FIX-101 — Add the server inventory tab",
+        "lastActiveAt": "2026-10-23T17:00:00.000Z",
+        "model": null,
+        "parentKey": null,
+        "paused": false,
+        "peek": {
+          "agent": {
+            "activeAt": null,
+            "activity": "idle",
+            "model": null,
+            "provider": "claude"
+          },
+          "attempt": null,
+          "gates": {
+            "text": "1 passed",
+            "tone": "neutral"
+          },
+          "needs": null,
+          "next": null,
+          "pausedNote": null,
+          "repos": null,
+          "since": {
+            "at": "2026-10-23T17:00:00.000Z",
+            "kind": "for"
+          },
+          "title": "Gates running",
+          "tone": "blue"
+        },
+        "priority": null,
+        "priorityEditable": false,
+        "prioritySource": null,
+        "providerLabel": "provider",
+        "providerPriority": null,
+        "prs": [
+          {
+            "number": 128,
+            "repo": "/fixture/workspace/api",
+            "status": "open",
+            "url": "fixture:url/1"
+          }
+        ],
+        "servers": [],
+        "sessionAction": {
+          "detail": "picks up at review",
+          "kind": "resume",
+          "label": "Resume"
+        },
+        "stageChip": "review",
+        "stageClass": "stg-review",
+        "stageCurrent": "review",
+        "stageLabel": "Reviewing",
+        "subtaskChildCount": 0,
+        "subtaskDepth": 0,
+        "subtaskGuides": [],
+        "subtaskIsLast": false,
+        "subtaskParentId": null,
+        "subtaskParentKey": null,
+        "ticketId": 900001,
+        "worktrees": [
+          {
+            "baseRef": "develop",
+            "branch": "karst/FIX-101",
+            "createdAt": "2026-10-16T22:00:00.000Z",
+            "depsMode": "inherited",
+            "launchable": false,
+            "path": "/fixture/workspace/api/.karst/worktrees/FIX-101",
+            "repo": "/fixture/workspace/api",
+            "repoDisplay": "./api",
+            "ticketId": 900001
+          }
+        ]
+      }
+    ],
+    "olderDone": [],
+    "recentlyDone": [
+      {
+        "archived": false,
+        "artifacts": 0,
+        "autostart": null,
+        "blockedBy": [],
+        "blocker": null,
+        "canClose": false,
+        "canDetach": false,
+        "canReopen": false,
+        "ciFailing": false,
+        "collapsible": true,
+        "conflicted": false,
+        "description": "done (passed)",
+        "glyph": "green",
+        "idLabel": "T900005",
+        "isActive": false,
+        "kind": "ticket",
+        "label": "FIX-105 — Show cache writes in the token breakdown",
+        "lastActiveAt": "2026-10-22T20:00:00.000Z",
+        "model": null,
+        "parentKey": null,
+        "paused": false,
+        "peek": {
+          "agent": {
+            "activeAt": null,
+            "activity": "idle",
+            "model": null,
+            "provider": "claude"
+          },
+          "attempt": null,
+          "gates": null,
+          "needs": null,
+          "next": {
+            "kind": "create-follow-up",
+            "label": "Create follow-up"
+          },
+          "pausedNote": null,
+          "repos": null,
+          "since": {
+            "at": "2026-10-22T20:00:00.000Z",
+            "kind": "ago"
+          },
+          "title": "Shipped",
+          "tone": "green"
+        },
+        "priority": null,
+        "priorityEditable": false,
+        "prioritySource": null,
+        "providerLabel": "provider",
+        "providerPriority": null,
+        "prs": [],
+        "servers": [],
+        "sessionAction": {
+          "detail": "shipped · follow-up session",
+          "kind": "reopen",
+          "label": "Reopen"
+        },
+        "stageChip": "done",
+        "stageClass": "stg-done",
+        "stageCurrent": "done",
+        "stageLabel": "Done",
+        "subtaskChildCount": 0,
+        "subtaskDepth": 0,
+        "subtaskGuides": [],
+        "subtaskIsLast": false,
+        "subtaskParentId": null,
+        "subtaskParentKey": null,
+        "ticketId": 900005,
+        "worktrees": []
+      }
+    ]
+  },
+  "unlinkedCloudSessions": []
+}
