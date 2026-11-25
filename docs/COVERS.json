@@ -1186,6 +1186,9 @@
   "src/store/shipRuns.ts": [
     "arch:GH-00"
   ],
+  "src/store/shipRuns.ts#hasAttendedShipRun": [
+    "arch:AP-11"
+  ],
   "src/store/shipRuns.ts#lastPushedHead": [
     "arch:GH-08"
   ],
