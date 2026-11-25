@@ -36,7 +36,7 @@ import { structuredOutputFormOf, type StructuredOutputForm } from '../../agent/s
 import { COVERAGE_RULE_REVIEW, coverageOrFallback, splitCoverage, stripCoverageLabel } from '../../model/coverageRecord.js';
 import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
 import { buildManifestBlock } from './manifestBlock.js';
-import { buildConformanceBlock, hasForcedHighRule, type ReviewArtifacts } from './conformance.js';
+import { buildAttachmentsBlock, buildConformanceBlock, hasForcedHighRule, type ReviewArtifacts } from './conformance.js';
 import {
   isEmptyDiffObservation,
   isRequirementFinding,
@@ -216,7 +216,7 @@ export function buildFindingsPrompt(
    *  tail so the agent knows what it is spending when it picks a severity.
    *  Omitted (rule not rendered) only when a caller does not know it. */
   blockingSeverity?: Severity,
-  /** The ticket's intent / spec / plan; absent or empty → the prompt is unchanged. */
+  /** The ticket's intent / spec / plan / attachments; absent or empty → the prompt is unchanged. */
   artifacts?: ReviewArtifacts,
   /** The gates the gates phase already ran; named in the never-replaced no-gates rule. */
   gates?: readonly NamedGate[],
@@ -261,6 +261,8 @@ export function buildFindingsPrompt(
     ...buildScopeBlock('review', { baseRef, branch, openChanges, snapshotRef, worktreePath }),
     // Never replaced by `instructions`, like the scope block above.
     ...conformance,
+    // Never replaced by `instructions`: the reviewer compares the diff with a binding prototype (@ui:UI-R39).
+    ...(artifacts ? buildAttachmentsBlock(artifacts) : []),
     ...(artifacts?.operatorManifest ? buildManifestBlock(artifacts.operatorManifest) : []),
     // Never replaced by `instructions`: the agent reason is data, and the evidence rule stays.
     ...(artifacts?.noChangeClaim ? ['', renderNoChangeClaim(artifacts.noChangeClaim, 'finding')] : []),
