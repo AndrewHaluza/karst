@@ -24,9 +24,9 @@ afterAll(() => {
 });
 
 describe('the seeded corpus', () => {
-  it('seeds a project, seven tickets and a token ledger', () => {
+  it('seeds a project, five tickets and a token ledger', () => {
     expect(seeded.projectId).toBeGreaterThan(0);
-    expect(seeded.ticketIds.size).toBe(7);
+    expect(seeded.ticketIds.size).toBe(5);
     expect(seeded.dashboardTicketId).toBe(seeded.ticketIds.get(SEED_DASHBOARD_TICKET_KEY));
   });
 });
@@ -56,12 +56,29 @@ describe('exportCorpusFromDb', () => {
     expect(corpus.dashboard.prs.length).toBeGreaterThan(0);
     expect(corpus.dashboard.prs[0]!.url).toMatch(/^fixture:url\//);
     expect(corpus.dashboard.insideViews.review).toBeDefined();
+    // Sub-tasks: the panel the compaction ladder (`tests/visual/subtasks.visual.ts`)
+    // renders must carry a landed row with a merged PR, a blocking row mid-impl
+    // with a captured session and an open PR, and a queued row.
+    expect(corpus.dashboard.subtaskProgress).toEqual({ done: 1, total: 3 });
+    const [landed, blocking, queued] = corpus.dashboard.subtasks;
+    expect(landed!.done).toBe(true);
+    expect(landed!.pr?.state).toBe('merged');
+    expect(blocking!.stage).toBe('impl');
+    expect(blocking!.blocking).toBe(true);
+    expect(blocking!.pr?.state).toBe('open');
+    expect(blocking!.agent?.modelShort).toBe('Opus 5');
+    expect(queued!.autostart).toBe('queued');
+    expect(queued!.queuePos).toBe(1);
 
     // Sidebar: the board sections the sweep renders.
     expect(corpus.sidebar.sections.current.length).toBeGreaterThan(0);
     expect(corpus.sidebar.sections.awaitingReview.length).toBeGreaterThan(0);
     expect(corpus.sidebar.sections.recentlyDone.length).toBeGreaterThan(0);
     expect(corpus.sidebar.counts).toBeDefined();
+    // The sweep's SB-5 step reads the first Current row's stage pill, so the
+    // seed pins which stage sorts first (CREATED_HOURS_AGO, `seedSpec.ts`).
+    expect(corpus.sidebar.sections.current[0]!.stageCurrent).toBe('impl');
+    expect(corpus.sidebar.sections.current[0]!.label).toContain('FIX-104');
 
     // Usage: formatted rows over a real ledger.
     expect(corpus.usage.empty).toBe(false);

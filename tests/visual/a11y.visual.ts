@@ -165,6 +165,14 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   // renders it; the colour is unchanged and predates this ticket (a G5 instance).
   'dark:span.acheck': { ratio: 3.3, gap: 'G5' },
   'light:span.acheck': { ratio: 2.74, gap: 'G5' },
+  // T1365: the sidebar's `populated` showcase is now the DB-built state (tests/visual/dbCorpus), and its
+  // seeded tickets open every peek. The sweep therefore measures two semantic status words for the first
+  // time: `--k-failed` on a failed-gate line (4.29 dark / 4.27 light, the same red as the G3 buttons above)
+  // and `--k-passed` on a `ready` repo state (4.32 light). The colours predate this ticket; the corpus is
+  // what changed, which is the G5 receipt.
+  'dark:div.peek-line.peek-gates.failed': { ratio: 4.29, gap: 'G5' },
+  'light:div.peek-line.peek-gates.failed': { ratio: 4.27, gap: 'G5' },
+  'light:span.peek-repo-state.ready': { ratio: 4.32, gap: 'G5' },
   // hc theme — T1317 LG-7 removed `hc:span.k-ansi-fg-red` (3.6): the
   // high-contrast log foregrounds now map to --k-danger, which clears AA.
 };

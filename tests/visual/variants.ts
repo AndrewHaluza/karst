@@ -55,6 +55,7 @@ import {
   MINIMAL_TICKET_FORM,
   type ViewCorpus,
 } from './corpora.js';
+import { showcaseCorpus } from './dbCorpus/showcase.js';
 
 export type ViewId = WebviewName;
 
@@ -709,7 +710,10 @@ const dashboardVariants = (): Variant[] => [
   ...CHIP_TIERS.map(([tier, width]) =>
     variant('dashboard', `stage-chip-${tier}`, dashboardScenario('running', 2, chipBlockers), { width, themes: CHIP_THEMES }),
   ),
-  variant('dashboard', 'populated', dashboardScenario('running', 10), { baseline: 'dashboard-running', themes: ALL_THEMES }),
+  // T1365: the showcase page is the state the production builders emit from a
+  // (seeded) Karst database, sanitized by the exporter — not a hand-written
+  // literal that can drift from it. The baseline name stays for the ledger.
+  variant('dashboard', 'populated', () => showcaseCorpus('dashboard'), { baseline: 'dashboard-running', themes: ALL_THEMES }),
   ...(['pending', 'passed', 'failed', 'waiting', 'exhausted'] as const).map((s) =>
     variant('dashboard', s, dashboardScenario(s, 10), { baseline: `dashboard-${s}`, themes: ALL_THEMES }),
   ),
@@ -1270,7 +1274,9 @@ const sidebarVariants = (): Variant[] => {
   const peekClicks = PEEK_STATE_IDS.map((id) => `[data-id="${id}"] .chev`);
   return [
     // The mandatory ids keep their names; every shot is the real 300 px host width (baseline `sidebar.png` kept).
-    sidebarVariant('populated', () => getCorpus('sidebar'), { baseline: 'sidebar', themes: ALL_THEMES }),
+    // T1365: the showcase page is the DB-built sidebar state (see the exporter), sanitized; the edge line is its own
+    // side channel message, so `showcaseCorpus` sends it too.
+    sidebarVariant('populated', () => showcaseCorpus('sidebar'), { baseline: 'sidebar', themes: ALL_THEMES }),
     // SB-3: the 15 real titles and the Activity rows of the probe, with Activity open (its three-row floor is checked).
     sidebarVariant('populated-300', openActivity(s('real-titles'))),
     // T1298: the attention line at one input and one failed ("1 needs you · 1 failed"); the same state all-sections carries.
@@ -1306,7 +1312,10 @@ const sidebarVariants = (): Variant[] => {
     sidebarVariant('peek-pr-closed-300', s('peek-pr-closed'), { clicks: ['[data-id="900013"] .chev'] }),
     // SB-9: the filter state on screen; SB-8: a hovered row keeps its full stage and its title length.
     sidebarVariant('filtered-300', s('filtered')),
-    sidebarVariant('row-hover-300', () => getCorpus('sidebar'), { hover: '[data-id="900001"] .row' }),
+    // T1365 (@ui:SWEEP-BUDGET): the hover shot used to share the `populated` page's layout run. `populated` is now
+    // the DB-built showcase corpus, so this page would add a second run of the fixture page; only the screenshot adds
+    // value here (the hover state is not a layout step), and the showcase page keeps its own run.
+    sidebarVariant('row-hover-300', () => getCorpus('sidebar'), { hover: '[data-id="900001"] .row', skipLayout: true }),
     sidebarVariant('cloud-sessions', s('cloud-sessions')),
     // T1091: the filter menu in a short window.
     sidebarVariant('filter-menu-bottom-edge', () => getCorpus('sidebar'), {
@@ -1320,7 +1329,8 @@ const sidebarVariants = (): Variant[] => {
 
 const usageVariants = (): Variant[] => {
   const u = fixtureCorpus.bind(null, 'usage', usageRenderFixtures as () => readonly { scenario: string; state: unknown }[]);
-  const populated = (): ViewCorpus => getCorpus('usage');
+  // T1365: the showcase page is the DB-built usage state (see the exporter), sanitized; the width tiers share it.
+  const populated = (): ViewCorpus => showcaseCorpus('usage');
   return [
     variant('usage', 'populated', populated, { baseline: 'usage', themes: ALL_THEMES }),
     // T1302 tiers (@ui:RD-TIERS): a tier variant differs only in width, so it shares the populated layout run.

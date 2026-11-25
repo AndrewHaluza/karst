@@ -20,11 +20,20 @@
  * seed writer, not a second one.
  */
 import { openStore } from '../../../src/store/db.js';
+import { recordShippedPr } from '../../../src/store/prs.js';
 import { upsertProject } from '../../../src/store/projects.js';
+import { setStage } from '../../../src/store/stages.js';
+import {
+  createTicket,
+  setSessionId,
+  setStageCurrent,
+  updateTicketFields,
+} from '../../../src/store/tickets.js';
 import { recordTokenUsage } from '../../../src/store/tokenUsage.js';
 import { seedStore } from '../../../src/uatHost/seed.js';
 import type { FixtureSpec, TicketSeed } from '../../../src/uatHost/fixtures.js';
 import type { StageKey } from '../../../src/model/types.js';
+import { withPinnedClock } from './export.js';
 import { FIXTURE_NOW_MS } from './sanitize.js';
 
 /** The slug the seeded project registers under; it is also the stub manifest's `id` (`CORPUS_PROJECT_SLUG`). */
@@ -153,32 +162,6 @@ export function corpusTickets(): TicketSeed[] {
       },
     },
     {
-      key: 'FIX-103',
-      title: 'Narrow the staging database before each UAT run',
-      stageCurrent: 'uat',
-      selectedRepos: ['api'],
-      repo: binding(API),
-      worktree: true,
-      stages: [
-        ...passedStages(['scope', 'impl'], hoursAgo(9)),
-        {
-          stageKey: 'uat',
-          patch: {
-            status: 'running',
-            startedAt: hoursAgo(3),
-            // A changed baseline waits for the operator's approval
-            // (@arch:BASELINE-REVIEW): the amber "Needs you" reading.
-            blockedKind: 'baseline-review',
-            blockedReason: 'Three changed baselines await your approval.',
-            blockedAt: hoursAgo(2),
-          },
-        },
-      ],
-      rows: {
-        gateRuns: [{ stageKey: 'uat', attempt: 1, gateName: 'test', exitCode: 0 }],
-      },
-    },
-    {
       key: 'FIX-104',
       title: 'Rate-limit the corpus exporter',
       stageCurrent: 'impl',
@@ -190,13 +173,6 @@ export function corpusTickets(): TicketSeed[] {
         stageRuns: [{ stageKey: 'impl', attempt: 1, status: 'running' }],
         processRuns: [{ stageKey: 'impl', processId: 'session', attempt: 1, status: 'running' }],
       },
-    },
-    {
-      key: 'FIX-105',
-      title: 'Show cache writes in the token breakdown',
-      stageCurrent: 'done',
-      selectedRepos: ['web'],
-      stages: passedStages(['scope', 'impl', 'uat', 'review', 'ship', 'done'], hoursAgo(26)),
     },
     {
       key: 'FIX-106',
@@ -238,6 +214,25 @@ export function corpusFixtureSpec(): FixtureSpec {
 }
 
 /**
+ * How old each ticket is, in hours before the fixture clock — the create order
+ * the store sorts by (`created_at DESC`), so this is also the order the
+ * sidebar's Current section lists them in.
+ *
+ * The newest is `FIX-104`, the one in impl: the populated sidebar page has to
+ * show a ticket mid-impl first, because that page is also what the sweep's
+ * SB-5 step reads (`the stage pill reads the short key at 300 px and the full
+ * word at 460 px`). Any other order would make that step read whichever stage
+ * happened to sort first, which is data, not a contract.
+ */
+const CREATED_HOURS_AGO: Readonly<Record<string, number>> = {
+  'FIX-104': 10,
+  'FIX-107': 12,
+  'FIX-102': 20,
+  'FIX-101': 26,
+  'FIX-106': 20 * 24,
+};
+
+/**
  * One token-ledger row: enough variety that every breakdown has a real hierarchy.
  *
  * The model id becomes the usage view's breakdown `key`, and gitleaks'
@@ -263,11 +258,11 @@ const USAGE: readonly UsageSeed[] = [
   { ticket: 'FIX-101', callSite: 'uat-tester', provider: 'codex', model: 'gpt-5.6-sol', input: 96_000, output: 21_000, hoursAgo: 9 },
   { ticket: 'FIX-102', callSite: 'pr-description', provider: 'opencode', model: 'opencode-go/kimi-k2', input: 12_000, output: 2_400, hoursAgo: 2 },
   { ticket: 'FIX-102', callSite: 'implementation', provider: 'claude', model: 'claude-opus-5', input: 180_000, output: 44_000, hoursAgo: 30 },
-  { ticket: 'FIX-103', callSite: 'uat-tester', provider: 'codex', model: 'gpt-5.6-sol', input: 64_000, output: 9_800, hoursAgo: 3 },
+  { ticket: 'FIX-107', callSite: 'uat-tester', provider: 'codex', model: 'gpt-5.6-sol', input: 64_000, output: 9_800, hoursAgo: 3 },
   { ticket: 'FIX-104', callSite: 'implementation', provider: 'opencode', model: 'opencode-go/deepseek-v4-flash', input: 320_000, output: 58_000, hoursAgo: 7, estimated: true },
   { ticket: 'FIX-104', callSite: 'fix-resume', provider: 'opencode', model: 'opencode-go/deepseek-v4-flash', input: 41_000, output: 7_200, hoursAgo: 5 },
-  { ticket: 'FIX-105', callSite: 'implementation', provider: 'claude', model: 'claude-sonnet-5', input: 88_000, output: 19_000, hoursAgo: 28 },
-  { ticket: 'FIX-105', callSite: 'ticket-analysis', provider: 'claude', model: 'claude-sonnet-5', input: 8_400, output: 1_100, hoursAgo: 40 },
+  { ticket: 'FIX-102', callSite: 'implementation', provider: 'claude', model: 'claude-sonnet-5', input: 88_000, output: 19_000, hoursAgo: 28 },
+  { ticket: 'FIX-104', callSite: 'ticket-analysis', provider: 'claude', model: 'claude-sonnet-5', input: 8_400, output: 1_100, hoursAgo: 40 },
   { ticket: 'FIX-106', callSite: 'implementation', provider: 'codex', model: 'gpt-5.6-sol', input: 52_000, output: 11_000, hoursAgo: 480 },
   { ticket: null, callSite: 'ticket-improve', provider: 'claude', model: 'claude-haiku-4', input: 3_200, output: 640, hoursAgo: 0 },
 ];
@@ -316,6 +311,107 @@ function pinEvidenceTimestamps(store: ReturnType<typeof openStore>, ids: readonl
   });
 }
 
+/**
+ * One sub-task of the dashboard ticket. The populated page must render the
+ * Sub-tasks panel with the cells the ladder keeps (dot, PR chip, blocker lock,
+ * agent icon, stage pill), so the seed carries one of each: a landed row with
+ * a merged PR, a blocking row mid-impl with a captured session and an open PR,
+ * and a queued row.
+ */
+interface SubtaskSeed {
+  readonly title: string;
+  readonly stage: StageKey;
+  /** Hours before the fixture clock; the row's `Xh ago` / `in impl for Xh` text. */
+  readonly startedHoursAgo: number;
+  readonly blocking?: boolean;
+  readonly autostart?: boolean;
+  readonly pr?: { readonly number: number; readonly state: 'open' | 'merged' };
+  /** A captured agent session, so the row paints its core icon, name and model. */
+  readonly model?: string;
+}
+
+const SUBTASKS: readonly SubtaskSeed[] = [
+  {
+    title: 'Extract the inventory probe',
+    stage: 'done',
+    startedHoursAgo: 30,
+    pr: { number: 131, state: 'merged' },
+  },
+  {
+    title: 'Add the restart action to the tab',
+    stage: 'impl',
+    startedHoursAgo: 6,
+    blocking: true,
+    pr: { number: 132, state: 'open' },
+    model: 'claude-opus-5',
+  },
+  {
+    title: 'Queue the health-poll backoff',
+    stage: 'scope',
+    startedHoursAgo: 2,
+    autostart: true,
+  },
+];
+
+/**
+ * Seed the dashboard ticket's sub-tasks through the same writers the workflow's
+ * `createSubtask` uses (`createTicket`, `setStage`, `updateTicketFields`,
+ * `setSessionId`, `recordShippedPr`), so the panel renders rows the product
+ * could really have written rather than a shape invented for a screenshot.
+ *
+ * Runs under the pinned clock: `setStage` posts a sub-task event, and that
+ * writer stamps it with `nowIso()`.
+ */
+function seedSubtasks(
+  store: ReturnType<typeof openStore>,
+  parentId: number,
+  projectId: number,
+  parentKey: string,
+): readonly number[] {
+  const pin = store.db.prepare('UPDATE tickets SET created_at = ?, updated_at = ? WHERE id = ?');
+  const merge = store.db.prepare(
+    "UPDATE prs SET status = 'merged', merged_at = ? WHERE ticket_id = ? AND number = ?",
+  );
+  return SUBTASKS.map((sub, index) => {
+    const child = createTicket(store, {
+      key: `${parentKey}-s${index + 1}`,
+      title: sub.title,
+      source: 'karst',
+      projectId,
+      subtaskParentId: parentId,
+      blocksParent: sub.blocking ?? false,
+      autostartPending: sub.autostart ?? false,
+    });
+    setStageCurrent(store, child.id, sub.stage);
+    if (sub.stage === 'done') {
+      setStage(store, child.id, 'done', {
+        status: 'passed',
+        startedAt: hoursAgo(sub.startedHoursAgo),
+        endedAt: hoursAgo(sub.startedHoursAgo - 1),
+      });
+    } else if (sub.stage !== 'scope') {
+      setStage(store, child.id, sub.stage, { status: 'running', startedAt: hoursAgo(sub.startedHoursAgo) });
+    }
+    if (sub.model !== undefined) {
+      updateTicketFields(store, child.id, { model: sub.model, agentProvider: 'claude', selectedRepos: ['api'] });
+      setSessionId(store, child.id, `fixture-session-${child.id}`, 'claude');
+    }
+    if (sub.pr !== undefined) {
+      recordShippedPr(store, {
+        ticketId: child.id,
+        repo: API,
+        number: sub.pr.number,
+        url: `https://github.com/fixture-org/api/pull/${sub.pr.number}`,
+      });
+      if (sub.pr.state === 'merged') merge.run(hoursAgo(sub.startedHoursAgo - 1), child.id, sub.pr.number);
+    }
+    // `created_at` defaults to the machine clock; pin the create order too, so
+    // a sub-task never outranks its parent in a sidebar read.
+    pin.run(hoursAgo(sub.startedHoursAgo), hoursAgo(sub.startedHoursAgo - 1), child.id);
+    return child.id;
+  });
+}
+
 /** What a seeded corpus knows about itself. */
 export interface SeededCorpus {
   dbPath: string;
@@ -354,18 +450,28 @@ export function seedCorpusDatabase(dbPath: string): SeededCorpus {
     // `tickets.created_at` and `worktrees.created_at` default to
     // `datetime('now')`, which would put the machine clock into the corpus and
     // make the sidebar's recency ordering depend on when it was generated. Pin
-    // both from the fixture clock: ticket `i` is a day older than ticket `i+1`.
+    // both from the fixture clock, in the order `CREATED_HOURS_AGO` states.
     const assign = store.db.prepare(
       'UPDATE tickets SET project_id = ?, created_at = ?, updated_at = ? WHERE id = ?',
     );
     const pinWorktree = store.db.prepare('UPDATE worktrees SET created_at = ? WHERE ticket_id = ?');
     ids.forEach((id, index) => {
-      const createdAt = hoursAgo((ids.length - index) * 24);
+      const key = spec.tickets[index]!.key;
+      const hours = CREATED_HOURS_AGO[key];
+      if (hours === undefined) throw new Error(`seed: no create order for ${key}`);
+      const createdAt = hoursAgo(hours);
       assign.run(project.id, createdAt, createdAt, id);
       pinWorktree.run(createdAt, id);
     });
 
     const byKey = new Map(spec.tickets.map((t, i) => [t.key, ids[i]!] as const));
+    const dashboardTicketId = byKey.get(SEED_DASHBOARD_TICKET_KEY);
+    if (dashboardTicketId === undefined) {
+      throw new Error(`seed: the spec has no ticket ${SEED_DASHBOARD_TICKET_KEY}`);
+    }
+    withPinnedClock(FIXTURE_NOW_MS, () =>
+      seedSubtasks(store, dashboardTicketId, project.id, SEED_DASHBOARD_TICKET_KEY),
+    );
     pinEvidenceTimestamps(store, ids);
     for (const row of USAGE) {
       const ticketId = row.ticket === null ? null : (byKey.get(row.ticket) ?? null);
@@ -389,10 +495,6 @@ export function seedCorpusDatabase(dbPath: string): SeededCorpus {
       });
     }
 
-    const dashboardTicketId = byKey.get(SEED_DASHBOARD_TICKET_KEY);
-    if (dashboardTicketId === undefined) {
-      throw new Error(`seed: the spec has no ticket ${SEED_DASHBOARD_TICKET_KEY}`);
-    }
     return { dbPath, projectId: project.id, ticketIds: byKey, dashboardTicketId };
   } finally {
     store.close();

@@ -31,12 +31,6 @@ const allVariants = WEBVIEW_NAMES.flatMap((view) => VARIANTS[view].map((variant)
  */
 const ALLOWED_BASELINE_COLLISIONS: readonly AllowedCollision[] = [
   {
-    baselines: ['dashboard--inside-impl-running', 'dashboard-running'],
-    reason:
-      'The populated page (10-repository fixture) and the impl running case (2-repository fixture) draw the same page: ' +
-      'the repository count is not on it.',
-  },
-  {
     baselines: ['dashboard--inside-ship-running', 'dashboard-waiting'],
     reason: 'The waiting scenario is the populated ship stage; the 10- and 2-repository fixtures draw the same page.',
   },

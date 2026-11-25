@@ -921,7 +921,7 @@
                 "detail": "./api · karst/FIX-101",
                 "label": "worktree",
                 "status": "pass",
-                "time": "10:00:00 PM"
+                "time": "8:00:00 PM"
               }
             ]
           },
@@ -1297,10 +1297,75 @@
   ],
   "subtaskParent": null,
   "subtaskProgress": {
-    "done": 0,
-    "total": 0
+    "done": 1,
+    "total": 3
   },
-  "subtasks": [],
+  "subtasks": [
+    {
+      "agent": null,
+      "autostart": null,
+      "blocking": false,
+      "done": true,
+      "fault": null,
+      "glyph": "green",
+      "id": 6,
+      "idLabel": "T900006",
+      "key": "FIX-101-s1",
+      "pr": {
+        "more": 0,
+        "number": 131,
+        "state": "merged"
+      },
+      "queuePos": null,
+      "stage": "done",
+      "stageClass": "stg-done",
+      "stageSince": "2026-10-22T16:00:00.000Z",
+      "title": "Extract the inventory probe"
+    },
+    {
+      "agent": {
+        "core": "claude",
+        "coreLabel": "Claude Code",
+        "model": "claude-opus-5",
+        "modelShort": "Opus 5"
+      },
+      "autostart": null,
+      "blocking": true,
+      "done": false,
+      "fault": null,
+      "glyph": "blue",
+      "id": 7,
+      "idLabel": "T900007",
+      "key": "FIX-101-s2",
+      "pr": {
+        "more": 0,
+        "number": 132,
+        "state": "open"
+      },
+      "queuePos": null,
+      "stage": "impl",
+      "stageClass": "stg-impl",
+      "stageSince": "2026-10-23T16:00:00.000Z",
+      "title": "Add the restart action to the tab"
+    },
+    {
+      "agent": null,
+      "autostart": "queued",
+      "blocking": false,
+      "done": false,
+      "fault": null,
+      "glyph": "gray",
+      "id": 8,
+      "idLabel": "T900008",
+      "key": "FIX-101-s3",
+      "pr": null,
+      "queuePos": 1,
+      "stage": "scope",
+      "stageClass": "stg-scope",
+      "stageSince": null,
+      "title": "Queue the health-poll backoff"
+    }
+  ],
   "ticketId": 900001,
   "ticketUrl": null,
   "title": "Add the server inventory tab",
@@ -1311,7 +1376,7 @@
       "baseDefault": "",
       "baseRef": "develop",
       "branch": "karst/FIX-101",
-      "createdAt": "2026-10-16T22:00:00.000Z",
+      "createdAt": "2026-10-22T20:00:00.000Z",
       "depsMode": "inherited",
       "launchable": false,
       "path": "/fixture/workspace/api/.karst/worktrees/FIX-101",
