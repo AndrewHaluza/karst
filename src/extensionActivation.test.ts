@@ -240,6 +240,18 @@ describe('extension activation', () => {
     expect(source).toMatch(/deps\.info\(\s*describeArtifactReap\(/);
   });
 
+  // `artifacts.maxAgeDays` also covers the gate-log dirs of an archived ticket
+  // (`runtime/gateLogRetention.ts`), so the periodic sweep must resolve the
+  // archive state through THIS window's store and project: the project scope is
+  // what keeps another project's archived ticket (same numeric id) safe.
+  it('scopes the artifact retention sweep to the window project and passes its store', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toMatch(
+      /sweepArtifactRetention\(\{[^}]*?projectId:\s*project\.id[^}]*?store:\s*localStore[^}]*?\}/,
+    );
+  });
+
   // The delete command wires the byte halves of permanent delete through the
   // runtime lifecycle: the graph byte root (the window project's subtree) and
   // the artifact console-log root. Without the graph root, a hard delete leaves

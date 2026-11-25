@@ -1113,9 +1113,11 @@ export interface Manifest {
    */
   archivePlanningAfterDays?: number;
   /**
-   * Artifact store retention. Absent = keep forever (the default); a positive
-   * `maxAgeDays` lets the periodic sweep purge a ticket's store once its
-   * newest revision is older than that.
+   * Artifact retention. Absent = keep forever (the default); a positive
+   * `maxAgeDays` lets the periodic sweep purge a ticket's T2 store once its
+   * newest revision is older than that, AND the gate-log dir
+   * (`<globalStorage>/artifacts/<ticketId>/`) of an ARCHIVED ticket once both
+   * its `archived_at` and every file inside are older than that.
    */
   artifacts?: { maxAgeDays?: number };
   /**
