@@ -7,10 +7,19 @@ import { settingsRoutes } from './settingsRoutes.js';
 import { layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
 
 const BASELINES = join(dirname(fileURLToPath(import.meta.url)), '__baselines__');
-/** Theme folders that hold per-variant view screenshots. */
-const VIEW_THEME_DIRS = ['dark', 'light', 'hc', 'dark-grayscale', 'dark-reduced-motion'];
-/** Baselines owned by other specs (status.visual.ts), not by a view variant. */
-const NON_VIEW_BASELINES = new Set(['status-primitives.png']);
+/**
+ * Baselines that a spec other than `pages.visual.ts` records, as exact
+ * `(theme, filename)` pairs: `status.visual.ts` in the three status projects, and
+ * `catalog.visual.ts` in `catalog`. A bare filename would let the same name sit in a
+ * project that never writes it (`status-primitives.png` in `light`, which would then
+ * never be compared) and would hide that `catalog/` has its own baseline.
+ */
+const NON_VIEW_BASELINES = new Set([
+  'dark/status-primitives.png',
+  'dark-grayscale/status-primitives.png',
+  'dark-reduced-motion/status-primitives.png',
+  'catalog/catalog.png',
+]);
 
 const allVariants = WEBVIEW_NAMES.flatMap((view) => VARIANTS[view].map((variant) => ({ view, variant })));
 
@@ -50,28 +59,25 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     expect(missing).toEqual([]);
   });
 
-  it('has no baseline PNG without a variant (stale)', () => {
-    const known = new Set([...allVariants.map((x) => `${x.variant.baseline}.png`), ...NON_VIEW_BASELINES]);
-    const stale = VIEW_THEME_DIRS.flatMap((theme) =>
-      existsSync(join(BASELINES, theme))
-        ? readdirSync(join(BASELINES, theme))
-            .filter((f) => f.endsWith('.png') && !known.has(f))
-            .map((f) => `${theme}/${f}`)
-        : [],
-    );
-    expect(stale).toEqual([]);
-  });
-
-  it('has no Settings baseline PNG in a theme project that does not record Settings (SET-64)', () => {
-    // The name-only stale check above cannot see a project-vs-theme mismatch: `settings.png`
-    // is a known baseline in dark/light/hc, so a leftover copy in dark-grayscale or
-    // dark-reduced-motion (projects that run only status.visual.ts) would slip through.
-    const orphans = VARIANTS.settings.flatMap((variant) =>
-      VIEW_THEME_DIRS.filter((theme) => !variant.themes.includes(theme))
-        .filter((theme) => existsSync(join(BASELINES, theme, `${variant.baseline}.png`)))
-        .map((theme) => `${theme}/${variant.baseline}.png`),
-    );
-    expect(orphans).toEqual([]);
+  it('has exactly one baseline PNG per recorded (theme, variant) pair, and no others (SET-64, T1350)', () => {
+    // Exact (theme, filename) pairs, not bare names: `diffs.png` is recorded by `dark`,
+    // `light` and `hc`, so a leftover `dark-grayscale/diffs.png` is an orphan even though
+    // the name is known. This also covers SET-64 (no `settings.png` in a status-only
+    // project) and every directory under `__baselines__`, including `catalog/`.
+    const expected = new Set([
+      ...allVariants.flatMap(({ variant }) => variant.themes.map((theme) => `${theme}/${variant.baseline}.png`)),
+      ...NON_VIEW_BASELINES,
+    ]);
+    const actual = readdirSync(BASELINES, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .flatMap((entry) =>
+        readdirSync(join(BASELINES, entry.name))
+          .filter((file) => file.endsWith('.png'))
+          .map((file) => `${entry.name}/${file}`),
+      );
+    const actualSet = new Set(actual);
+    expect(actual.filter((pair) => !expected.has(pair)), 'stale baselines').toEqual([]);
+    expect([...expected].filter((pair) => !actualSet.has(pair)), 'missing baselines').toEqual([]);
   });
 
   it('runs layout geometry for every variant that does not opt out, once per distinct page', () => {
