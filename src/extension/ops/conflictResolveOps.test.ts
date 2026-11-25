@@ -260,6 +260,14 @@ describe('resolveAllConflictsClick', () => {
     expect(deliver).toHaveBeenCalledWith(expect.stringContaining('/repos/api:true'), '/repos/web', true);
   });
 
+  it('delivers without an arm seam (the arm is optional)', async () => {
+    const { input, deliver } = all({ arm: undefined });
+
+    await resolveAllConflictsClick(input);
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
   it('with no conflicted repo sends nothing and says why', async () => {
     const { input, deliver, notify, probeSandbox } = all({ repos: [] });
 

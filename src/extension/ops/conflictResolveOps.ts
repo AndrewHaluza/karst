@@ -122,7 +122,7 @@ export async function resolveAllConflictsClick(input: ResolveAllConflictsInput):
       if (briefs.length < 2) return briefs[0] ?? null;
       return [`Resolve the merge conflicts of ${briefs.length} repositories in this session, one after the other.`, ...briefs].join(BRIEF_SEPARATOR);
     },
-    arm: input.arm === undefined ? undefined : () => armed.forEach((repo) => input.arm?.(repo)),
+    arm: () => armed.forEach((repo) => input.arm?.(repo)),
     deliver: (brief, _repo, sandboxed) => input.deliver(brief, armed[0] ?? first, sandboxed),
   });
   if (outcome.kind === 'declined') input.notify(outcome.reason);
