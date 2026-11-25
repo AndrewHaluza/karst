@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAccountOps } from '../../agent/accounts/accountOps.js';
 import { memoryAccountStore } from '../../agent/accounts/accountStore.js';
 import { createAccountsHost, SBX_TOKEN_STORE_FAILED, type SbxTokenDeps } from './accountsHost.js';
-import type { AccountsHostMessage } from './accountsMessages.js';
+import type { AccountsHostMessage, AccountsWebviewMessage } from './accountsMessages.js';
+import { routeSettingsAction, type SettingsActions } from './messages.js';
 
 let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'acct-host-')); });
@@ -281,5 +282,30 @@ describe('accounts host: per-project active account', () => {
     h.posted.length = 0;
     await h.host.handle({ type: 'accounts-set-machine-default', core: 'claude', name: 'nope' });
     expect(h.posted[0]).toMatchObject({ type: 'accounts-error', op: 'accounts-set-machine-default', core: 'claude' });
+  });
+
+  it('reaches the ops from a raw webview payload through the settings parser (T1360)', async () => {
+    // The panel hands the webview's raw payload to routeSettingsAction, which drops
+    // any type its parser does not name. Both row actions below were dropped there
+    // while the host handled them correctly: the tab looked inert.
+    const h = setup({ slug: 'alpha' });
+    await h.ops.createAccount('claude', 'work', { source: 'managed' });
+    const actions = { accounts: (m: AccountsWebviewMessage) => h.host.handle(m) } as unknown as SettingsActions;
+    const state = () => {
+      const msg = h.posted.at(-1);
+      if (msg?.type !== 'accounts-state') throw new Error('no state');
+      return msg.cores[0]!;
+    };
+
+    await routeSettingsAction({ type: 'accounts-set-machine-default', core: 'claude', name: 'work' }, actions);
+    // The ⋯ item is rendered while `machineDefault` is another row; it goes away with this state.
+    expect(state()).toMatchObject({ active: 'work', machineDefault: 'work', source: 'machine' });
+
+    await routeSettingsAction({ type: 'accounts-set-active', core: 'claude', name: 'default' }, actions);
+    expect(state()).toMatchObject({ active: 'default', source: 'project' });
+
+    await routeSettingsAction({ type: 'accounts-clear-project-choice', core: 'claude' }, actions);
+    // Reset: the project returns to the machine default, so the row loses "this project".
+    expect(state()).toMatchObject({ active: 'work', machineDefault: 'work', source: 'machine' });
   });
 });
