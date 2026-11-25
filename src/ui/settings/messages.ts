@@ -489,6 +489,10 @@ function parseAccountsMessage(raw: unknown): AccountsWebviewMessage | null {
     }
     case 'accounts-set-active':
       return core && name ? { type: 'accounts-set-active', core, name } : null;
+    case 'accounts-set-machine-default':
+      return core && name ? { type: 'accounts-set-machine-default', core, name } : null;
+    case 'accounts-clear-project-choice':
+      return core ? { type: 'accounts-clear-project-choice', core } : null;
     case 'accounts-delete':
       return core && name && typeof raw.removeFolder === 'boolean' ? { type: 'accounts-delete', core, name, removeFolder: raw.removeFolder } : null;
     case 'accounts-seed-items':

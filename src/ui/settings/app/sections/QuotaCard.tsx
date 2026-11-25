@@ -133,17 +133,21 @@ export function QuotaCard() {
 
   return (
     <section className="accounts-quota" data-region="accounts-quota" aria-labelledby="accounts-quota-title">
-      <h3 id="accounts-quota-title">Subscription quota</h3>
-      <p className="accounts-hint">
+      {/* Prototype grammar (P69 settings-accounts.html, @ui:UI-R39): the title and
+          the link share one head line with a rule under it; each setting is one
+          row with its label and help at the left and its control at the right
+          edge (tokens/controls per DESIGN-SYSTEM, layout per the prototype). */}
+      <div className="accounts-quota-head">
+        <h3 id="accounts-quota-title">Subscription quota</h3>
+        <Button variant="text" onClick={() => send.openQuota()}>See current quota</Button>
+      </div>
+      <p className="accounts-hint accounts-quota-intro">
         Warn before a launch whose agent core is near its provider subscription limit. View-only: a
         warning never blocks a launch and never switches cores.
       </p>
-      <p className="accounts-hint">
-        <Button variant="text" onClick={() => send.openQuota()}>See current quota</Button>
-      </p>
       <Field
         label="Warn at % used"
-        className="accounts-quota-threshold"
+        className="accounts-quota-row accounts-quota-threshold"
         error={error ?? undefined}
         meta={savedNote('threshold')}
         help={`Blank = ${DEFAULT_QUOTA_WARN_THRESHOLD_PCT}. Karst compares the tightest window of the launched core's subscription with this value. Saves when you leave the field or press Enter.`}
@@ -169,6 +173,8 @@ export function QuotaCard() {
       />
       <Field
         label="Install for all Claude sessions"
+        className="accounts-quota-row"
+        meta={savedNote('statusline')}
         help="Adds Karst's statusline wrapper to your global Claude settings, so Claude sessions Karst did not launch report quota too. Your own statusline command is kept and chained; turning this off restores it."
         control={{
           kind: 'checkbox',
@@ -179,9 +185,10 @@ export function QuotaCard() {
           onChange: (on) => post('statusline', { claudeGlobalStatusline: on }),
         }}
       />
-      {savedNote('statusline')}
       <Field
         label="Use the Claude usage API"
+        className="accounts-quota-row"
+        meta={savedNote('usage')}
         help="When the statusline cache is missing or stale, read the 5-hour and 7-day windows from Anthropic's usage API using the OAuth token Claude Code already stored. The token stays in memory for the request — never logged, stored or refreshed — and a failure keeps the last value or shows unknown."
         control={{
           kind: 'checkbox',
@@ -192,7 +199,6 @@ export function QuotaCard() {
           onChange: (on) => post('usage', { claudeOauthUsageApi: on }),
         }}
       />
-      {savedNote('usage')}
     </section>
   );
 }

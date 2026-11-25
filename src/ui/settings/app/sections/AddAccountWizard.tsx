@@ -1,14 +1,16 @@
 /**
- * The add-account wizard of one core (D505): Source → Copy settings → Sign in.
- * Every fact comes from the host (checklist labels, default checks, status, the
- * alias parse); the wizard only holds what the user typed. Nothing here is part
- * of the manifest Save: each step applies at once.
+ * The add-account wizard (D505, T1360): Agent → Source → Copy settings → Sign in.
+ * The Agent select comes first, because one `+ Add account` button now serves
+ * every core. Every fact comes from the host (checklist labels, default checks,
+ * status, the alias parse); the wizard only holds what the user typed. Nothing
+ * here is part of the manifest Save: each step applies at once.
  */
 import { parseAliasInput } from '../../aliasInput.js';
 import { useEffect, useRef, useState } from 'react';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
 import { Field } from '../primitives/Field.js';
+import { AGENT_PROVIDER_LABELS } from '../../../../model/agentProviders.js';
 import { validateAccountName, type AccountCore } from '../../../../agent/accounts/types.js';
 import type { AccountStatusView, AliasImportView, SeedItemView } from '../../accountsMessages.js';
 
@@ -30,12 +32,16 @@ interface Created {
 }
 
 export interface AddAccountWizardProps {
-  readonly core: AccountCore;
+  /** The cores the host reports — the Agent select offers exactly these. */
+  readonly cores: readonly AccountCore[];
+  /** The core the wizard starts on (the tab's selected core, else the first). */
+  readonly initialCore: AccountCore;
   readonly onClose: () => void;
 }
 
-export function AddAccountWizard({ core, onClose }: AddAccountWizardProps) {
+export function AddAccountWizard({ cores, initialCore, onClose }: AddAccountWizardProps) {
   const { state, send } = useSettingsApp();
+  const [core, setCore] = useState<AccountCore>(initialCore);
   const [step, setStep] = useState<Step>('source');
   const [kind, setKind] = useState<SourceKind>('managed');
   const [name, setName] = useState('');
@@ -50,6 +56,21 @@ export function AddAccountWizard({ core, onClose }: AddAccountWizardProps) {
   const [copyNote, setCopyNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const handled = useRef(state.accounts.last?.seq ?? 0);
+  const coreOptions = cores.map((c) => ({ value: c, label: AGENT_PROVIDER_LABELS[c] ?? c }));
+
+  // Switching the agent starts that core's wizard over: a step (and its data)
+  // belongs to the core it was taken on.
+  const onCoreChange = (next: string): void => {
+    setCore(next as AccountCore);
+    setStep('source');
+    setCreated(null);
+    setItems(null);
+    setChecked(new Set());
+    setCopyNote(null);
+    setImported(null);
+    setAliasReason(null);
+    setError(null);
+  };
 
   // External sync: react to each new host reply for this core exactly once.
   const last = state.accounts.last;
@@ -130,6 +151,7 @@ export function AddAccountWizard({ core, onClose }: AddAccountWizardProps) {
         <li aria-current={step === 'signin' ? 'step' : undefined}>3. Sign in</li>
       </ol>
       {error !== null ? <p className="accounts-error" role="alert">{error}</p> : null}
+      <Field label="Agent" control={{ kind: 'select', value: core, onChange: onCoreChange, options: coreOptions }} />
 
       {step === 'source' ? (
         <div className="accounts-source" data-region="accounts-source-step">

@@ -59,22 +59,106 @@ describe('agents.webview.css — roles table', () => {
 });
 
 describe('agents.webview.css — Accounts row menu anchoring', () => {
-  it('anchors the wide menu to the trigger’s end', () => {
-    expect(css).toMatch(/#section-agents \.accounts-menu-list\s*\{[^}]*inset-inline-end:\s*0/);
+  it('anchors the menu to the trigger’s end at every tier', () => {
+    const rule = /#section-agents \.accounts-menu-list\s*\{[^}]*\}/.exec(css);
+    expect(rule, 'menu rule').not.toBeNull();
+    expect(rule![0]).toMatch(/inset-inline-end:\s*0/);
+    expect(rule![0]).not.toMatch(/inset-inline-start/);
   });
 
-  it('flips to the inline start when the table stacks, so it cannot clip off the left edge (UI-R43/R45)', () => {
-    // The stacked card puts the ⋯ trigger near the left edge; a right-anchored
-    // 130px+ menu would extend to negative x and lose its first items.
-    expect(css).toMatch(
-      /@media \(max-width: 699px\)[\s\S]*?#section-agents \.accounts-menu-list\s*\{[^}]*inset-inline-start:\s*0[^}]*inset-inline-end:\s*auto/,
-    );
+  it('keeps a viewport max-width guard so the menu opens inward from the right edge', () => {
+    const rule = /#section-agents \.accounts-menu-list\s*\{[^}]*\}/.exec(css);
+    expect(rule![0]).toMatch(/max-width:\s*calc\(100vw - var\(--k-space-8\)\)/);
   });
 
-  it('puts the narrow override after the base rule in source order (UI-R49)', () => {
-    const base = css.indexOf('#section-agents .accounts-menu-list {');
-    const override = css.indexOf('#section-agents .accounts-menu-list { inset-inline-start: 0;');
-    expect(base, 'base rule').toBeGreaterThan(-1);
-    expect(override, 'narrow override').toBeGreaterThan(base);
+  it('never flips the menu to the inline start (the ⋯ slot stays on the right edge)', () => {
+    expect(css).not.toMatch(/\.accounts-menu-list[^{]*\{[^}]*inset-inline-start/);
+  });
+});
+
+describe('agents.webview.css — Accounts table', () => {
+  it('shares one content-independent track template between header and rows', () => {
+    const cols = /--accounts-cols:\s*([^;]+);/.exec(css)?.[1]?.replace(/\s+/g, ' ').trim();
+    expect(cols).toBeDefined();
+    expect(cols).not.toMatch(/(^|\s)(max-content|min-content|auto)(\s|$)/);
+    expect(css).toMatch(/\.accounts-head,\s*#section-agents \.accounts-row\s*\{[^}]*grid-template-columns:\s*var\(--accounts-cols\)/);
+  });
+
+  it('keeps the compact inline text controls above the 20px text-control floor', () => {
+    expect(css).toMatch(/#section-agents \.accounts-table \.k-btn--link\s*\{\s*min-height:\s*var\(--k-hit-min\)/);
+  });
+
+  it('wraps long paths without breaking words mid-word', () => {
+    expect(css).toMatch(/\.accounts-loc-mono[^{]*\{[^}]*overflow-wrap:\s*break-word/);
+    expect(css).not.toContain('overflow-wrap: anywhere');
+  });
+
+  it('lets one long unbroken account name wrap inside its flex cell (UI-R44)', () => {
+    // A flex item's automatic minimum is its min-content width; for one unbroken
+    // name that is the whole token, so the cell overflows unless it may shrink.
+    const rule = /#section-agents \.accounts-name\s*\{[^}]*\}/.exec(css);
+    expect(rule, 'account name rule').not.toBeNull();
+    expect(rule![0]).toMatch(/min-width:\s*0/);
+    expect(rule![0]).toMatch(/overflow-wrap:\s*break-word/);
+  });
+
+  it('lays each narrow card out as a name line, a sign-in + location line, then the token line', () => {
+    // Named areas, not source order: the location cell comes before the status in the
+    // DOM, so auto-placement alone would give the location a line of its own and push
+    // the status, Use and ⋯ onto a third (T1360).
+    const squashed = css.replace(/\s+/g, ' ');
+    expect(squashed).toContain("grid-template-areas: 'mark name name use menu' '. stat loc loc loc' '. token token token token'");
+    expect(squashed).toContain("grid-template-areas: 'agent agent agent agent agent' 'mark name name use menu' '. stat loc loc loc' '. token token token token'");
+    // 320px: the sign-in state and the location each take a full line of their own.
+    expect(squashed).toContain("grid-template-areas: 'mark name name use menu' '. stat stat stat stat' '. loc loc loc loc' '. token token token token'");
+    expect(squashed).toContain("grid-template-areas: 'agent agent agent agent agent' 'mark name name use menu' '. stat stat stat stat' '. loc loc loc loc' '. token token token token'");
+  });
+});
+
+describe('agents.webview.css — Accounts row surfaces (UI-R29)', () => {
+  /** The declaration block that starts at `start` (which must be unique). */
+  const block = (start: string): string => {
+    const at = css.indexOf(start);
+    expect(at, `missing rule: ${start}`).toBeGreaterThanOrEqual(0);
+    const open = css.indexOf('{', at);
+    return css.slice(open + 1, css.indexOf('}', open));
+  };
+
+  it('pairs every painted row surface with its foreground in the same rule', () => {
+    expect(block('#section-agents .accounts-row:hover,')).toContain('color: var(--k-text)');
+    expect(block('#section-agents .accounts-core-group.is-multi .accounts-row.is-active {'))
+      .toContain('color: var(--vscode-list-inactiveSelectionForeground, var(--k-text))');
+  });
+
+  it('paints no second wash under the active row on hover (only the accent bar grows)', () => {
+    const activeHover = block('#section-agents .accounts-core-group.is-multi .accounts-row.is-active:hover,');
+    expect(activeHover).not.toContain('background:');
+    expect(activeHover).toContain('box-shadow: inset 3px');
+  });
+
+  it('lets the dim ink and the inline text buttons inherit the row pair', () => {
+    for (const painted of [
+      '#section-agents .accounts-row:hover :is(',
+      '#section-agents .accounts-row:focus-within :is(',
+      '#section-agents .accounts-core-group.is-multi .accounts-row.is-active :is(',
+    ]) {
+      const at = css.indexOf(painted);
+      expect(at, `missing rule: ${painted}`).toBeGreaterThanOrEqual(0);
+      const open = css.indexOf('{', at);
+      const selector = css.slice(at, open);
+      expect(css.slice(open + 1, css.indexOf('}', open)), painted).toContain('color: inherit');
+      for (const ink of ['.accounts-muted', '.accounts-loc-mono', '.accounts-project-choice', '.accounts-sep', '.k-btn--link']) {
+        expect(selector, `${painted} ${ink}`).toContain(ink);
+      }
+    }
+  });
+
+  it('paints the warning text and its dot with the readable attention tone, never the chart hue', () => {
+    expect(block('#section-agents .accounts-status-warn {')).toContain('var(--k-attention-fg)');
+    expect(block('#section-agents .accounts-status-dot.is-not-signed-in {')).toContain('var(--k-attention-fg)');
+  });
+
+  it('keeps a text button identifiable when the row pair drops its link tone', () => {
+    expect(block('#section-agents .accounts-row:hover .k-btn--link,')).toContain('text-decoration: underline');
   });
 });
