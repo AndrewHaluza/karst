@@ -563,7 +563,10 @@
   "src/extension/ops/autopilotRerun.ts": [
     "arch:AP-03"
   ],
-  "src/extension/ops/autopilotShipRetry.ts": [
+  "src/extension/ops/autopilotShipRetry.ts#isHostTicket": [
+    "arch:AP-11"
+  ],
+  "src/extension/ops/autopilotShipRetry.ts#shipRetryDecision": [
     "arch:AP-11"
   ],
   "src/extension/ops/autopilotStaleRebase.ts": [

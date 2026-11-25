@@ -1904,8 +1904,10 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     failedServerErrorShip();
     const sandboxed = retry({ placement: async () => 'sandbox' as const });
     expect((await autopilotTick(sandboxed.deps)).kind).toBe('idle');
+    expect((await autopilotTick(retry({ placement: async () => 'sandbox' as const }).deps)).kind).toBe('idle');
     expect(sandboxed.retryShip).not.toHaveBeenCalled();
     expect(sandboxed.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ticket does not run on the host');
+    expect(sandboxed.debug.mock.calls.filter(([m]) => String(m).includes('does not run on the host')).length).toBe(1);
     const unknown = retry({ placement: async () => { throw new Error('no placement is recorded'); } });
     expect((await autopilotTick(unknown.deps)).kind).toBe('idle');
     expect(unknown.retryShip).not.toHaveBeenCalled();

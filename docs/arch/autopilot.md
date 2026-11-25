@@ -208,7 +208,7 @@ Split out of `arch:AP-01`.
 END_DOC_BLOCK: [@arch:AP-10]
 
 ## [@arch:AP-11] Ship retry after a GitHub server error
-covers: src/extension/ops/autopilotShipRetry.ts, src/extension/ops/shipRetryOps.ts, src/extension/ops/autopilotOps.ts, src/extension/autopilotBinding.ts, src/store/shipRuns.ts#listShipRuns, src/store/shipRuns.ts#listShipRepoSteps, src/store/shipRuns.ts#newestPushIntentHead, src/store/shipRuns.ts#hasAttendedShipRun, src/store/karstEvents.ts#hasTicketEvent
+covers: src/extension/ops/autopilotShipRetry.ts#shipRetryDecision, src/extension/ops/autopilotShipRetry.ts#isHostTicket, src/extension/ops/shipRetryOps.ts, src/extension/ops/autopilotOps.ts, src/extension/autopilotBinding.ts, src/store/shipRuns.ts#listShipRuns, src/store/shipRuns.ts#listShipRepoSteps, src/store/shipRuns.ts#newestPushIntentHead, src/store/shipRuns.ts#hasAttendedShipRun, src/store/karstEvents.ts#hasTicketEvent
 
 Split out of `arch:AP-00` (T1362).
 

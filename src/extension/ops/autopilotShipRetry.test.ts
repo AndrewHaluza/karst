@@ -9,7 +9,7 @@ import {
   type ShipStep,
 } from '../../store/shipRuns.js';
 import {
-  AUTO_SHIP_RETRY_DELAYS_MS, AUTO_SHIP_RETRY_STOP_REASON, shipRetryDecision,
+  AUTO_SHIP_RETRY_DELAYS_MS, AUTO_SHIP_RETRY_STOP_REASON, isHostTicket, shipRetryDecision,
   type ShipRetryDecision, type ShipRetrySeams,
 } from './autopilotShipRetry.js';
 
@@ -69,6 +69,17 @@ beforeEach(() => {
   id = createTicket(store, { key: 'SR-1', title: 't' }).id;
   for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id, from, { kind: 'passed' });
   setStage(store, id, 'ship', { status: 'passed', startedAt: '2026-11-25T11:00:00.000Z' });
+});
+
+describe('isHostTicket', () => {
+  it('is true only for a recorded host placement', async () => {
+    await expect(isHostTicket(async () => 'host')).resolves.toBe(true);
+    await expect(isHostTicket(async () => 'sandbox')).resolves.toBe(false);
+  });
+
+  it('is false when the placement cannot be read', async () => {
+    await expect(isHostTicket(async () => { throw new Error('no placement is recorded'); })).resolves.toBe(false);
+  });
 });
 
 describe('shipRetryDecision', () => {

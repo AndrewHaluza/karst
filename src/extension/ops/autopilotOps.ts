@@ -13,7 +13,7 @@ import { holdsPark, refusedMergeBody, refusedMergeReason, STALLED_REASON, UNFINI
 import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
-import { MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
+import { isHostTicket, MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
 import { listShipRuns } from '../../store/shipRuns.js';
 import { hasTicketEvent } from '../../store/karstEvents.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
@@ -458,12 +458,9 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
     case 'retry': {
       // A sandboxed ticket's ship first pulls the sandbox into the worktree (assertInSync): an unattended retry would
       // publish commits no person confirmed. The click stays the way to ship it.
-      let host = false;
-      try { host = (await d.placement()) === 'host'; } catch { host = false; }
-      if (!host) {
-        const key = JSON.stringify([flightKeyOf(d), 'not-host']);
-        if (!seen.has(key)) {
-          seen.add(key);
+      if (!(await isHostTicket(d.placement))) {
+        if (!seen.has(flightKeyOf(d))) {
+          seen.add(flightKeyOf(d));
           d.debug(`${LOG} ticket ${d.key}: no ship retry, the ticket does not run on the host`);
         }
         return { kind: 'idle' };

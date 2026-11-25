@@ -54,6 +54,18 @@ export type ShipRetryDecision =
 
 const none = (why: string): ShipRetryDecision => ({ kind: 'none', why });
 
+/**
+ * The retry is a HOST-only action (@arch:AP-11): a sandboxed ticket's ship first pulls the sandbox into the worktree, so
+ * an unattended retry would publish commits no person confirmed. An unknown placement (a rejecting read) is not a host.
+ */
+export async function isHostTicket(placement: () => Promise<string>): Promise<boolean> {
+  try {
+    return (await placement()) === 'host';
+  } catch {
+    return false;
+  }
+}
+
 /** The run's failed steps, in insertion order. */
 function failedSteps(store: Store, run: ShipRun): ShipRepoStep[] {
   return listShipRepoSteps(store, run.id).filter((s) => s.status === 'failed');
