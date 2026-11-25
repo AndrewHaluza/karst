@@ -157,6 +157,30 @@ describe('autopilotSweep', () => {
     expect((store.db.prepare('SELECT title FROM karst_events').get() as { title: string }).title).toBe('Autopilot: retried ship after a GitHub server error (1/5)');
   });
 
+  it('reads the injected clock: before the backoff it does not retry (T1362)', async () => {
+    const { store, projectId, id } = shipTicket();
+    // A far-past failure: a tick on the real clock would retry at once, so only the injected clock can hold it back.
+    const endedAt = '2020-01-01T00:00:00.000Z';
+    setStage(store, id, 'ship', { status: 'failed', startedAt: '2019-12-31T23:00:00.000Z', endedAt, blockedKind: null, blockedReason: null, blockedAt: null });
+    const run = openShipRun(store, { ticketId: id, attempt: 1, startedAt: '2019-12-31T23:59:00.000Z' });
+    const step = openShipRepoStep(store, { shipRunId: run.id, repo: 'r', step: 'pr', detail: 'run', startedAt: '2019-12-31T23:59:00.000Z' });
+    finishShipRepoStep(store, step.id, { status: 'failed', detail: 'gh: HTTP 502 Bad Gateway', endedAt });
+    beginShipOperationPreparation(store, {
+      shipRunId: run.id, repo: 'r', step: 'push', operationKey: `push-${run.id}`, createdAt: '2019-12-31T23:59:00.000Z',
+      preState: { step: 'push', localHead: 'a'.repeat(40), remote: 'origin', ref: 'b', preRemoteHead: null },
+    });
+    closeShipRun(store, run.id, 'failed', endedAt);
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const s = seams({ retryShip, shipRetry: { worktreeClean: async () => ({ ok: true, clean: true }), localHead: async () => 'a'.repeat(40) } });
+    const acted = await autopilotSweep({
+      store, projectId: () => projectId, manifest: () => ({ autopilot: cfg }) as never,
+      caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed: () => {},
+      now: () => Date.parse('2020-01-01T00:01:00.000Z'),
+    });
+    expect(retryShip).not.toHaveBeenCalled();
+    expect(acted).toBe(0);
+  });
+
   it('does nothing without a bound project, and when this window does not control the ticket', async () => {
     const { store, projectId } = shipTicket();
     const s = seams({ controls: () => false });

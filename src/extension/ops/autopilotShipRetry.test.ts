@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
-import { setStage } from '../../store/stages.js';
+import { removeStage, setStage } from '../../store/stages.js';
 import { parkGateStage } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
 import {
@@ -10,7 +10,7 @@ import {
 } from '../../store/shipRuns.js';
 import {
   AUTO_SHIP_RETRY_DELAYS_MS, AUTO_SHIP_RETRY_STOP_REASON, shipRetryDecision,
-  type ShipRetrySeams,
+  type ShipRetryDecision, type ShipRetrySeams,
 } from './autopilotShipRetry.js';
 
 const MIN = 60_000;
@@ -27,6 +27,7 @@ function failedShip(endedAt = ENDED): void {
 }
 
 interface RunOpts {
+  readonly repo?: string;
   readonly status?: 'failed' | 'passed';
   readonly unattended?: boolean;
   readonly endedAt?: string;
@@ -36,16 +37,17 @@ interface RunOpts {
 }
 
 function run(opts: RunOpts = {}): number {
+  const repo = opts.repo ?? 'r';
   const endedAt = opts.endedAt ?? ENDED;
   const started = new Date(Date.parse(endedAt) - MIN).toISOString();
   const r = openShipRun(store, { ticketId: id, attempt: 1, startedAt: started, unattended: opts.unattended === true });
   for (const [step, status, detail] of opts.steps ?? [['pr', 'failed', 'gh: HTTP 502 Bad Gateway'] as const]) {
-    const s = openShipRepoStep(store, { shipRunId: r.id, repo: 'r', step, detail: 'run', startedAt: started });
+    const s = openShipRepoStep(store, { shipRunId: r.id, repo, step, detail: 'run', startedAt: started });
     finishShipRepoStep(store, s.id, { status, detail, endedAt });
   }
   if (opts.head !== null) {
     beginShipOperationPreparation(store, {
-      shipRunId: r.id, repo: 'r', step: 'push', operationKey: `push-${r.id}`, createdAt: started,
+      shipRunId: r.id, repo, step: 'push', operationKey: `push-${r.id}`, createdAt: started,
       preState: { step: 'push', localHead: opts.head ?? HEAD, remote: 'origin', ref: 'b', preRemoteHead: null },
     });
   }
@@ -58,6 +60,9 @@ const seams = (over: Partial<ShipRetrySeams> = {}): ShipRetrySeams => ({
   localHead: vi.fn(async () => HEAD),
   ...over,
 });
+
+/** The exact `none` answer: every refusal names its reason, so a lost reason is a test failure. */
+const none = (why: string): ShipRetryDecision => ({ kind: 'none', why });
 
 beforeEach(() => {
   store = openStore(':memory:');
@@ -76,20 +81,61 @@ describe('shipRetryDecision', () => {
     expect(await shipRetryDecision(store, id, until, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1 });
   });
 
-  it('does not retry a ship that is not failed, is running, or has a block', async () => {
+  it('refuses a ticket that is not at ship', async () => {
     run();
-    expect((await shipRetryDecision(store, id, NOW, seams())).kind).toBe('none');
+    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(id);
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual(none('the ticket is not at ship'));
+  });
+
+  it('refuses a ship stage that is passed or running', async () => {
+    run();
+    setStage(store, id, 'ship', { status: 'passed' });
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual(none('the ship stage is not failed'));
     setStage(store, id, 'ship', { status: 'running' });
-    expect((await shipRetryDecision(store, id, NOW, seams())).kind).toBe('none');
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual(none('the ship stage is not failed'));
+  });
+
+  it('refuses a ticket with no ship stage row', async () => {
+    run();
+    removeStage(store, id, 'ship');
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual(none('the ship stage is not failed'));
+  });
+
+  it('refuses a ship stage that has a block', async () => {
+    run();
     failedShip();
     parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'blocked', runAt: ENDED, gates: [] });
-    expect((await shipRetryDecision(store, id, NOW, seams())).kind).toBe('none');
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual(none('the ship stage has a block'));
+  });
+
+  it('refuses when no ship step failed, because Retry ship would have nothing to run', async () => {
+    run({ steps: [['pr', 'passed', 'ok']] });
+    failedShip();
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual(none('no failed ship step to retry'));
+  });
+
+  it('refuses a newest run with no failed step of its own', async () => {
+    run({ steps: [['pr', 'failed', 'gh: HTTP 502 Bad Gateway']] });
+    run({ repo: 'other', steps: [['pr', 'passed', 'ok']] });
+    failedShip();
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual(none('the failed ship was not a GitHub server error'));
+  });
+
+  it('refuses when there is no ship run, or the newest run did not fail', async () => {
+    // No run at all: Retry ship has no failed step to re-run.
+    failedShip();
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual(none('no failed ship step to retry'));
+    // A failed step of an older run still gives Retry ship a repo, but the NEWEST run passed.
+    run({ steps: [['pr', 'failed', 'gh: HTTP 502 Bad Gateway']] });
+    run({ repo: 'other', status: 'passed', steps: [['pr', 'passed', 'ok']] });
+    failedShip();
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual(none('the newest ship run did not fail'));
   });
 
   it('never retries without an attended run at or before the newest failed run', async () => {
     run({ unattended: true });
     failedShip();
-    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual({ kind: 'none', why: 'no person confirmed a ship' });
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual(none('no person confirmed a ship'));
   });
 
   it('retries after an unattended run that follows a person\'s confirm', async () => {
@@ -99,39 +145,49 @@ describe('shipRetryDecision', () => {
     expect((await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).kind).toBe('retry');
   });
 
-  it('retries only a push or pr step whose detail is a GitHub server error', async () => {
+  it('retries only when every failed step is a push or pr step with a GitHub server error', async () => {
+    // No failed step at all: `failed.length > 0`.
+    run({ steps: [['pr', 'passed', 'ok']] });
+    failedShip();
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual(none('no failed ship step to retry'));
+    // A failed commit step is not a push/pr step.
+    store.db.prepare('DELETE FROM ship_operation_intents').run();
+    store.db.prepare('DELETE FROM ship_repo_steps').run();
+    store.db.prepare('DELETE FROM ship_runs').run();
     run({ steps: [['commit', 'failed', 'gh: HTTP 502']] });
     failedShip();
-    expect((await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).kind).toBe('none');
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual(none('the failed ship was not a GitHub server error'));
+    // A push failure beside a pr server error is not only server errors (`every`, not `some`).
     store.db.prepare('DELETE FROM ship_operation_intents').run();
     store.db.prepare('DELETE FROM ship_repo_steps').run();
     store.db.prepare('DELETE FROM ship_runs').run();
-    run({ steps: [['push', 'failed', 'remote: HTTP 401 Bad credentials']] });
+    run({ steps: [['pr', 'failed', 'gh: HTTP 502'], ['push', 'failed', 'remote: HTTP 401 Bad credentials']] });
     failedShip();
-    expect((await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).kind).toBe('none');
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual(none('the failed ship was not a GitHub server error'));
+    // A non-server detail on a push step.
     store.db.prepare('DELETE FROM ship_operation_intents').run();
     store.db.prepare('DELETE FROM ship_repo_steps').run();
     store.db.prepare('DELETE FROM ship_runs').run();
-    run({ steps: [['pr', 'failed', 'No commits between develop and karst/x']] });
+    run({ steps: [['push', 'failed', 'No commits between develop and karst/x']] });
     failedShip();
-    expect((await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).kind).toBe('none');
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual(none('the failed ship was not a GitHub server error'));
   });
 
-  it('never retries when a worktree is dirty or unreadable, or the HEAD is not the pushed head', async () => {
+  it('never retries when a worktree is dirty, unreadable, or the HEAD is not the pushed head', async () => {
     run();
     failedShip();
     const at = NOW + 10 * MIN;
-    expect((await shipRetryDecision(store, id, at, seams({ worktreeClean: async () => ({ ok: true, clean: false }) }))).kind).toBe('none');
-    expect((await shipRetryDecision(store, id, at, seams({ worktreeClean: async () => ({ ok: false }) }))).kind).toBe('none');
-    expect((await shipRetryDecision(store, id, at, seams({ localHead: async () => 'b'.repeat(40) }))).kind).toBe('none');
-    expect((await shipRetryDecision(store, id, at, seams({ localHead: async () => null }))).kind).toBe('none');
-    expect((await shipRetryDecision(store, id, at, { ...seams(), worktreeClean: async () => { throw new Error('boom'); } })).kind).toBe('none');
+    expect(await shipRetryDecision(store, id, at, seams({ worktreeClean: async () => ({ ok: true, clean: false }) }))).toEqual(none('the worktree of r has uncommitted changes'));
+    expect(await shipRetryDecision(store, id, at, seams({ worktreeClean: async () => ({ ok: false }) }))).toEqual(none('the worktree of r cannot be read'));
+    expect(await shipRetryDecision(store, id, at, seams({ localHead: async () => 'b'.repeat(40) }))).toEqual(none('the head of r is not the head the ship pushed'));
+    expect(await shipRetryDecision(store, id, at, seams({ localHead: async () => null }))).toEqual(none('the head of r is not the head the ship pushed'));
   });
 
-  it('never retries a repo whose ship recorded no push intent', async () => {
+  it('never retries an unreadable head when the ship recorded no push intent', async () => {
     run({ head: null });
     failedShip();
-    expect((await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).kind).toBe('none');
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams({ localHead: async () => null })))
+      .toEqual(none('the head of r is not the head the ship pushed'));
   });
 
   it('reads the repos planRetryShip names and retries each one', async () => {
@@ -140,7 +196,7 @@ describe('shipRetryDecision', () => {
     expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1 });
   });
 
-  it('backs off 2/5/10/20/30 minutes and parks after the fifth retry', async () => {
+  it('backs off 2/5/10/20/30 minutes and parks on the sixth consecutive server-error run', async () => {
     expect(AUTO_SHIP_RETRY_DELAYS_MS).toEqual([2, 5, 10, 20, 30].map((m) => m * MIN));
     for (const [i, delay] of AUTO_SHIP_RETRY_DELAYS_MS.entries()) {
       run();
@@ -149,10 +205,9 @@ describe('shipRetryDecision', () => {
       expect(await shipRetryDecision(store, id, until - 1, seams())).toEqual({ kind: 'wait', until });
       expect(await shipRetryDecision(store, id, until, seams())).toEqual({ kind: 'retry', repos: ['r'], n: i + 1 });
     }
-    // The sixth consecutive server-error run spends the bound: no sixth retry.
-    run();
+    const sixth = run();
     failedShip();
-    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual({ kind: 'park', reason: AUTO_SHIP_RETRY_STOP_REASON });
+    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual({ kind: 'park', reason: AUTO_SHIP_RETRY_STOP_REASON, runId: sixth });
     expect(AUTO_SHIP_RETRY_STOP_REASON).toBe('auto-fix stopped: GitHub server error, ship retried 5/5');
   });
 
@@ -169,11 +224,13 @@ describe('shipRetryDecision', () => {
     expect(await shipRetryDecision(store, id, NOW + AUTO_SHIP_RETRY_DELAYS_MS[0]!, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1 });
   });
 
-  it('never retries a run that has no end time', async () => {
+  it('never retries a run with no end time or an unreadable one', async () => {
     run();
     failedShip();
     expect((await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).kind).toBe('retry');
     store.db.prepare('UPDATE ship_runs SET ended_at = NULL').run();
-    expect((await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).kind).toBe('none');
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual(none('the newest failed ship run has no end time'));
+    store.db.prepare("UPDATE ship_runs SET ended_at = 'not-a-time'").run();
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual(none('the newest failed ship run has an unreadable end time'));
   });
 });

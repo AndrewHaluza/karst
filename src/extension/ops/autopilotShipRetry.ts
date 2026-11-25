@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { getStage } from '../../store/stages.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { listShipRuns, listShipRepoSteps, newestPushIntentHead, type ShipRun } from '../../store/shipRuns.js';
+import { hasAttendedShipRun, listShipRuns, listShipRepoSteps, newestPushIntentHead, type ShipRun } from '../../store/shipRuns.js';
 import { isGitHubServerError } from '../../integrations/githubServerError.js';
 import { planRetryShip } from '../../ui/dashboard/insideActions.js';
 
@@ -32,16 +32,20 @@ export type ShipRetryOutcome = { readonly kind: 'sent' } | { readonly kind: 'bus
  * a pass: it does not retry.
  */
 export interface ShipRetrySeams {
-  /** `git status --porcelain -uall`: `ok: false` when the state cannot be read. */
+  /**
+   * `git status --porcelain -uall`: `ok: false` when the state cannot be read. Never rejects: an unreadable state is the
+   * `ok: false` answer.
+   */
   readonly worktreeClean: (repo: string) => Promise<{ readonly ok: true; readonly clean: boolean } | { readonly ok: false }>;
-  /** The worktree HEAD of the repo, or null when it cannot be read. */
+  /** The worktree HEAD of the repo, or null when it cannot be read. Never rejects. */
   readonly localHead: (repo: string) => Promise<string | null>;
 }
 
 export type ShipRetryDecision =
   | { readonly kind: 'retry'; readonly repos: readonly string[]; readonly n: number }
   | { readonly kind: 'wait'; readonly until: number }
-  | { readonly kind: 'park'; readonly reason: string }
+  /** `runId`: the failed run the stop belongs to, so the engine writes its one event per run. */
+  | { readonly kind: 'park'; readonly reason: string; readonly runId: number }
   | { readonly kind: 'none'; readonly why: string };
 
 const none = (why: string): ShipRetryDecision => ({ kind: 'none', why });
@@ -62,23 +66,25 @@ export async function shipRetryDecision(store: Store, ticketId: number, now: num
   const stage = getStage(store, ticketId, 'ship');
   if (stage === null || stage.status !== 'failed') return none('the ship stage is not failed');
   if (stageBlock(store, ticketId, 'ship') !== null) return none('the ship stage has a block');
-  // The scan sees one run past the bound: enough to read `n > MAX` and park.
-  const runs = listShipRuns(store, ticketId, MAX_AUTO_SHIP_RETRIES + 2);
-  const newest = runs[0];
-  if (newest === undefined || newest.status !== 'failed') return none('the newest ship run did not fail');
-  // Rule 3: a person's Confirm/Retry ship opened the run that failed, or an earlier run of the same ship.
-  if (!runs.some((r) => !r.unattended && r.id <= newest.id)) return none('no person confirmed a ship');
-  if (!serverErrorOnly(store, newest)) return none('the failed ship was not a GitHub server error');
-  // Rule 5: nothing new would be published. The repos Retry ship would re-run must hold exactly the pushed head.
+  // Rule 5's repo list comes before the run checks: with no failed step anywhere there is nothing Retry ship could run.
   const plan = planRetryShip(store, ticketId);
   if ('reason' in plan) return none(plan.reason);
+  // The scan sees one run past the bound: enough to read `n > MAX` and park.
+  const runs = listShipRuns(store, ticketId, MAX_AUTO_SHIP_RETRIES + 2);
+  // A repo with a failed step belongs to a run, so a repo list implies a run: `runs[0]` is always here.
+  const newest = runs[0]!;
+  if (newest.status !== 'failed') return none('the newest ship run did not fail');
+  // Rule 3: a person's Confirm/Retry ship opened this ship's series (an unattended resume can only follow one).
+  if (!hasAttendedShipRun(store, ticketId)) return none('no person confirmed a ship');
+  if (!serverErrorOnly(store, newest)) return none('the failed ship was not a GitHub server error');
+  // Nothing new would be published: every repo Retry ship would re-run must hold exactly the pushed head.
   for (const repo of plan.repos) {
-    const state = await seams.worktreeClean(repo).catch((): { ok: false } => ({ ok: false }));
+    const state = await seams.worktreeClean(repo);
     if (!state.ok) return none(`the worktree of ${repo} cannot be read`);
     if (!state.clean) return none(`the worktree of ${repo} has uncommitted changes`);
-    const head = await seams.localHead(repo).catch(() => null);
+    const head = await seams.localHead(repo);
     const pushed = newestPushIntentHead(store, ticketId, repo);
-    if (head === null || pushed === null || head !== pushed) return none(`the head of ${repo} is not the head the ship pushed`);
+    if (head === null || head !== pushed) return none(`the head of ${repo} is not the head the ship pushed`);
   }
   // Rule 6: the consecutive newest runs that failed only on server errors. A passed run or another failure stops it.
   let n = 0;
@@ -86,9 +92,12 @@ export async function shipRetryDecision(store: Store, ticketId: number, now: num
     if (r.status !== 'failed' || !serverErrorOnly(store, r)) break;
     n += 1;
   }
-  if (n > MAX_AUTO_SHIP_RETRIES) return { kind: 'park', reason: AUTO_SHIP_RETRY_STOP_REASON };
-  const endedAt = newest.endedAt === null ? Number.NaN : Date.parse(newest.endedAt);
-  if (Number.isNaN(endedAt)) return none('the newest failed ship run has no end time');
+  if (n > MAX_AUTO_SHIP_RETRIES) return { kind: 'park', reason: AUTO_SHIP_RETRY_STOP_REASON, runId: newest.id };
+  // A run with no end time, and one with an unreadable end time, never retry.
+  const ended = newest.endedAt;
+  if (ended === null) return none('the newest failed ship run has no end time');
+  const endedAt = Date.parse(ended);
+  if (Number.isNaN(endedAt)) return none('the newest failed ship run has an unreadable end time');
   const until = endedAt + AUTO_SHIP_RETRY_DELAYS_MS[n - 1]!;
   if (now < until) return { kind: 'wait', until };
   return { kind: 'retry', repos: plan.repos, n };

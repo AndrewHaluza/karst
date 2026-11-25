@@ -21,6 +21,7 @@ import {
   listShipRuns,
   listShipRepoSteps,
   newestPushIntentHead,
+  hasAttendedShipRun,
   reconcileShipRuns,
   parseShipPreState,
   parseShipIntent,
@@ -991,6 +992,14 @@ describe('ship_runs', () => {
       const pr = step(r.id, { repo: 'web', step: 'pr', detail: 'pr' });
       finishShipRepoStep(store, pr.id, { status: 'failed', detail: 'HTTP 502', endedAt: '2026-08-08T10:02:00.000Z' });
       expect(listShipRepoSteps(store, r.id).map((s) => [s.id, s.step, s.status])).toEqual([[push.id, 'push', 'running'], [pr.id, 'pr', 'failed']]);
+    });
+
+    it('tells whether a person ever opened a ship run', () => {
+      expect(hasAttendedShipRun(store, ticketId)).toBe(false);
+      run({ unattended: true });
+      expect(hasAttendedShipRun(store, ticketId)).toBe(false);
+      run({ unattended: false });
+      expect(hasAttendedShipRun(store, ticketId)).toBe(true);
     });
 
     it('reads the head the newest push intent intended, whatever its status', () => {

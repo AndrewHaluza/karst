@@ -30,6 +30,10 @@ describe('makeShipRetrySeams', () => {
     await expect(seams.worktreeClean('r')).resolves.toEqual({ ok: true, clean: true });
     expect(git).toHaveBeenCalledWith(['status', '--porcelain', '-uall'], '/w/r');
 
+    // Whitespace-only output is a clean tree: the empty check trims.
+    const blank = makeShipRetrySeams({ store, ticketId: id, ciInput: () => input(vi.fn(async () => gitResult(0, '\n')) as never) });
+    await expect(blank.worktreeClean('r')).resolves.toEqual({ ok: true, clean: true });
+
     const dirty = makeShipRetrySeams({ store, ticketId: id, ciInput: () => input(vi.fn(async () => gitResult(0, ' M a.ts\n')) as never) });
     await expect(dirty.worktreeClean('r')).resolves.toEqual({ ok: true, clean: false });
   });

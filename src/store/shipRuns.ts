@@ -1032,6 +1032,17 @@ export function listShipRuns(store: Store, ticketId: number, limit = 50): ShipRu
     .map((r) => rowToShipRun(r as ShipRunRowShape));
 }
 
+/**
+ * Whether a PERSON's ship ever opened a run of this ticket (an attended run, `unattended = 0`). Run ids are monotonic,
+ * so such a run is always at or before the newest failed one: an unattended resume can only follow a ship a person
+ * started (@arch:AP-11 rule 3).
+ */
+export function hasAttendedShipRun(store: Store, ticketId: number): boolean {
+  return store.db
+    .prepare('SELECT 1 AS one FROM ship_runs WHERE ticket_id = ? AND unattended = 0 LIMIT 1')
+    .get(ticketId) !== undefined;
+}
+
 /** Every step row of one ship run, in insertion order. */
 export function listShipRepoSteps(store: Store, shipRunId: number): ShipRepoStep[] {
   return store.db

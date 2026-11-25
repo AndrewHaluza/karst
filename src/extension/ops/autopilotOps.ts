@@ -14,7 +14,6 @@ import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.j
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
 import { MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
-import { listShipRuns } from '../../store/shipRuns.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
@@ -437,7 +436,7 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
       return { kind: 'idle' };
     }
     case 'park': {
-      const key = `${flightKeyOf(d)}:ship-retry-park:${listShipRuns(d.store, d.ticketId, 1)[0]?.id ?? 0}`;
+      const key = `${flightKeyOf(d)}:ship-retry-park:${decision.runId}`;
       if (!seen.has(key)) {
         seen.add(key);
         d.note(`Autopilot: ${decision.reason}`, `${d.key}: every ship run since the person's confirm failed on a GitHub server error; the failed ship keeps its Retry ship.`);
@@ -446,7 +445,6 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
       return { kind: 'idle' };
     }
     case 'retry': {
-      seen.clear();
       const outcome = await d.retryShip(decision.repos);
       if (outcome.kind === 'busy') {
         d.debug(`${LOG} ticket ${d.key}: no ship retry, the host drains for a reload`);
