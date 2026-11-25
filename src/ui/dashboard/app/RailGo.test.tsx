@@ -69,18 +69,36 @@ describe('Rail — the needs-you control acts or navigates, as the host says', (
     for (const fn of Object.values(h.send)) expect(fn).not.toHaveBeenCalled();
   });
 
-  it.each([['merge-panel'], ['graph-panel'], ['open-session']])('%s navigates, posting nothing', (kind) => {
+  it('Open session posts resume-ticket once with a request id, sets aria-busy while pending, and ignores repeat clicks', () => {
+    // Host note: `resumeTicket` returns void (`dashboardActions.ts:368`) and `reportAction` settles ok:true at once;
+    // for graph-owned tickets `karst.openSession` reveals the live node terminal or reports launchBlocked and never
+    // starts a second agent. Here we assert the webview contract: one post, aria-busy while pending, no double-post.
+    const h = mountRail(ship({ kind: 'open-session' }, { action: 'Open session' }));
+    expect(go().dataset.act).toBe('resume-ticket');
+    expect(go().hasAttribute('data-goto')).toBe(false);
+    fireEvent.click(go());
+    fireEvent.click(go());
+    expect(h.send.resumeTicket).toHaveBeenCalledTimes(1);
+    expect(h.send.resumeTicket).toHaveBeenCalledWith('req-1');
+    expect(go().getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('a host verdict without a call to action posts resume-ticket', () => {
+    const h = mountRail(ship(undefined));
+    expect(go().dataset.act).toBe('resume-ticket');
+    expect(go().hasAttribute('data-goto')).toBe(false);
+    fireEvent.click(go());
+    expect(h.send.resumeTicket).toHaveBeenCalledTimes(1);
+    expect(h.send.resumeTicket).toHaveBeenCalledWith('req-1');
+  });
+
+  it.each([['merge-panel'], ['graph-panel'], ['usage-limit-pick']])('%s navigates, posting nothing', (kind) => {
     const h = mountRail(ship({ kind }));
     expect(go().hasAttribute('data-act')).toBe(false);
     expect(go().hasAttribute('data-goto')).toBe(true);
     expect(go().dataset.go).toBe(kind);
     fireEvent.click(go());
     for (const fn of Object.values(h.send)) expect(fn).not.toHaveBeenCalled();
-  });
-
-  it('a host verdict without a call to action opens the session', () => {
-    mountRail(ship(undefined));
-    expect(go().dataset.go).toBe('open-session');
   });
 
   it('labels the control with the host wording, or Open when there is none', () => {
@@ -101,7 +119,6 @@ describe('Rail — navigation targets', () => {
 
   it.each([
     ['merge-panel', '#panelMerge'],
-    ['open-session', '#agentButton'],
     ['graph-panel', '#inside'],
   ])('%s scrolls the owning control into view and focuses it', (kind, target) => {
     stub();
@@ -109,6 +126,35 @@ describe('Rail — navigation targets', () => {
     fireEvent.click(go());
     expect(scrolled).toEqual([must(target)]);
     if (kind !== 'graph-panel') expect(document.activeElement).toBe(must(target));
+  });
+
+  it('usage-limit-pick scrolls the blocked banner pick control into view and focuses it without posting', () => {
+    stub();
+    const h = mountRail(
+      railState({
+        stageCurrent: 'review',
+        currentStage: {
+          stageKey: 'review',
+          status: 'running',
+          blocked: { kind: 'usage-limit', reason: 'out of quota', at: '2026-01-01T00:00:00Z', resumable: false },
+        },
+        main: mainLine('review', {
+          review: { needsUser: true, needs: needs({ kind: 'usage-limit-pick' }, { action: 'Pick another model', detail: 'the provider is out of quota' }) },
+        }),
+      }),
+    );
+    fireEvent.click(go());
+    const pickBtn = must('#blocked [data-act="usage-limit-pick"]');
+    expect(scrolled).toEqual([pickBtn]);
+    expect(document.activeElement).toBe(pickBtn);
+    for (const fn of Object.values(h.send)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('usage-limit-pick falls back to scrolling #blocked when the pick control is absent', () => {
+    stub();
+    mountRail(navState('usage-limit-pick'));
+    fireEvent.click(go());
+    expect(scrolled).toEqual([must('#blocked')]);
   });
 
   it('falls back to the panel when it has no control yet', () => {
