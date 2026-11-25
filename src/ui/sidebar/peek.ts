@@ -288,7 +288,7 @@ function scopeFamily(input: PeekInput): Family {
 
 /** `Waiting for you`: the agent asked, did not start, ran out of quota, or the graph waits. */
 function needsYou(needs: RailNeeds | null): boolean {
-  return needs?.cta.kind === 'open-session' || needs?.cta.kind === 'graph-panel';
+  return needs?.cta.kind === 'open-session' || needs?.cta.kind === 'graph-panel' || needs?.cta.kind === 'usage-limit-pick';
 }
 
 /**
