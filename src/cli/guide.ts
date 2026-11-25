@@ -191,6 +191,18 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     it to re-read the ids and statuses (a draft a human already accepted or
     discarded cannot be revised). It opens no store. The one flag, \`--pending\`,
     keeps only the drafts still pending; without it the output is unchanged.
+ - \`plan-artifacts list [--session P<n>] [--json]\` — ONLY inside a planning
+    session. Lists the regular files another session OF THE SAME PROJECT keeps in
+    its scratch dir (its artifacts, prototypes and plans), paths relative to that
+    dir. It never follows a link and never lists the session's \`outbox*\`,
+    \`proposals.json\` or \`karst-instructions.md\`; the default session is your own.
+ - \`plan-artifacts import --session P<n> --path <rel> [--as <name>] [--force]\`
+    — ONLY inside a planning session. Copies ONE regular file of another session
+    of the same project into your own \`$KARST_ARTIFACTS\` (10 MB max; \`--as\`
+    renames it; \`--force\` overwrites a regular file). Never copy another
+    session's file with a shell command or guess its path: run this verb, which
+    prints \`{"ok":true,"path":"<name>"}\`. The confinement guards mistakes, not a
+    hostile agent: a shell-capable planner can copy files itself.
  - \`setup discover [--root <path>] [--default-branch <branch>]\` — ONLY inside a
     setup session. Runs the deterministic discovery engine and prints the facts
     you reason over as JSON: every git repository under the root, each one's
