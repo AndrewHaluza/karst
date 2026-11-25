@@ -1252,10 +1252,13 @@ describe('planning outbox', () => {
       const ob = make({ onWarnings });
       ob.scan();
       expect(ob.checkingIds().size).toBe(0);
-      const withStorage = make({ storageDir: storageDir() });
+      const announced = vi.fn();
+      const withStorage = make({ storageDir: storageDir(), onProposal: announced });
       put(`${UUID(3)}.json`, { ...good, title: 'plain 2' });
       withStorage.scan();
       expect(withStorage.checkingIds().size).toBe(0);
+      // A draft that lists no file is taken in and announced with a storage dir too.
+      expect(announced).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ title: 'plain 2' }) }));
       await settle();
       expect(pending().every((p) => p.attachments.length === 0)).toBe(true);
       expect(onWarnings).not.toHaveBeenCalled();
