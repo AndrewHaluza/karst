@@ -62,6 +62,7 @@ interface Candidate {
 async function readConfined(artifactsReal: string, artifactsDir: string, rel: string, usedBytes: number): Promise<Candidate> {
   const joined = resolve(artifactsDir, rel);
   const name = basename(joined);
+  if (!joined.startsWith(resolve(artifactsDir) + sep)) throw new Refused('outside');
   let first;
   try {
     first = await lstat(joined);

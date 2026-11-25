@@ -134,6 +134,13 @@ describe('draftQualityWarnings', () => {
       };
       expect(draftQualityWarnings(d)).toContain(LEAK_WARNING);
     });
+    it('keeps the warning for an unlisted path with the same base name', () => {
+      const d = {
+        ...draft(`${WELL_DESC} See /tmp/x/artifacts/other/a.html for the layout.`),
+        attachments: [{ path: 'proto/a.html' }],
+      };
+      expect(draftQualityWarnings(d)).toContain(LEAK_WARNING);
+    });
     it('uses the attachments wording', () => {
       expect(LEAK_WARNING).toBe('plan path not in attachments (attach or inline)');
     });

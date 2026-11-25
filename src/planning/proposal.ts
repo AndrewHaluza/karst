@@ -119,7 +119,6 @@ function validateAttachments(v: unknown): { ok: true; value: ProposalAttachment[
     if (typeof p !== 'string' || p.length === 0 || p.length > MAX_ATTACHMENT_PATH) {
       return bad(`attachment path must be 1-${MAX_ATTACHMENT_PATH} characters`);
     }
-    if (p.startsWith('/') || p.split(/[\\/]/).includes('..')) return bad('attachment path must be relative with no ".." segment');
     const out: ProposalAttachment = { path: p.replace(ALL_CONTROLS, '') };
     if (r.note !== undefined) {
       if (typeof r.note !== 'string' || /[\r\n]/.test(r.note)) return bad('attachment note must be a single-line string');

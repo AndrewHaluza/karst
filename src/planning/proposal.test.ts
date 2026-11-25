@@ -183,9 +183,6 @@ describe('attachments', () => {
     expect(r).toEqual({ ok: true, value: { ...ok, attachments: [{ path: 'proto/a.html', note: 'xy', binding: true }] } });
   });
   it.each([
-    [[{ path: '../x' }]],
-    [[{ path: '/etc/passwd' }]],
-    [[{ path: 'a/../b' }]],
     [[{ path: 'a'.repeat(301) }]],
     [[{ path: 'a', note: 'n'.repeat(201) }]],
     [[{ path: 'a', note: 'two\nlines' }]],
@@ -195,6 +192,9 @@ describe('attachments', () => {
     ['x'],
   ])('rejects %j', (a) => {
     expect(withA(a).ok).toBe(false);
+  });
+  it('keeps a path that leaves the session dir; the host refuses that one file', () => {
+    expect(withA([{ path: '../x' }, { path: '/etc/passwd' }]).ok).toBe(true);
   });
   it('rejects the reserved key hostAttachments', () => {
     expect(validateProposal({ ...ok, hostAttachments: [] }).ok).toBe(false);

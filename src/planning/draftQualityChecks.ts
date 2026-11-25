@@ -116,17 +116,15 @@ const LEAK_PATTERNS: readonly RegExp[] = [
 
 /** `text` without each cite of a listed attachment: its artifacts path, then its bare file name. */
 function withoutListedAttachments(text: string, listed: readonly { path: string }[] | undefined): string {
-  const cites = (listed ?? []).flatMap(({ path }) => [
-    `/artifacts/${path}`,
-    `\${KARST_ARTIFACTS}/${path}`,
-    `$KARST_ARTIFACTS/${path}`,
-    path.slice(path.lastIndexOf('/') + 1),
-  ]);
-  // Longest first, so a path is removed whole before its bare file name.
-  return cites
-    .filter((c) => c !== '')
-    .sort((a, b) => b.length - a.length)
-    .reduce((acc, c) => acc.split(c).join(''), text);
+  const files = listed ?? [];
+  const full = files.flatMap(({ path }) => [`/artifacts/${path}`, `\${KARST_ARTIFACTS}/${path}`, `$KARST_ARTIFACTS/${path}`]);
+  // Remove whole paths first, longest first. Then remove a bare file name only when no path character precedes it.
+  const noPaths = full.sort((a, b) => b.length - a.length).reduce((acc, c) => acc.split(c).join(''), text);
+  return files.reduce((acc, { path }) => {
+    const name = path.slice(path.lastIndexOf('/') + 1);
+    if (name === '') return acc;
+    return acc.replace(new RegExp(`(?<![\\w./~$}-])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), '');
+  }, noPaths);
 }
 
 const VERIFICATION =

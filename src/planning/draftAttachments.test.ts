@@ -69,6 +69,13 @@ describe('snapshotDraftAttachments', () => {
     expect(r.warnings).toEqual(['attachment refused: f.txt (outside)']);
   });
 
+  it('refuses a path that leaves the artifacts dir as outside, and keeps the rest', async () => {
+    writeFileSync(join(art, 'ok.txt'), 'x');
+    const r = await run([{ path: '../x' }, { path: '/etc/passwd' }, { path: 'ok.txt' }]);
+    expect(r.warnings).toEqual(['attachment refused: x (outside)', 'attachment refused: passwd (outside)']);
+    expect(r.list.map((a) => a.name)).toEqual(['ok.txt']);
+  });
+
   it('refuses a name without a usable extension', async () => {
     writeFileSync(join(art, 'noext'), 'x');
     const r = await run([{ path: 'noext' }]);
