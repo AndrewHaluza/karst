@@ -96,9 +96,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   sidebar: { screenshots: 75, layout: 110 },
   // T1266 graph-roles (the settings region lists expert / worker / fast for a graph approach), @ui:UI-R57: 1 theme (dark) (+1 screenshot) and its layout runs (+5).
   // T1301 agent-picker-open (the open agent-core menu at the wide 799-tall window, RD-AGENT-MENU), @ui:UI-R57: 1 theme (dark) (+1 screenshot); the page shares the edit-core-model layout run, so no layout tests are added.
-  // T1301 SET-63 realistic-create / graph-roles / error at ALL_THEMES, SET-56's HC realistic-create-switches (Auto-improve Off), and SET-65's open approach picker, @ui:UI-R57: 7 screenshots (3 variants x 2 added themes = +6, the HC switch variant = +1); skipLayout, because the switch toggle adds no geometry and realistic-create already runs the page.
+  // T1301 SET-63 realistic-create / graph-roles / error at ALL_THEMES, SET-56's HC realistic-create-switches (Auto-improve Off), and SET-65's open approach picker, @ui:UI-R57: 7 screenshots (3 variants x 2 added themes = +6, the HC switch variant = +1); skipLayout, because the switch toggle adds no geometry and the realistic create page already runs it.
   // T1308 graph-roles-legacy-core / graph-roles-legacy-core-tight-320 (a graph ticket with a stale core: the preset-only picker, arch:AC-63), @ui:UI-R57: 2 variants x 1 theme (dark) (+2 screenshots) and their layout runs (+5).
-  ticketForm: { screenshots: 41, layout: 100 },
+  // T1357 realistic-create removed: the populated page now renders the same realistic create state at ALL_THEMES, @ui:VISUAL-VARIANTS (-3 screenshots; the layout run stays, now under populated).
+  ticketForm: { screenshots: 38, layout: 100 },
   // T1302 state matrix (@ui:UI-R57): populated-narrow/tight, long-key wide + mid, host-failure, and the five
   // quota states (+14 screenshots); their layout runs add 6 distinct pages x 6 widths and 8 pages x the 360 tier (+44).
   usage: { screenshots: 24, layout: 84 },

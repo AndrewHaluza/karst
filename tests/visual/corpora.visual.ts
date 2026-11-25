@@ -40,7 +40,7 @@ test.describe('corpus adapter', () => {
   });
 
   test('MINIMAL_RATCHET size never grows (shrink-only ratchet)', () => {
-    // At plan time: 7 non-dashboard views on MINIMAL.  Now 2: sidebar, usage,
+    // At plan time: 7 non-dashboard views on MINIMAL.  Now 1: sidebar, usage,
     // resources, gettingStarted and diffs each seed from the checked-in
     // production render-fixture corpus their own render tests already use,
     // so the visual sweep and the render tests pin the same states.
@@ -51,10 +51,11 @@ test.describe('corpus adapter', () => {
     // either deliver a corpus or explicitly document why the ratchet
     // grew — and update this number with a justification.
     //
-    // The two that remain — settings, ticketForm — have no renderFixtures
-    // module, so a corpus for them is authored data, not a reuse, and
-    // belongs to the rest of FEAT-37.
-    expect(MINIMAL_RATCHET.length).toBeLessThanOrEqual(2);
+    // The one that remains — settings — has no renderFixtures module, so a
+    // corpus for it is authored data, not a reuse, and belongs to the rest of
+    // FEAT-37.  ticketForm left in T1357: its populated page is the realistic
+    // create state (realisticTicketForm.ts).
+    expect(MINIMAL_RATCHET.length).toBeLessThanOrEqual(1);
   });
 
   test('every MINIMAL_RATCHET view produces a non-empty message list', () => {

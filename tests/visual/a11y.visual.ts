@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
-import { ALL_VIEWS, MINIMAL_RATCHET } from './corpora.js';
+import { ALL_VIEWS } from './corpora.js';
 import { DEFAULT_VARIANT } from './defaultVariant.js';
 import type { ViewId } from './corpora.js';
 import type { ThemeId } from './themes.js';
