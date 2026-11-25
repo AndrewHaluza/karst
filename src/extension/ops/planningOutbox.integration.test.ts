@@ -1321,6 +1321,62 @@ describe('planning outbox', () => {
       await drain(ob);
     });
 
+    it('drops a late git warning when the draft was discarded meanwhile', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const onWarnings = vi.fn();
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      make({ repoPaths: () => ['/nowhere'], commitExists: async () => { await gate; return false; }, onWarnings }).scan();
+      const id = pending()[0]!.id;
+      discardProposal(store, id);
+      release();
+      await flush();
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+      expect(onWarnings).not.toHaveBeenCalled();
+    });
+
+    it('a copy that ends after a revise writes nothing onto the new draft', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const onWarnings = vi.fn();
+      const ob = make({ storageDir: storageDir(), onWarnings });
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, title: 'second' });
+      ob.scan();
+      await drain(ob);
+      expect(getProposal(store, id)!.attachments).toEqual([]);
+      expect(onWarnings).not.toHaveBeenCalled();
+    });
+
+    it('a clean copy adds no warning and needs no onWarnings callback', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const debug = vi.fn();
+      const ob = make({ storageDir: storageDir(), debug });
+      ob.scan();
+      await drain(ob);
+      const id = pending()[0]!.id;
+      expect(getProposal(store, id)!.attachments).toHaveLength(1);
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+      expect(debug.mock.calls.map((c) => String(c[0])).join()).not.toMatch(/failed/);
+    });
+
+    it('logs a failed cleanup of the copy of a draft resolved meanwhile', async () => {
+      withFile('p.html', 'x');
+      writeFileSync(join(root, 'blocker'), 'f');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const debug = vi.fn();
+      const ob = make({ storageDir: join(root, 'blocker', 'sub'), debug });
+      ob.scan();
+      const id = pending()[0]!.id;
+      discardProposal(store, id);
+      await drain(ob);
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining(`draft attachment cleanup for proposal ${id} failed`));
+    });
+
     it('writes nothing when the draft was discarded before the copy ended', async () => {
       withFile('p.html', 'x');
       put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });

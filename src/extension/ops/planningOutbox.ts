@@ -347,7 +347,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         });
         const cur = getProposal(deps.store, id);
         // A revise or resolution since ingest owns the row now.
-        if (!cur || cur.sourceUuid !== uuid || cur.status !== 'pending' || extra.length === 0) return;
+        if (cur?.sourceUuid !== uuid || cur.status !== 'pending' || extra.length === 0) return;
         setProposalWarnings(deps.store, id, [...cur.warnings, ...extra]);
         const row = getProposal(deps.store, id);
         if (row) deps.onWarnings?.(row);
@@ -357,7 +357,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       .then((copied) => {
         if (copied === undefined) return undefined;
         const cur = getProposal(deps.store, id);
-        if (!cur || cur.sourceUuid !== uuid) return undefined;
+        if (cur?.sourceUuid !== uuid) return undefined;
         if (cur.status !== 'pending') {
           // Resolved before the copy ended: nothing will read the host copy, so drop it.
           return removeDraftAttachments(deps.storageDir!, id).catch((e: unknown) =>
@@ -370,6 +370,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         if (row) deps.onWarnings?.(row);
         return undefined;
       })
+      // Stryker disable next-line ArrowFunction,StringLiteral: equivalent, snapshotDraftAttachments never rejects; this only logs a defensive failure
       .catch((e: unknown) => debug(`attachment copy for proposal ${id} failed (${messageOf(e)})`));
     void Promise.all([probes, copying]).finally(() => {
       if (checking.get(id) !== uuid) return;

@@ -166,7 +166,7 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
         for (const sessionId of sessions) refresh(sessionId);
       });
       // A failed discard leaves the draft pending: its files must stay for the next Review.
-      if (getProposal(deps.store, id)?.status !== 'pending') await removeHostCopy(id);
+      if (getProposal(deps.store, id)!.status !== 'pending') await removeHostCopy(id);
     },
 
     async setPriority(id, level) {
