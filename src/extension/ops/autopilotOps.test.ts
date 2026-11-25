@@ -1907,7 +1907,7 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     expect((await autopilotTick(rig({ ...base, sessionRunning: () => true }).deps)).kind).toBe('busy');
     setAutopilotPaused(store, id, 'auto-fix paused: sandbox read-only');
     expect((await autopilotTick(rig(base).deps)).kind).toBe('idle');
-    setAutopilotStopped(store, id, null);
+    setAutopilotOverride(store, id, 'on');
     expect((await autopilotTick(rig({ now: () => at, retryShip }).deps)).kind).toBe('idle');
     expect(retryShip).not.toHaveBeenCalled();
   });
