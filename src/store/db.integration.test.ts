@@ -530,6 +530,43 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'last_error')).toHaveLength(1);
   });
 
+  it('migrates a pre-v139 database by adding phase_marks.source as agent, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`CREATE TABLE phase_marks (
+      id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, stage_key TEXT NOT NULL,
+      attempt INTEGER NOT NULL, phase_name TEXT NOT NULL, marked_at TEXT NOT NULL
+    )`);
+    legacy.exec(
+      "INSERT INTO phase_marks (id, ticket_id, stage_key, attempt, phase_name, marked_at) VALUES (1, 7, 'impl', 0, 'plan', '2026-01-01T00:00:00.000Z')",
+    );
+    legacy.pragma('user_version = 138');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('phase_marks')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('source');
+    expect(migrated.db.prepare('SELECT source AS s FROM phase_marks WHERE id = 1').get()).toEqual({ s: 'agent' });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'source')).toHaveLength(1);
+  });
+
+  it('a fresh database defaults phase_marks.source to agent', () => {
+    const fresh = openStore(':memory:');
+    cleanups.push(() => fresh.close());
+    const col = (fresh.db.prepare("PRAGMA table_info('phase_marks')").all() as { name: string; notnull: number; dflt_value: string | null }[])
+      .find((c) => c.name === 'source');
+    expect(col).toMatchObject({ notnull: 1, dflt_value: "'agent'" });
+  });
+
   it('a fresh database has a nullable servers.last_error', () => {
     const fresh = openStore(':memory:');
     cleanups.push(() => fresh.close());

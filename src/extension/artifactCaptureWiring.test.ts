@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { watch } from 'node:fs';
-
 import type { GitRunner } from '../integrations/git.js';
 import { openStore, type Store } from '../store/db.js';
+import type { ApproachPhase } from '../artifacts/phaseEvidence.js';
 import { WATCHER_SYNC_MS, wireArtifactCapture } from './artifactCaptureWiring.js';
 
 describe('wireArtifactCapture', () => {
@@ -26,7 +26,7 @@ describe('wireArtifactCapture', () => {
     store.close();
   });
 
-  const wire = (debug: (m: string) => void = () => {}) =>
+  const wire = (debug: (m: string) => void = () => {}, phasesOf: (ticketId: number) => readonly ApproachPhase[] = () => []) =>
     wireArtifactCapture({
       store,
       globalStorageRoot: '/nonexistent-gs',
@@ -34,6 +34,7 @@ describe('wireArtifactCapture', () => {
       manifest: () => ({ approaches: [{ id: 'gsd' }] }) as never,
       git,
       debug,
+      phasesOf,
       fsWatch,
     });
 
@@ -123,7 +124,7 @@ describe('wireArtifactCapture', () => {
     const w = wireArtifactCapture({
       store, globalStorageRoot: '/nonexistent-gs', projectId: () => 1,
       manifest: () => ({ approaches: [{ id: 'gsd' }] }) as never,
-      git, debug, fsWatch: errorWatch,
+      git, debug, phasesOf: () => [], fsWatch: errorWatch,
     });
     w.start();
     errors[0]!({ code: 'ENOSPC' });
@@ -141,6 +142,7 @@ describe('wireArtifactCapture', () => {
       manifest: () => ({ approaches: [{ id: 'gsd' }] }) as never,
       git: async (_args, cwd) => (cwds.push(cwd), { stdout: '', stderr: '', exitCode: 1 }),
       debug: () => {},
+      phasesOf: () => [],
       fsWatch,
     });
     w.onSessionEnd(5);
@@ -173,7 +175,7 @@ describe('wireArtifactCapture', () => {
       store, globalStorageRoot: '/nonexistent-gs', projectId: () => 1,
       manifest: () => ({ approaches: [{ id: 'gsd' }] }) as never,
       git: async (args, cwd) => { calls.push([cwd, ...args]); return { stdout: '', stderr: '', exitCode: 1 }; },
-      debug: () => {}, fsWatch,
+      debug: () => {}, phasesOf: () => [], fsWatch,
     });
     w.onHookEvent(5, { hook_event_name: 'Stop', cwd: '/wt', file_path: '/wt/docs/superpowers/plans/a.md' });
     w.onHookEvent(5, { hook_event_name: 'PostToolUse', cwd: '/wt' });
@@ -189,7 +191,7 @@ describe('wireArtifactCapture', () => {
       store, globalStorageRoot: '/nonexistent-gs', projectId: () => 1,
       manifest: () => ({ approaches: [{ id: 'superpowers' }] }) as never,
       git: async (_a, cwd) => { cwds.push(cwd); return { stdout: '', stderr: '', exitCode: 1 }; },
-      debug: () => {}, fsWatch,
+      debug: () => {}, phasesOf: () => [], fsWatch,
     });
     w.onHookEvent(5, { hook_event_name: 'PostToolUse', cwd: '/wt', file_path: '/wt/docs/superpowers/plans/a.md', session_id: 's' });
     await vi.waitFor(() => expect(cwds).toContain('/wt'));
@@ -203,7 +205,7 @@ describe('wireArtifactCapture', () => {
       store, globalStorageRoot: '/nonexistent-gs', projectId: () => 1,
       manifest: () => ({ approaches: [{ id: 'gsd' }] }) as never,
       git: async (_a, cwd) => { cwds.push(cwd); return { stdout: '', stderr: '', exitCode: 1 }; },
-      debug: () => {}, fsWatch,
+      debug: () => {}, phasesOf: () => [], fsWatch,
     });
     w.onHookEvent(5, { hook_event_name: 'SessionEnd' });
     await vi.waitFor(() => expect(cwds).toContain('/wt'));

@@ -1,6 +1,4 @@
-import { test, expect } from '@playwright/test';
-import { test as karstTest } from './fixtures.js';
-
+import { test as karstTest, expect } from './fixtures.js';
 
 /**
  * Status/state surface screenshots for UI-R28 (grayscale) and UI-R30
@@ -15,23 +13,31 @@ import { test as karstTest } from './fixtures.js';
  * only — status primitives live in one place and do not need per-theme
  * baselines. FILE_PROJECTS in tests/visual/projectFilter.ts holds that list.
  *
- * The grayscale baseline (UI-R28) is expected to show G1's five identical
- * `.k-dot` circles — that is the documented defect, not a sweep failure.
+ * The grayscale baseline (UI-R28) really is grayscale: the `dark-grayscale`
+ * project adds `:root { filter: grayscale(1); }` after navigation and asserts the
+ * computed filter, so the PNG cannot silently stay in colour. It is expected to
+ * show G1's five identical `.k-dot` circles — that is the documented defect, not
+ * a sweep failure.
  */
 
 karstTest.describe('status/state screenshots', () => {
   karstTest('status primitives: full-page screenshot', async ({ gotoView, page }, testInfo) => {
-    // UI-R28: apply grayscale filter for the dark-grayscale project.
-    if (testInfo.project.name === 'dark-grayscale') {
-      await page.addInitScript(() => {
-        const style = document.createElement('style');
-        style.textContent = ':root { filter: grayscale(1); }';
-        document.documentElement.appendChild(style);
-      });
-    }
-
     // Navigate to the dashboard — status primitives are most visible there.
     await gotoView('dashboard', { scenario: 'running' });
+
+    // UI-R28: grayscale is applied to the loaded document, not by addInitScript —
+    // that runs before `document.documentElement` exists, so the style never landed
+    // and the "grayscale" baseline was a colour screenshot. CSP allows inline styles
+    // (`style-src 'unsafe-inline'`, src/model/csp.ts), so addStyleTag works.
+    if (testInfo.project.name === 'dark-grayscale') {
+      await page.addStyleTag({ content: ':root { filter: grayscale(1); }' });
+      await expect
+        .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).filter), {
+          message: 'dark-grayscale must render with the UI-R28 grayscale filter applied',
+        })
+        .toContain('grayscale(1)');
+    }
+
     await expect(page).toHaveScreenshot('status-primitives.png', {
       fullPage: false,
       mask: [page.locator('[data-karst-clock], .k-clock, [data-elapsed]')],

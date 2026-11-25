@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   baselineProblems,
   changedBaselines,
-  classifyFailures,
   failingScreenshots,
   summaryMarkdown,
   gitArgs,
+  isFullRun,
   layoutGateProblems,
   missingTests,
   neverRanCount,
   prChangedBaselines,
+  prLedgerBase,
   repoRelative,
+  screenshotStatuses,
   BASELINES_DIR,
 } from './visual-sweep-gate.mjs';
 
@@ -240,25 +242,33 @@ describe('failingScreenshots', () => {
   });
 });
 
-describe('classifyFailures', () => {
-  const a = { id: '::a', project: 'dark', diff: 'd' };
-  const b = { id: '::b', project: 'dark', diff: 'd' };
-
-  it('new break: red here, not red on develop', () => {
-    const r = classifyFailures([a, b], [{ id: '::a', project: 'dark' }]);
-    expect(r.newBreaks).toEqual([b]);
-    expect(r.preExisting).toEqual([a]);
-    expect(r.developKnown).toBe(true);
+describe('ledger keys of the report', () => {
+  it('failingScreenshots names each failure by its ledger key', () => {
+    const rep = report(failing('a', 'light'));
+    rep.suites[0].specs[0].file = 'pages.visual.ts';
+    expect(failingScreenshots(rep)[0].key).toBe('light|pages.visual.ts::a');
   });
 
-  it('same id in another project is a new break', () => {
-    const r = classifyFailures([{ ...a, project: 'light' }], [{ id: '::a', project: 'dark' }]);
-    expect(r.newBreaks).toHaveLength(1);
+  it('screenshotStatuses maps every screenshot test to its outcome, without the layout projects', () => {
+    const rep = report(
+      testEntry({ status: 'expected', title: 'ok' }),
+      failing('bad', 'light'),
+      { ...failing('wobbly'), status: 'flaky' },
+      failing('geometry', 'layout'),
+      testEntry({ project: 'layout-teardown', title: 'layout ledger verdict' }),
+    );
+    expect(screenshotStatuses(rep)).toEqual(
+      new Map([
+        ['dark|::ok', 'expected'],
+        ['light|::bad', 'unexpected'],
+        ['dark|::wobbly', 'flaky'],
+      ]),
+    );
   });
 
-  it('no develop artifact: nothing blocks', () => {
-    const r = classifyFailures([a], null);
-    expect(r).toEqual({ newBreaks: [], preExisting: [], developKnown: false });
+  it('screenshotStatuses keeps a failure when the same key passes later', () => {
+    const rep = report(failing('twice'), testEntry({ status: 'expected', title: 'twice' }));
+    expect(screenshotStatuses(rep).get('dark|::twice')).toBe('unexpected');
   });
 
   it('own-baseline failures stay a separate rule', () => {
@@ -272,18 +282,94 @@ describe('classifyFailures', () => {
   });
 });
 
-describe('summaryMarkdown', () => {
-  const f = { id: '::a', project: 'dark', diff: '5 pixels (ratio 0.1 of all image pixels) are different' };
-  it('names new breaks with diff size and lists pre-existing', () => {
-    const md = summaryMarkdown({ newBreaks: [f], preExisting: [{ ...f, id: '::p' }], developKnown: true, owned: [] });
-    expect(md).toContain('New breaks');
-    expect(md).toContain('5 pixels');
-    expect(md).toContain('Pre-existing on develop');
+describe('isFullRun', () => {
+  it('is full only with a listing, no missing test and no test that never started', () => {
+    expect(isFullRun({ listed: true, missing: 0, neverRan: 0 })).toBe(true);
   });
-  it('says so when develop red set is missing', () => {
-    const md = summaryMarkdown({ newBreaks: [], preExisting: [], developKnown: false, owned: ['x'] });
-    expect(md).toContain('No develop red set available');
+
+  it.each([
+    ['no listing (a single local run)', { listed: false, missing: 0, neverRan: 0 }],
+    ['a listed test that no shard reported', { listed: true, missing: 1, neverRan: 0 }],
+    ['a test that never started', { listed: true, missing: 0, neverRan: 1 }],
+  ])('is partial with %s', (_label, input) => {
+    expect(isFullRun(input)).toBe(false);
+  });
+});
+
+describe('prLedgerBase', () => {
+  const PATH = 'tests/visual/visual-known-failures.json';
+
+  it('asks git nothing outside a pull request', () => {
+    let called = false;
+    const base = prLedgerBase({
+      env: { GITHUB_EVENT_NAME: 'push' },
+      gitRun: () => {
+        called = true;
+        return { status: 0, stdout: '' };
+      },
+    });
+    expect(called).toBe(false);
+    expect(base).toBeNull();
+  });
+
+  it('reads the ledger of the base parent on a pull request', () => {
+    const calls = [];
+    const base = prLedgerBase({
+      env: { GITHUB_EVENT_NAME: 'pull_request' },
+      gitRun: (args) => {
+        calls.push(args);
+        return args[0] === 'ls-tree' ? { status: 0, stdout: `${PATH}\n` } : { status: 0, stdout: '["dark|::a"]' };
+      },
+    });
+    expect(calls).toEqual([
+      ['ls-tree', '--name-only', 'HEAD^1', '--', PATH],
+      ['show', `HEAD^1:${PATH}`],
+    ]);
+    expect(base).toEqual(['dark|::a']);
+  });
+
+  it('is null when the base has no ledger yet', () => {
+    const base = prLedgerBase({
+      env: { GITHUB_EVENT_NAME: 'pull_request' },
+      gitRun: () => ({ status: 0, stdout: '' }),
+    });
+    expect(base).toBeNull();
+  });
+
+  it('throws when git cannot read the base', () => {
+    expect(() =>
+      prLedgerBase({
+        env: { GITHUB_EVENT_NAME: 'pull_request' },
+        gitRun: () => ({ status: 128, stderr: 'unknown revision HEAD^1' }),
+      }),
+    ).toThrow(/HEAD\^1/);
+  });
+});
+
+describe('summaryMarkdown', () => {
+  const f = { key: 'dark|::a', id: '::a', project: 'dark', diff: '5 pixels (ratio 0.1 of all image pixels) are different' };
+  const empty = { unexpected: [], known: [], stale: [], flaky: [], grown: [], owned: [], fullRun: true };
+
+  it('names un-ledgered failures with the diff size and lists the ledgered ones', () => {
+    const md = summaryMarkdown({ ...empty, unexpected: [f], known: [{ ...f, id: '::p' }] });
+    expect(md).toContain('Failures the ledger does not list');
+    expect(md).toContain('5 pixels');
+    expect(md).toContain('Known failures');
+  });
+
+  it('lists stale entries, added entries, flaky screenshots and own baselines', () => {
+    const md = summaryMarkdown({ ...empty, stale: ['dark|::s'], grown: ['dark|::g'], flaky: ['dark|::f'], owned: ['x'] });
+    expect(md).toContain('Stale ledger entries');
+    expect(md).toContain('dark|::s');
+    expect(md).toContain('Ledger entries this PR adds');
+    expect(md).toContain('dark|::g');
+    expect(md).toContain('Flaky');
     expect(md).toContain('Own baselines failing');
+  });
+
+  it('says so when the run is partial and stale entries were not judged', () => {
+    expect(summaryMarkdown({ ...empty, fullRun: false })).toContain('Partial run');
+    expect(summaryMarkdown(empty)).not.toContain('Partial run');
   });
 });
 

@@ -110,7 +110,10 @@ export function richManifest(): Raw {
         entrypoint: 'research',
         source: { type: 'git', repo: 'shanraisshan/claude-code-best-practice', ref: 'main', include: ['agents'] },
         recommended: true,
-        workflow: [{ name: 'describe' }, { name: 'research', command: '/rpi:research', description: 'Look around' }],
+        workflow: [
+          { name: 'describe' },
+          { name: 'research', command: '/rpi:research', description: 'Look around', evidence: { outputKind: 'research' } },
+        ],
         outputs: [{ glob: 'rpi/*/plan/**', kind: 'plan' }],
         checks: ['intent-spec', 'spec-plan'],
         enabled: true,

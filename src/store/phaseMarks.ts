@@ -2,13 +2,13 @@ import type { Store } from './db.js';
 import type { StageKey } from '../model/types.js';
 
 /**
- * One phase an agent REPORTED entering during a marker stage.
+ * One phase an agent or the HOST recorded during a marker stage.
  *
- * A mark is evidence that a command ran, with a timestamp — the same class of
- * fact as the impl done marker, not the agent describing its progress in prose.
- * The absence of a mark is evidence of nothing at all: the agent may have done
- * the phase and not fired the marker, or the approach may predate the marker
- * entirely. An unmarked phase is unknown, never "skipped".
+ * A mark is evidence that a phase was entered, with a timestamp — the same
+ * class of fact as the impl done marker, not the agent describing its progress
+ * in prose. The absence of a mark is evidence of nothing at all: the agent may
+ * have done the phase and not fired the marker, or the approach may predate the
+ * marker entirely. An unmarked phase is unknown, never "skipped".
  */
 export interface PhaseMark {
   id: number;
@@ -16,18 +16,23 @@ export interface PhaseMark {
   stageKey: StageKey;
   /** The stage's attempt when this mark landed. */
   attempt: number;
-  /** As reported. NOT constrained to the approach's declared phase list. */
+  /** As recorded. NOT constrained to the approach's declared phase list. */
   phaseName: string;
   markedAt: string;
+  /** Who wrote it: the agent's `karst phase` command, or the host's evidence. */
+  source: PhaseMarkSource;
   /**
-   * v28: the stable implementation run the mark was reported inside, when the
-   * reporter named one. NULL for legacy marks and marks reported outside a run
+   * v28: the stable implementation run the mark was recorded inside, when the
+   * reporter named one. NULL for legacy marks and marks recorded outside a run
    * — absence is the truthful answer, never "unattributed by accident".
    */
   implementationRunId: number | null;
-  /** v28: the segment the mark was reported inside; NULL = none (or legacy). */
+  /** v28: the segment the mark was recorded inside; NULL = none (or legacy). */
   implementationSegmentId: number | null;
 }
+
+/** The two writers of a phase mark. A host mark is evidence, never a verdict. */
+export type PhaseMarkSource = 'agent' | 'host';
 
 export interface PhaseMarkInput {
   ticketId: number;
@@ -35,6 +40,7 @@ export interface PhaseMarkInput {
   attempt: number;
   phaseName: string;
   markedAt: string;
+  source: PhaseMarkSource;
   implementationRunId?: number | null;
   implementationSegmentId?: number | null;
 }
@@ -46,6 +52,7 @@ interface PhaseMarkRow {
   attempt: number;
   phase_name: string;
   marked_at: string;
+  source: string;
   implementation_run_id: number | null;
   implementation_segment_id: number | null;
 }
@@ -58,6 +65,7 @@ function rowToPhaseMark(r: PhaseMarkRow): PhaseMark {
     attempt: r.attempt,
     phaseName: r.phase_name,
     markedAt: r.marked_at,
+    source: r.source as PhaseMarkSource,
     implementationRunId: r.implementation_run_id,
     implementationSegmentId: r.implementation_segment_id,
   };
@@ -82,10 +90,22 @@ function openRunIdFor(store: Store, ticketId: number): number | null {
 }
 
 /**
- * Append one reported phase. Append-only, and deliberately never deduplicates:
- * an approach may legitimately loop (research → plan → research), and collapsing
- * that at write time would destroy the evidence the loop happened. Whether the
- * UI shows a phase once or twice is a presentation decision for the model layer.
+ * Append one phase mark; returns true when a row was written.
+ *
+ * Two writers share this table:
+ *
+ *  - the agent, through `karst phase` (`source = 'agent'`). Agent marks still
+ *    repeat: an approach may legitimately loop (research → plan → research), and
+ *    collapsing that at write time would destroy the evidence the loop happened.
+ *    The UI's decision to show a phase once is the model layer's.
+ *  - the host, from evidence it already holds (`source = 'host'`, @arch:RESULTS).
+ *    A host mark is an INFERENCE of phase entry, so it is written at most once
+ *    per (ticket, stage, attempt, phase) and never when any mark already exists
+ *    for that key — the agent's own report is the more exact fact.
+ *
+ * Symmetrically, an agent mark is not written when a HOST mark already holds
+ * that key: the phase is entered either way, and a second row for one entry
+ * would read as a re-entry the agent did not make. `karst phase` still exits 0.
  *
  * A phase name the approach never declared is stored verbatim for the same
  * reason: rejecting it here would silently discard the most interesting signal
@@ -99,15 +119,22 @@ function openRunIdFor(store: Store, ticketId: number): number | null {
  * Opens no transaction of its own, and uses only the driver-agnostic
  * `prepare(sql).run(...)` surface, because the marker CLI reaches this through
  * `node:sqlite` (`openWritableStore`) rather than the extension's better-sqlite3.
+ * ONE statement does the insert and the duplicate check, so the check and the
+ * write cannot race apart.
  */
-export function recordPhaseMark(store: Store, mark: PhaseMarkInput): void {
+export function recordPhaseMark(store: Store, mark: PhaseMarkInput): boolean {
   const implementationRunId = mark.implementationRunId ?? openRunIdFor(store, mark.ticketId);
-  store.db
+  const info = store.db
     .prepare(
       `INSERT INTO phase_marks
          (ticket_id, stage_key, attempt, phase_name, marked_at,
-          implementation_run_id, implementation_segment_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          implementation_run_id, implementation_segment_id, source)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM phase_marks
+           WHERE ticket_id = ? AND stage_key = ? AND attempt = ? AND phase_name = ?
+             AND (? = 'host' OR source = 'host')
+        )`,
     )
     .run(
       mark.ticketId,
@@ -117,7 +144,15 @@ export function recordPhaseMark(store: Store, mark: PhaseMarkInput): void {
       mark.markedAt,
       implementationRunId ?? null,
       mark.implementationSegmentId ?? null,
+      mark.source,
+      mark.ticketId,
+      mark.stageKey,
+      mark.attempt,
+      mark.phaseName,
+      mark.source,
     );
+  // `node:sqlite` can report `changes` as a bigint; the CLI reaches this path.
+  return Number(info.changes) > 0;
 }
 
 /**
@@ -135,7 +170,7 @@ export function recordPhaseMark(store: Store, mark: PhaseMarkInput): void {
 export function listPhaseMarks(store: Store, ticketId: number): PhaseMark[] {
   return store.db
     .prepare(
-      `SELECT id, ticket_id, stage_key, attempt, phase_name, marked_at,
+      `SELECT id, ticket_id, stage_key, attempt, phase_name, marked_at, source,
               implementation_run_id, implementation_segment_id
          FROM phase_marks
         WHERE ticket_id = ?

@@ -20,6 +20,7 @@ import { checkGitHealth, type GitRepoHealth } from '../doctor/gitHealthCheck.js'
 import { checkInotifyWatches } from '../doctor/inotifyWatchCheck.js';
 import { checkManifest } from '../doctor/manifestChecks.js';
 import { checkState } from '../doctor/stateChecks.js';
+import { checkStorage, type StorageUsage } from '../doctor/storageCheck.js';
 import { checkStuckTickets, STUCK_IDLE_MINUTES } from '../doctor/stuckCheck.js';
 import { checkWiring } from '../doctor/wiringChecks.js';
 import { parseDoctorArea, renderDoctorText, runDoctor } from '../doctor/run.js';
@@ -207,11 +208,15 @@ async function sandboxBackendChecks(area: DoctorArea, manifestPath: string | und
 
 export type GitHealthProbe = (name: string, repoPath: string) => GitRepoHealth | undefined;
 
+/** Bytes per direct child of the storage root (`dirname(dbPath)`); injected by tests. */
+export type StorageUsageProbe = (root: string) => StorageUsage;
+
 interface CollectorInput {
   readonly manifestPath: string | undefined;
   readonly gitHealth: GitHealthProbe;
   readonly listSandboxes: ListSandboxes;
   readonly probe: SandboxProbe;
+  readonly storageUsage?: StorageUsageProbe | undefined;
 }
 
 /** One entry per distinct git common dir of the manifest repositories (first name wins). */
@@ -272,7 +277,17 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
       }));
     }
     if (areas.includes('state')) {
-      out.push(...checkState(stateProbes(store, dbPath)), ...checkStuckTickets(stuckProbes(store, nowMs)));
+      out.push(...checkState(stateProbes(store, dbPath)));
+      // The storage root is the store file's directory. `':memory:'` would resolve
+      // to '.', so without an injected probe it reports an empty usage rather than
+      // walking the whole checkout.
+      const usage = io.storageUsage
+        ? io.storageUsage(dirname(dbPath))
+        : dbPath === ':memory:'
+          ? { totalBytes: 0, entries: [], partial: false }
+          : probes.storageUsage(dirname(dbPath));
+      out.push(checkStorage(usage));
+      out.push(...checkStuckTickets(stuckProbes(store, nowMs)));
       out.push(...(await sandboxOrphanChecks(store, io.manifestPath, manifest, io.listSandboxes)));
       out.push(...(await sandboxBackendChecks('state', io.manifestPath, manifest, io)));
       out.push(...gitHealthChecks(manifest, io.gitHealth, nowMs));
@@ -294,6 +309,7 @@ export async function runDoctorCommand(
   listSandboxes: ListSandboxes = listSandboxesNode,
   probe: SandboxProbe = SANDBOX_PROBE_NODE,
   gitHealth: GitHealthProbe = probes.gitHealthProbe,
+  storageUsage?: StorageUsageProbe,
 ): Promise<never> {
   const args = parseDoctorArgs(rest);
   let manifest: Manifest | undefined;
@@ -305,7 +321,7 @@ export async function runDoctorCommand(
   const report = await runDoctor({
     areas: args.areas, fix: args.fix,
     ...(args.only.length > 0 ? { only: args.only } : {}),
-    collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes, probe, gitHealth }),
+    collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes, probe, gitHealth, storageUsage }),
     effects: fixEffects(store),
   });
   throw new DoctorExit(args.json ? JSON.stringify(report) : renderDoctorText(report), report.exitCode);

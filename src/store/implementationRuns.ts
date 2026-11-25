@@ -1,5 +1,6 @@
 import type { Store } from './db.js';
 import { openProcessRun, finishProcessRun, type PromptTelemetry } from './processRuns.js';
+import { recordPhaseMark } from './phaseMarks.js';
 
 /**
  * The STABLE implementation run and its provider segments (v28).
@@ -162,6 +163,13 @@ export interface OpenImplementationRunInput {
   provider: string;
   model?: string | null;
   startedAt: string;
+  /**
+   * The approach's FIRST declared phase. Opening the run IS entering it, so the
+   * host writes its mark here — the evidence-based writer that keeps a phased
+   * approach visible when the agent never fires `karst phase` (@arch:RESULTS).
+   * Absent/NULL for an approach with no workflow, and for a fix launch.
+   */
+  firstPhase?: string | null;
   /** v57: prompt-effectiveness facts recorded at open (seed length, guide pointer). */
   promptTelemetry?: PromptTelemetry | null;
 }
@@ -195,6 +203,24 @@ export function openImplementationRun(store: Store, input: OpenImplementationRun
     .run(input.ticketId, processRun.id, input.attempt, input.startedAt);
   const run = runById(store, Number(info.lastInsertRowid));
   if (run === undefined) throw new Error('implementation run insert did not land');
+  // Rule A (@arch:RESULTS): the run opening IS the first phase starting, so the
+  // host records that one fact itself. Evidence, never a verdict — it cannot
+  // move a stage, and the unique host mark makes a relaunch add nothing.
+  if (input.firstPhase !== undefined && input.firstPhase !== null) {
+    try {
+      recordPhaseMark(store, {
+        ticketId: input.ticketId,
+        stageKey: 'impl',
+        attempt: input.attempt,
+        phaseName: input.firstPhase,
+        markedAt: input.startedAt,
+        source: 'host',
+        implementationRunId: run.id,
+      });
+    } catch {
+      // A phase mark is evidence; a launch must never fail because of one.
+    }
+  }
   return run;
 }
 

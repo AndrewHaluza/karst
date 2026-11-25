@@ -296,7 +296,9 @@ describe('writeManifest', () => {
             label: 'TDD',
             recommended: true,
             enabled: false,
-            workflow: [{ name: 'research', command: '/rpi:research' }],
+            workflow: [
+              { name: 'research', command: '/rpi:research', evidence: { outputKind: 'research' } },
+            ],
           },
           {
             id: 'karst-graph-engineering',

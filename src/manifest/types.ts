@@ -313,10 +313,20 @@ export type ApproachSource =
  * native slash command to invoke for the phase (e.g. "/rpi:research");
  * absent when the phase has no dispatchable command.
  */
+/**
+ * A phase's declared evidence: the kind of output whose FIRST captured revision
+ * proves the phase happened. The host reads it to place a host phase mark
+ * (`@arch:RESULTS`, `@arch:APP-09`); it never moves a stage.
+ */
+export interface PhaseEvidence {
+  outputKind: OutputKind;
+}
+
 export interface WorkflowPhase {
   name: string; // e.g. "research"
   command?: string; // native slash command to invoke, e.g. "/rpi:research"
   description?: string; // human guidance for the phase
+  evidence?: PhaseEvidence; // output kind whose capture proves this phase
 }
 
 /**

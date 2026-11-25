@@ -26,6 +26,7 @@ import { cliEntryAndManifest, cliLiteral, cliSessionInput, launchTokens, buildCl
 import { terminalEnv, makeTerminalIdentityRegistry, restoredSessionOf, wrapTerminal, graphTerminalCwd, wrapRevivedGraphTerminal, makeTerminalHost, makeGraphTerminalHost } from './extension/terminalHosts.js';
 import { vscodeNotify, makeDashboardActions } from './extension/dashboardActions.js';
 import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
+import { makePhasesOf } from './extension/approachPhases.js';
 import { parkGateOnDriverFailure } from './extension/ops/parkOnDriverFailure.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import { graphPreserveSeams } from './extension/graphPreserveBinding.js';
@@ -1032,6 +1033,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     syncSessionOwner(snapshot);
     return ownershipWriter.enqueue(snapshot);
   };
+  // A ticket's declared phases — package names/order joined with manifest evidence (@arch:RESULTS).
+  // The manifest is read lazily: `currentManifest` is defined below, and every caller runs later.
+  const phasesOf = makePhasesOf({ store: localStore, manifest: () => currentManifest(), packageOf: (id) => readApproachPackage(approachesDirOrThrow(), id), debug: (m) => logger.debug(m) });
   const sessions = new SessionManager(
     makeTerminalHost(terminalIdentity),
     (ticketId) => {
@@ -1222,6 +1226,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             seedTelemetry !== undefined
               ? { ...seedTelemetry, core: provider }
               : undefined,
+          // Rule A (@arch:RESULTS): the run opening is the first declared phase.
+          firstPhase: phasesOf(ticketId)[0]?.name ?? null,
         });
       } catch (error) {
         logError(`karst: could not record session launch intent for ticket ${ticketId}`, error);
@@ -1284,6 +1290,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     git: defaultGitRunner,
     debug: (m) => logger.debug(m),
     onRevision: (e) => alignmentTrigger?.onRevision(e),
+    phasesOf,
     fsWatch,
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });

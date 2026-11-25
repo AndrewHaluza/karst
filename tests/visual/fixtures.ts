@@ -3,8 +3,8 @@
  *
  * Exposes:
  * - `theme`: the ThemeId from the project's `use.theme`
- * - `gotoView(view)`: navigates to `/<theme>/<view>.html` and waits for
- *   `networkidle` plus `[data-karst-ready]`.
+ * - `gotoView(view)`: navigates to `/<theme>/<view>.html`, waits for
+ *   `[data-karst-ready]` (throws after 5 s) and for the next animation frame.
  */
 import { test as base, expect, type Page } from '@playwright/test';
 import { fixtureThemeOf, type ThemeId } from './themes.js';
@@ -65,6 +65,9 @@ async function openRoute(page: Page, route: SettingsRoute): Promise<void> {
  */
 const DASHBOARD_NOW = new Date('2026-10-27T22:00:00.000Z');
 
+/** How long `gotoView` waits for the page's seed script to mark `<html data-karst-ready>`. */
+const READY_TIMEOUT_MS = 5000;
+
 export const test = base.extend<KarstFixtures>({
   theme: async ({}, use, testInfo) => {
     // Theme is derived from the project name (e.g., 'dark', 'light', 'hc',
@@ -91,13 +94,9 @@ export const test = base.extend<KarstFixtures>({
       const missing = missingFixtureMessage({ path, status: response?.status() ?? null, env: process.env });
       if (missing !== null) throw new Error(missing);
       // The seed script sets data-karst-ready on <html> after dispatching messages.
-      // Poll briefly for it — the script runs inline and should be fast, but large
-      // pages may need a tick.
-      for (let i = 0; i < 50; i++) {
-        const ready = await page.locator('[data-karst-ready]').count();
-        if (ready > 0) break;
-        await page.waitForTimeout(100);
-      }
+      // Wait for it and throw on timeout: a page that never becomes ready must fail
+      // here, not record a screenshot of a half-rendered page.
+      await page.locator('[data-karst-ready]').waitFor({ state: 'attached', timeout: READY_TIMEOUT_MS });
       await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
       if (opts?.route !== undefined) await openRoute(page, opts.route);
       return page;

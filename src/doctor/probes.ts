@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_AUTO_PACK_LIMIT, type GitRepoHealth } from './gitHealthCheck.js';
+import type { StorageChildUsage, StorageUsage } from './storageCheck.js';
 
 /**
  * Real machine probes for `karst doctor`. This runs in the short-lived CLI
@@ -181,6 +182,92 @@ export function countInotifyWatches(procRoot: string = '/proc', uid: number = pr
     }
   }
   return sawReadable || entries.length === 0 ? total : undefined;
+}
+
+/**
+ * Wall-clock budget for one storage walk. The Karst storage folder can hold
+ * gigabytes across hundreds of thousands of entries, and `karst doctor` must
+ * stay interactive; a cut-off walk reports `partial` instead of a total that
+ * would keep the CLI busy for minutes.
+ */
+export const STORAGE_WALK_BUDGET_MS = 10_000;
+
+/**
+ * Bytes under each direct child of `root` (the Karst storage folder) plus the
+ * total, by an ITERATIVE `lstat` walk. Symlinks are never followed (a link is
+ * neither a file nor a directory to `lstat`, so it counts 0 and is not
+ * entered), unreadable entries count 0, and nothing here throws. The walk stops
+ * at `budgetMs` with `partial: true` and the totals collected so far.
+ */
+export function storageUsage(root: string, budgetMs: number = STORAGE_WALK_BUDGET_MS, now: () => number = Date.now): StorageUsage {
+  let children: string[];
+  try {
+    children = readdirSync(root);
+  } catch {
+    return { totalBytes: 0, entries: [], partial: false };
+  }
+  const start = now();
+  const entries: StorageChildUsage[] = [];
+  let totalBytes = 0;
+  let partial = false;
+  const overBudget = (): boolean => now() - start >= budgetMs;
+  for (const name of children) {
+    if (overBudget()) {
+      partial = true;
+      break;
+    }
+    const full = join(root, name);
+    let st: Stats;
+    try {
+      st = lstatSync(full);
+    } catch {
+      entries.push({ name, bytes: 0 });
+      continue;
+    }
+    if (st.isDirectory()) {
+      const stack: string[] = [full];
+      let childBytes = 0;
+      while (stack.length > 0) {
+        if (overBudget()) {
+          partial = true;
+          break;
+        }
+        const dir = stack.pop()!;
+        let names: string[];
+        try {
+          names = readdirSync(dir);
+        } catch {
+          continue; // unreadable directory: counts 0
+        }
+        for (const entry of names) {
+          if (overBudget()) {
+            partial = true;
+            break;
+          }
+          let sub: Stats;
+          try {
+            sub = lstatSync(join(dir, entry));
+          } catch {
+            continue;
+          }
+          if (sub.isSymbolicLink()) continue; // never followed
+          if (sub.isDirectory()) stack.push(join(dir, entry));
+          else if (sub.isFile()) childBytes += sub.size;
+        }
+        if (partial) break;
+      }
+      entries.push({ name, bytes: childBytes });
+      totalBytes += childBytes;
+      if (partial) break;
+      continue;
+    }
+    // A regular file is the only other entry that carries bytes; a symlink or a
+    // special file (fifo, socket) holds nothing to count.
+    const fileBytes = !st.isSymbolicLink() && st.isFile() ? st.size : 0;
+    entries.push({ name, bytes: fileBytes });
+    totalBytes += fileBytes;
+  }
+  return { totalBytes, entries, partial };
 }
 
 /** Git maintenance facts of one repository: lock and gc.pid ages, pack count, `gc.autoPackLimit`. `undefined` when it is not a git repo. */

@@ -7,7 +7,10 @@
 import type { watch as nodeWatch } from 'node:fs';
 
 import { createArtifactCaptureService, type ArtifactCaptureService, type ArtifactCaptureServiceDeps } from '../artifacts/service.js';
+import type { RevisionEvent } from '../artifacts/capture.js';
+import { hostPhaseOnRevision, type ApproachPhase } from '../artifacts/phaseEvidence.js';
 import { nodeFsWatch } from '../artifacts/watcher.js';
+import { nowIso } from '../model/time.js';
 import type { ArchiveTarget } from '../runtime/archive.js';
 
 /** How often the watcher set is reconciled to the project's live worktrees. */
@@ -30,9 +33,22 @@ export interface ArtifactCaptureWiring {
 }
 
 export function wireArtifactCapture(
-  deps: Omit<ArtifactCaptureServiceDeps, 'watch'> & { fsWatch: typeof nodeWatch },
+  deps: Omit<ArtifactCaptureServiceDeps, 'watch' | 'onRevision'> & {
+    fsWatch: typeof nodeWatch;
+    /** A ticket's declared phases: rule B's phase list (@arch:RESULTS). */
+    phasesOf: (ticketId: number) => readonly ApproachPhase[];
+    /** Notified after rule B for every captured revision (the alignment trigger). */
+    onRevision?: (event: RevisionEvent) => void;
+  },
 ): ArtifactCaptureWiring {
-  const service = createArtifactCaptureService({ ...deps, watch: nodeFsWatch(deps.fsWatch, deps.debug) });
+  const { fsWatch, phasesOf, onRevision: forwarded, ...serviceDeps } = deps;
+  // Rule B FIRST, in its own catch: a phase mark is evidence, and the caller's
+  // alignment trigger must fire whatever happens to it (@arch:APP-12).
+  const onRevision = hostPhaseOnRevision(
+    { store: deps.store, phasesOf, now: nowIso, debug: deps.debug },
+    forwarded,
+  );
+  const service = createArtifactCaptureService({ ...serviceDeps, onRevision, watch: nodeFsWatch(fsWatch, deps.debug) });
   const onSessionEnd = (ticketId: number): void => {
     void service.captureTicket(ticketId).catch((err: unknown) => {
       deps.debug(`[artifacts] session-end capture failed for ticket ${ticketId}: ${String(err)}`);

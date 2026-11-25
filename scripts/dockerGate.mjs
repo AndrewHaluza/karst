@@ -24,7 +24,8 @@ import { basename } from 'node:path';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { baseRerunArgv, classifyFailures, classifyHeadRerun, failedTests, failingScreenshots, headRerunLines, planBaseCheck, planHeadRerun, reportLines } from './baseDrift.mjs';
+import { baseRerunArgv, classifyFailures, classifyHeadRerun, failedTests, failingScreenshots, headRerunLines, ledgerLines, planBaseCheck, planHeadRerun, reportLines, splitLedgered } from './baseDrift.mjs';
+import { LEDGER_REL, readLedger } from './visualLedger.mjs';
 import { EXIT_DOCKER_HUNG, RM_TIMEOUT_MS, GRACE_IMAGE_MISSING_MS, GRACE_IMAGE_PRESENT_MS, imageOf, imagePresent, watchContainer } from './containerWatch.mjs';
 import { hasBinary } from './onPath.mjs';
 import { formatTiming, phaseClock } from './gateTiming.mjs';
@@ -222,6 +223,11 @@ function branchSelection() {
   return paths === null ? { all: true, views: [] } : selectViews(paths);
 }
 
+/** True when the run seeds or prunes a ledger (layout or visual): it must be the whole sweep, never narrowed. */
+export function ledgerIntent(env = process.env) {
+  return Boolean(env.KARST_LAYOUT_SEED || env.KARST_LAYOUT_PRUNE || env.KARST_VISUAL_PRUNE);
+}
+
 /**
  * Narrow the sweep (KARST_UI_GREP, read by playwright.config.ts) and say so. `scope` (`{ since, paths, failed }`
  * from `planRepeat`) selects from the stored run (@arch:GATE-REPEAT); null, or a scope that selects nothing,
@@ -230,7 +236,7 @@ function branchSelection() {
 export function narrowSweep(script, scope = null) {
   if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return null;
   // A ledger seed/prune must see the full run (its full-run guard refuses a partial one).
-  if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return null;
+  if (ledgerIntent()) return null;
   const merged = mergedBaseSha();
   const scoped = scope === null ? null : merged === null ? scopedSelection(scope) : mergedSelection({ since: scope.since, ticketPaths: changedPaths(process.cwd(), merged), failed: scope.failed });
   const selection = scoped === null ? branchSelection() : scoped.selection;
@@ -290,7 +296,7 @@ const shellQuote = (arg) => `'${arg.replace(/'/g, `'\\''`)}'`;
 export async function planRepeat(script, argv, cwd = process.cwd()) {
   const none = { memo: null, skip: null, scope: null };
   if (!SELECTING_SCRIPTS.has(script) || process.env.KARST_UI_GREP !== undefined) return none;
-  if (process.env.KARST_LAYOUT_SEED || process.env.KARST_LAYOUT_PRUNE) return none;
+  if (ledgerIntent()) return none;
   try {
     const base = (await mergeBase(cwd)).sha;
     const dir = await gitDirOf(cwd);
@@ -539,7 +545,7 @@ export function removeContainer(name) {
 const gitSpawn = (args, options) => spawnSync('git', args, options);
 
 /** The default seams of the base check; tests inject fakes. */
-const REAL_SEAMS = { rmSync, mkdtempSync, git: gitSpawn, removeContainer };
+const REAL_SEAMS = { rmSync, mkdtempSync, git: gitSpawn, removeContainer, readLedger };
 
 /**
  * Remove karst-base-* directories in `dir` older than a day (left by a run that crashed or lost the rm race),
@@ -617,12 +623,39 @@ export async function judgeAtHead({ status, rawArgv, name, volume, run, results,
   return { done: false, failing: { screenshots: verdict.again, others: [] } };
 }
 
+/** The committed visual ledger of the checkout, or [] (said on stderr) when it cannot be read: then nothing is excused. */
+function localLedger(cwd, read = readLedger) {
+  try {
+    return read(join(cwd, LEDGER_REL));
+  } catch (err) {
+    console.error(`visual ledger not applied: ${err.message}`);
+    return [];
+  }
+}
+
 /**
- * A failed sweep, re-judged: re-run only the failing screenshots in a detached
+ * True when the report is a finished sweep whose only failures are the `known` ones: no global error, the
+ * `stats.unexpected` count matches, and every test started (a cut-short run leaves tests with no result).
+ */
+export function completeReport(report, known) {
+  if (Array.isArray(report.errors) && report.errors.length > 0) return false;
+  if (report.stats?.unexpected !== known) return false;
+  const neverStarted = (node) =>
+    (node.specs ?? []).some((spec) => (spec.tests ?? []).some((t) => t.status === 'skipped' && (t.results ?? []).length === 0)) ||
+    (node.suites ?? []).some(neverStarted);
+  return !neverStarted(report);
+}
+
+/**
+ * A failed sweep, re-judged. First the committed visual ledger: a failing
+ * screenshot it lists is a known failure (reported, not failed), as in CI.
+ * Then the rest: re-run them once at the head (flakes), then in a detached
  * worktree of the merge base, inside the slot this process already holds. Ones
- * that fail there too are develop's drift (reported, not failed). Returns the
- * exit status: 0 when only drift remains, else the original one. The worktree
- * is always removed.
+ * that fail there too are develop's drift (reported, not failed). The base
+ * check stays for un-ledgered failures only: CI blocks them on develop, so they
+ * reach a ticket only when its base predates a fix on develop. Returns the
+ * exit status: 0 when only known failures and drift remain, else the original
+ * one. The worktree is always removed.
  */
 export async function judgeAgainstBase({ status, rawArgv, name, volume, run, results, seams: given = {} }) {
   const seams = { ...REAL_SEAMS, ...given };
@@ -630,9 +663,13 @@ export async function judgeAgainstBase({ status, rawArgv, name, volume, run, res
   const report = readReport(results);
   if (report === null) return status;
   const sha = mergeBaseSha(cwd);
+  const own = sha === null ? new Set() : ownBaselines(cwd, sha);
+  const ledgered = splitLedgered(failingScreenshots(report, cwd), localLedger(cwd, seams.readLedger), own);
+  for (const line of ledgerLines(ledgered.known)) console.error(line);
+  const rest = ledgered.failing;
+  if (ledgered.known.length > 0 && completeReport(report, ledgered.known.length) && rest.screenshots.length === 0 && rest.others.length === 0) return 0;
   if (sha === null) return status;
-  const own = ownBaselines(cwd, sha);
-  const head = await judgeAtHead({ status, rawArgv, name, volume, run, results, failing: failingScreenshots(report, cwd), own, seams });
+  const head = await judgeAtHead({ status, rawArgv, name, volume, run, results, failing: rest, own, seams });
   if (head.done) return head.status;
   const failing = head.failing;
   const plan = planBaseCheck(failing, own);

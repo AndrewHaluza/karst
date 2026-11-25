@@ -28,8 +28,8 @@ describe('resolveTrailers', () => {
 
   it('tags session, stage and latest phase while a run is running', () => {
     const run = openRun();
-    recordPhaseMark(store, { ticketId, stageKey: 'impl', attempt: 0, phaseName: 'research', markedAt: 'a' });
-    recordPhaseMark(store, { ticketId, stageKey: 'impl', attempt: 0, phaseName: 'plan', markedAt: 'b' });
+    recordPhaseMark(store, { ticketId, stageKey: 'impl', attempt: 0, phaseName: 'research', markedAt: 'a', source: 'agent' });
+    recordPhaseMark(store, { ticketId, stageKey: 'impl', attempt: 0, phaseName: 'plan', markedAt: 'b', source: 'agent' });
     expect(resolveTrailers(store, ticketId, out)).toEqual({
       approach: 'gsd', kind: 'plan', source: 'watcher', session: String(run.id), stage: 'impl', phase: 'plan',
     });

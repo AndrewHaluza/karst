@@ -19,6 +19,7 @@ import {
   confirmSessionLaunchIntent,
 } from './sessionLaunchIntents.js';
 import { getProcessRunById, listProcessRuns } from './processRuns.js';
+import { listPhaseMarks, recordPhaseMark } from './phaseMarks.js';
 
 describe('implementation runs and segments', () => {
   let store: Store;
@@ -66,6 +67,94 @@ describe('implementation runs and segments', () => {
       guidePointer: true,
       core: 'claude',
     });
+  });
+
+  // Rule A (@arch:RESULTS): a phased approach's FIRST phase is entered the
+  // moment the run opens. The host writes that mark itself, so a ticket whose
+  // agent never fires `karst phase` still shows where the work is.
+  it('writes one host mark for the first phase when a run opens', () => {
+    const run = openImplementationRun(store, {
+      ticketId,
+      attempt: 2,
+      provider: 'claude',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      firstPhase: 'plan',
+    });
+
+    expect(listPhaseMarks(store, ticketId)).toEqual([
+      expect.objectContaining({
+        ticketId,
+        stageKey: 'impl',
+        attempt: run.attempt,
+        phaseName: 'plan',
+        source: 'host',
+        implementationRunId: run.id,
+        markedAt: '2026-08-01T10:00:00.000Z',
+      }),
+    ]);
+    expect(listPhaseMarks(store, ticketId)).toHaveLength(1);
+  });
+
+  it('writes no host mark without a first phase', () => {
+    openImplementationRun(store, {
+      ticketId,
+      attempt: 0,
+      provider: 'claude',
+      startedAt: '2026-08-01T10:00:00.000Z',
+    });
+
+    expect(listPhaseMarks(store, ticketId)).toEqual([]);
+  });
+
+  it('writes no host mark when an agent already marked that phase and attempt', () => {
+    recordPhaseMark(store, {
+      ticketId,
+      stageKey: 'impl',
+      attempt: 0,
+      phaseName: 'plan',
+      markedAt: '2026-08-01T09:59:00.000Z',
+      source: 'agent',
+    });
+    openImplementationRun(store, {
+      ticketId,
+      attempt: 0,
+      provider: 'claude',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      firstPhase: 'plan',
+    });
+
+    const marks = listPhaseMarks(store, ticketId);
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.source).toBe('agent');
+  });
+
+  it('opens the run with no host mark when the first phase is null', () => {
+    openImplementationRun(store, {
+      ticketId,
+      attempt: 0,
+      provider: 'claude',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      firstPhase: null,
+    });
+
+    expect(listPhaseMarks(store, ticketId)).toEqual([]);
+  });
+
+  it('opens the run even when the phase mark cannot be written', () => {
+    // A launch must never fail because of a phase mark (@arch:RESULTS). An
+    // unwritable table is the harshest version of that failure.
+    store.db.exec('DROP TABLE phase_marks');
+
+    const run = openImplementationRun(store, {
+      ticketId,
+      attempt: 0,
+      provider: 'claude',
+      startedAt: '2026-08-01T10:00:00.000Z',
+      firstPhase: 'plan',
+    });
+
+    expect(run.status).toBe('running');
+    expect(run.ticketId).toBe(ticketId);
   });
 
   // AGENT-INSTRUCTIONS-LAYER-PER item 8: the instruction layer's size + digest

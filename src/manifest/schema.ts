@@ -1,4 +1,4 @@
-import { CHAIN_EDGES, DEFAULT_STOP_SERVERS_ON_DONE } from './types.js';
+import { CHAIN_EDGES, DEFAULT_STOP_SERVERS_ON_DONE, OUTPUT_KINDS } from './types.js';
 import { DOCKER_MEMORY_PATTERN, type SandboxMemoryConfig } from '../agent/docker/dockerMemory.js';
 import type { SandboxLimitsConfig } from '../agent/sbx/sbxLimits.js';
 import { allowedBackends, BACKEND_CORES, type AgentBackends, type BackendCore, type CoreBackend } from '../agent/backendChoices.js';
@@ -8,6 +8,7 @@ import type {
   RepositoryDef,
   ApproachDef,
   ApproachSource,
+  PhaseEvidence,
   WorkflowPhase,
   AgentDef,
   WorktreePathDisplay,
@@ -82,6 +83,24 @@ function validateApproachSource(raw: unknown, where: string): ApproachSource {
   throw new ManifestError(`${where}.type must be "git" or "npm"`);
 }
 
+const EVIDENCE_KEYS = new Set(['outputKind']);
+
+/**
+ * Parse a phase's `evidence`: exactly one `outputKind` from the fixed output
+ * vocabulary. A kind the capture can never produce is a load-time fault, not a
+ * silently inert declaration.
+ */
+function validatePhaseEvidence(raw: unknown, where: string): PhaseEvidence {
+  if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
+  for (const key of Object.keys(raw)) {
+    if (!EVIDENCE_KEYS.has(key)) throw new ManifestError(`${where}.${key} is not a known field`);
+  }
+  if (!(OUTPUT_KINDS as readonly string[]).includes(raw.outputKind as string)) {
+    throw new ManifestError(`${where}.outputKind must be one of ${OUTPUT_KINDS.join('|')}`);
+  }
+  return { outputKind: raw.outputKind as PhaseEvidence['outputKind'] };
+}
+
 /** Parse one workflow phase: `name` is required, `command`/`description` optional. */
 function validateWorkflowPhase(raw: unknown, where: string): WorkflowPhase {
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
@@ -91,6 +110,9 @@ function validateWorkflowPhase(raw: unknown, where: string): WorkflowPhase {
   }
   if (raw.description !== undefined) {
     phase.description = requireString(raw.description, `${where}.description`);
+  }
+  if (raw.evidence !== undefined) {
+    phase.evidence = validatePhaseEvidence(raw.evidence, `${where}.evidence`);
   }
   return phase;
 }
