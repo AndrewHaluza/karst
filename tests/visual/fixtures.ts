@@ -3,7 +3,7 @@
  *
  * Exposes:
  * - `theme`: the ThemeId from the project's `use.theme`
- * - `gotoView(view)`: navigates to `/<theme>/<view>.html`, waits for
+ * - `gotoView(view, { variant })`: navigates to `/<theme>/<view>--<variant>.html`, waits for
  *   `[data-karst-ready]` (throws after 5 s) and for the next animation frame.
  */
 import { test as base, expect, type Page } from '@playwright/test';
@@ -22,15 +22,14 @@ export interface SettingsRoute {
 }
 
 interface GotoOpts {
-  scenario?: string;
-  /** A registered variant id (tests/visual/variants.ts); wins over `scenario`. */
-  variant?: string;
+  /** A registered variant id (tests/visual/variants.ts); DEFAULT_VARIANT names the default page of a view. */
+  variant: string;
   route?: SettingsRoute;
 }
 
 interface KarstFixtures {
   theme: ThemeId;
-  gotoView: (view: ViewId, opts?: GotoOpts) => Promise<Page>;
+  gotoView: (view: ViewId, opts: GotoOpts) => Promise<Page>;
 }
 
 /**
@@ -77,17 +76,9 @@ export const test = base.extend<KarstFixtures>({
   },
 
   gotoView: async ({ page, theme }, use) => {
-    const goto = async (view: ViewId, opts?: GotoOpts) => {
+    const goto = async (view: ViewId, opts: GotoOpts) => {
       if (view === 'dashboard') await page.clock.setFixedTime(DASHBOARD_NOW);
-      let filename = `${view}.html`;
-      if (opts?.variant !== undefined) {
-        filename = fixtureFile(view, opts.variant);
-      } else if (view === 'dashboard') {
-        filename = `dashboard-${opts?.scenario ?? 'pending'}.html`;
-      } else if (view === 'settings' && opts?.scenario !== undefined) {
-        filename = `settings-${opts.scenario}.html`;
-      }
-      const path = `/${theme}/${filename}`;
+      const path = `/${theme}/${fixtureFile(view, opts.variant)}`;
       const fullUrl = new URL(path, 'http://127.0.0.1:4317').toString();
       const response = await page.goto(fullUrl, { waitUntil: 'load', timeout: 60_000 });
       // A page that the fixture writer did not write fails here, not as a silent wait and a screenshot diff.
@@ -98,7 +89,7 @@ export const test = base.extend<KarstFixtures>({
       // here, not record a screenshot of a half-rendered page.
       await page.locator('[data-karst-ready]').waitFor({ state: 'attached', timeout: READY_TIMEOUT_MS });
       await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
-      if (opts?.route !== undefined) await openRoute(page, opts.route);
+      if (opts.route !== undefined) await openRoute(page, opts.route);
       return page;
     };
     await use(goto);

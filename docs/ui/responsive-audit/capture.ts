@@ -11,6 +11,7 @@ import { chromium, type Page } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { settingsRoutes } from '../../../tests/visual/settingsRoutes.js';
+import { fixtureFile } from '../../../tests/visual/variants.js';
 import { SECTION_LABELS } from '../../../src/ui/settings/sections.js';
 
 const AUDIT_WIDTHS = [1212, 600, 400, 320] as const;
@@ -23,21 +24,21 @@ interface Target { name: string; theme: 'dark' | 'light'; file: string; patch?: 
 
 const targets: Target[] = [];
 for (const s of ['pending', 'running', 'passed', 'failed', 'waiting', 'exhausted']) {
-  targets.push({ name: `dashboard-${s}`, theme: 'dark', file: `dashboard-${s}.html` });
+  targets.push({ name: `dashboard-${s}`, theme: 'dark', file: fixtureFile('dashboard', s === 'running' ? 'populated' : s) });
 }
 // The fixtures seed `sandbox:null`; patch the seeded state so the sandbox strip renders (SandboxView shape).
 const SANDBOX = '"sandbox":{"backend":"docker","core":"claude","workspace":"clone","network":"allowlist proxy on an internal network","actions":true,"carry":true}';
 const SANDBOX_HOST = '"sandbox":{"backend":"host","core":"opencode","workspace":"worktree","network":"none (host)","actions":true,"carry":false,"note":"opencode: docker backend unsupported"}';
-targets.push({ name: 'dashboard-sandbox', theme: 'dark', file: 'dashboard-running.html', patch: ['"sandbox":null', SANDBOX] });
-targets.push({ name: 'dashboard-sandbox-host-note', theme: 'dark', file: 'dashboard-running.html', patch: ['"sandbox":null', SANDBOX_HOST] });
-targets.push({ name: 'dashboard-running-light', theme: 'light', file: 'dashboard-running.html' });
-for (const v of ['sidebar', 'usage', 'resources', 'diffs', 'ticketForm', 'gettingStarted', 'serverLogs']) {
-  targets.push({ name: v, theme: 'dark', file: `${v}.html` });
+targets.push({ name: 'dashboard-sandbox', theme: 'dark', file: fixtureFile('dashboard', 'populated'), patch: ['"sandbox":null', SANDBOX] });
+targets.push({ name: 'dashboard-sandbox-host-note', theme: 'dark', file: fixtureFile('dashboard', 'populated'), patch: ['"sandbox":null', SANDBOX_HOST] });
+targets.push({ name: 'dashboard-running-light', theme: 'light', file: fixtureFile('dashboard', 'populated') });
+for (const v of ['sidebar', 'usage', 'resources', 'diffs', 'ticketForm', 'gettingStarted', 'serverLogs'] as const) {
+  targets.push({ name: v, theme: 'dark', file: fixtureFile(v, 'populated') });
 }
-targets.push({ name: 'sidebar-light', theme: 'light', file: 'sidebar.html' });
+targets.push({ name: 'sidebar-light', theme: 'light', file: fixtureFile('sidebar', 'populated') });
 for (const r of settingsRoutes()) {
   const safe = r.id.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '');
-  targets.push({ name: `settings-${safe}`, theme: 'dark', file: 'settings-realistic.html', route: { section: r.section, ...(r.hash ? { hash: r.hash } : {}) } });
+  targets.push({ name: `settings-${safe}`, theme: 'dark', file: fixtureFile('settings', 'populated'), route: { section: r.section, ...(r.hash ? { hash: r.hash } : {}) } });
 }
 
 async function open(page: Page, t: Target): Promise<void> {

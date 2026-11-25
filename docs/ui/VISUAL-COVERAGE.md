@@ -131,6 +131,8 @@ a corpus builder (reusing the `renderFixtures` modules and `realisticSettings.ts
 fixed data, no clock), a baseline name, the theme projects that record it, and a
 layout target. `buildFixture.ts` writes `<theme>/<view>--<variant>.html` for each,
 `pages.visual.ts` screenshots each, `layout.layout.ts` opens each distinct page at every width.
+It writes no other page. A spec opens a page by its variant id; `tests/visual/defaultVariant.ts#DEFAULT_VARIANT`
+names the default page of each view (dashboard `pending`, settings `minimal`, every other view `populated`).
 
 - **One layout run per page**: `layoutPlan()` keys a variant by its layout identity (`layoutIdentity()`: the view, its widths, the corpus messages and view state with ISO timestamps ignored, and `clicks`, the only step `layout.layout.ts` runs). A variant with the key of an earlier variant shares that run, so `width`, `themes`, `capture`, `viewportHeight`, `click`, `pills`, the popover and drawer steps, and the fill/reply steps never add layout tests. Example: `dashboard/inside-<stage>-<case>-mid|narrow|tight` share the run of `dashboard/inside-<stage>-<case>`. When `layout.layout.ts` starts to run a new step, add it to `layoutIdentity()`. `skipLayout` stays for a variant whose page differs but must not get a layout run.
 

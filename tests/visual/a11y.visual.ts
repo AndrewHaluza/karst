@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
 import { ALL_VIEWS, MINIMAL_RATCHET } from './corpora.js';
+import { DEFAULT_VARIANT } from './defaultVariant.js';
 import type { ViewId } from './corpora.js';
 import type { ThemeId } from './themes.js';
 
@@ -171,7 +172,7 @@ karstTest.describe('UI-R29 contrast (computed assertion)', () => {
         'dark-grayscale': 'dark', 'dark-reduced-motion': 'dark', catalog: 'dark',
       };
       const theme = (themeMap[testInfo.project.name] ?? 'dark') as ThemeId;
-      const page = await gotoView(viewId);
+      const page = await gotoView(viewId, { variant: DEFAULT_VARIANT[viewId] });
 
       // Measure the settled page. The fixture applies the theme body class after first
       // layout, so a shared component transition (.k-btn background/color) can still be
@@ -325,7 +326,7 @@ karstTest.describe('UI-R29 contrast (computed assertion)', () => {
 karstTest.describe('UI-R19 title dependence', () => {
   for (const viewId of ALL_VIEWS) {
     karstTest(`${viewId}: [title] elements have visible text or aria-label`, async ({ gotoView }) => {
-      const page = await gotoView(viewId);
+      const page = await gotoView(viewId, { variant: DEFAULT_VARIANT[viewId] });
 
       const failures: Array<{ selector: string; title: string }> = await page.evaluate(() => {
         const results: Array<{ selector: string; title: string }> = [];
@@ -369,7 +370,7 @@ karstTest.describe('UI-R38 pinned controls', () => {
   for (const viewId of ALL_VIEWS) {
     if (NO_SCROLL_VIEWS.includes(viewId)) {
       karstTest(`${viewId}: skipped (no scrolling list)`, async ({ gotoView }) => {
-        const page = await gotoView(viewId);
+        const page = await gotoView(viewId, { variant: DEFAULT_VARIANT[viewId] });
         // Assert this view has no overflow:auto list container.
         const hasScroll = await page.evaluate(() => {
           const els = document.querySelectorAll('[style*="overflow"], [class]');
@@ -387,7 +388,7 @@ karstTest.describe('UI-R38 pinned controls', () => {
     }
 
     karstTest(`${viewId}: pinned controls stay pinned after scroll`, async ({ gotoView }) => {
-      const page = await gotoView(viewId);
+      const page = await gotoView(viewId, { variant: DEFAULT_VARIANT[viewId] });
 
       // Find the scrolling container and pinned elements.
       const result = await page.evaluate(() => {
@@ -437,7 +438,7 @@ karstTest.describe('UI-R38 pinned controls', () => {
 karstTest.describe('UI-R18 pending geometry', () => {
   for (const viewId of HAS_PENDING_STATE) {
     karstTest(`${viewId}: pending state preserves usable geometry`, async ({ gotoView }) => {
-      const page = await gotoView(viewId);
+      const page = await gotoView(viewId, { variant: DEFAULT_VARIANT[viewId] });
 
       // Find a control that can be toggled to a pending/busy state.
       // The assertion: bounding box moves ≤ 2px when aria-busy is toggled.
