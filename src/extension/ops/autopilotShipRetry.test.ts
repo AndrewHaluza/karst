@@ -83,12 +83,15 @@ describe('isHostTicket', () => {
 });
 
 describe('shipRetryDecision', () => {
-  it('retries the newest server-error run once its backoff elapses', async () => {
+  it('retries the newest server-error run once its backoff elapses, polling the worktree only then', async () => {
     run();
     failedShip();
     const until = NOW + AUTO_SHIP_RETRY_DELAYS_MS[0]!;
-    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual({ kind: 'wait', until });
-    expect(await shipRetryDecision(store, id, until - 1, seams())).toEqual({ kind: 'wait', until });
+    const waiting = seams();
+    expect(await shipRetryDecision(store, id, NOW, waiting)).toEqual({ kind: 'wait', until });
+    expect(await shipRetryDecision(store, id, until - 1, waiting)).toEqual({ kind: 'wait', until });
+    expect(waiting.worktreeClean).not.toHaveBeenCalled();
+    expect(waiting.localHead).not.toHaveBeenCalled();
     expect(await shipRetryDecision(store, id, until, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1 });
   });
 
@@ -227,7 +230,10 @@ describe('shipRetryDecision', () => {
     }
     const sixth = run();
     failedShip();
-    expect(await shipRetryDecision(store, id, NOW, seams())).toEqual({ kind: 'park', reason: AUTO_SHIP_RETRY_STOP_REASON, runId: sixth });
+    const parked = seams();
+    expect(await shipRetryDecision(store, id, NOW, parked)).toEqual({ kind: 'park', reason: AUTO_SHIP_RETRY_STOP_REASON, runId: sixth });
+    expect(parked.worktreeClean).not.toHaveBeenCalled();
+    expect(parked.localHead).not.toHaveBeenCalled();
     expect(AUTO_SHIP_RETRY_STOP_REASON).toBe('auto-fix stopped: GitHub server error, ship retried 5/5');
   });
 
