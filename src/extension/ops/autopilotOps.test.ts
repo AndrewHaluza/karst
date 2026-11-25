@@ -10,6 +10,8 @@ import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 import { AUTO_SHIP_RETRY_STOP_REASON } from './autopilotShipRetry.js';
+import { recordEvent } from '../../store/karstEvents.js';
+import { upsertProject } from '../../store/projects.js';
 import { beginShipOperationPreparation, closeShipRun, finishShipRepoStep, openShipRepoStep, openShipRun } from '../../store/shipRuns.js';
 import { conflictRounds, conflictRoundEnded, createConflictRounds } from './autoDeliverOps.js';
 import { UNFINISHED_BODY } from './autopilotRefusal.js';
@@ -1898,6 +1900,17 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     expect(r.debug).toHaveBeenCalledWith(expect.stringMatching(/\(1\/5\) for (r, z|z, r)$/));
   });
 
+  it('never retries a ticket that does not run on the host: its ship would pull sandbox commits', async () => {
+    failedServerErrorShip();
+    const sandboxed = retry({ placement: async () => 'sandbox' as const });
+    expect((await autopilotTick(sandboxed.deps)).kind).toBe('idle');
+    expect(sandboxed.retryShip).not.toHaveBeenCalled();
+    expect(sandboxed.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ticket does not run on the host');
+    const unknown = retry({ placement: async () => { throw new Error('no placement is recorded'); } });
+    expect((await autopilotTick(unknown.deps)).kind).toBe('idle');
+    expect(unknown.retryShip).not.toHaveBeenCalled();
+  });
+
   it('waits before the backoff, with one debug line per armed wait', async () => {
     failedServerErrorShip();
     const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
@@ -1924,26 +1937,32 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     expect(second.debug).toHaveBeenCalledWith(expect.stringContaining('ticket AP-2: the ship retry waits'));
   });
 
-  it('stops after 5 retries: one event per failed run, no block, no sixth retry', async () => {
+  it('stops after 5 retries: one persisted event per failed run, no block, no sixth retry', async () => {
+    // The stop line is deduped from the STORE, so the note must really write an event: this ticket lives in a project.
+    const project = upsertProject(store, { slug: 'ap-stop' });
+    store.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(project.id, id);
+    const events = (): number => (store.db.prepare('SELECT COUNT(*) AS n FROM karst_events WHERE ticket_id = ?').get(id) as { n: number }).n;
+    const note = (title: string, body: string): void => {
+      recordEvent(store, { projectId: project.id, ticketId: id, level: 'error', source: 'autopilot', title, body }, () => {});
+    };
     failedServerErrorShip(6);
-    const r = retry({ now: () => Date.parse('2026-11-25T12:59:00.000Z') });
-    expect((await autopilotTick(r.deps)).kind).toBe('idle');
-    expect((await autopilotTick(r.deps)).kind).toBe('idle');
-    expect(r.retryShip).not.toHaveBeenCalled();
+    const at = Date.parse('2026-11-25T12:59:00.000Z');
+    const first = retry({ now: () => at, note });
+    expect((await autopilotTick(first.deps)).kind).toBe('idle');
+    expect((await autopilotTick(retry({ now: () => at, note }).deps)).kind).toBe('idle');
+    expect(first.retryShip).not.toHaveBeenCalled();
     expect(stageBlock(store, id, 'ship')).toBeNull();
-    expect(r.notes).toEqual([[
-      `Autopilot: ${AUTO_SHIP_RETRY_STOP_REASON}`,
-      "AP-1: every ship run since the person's confirm failed on a GitHub server error; the failed ship keeps its Retry ship.",
-    ]]);
-    expect(r.debug).toHaveBeenCalledWith(`[ship] autopilot ticket AP-1: ${AUTO_SHIP_RETRY_STOP_REASON}; no block, Retry ship stays`);
+    expect(events()).toBe(1);
+    expect(first.debug).toHaveBeenCalledWith(`[ship] autopilot ticket AP-1: ${AUTO_SHIP_RETRY_STOP_REASON}; no block, Retry ship stays`);
+    expect((store.db.prepare('SELECT body FROM karst_events WHERE ticket_id = ?').get(id) as { body: string }).body)
+      .toContain('(ship run ');
     // A newer run exists (a person's ship): a later series of failures writes its own stop event.
     passedRun('2026-11-25T13:00:00.000Z');
     failedServerErrorShip(6, '2026-11-25T13:10:00.000Z');
-    const later = retry({ now: () => Date.parse('2026-11-25T13:20:00.000Z') });
+    const later = retry({ now: () => Date.parse('2026-11-25T13:20:00.000Z'), note });
     expect((await autopilotTick(later.deps)).kind).toBe('idle');
-    expect(later.notes.length).toBe(1);
-    await autopilotTick(later.deps);
-    expect(later.notes.length).toBe(1);
+    expect((await autopilotTick(later.deps)).kind).toBe('idle');
+    expect(events()).toBe(2);
   });
 
   it('records the decision refusal once, not on every tick', async () => {

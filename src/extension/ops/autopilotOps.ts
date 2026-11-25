@@ -15,6 +15,7 @@ import { transientRerunStep, type FailedCheck, type RerunContext, type Transient
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
 import { MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
 import { listShipRuns } from '../../store/shipRuns.js';
+import { hasTicketEvent } from '../../store/karstEvents.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
@@ -444,15 +445,29 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
       return { kind: 'idle' };
     }
     case 'park': {
-      const key = JSON.stringify([flightKeyOf(d), decision.runId]);
-      if (!seen.has(key)) {
-        seen.add(key);
-        d.note(`Autopilot: ${decision.reason}`, `${d.key}: every ship run since the person's confirm failed on a GitHub server error; the failed ship keeps its Retry ship.`);
+      // One event per failed run, read back from the STORE, never from this process: a reload finds it and writes no
+      // duplicate (@arch:EVENTS). The run id in the body tells two outages apart.
+      const marker = `ship run ${decision.runId}`;
+      const title = `Autopilot: ${decision.reason}`;
+      if (!hasTicketEvent(d.store, d.ticketId, title, marker)) {
+        d.note(title, `${d.key}: every ship run since the person's confirm failed on a GitHub server error (${marker}); the failed ship keeps its Retry ship.`);
         d.debug(`${LOG} ticket ${d.key}: ${decision.reason}; no block, Retry ship stays`);
       }
       return { kind: 'idle' };
     }
     case 'retry': {
+      // A sandboxed ticket's ship first pulls the sandbox into the worktree (assertInSync): an unattended retry would
+      // publish commits no person confirmed. The click stays the way to ship it.
+      let host = false;
+      try { host = (await d.placement()) === 'host'; } catch { host = false; }
+      if (!host) {
+        const key = JSON.stringify([flightKeyOf(d), 'not-host']);
+        if (!seen.has(key)) {
+          seen.add(key);
+          d.debug(`${LOG} ticket ${d.key}: no ship retry, the ticket does not run on the host`);
+        }
+        return { kind: 'idle' };
+      }
       const before = listShipRuns(d.store, d.ticketId, 1)[0]!;
       const outcome = await d.retryShip(decision.repos);
       if (outcome.kind === 'busy') {

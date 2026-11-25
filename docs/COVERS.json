@@ -1103,6 +1103,9 @@
   "src/store/karstEvents.ts#KARST_EVENTS_DDL": [
     "arch:EVENTS"
   ],
+  "src/store/karstEvents.ts#hasTicketEvent": [
+    "arch:AP-11"
+  ],
   "src/store/karstEvents.ts#recordEvent": [
     "arch:EVENTS"
   ],

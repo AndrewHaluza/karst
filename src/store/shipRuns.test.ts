@@ -1015,5 +1015,24 @@ describe('ship_runs', () => {
       expect(newestPushIntentHead(store, ticketId, 'web')).toBe('b'.repeat(40));
       expect(newestPushIntentHead(store, ticketId, 'other')).toBeNull();
     });
+
+    it("reads the intent's head, not the pre-state a base-moved rebase left behind", () => {
+      const r = run();
+      const intent = beginShipOperationPreparation(store, {
+        shipRunId: r.id, repo: 'web', step: 'push', operationKey: 'push-rebased',
+        preState: { ...pushPreState, localHead: 'a'.repeat(40) }, createdAt: '2026-08-08T10:01:00.000Z',
+      });
+      finalizeShipOperationIntent(store, intent.id, { ...pushIntent, localHead: 'b'.repeat(40) }, '2026-08-08T10:02:00.000Z');
+      expect(newestPushIntentHead(store, ticketId, 'web')).toBe('b'.repeat(40));
+    });
+
+    it('falls back to the pre-state of a push row that never got its intent', () => {
+      const r = run();
+      beginShipOperationPreparation(store, {
+        shipRunId: r.id, repo: 'web', step: 'push', operationKey: 'push-preparing',
+        preState: { ...pushPreState, localHead: 'c'.repeat(40) }, createdAt: '2026-08-08T10:01:00.000Z',
+      });
+      expect(newestPushIntentHead(store, ticketId, 'web')).toBe('c'.repeat(40));
+    });
   });
 });

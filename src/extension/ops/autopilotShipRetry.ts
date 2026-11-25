@@ -90,15 +90,6 @@ export async function shipRetryDecision(store: Store, ticketId: number, now: num
   // failure is another kind must keep the click, never ride along on this server-error retry.
   const failedRepos = new Set(failed.map((s) => s.repo));
   if (plan.repos.some((repo) => !failedRepos.has(repo))) return none('a repo the ship would re-run failed on another error');
-  // Nothing new would be published: every repo Retry ship would re-run must hold exactly the pushed head.
-  for (const repo of plan.repos) {
-    const state = await seams.worktreeClean(repo);
-    if (!state.ok) return none(`the worktree of ${repo} cannot be read`);
-    if (!state.clean) return none(`the worktree of ${repo} has uncommitted changes`);
-    const head = await seams.localHead(repo);
-    const pushed = newestPushIntentHead(store, ticketId, repo);
-    if (head === null || head !== pushed) return none(`the head of ${repo} is not the head the ship pushed`);
-  }
   // Rule 6: the consecutive newest runs that failed only on server errors. A passed run or another failure stops it.
   let n = 0;
   for (const r of runs) {
@@ -112,6 +103,16 @@ export async function shipRetryDecision(store: Store, ticketId: number, now: num
   const endedAt = Date.parse(ended);
   if (Number.isNaN(endedAt)) return none('the newest failed ship run has an unreadable end time');
   const until = endedAt + AUTO_SHIP_RETRY_DELAYS_MS[n - 1]!;
+  // The worktree reads come LAST, only when a retry is due: a wait (and every park above) must not poll git every tick.
   if (now < until) return { kind: 'wait', until };
+  // Nothing new would be published: every repo Retry ship would re-run must hold exactly the pushed head.
+  for (const repo of plan.repos) {
+    const state = await seams.worktreeClean(repo);
+    if (!state.ok) return none(`the worktree of ${repo} cannot be read`);
+    if (!state.clean) return none(`the worktree of ${repo} has uncommitted changes`);
+    const head = await seams.localHead(repo);
+    const pushed = newestPushIntentHead(store, ticketId, repo);
+    if (head === null || head !== pushed) return none(`the head of ${repo} is not the head the ship pushed`);
+  }
   return { kind: 'retry', repos: plan.repos, n };
 }

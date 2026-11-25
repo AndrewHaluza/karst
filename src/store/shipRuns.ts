@@ -1055,19 +1055,25 @@ export function listShipRepoSteps(store: Store, shipRunId: number): ShipRepoStep
  * The `localHead` of the NEWEST `push` intent of a ticket + repo, whatever its
  * status: the head the ship that ended intended to push. A retry re-pushes that
  * exact head, so a HEAD that moved means new work and no retry (@arch:AP-11).
+ *
+ * Read from `intent_json` (the exact intended effect), and only from
+ * `pre_state_json` when the row never got its intent (`preparing`): a base-moved
+ * rebase keeps the OLD head in the pre-state and the head to push in the intent.
  * Null when karst never prepared a push for the repo, or the row is unreadable.
  */
 export function newestPushIntentHead(store: Store, ticketId: number, repo: string): string | null {
   const row = store.db
     .prepare(
-      `SELECT i.pre_state_json AS pre
+      `SELECT i.pre_state_json AS pre, i.intent_json AS intent
          FROM ship_operation_intents i
          JOIN ship_runs r ON r.id = i.ship_run_id
         WHERE r.ticket_id = ? AND i.repo = ? AND i.step = 'push'
         ORDER BY i.id DESC LIMIT 1`,
     )
-    .get(ticketId, repo) as { pre: string } | undefined;
+    .get(ticketId, repo) as { pre: string; intent: string | null } | undefined;
   if (row === undefined) return null;
+  const intent = parseShipIntent(row.intent, 'push');
+  if (intent !== null && intent.step === 'push' && intent.localHead !== '') return intent.localHead;
   const pre = parseShipPreState(row.pre, 'push');
   return pre !== null && pre.step === 'push' && pre.localHead !== '' ? pre.localHead : null;
 }
