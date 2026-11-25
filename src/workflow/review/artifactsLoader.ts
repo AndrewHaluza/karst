@@ -6,7 +6,7 @@ import type { ChainEdge } from '../../approaches/checks.js';
 import type { ArtifactStore } from '../../artifacts/store.js';
 import { readLastAlignmentReport } from '../artifacts/alignmentReport.js';
 import { loadChainEntries } from '../artifacts/loadChain.js';
-import { buildReviewArtifacts, type ReviewArtifacts } from './conformance.js';
+import { buildReviewArtifacts, type ReviewArtifacts, type ReviewAttachment } from './conformance.js';
 import type { OperatorManifestInfo } from './manifestBlock.js';
 import type { NoChangeClaim } from '../noChangeClaimText.js';
 
@@ -16,6 +16,8 @@ export interface ReviewArtifactsLoaderDeps {
   noChangeClaimOf?: (ticketId: number) => NoChangeClaim | null;
   /** The ticket description; the reviewer sees it only when the intent is blank. */
   descriptionOf?: (ticketId: number) => string | null;
+  /** The ticket attachments as host paths (@arch:AC-33); absent or empty → no attachment block. */
+  attachmentsOf?: (ticketId: number) => readonly ReviewAttachment[];
   /** Edges the ticket's approach verifies itself. */
   checksOf: (ticketId: number) => ReadonlySet<ChainEdge>;
   /** Null when the ticket has no artifact store (no project). */
@@ -36,8 +38,12 @@ export function makeReviewArtifactsLoader(
     const manifestPart = operatorManifest?.changed ? { operatorManifest } : {};
     const claim = deps.noChangeClaimOf?.(ticketId) ?? null;
     const claimPart = claim === null ? {} : { noChangeClaim: claim };
+    const attachments = deps.attachmentsOf?.(ticketId) ?? [];
+    const attachmentsPart = attachments.length > 0 ? { attachments } : {};
     if (!intent?.trim() && entries.length === 0 && !description) {
-      return operatorManifest?.changed || claim !== null ? { intent: null, spec: null, plan: null, ...manifestPart, ...claimPart } : undefined;
+      return operatorManifest?.changed || claim !== null || attachments.length > 0
+        ? { intent: null, spec: null, plan: null, ...manifestPart, ...claimPart, ...attachmentsPart }
+        : undefined;
     }
     const artifacts = buildReviewArtifacts({
       intent,
@@ -45,6 +51,6 @@ export function makeReviewArtifactsLoader(
       checks: deps.checksOf(ticketId),
       lastIntentSpecReport: store ? await readLastAlignmentReport(store, ticketId, 'intent-spec') : null,
     });
-    return { ...artifacts, ...(description ? { description } : {}), ...manifestPart, ...claimPart };
+    return { ...artifacts, ...(description ? { description } : {}), ...manifestPart, ...claimPart, ...attachmentsPart };
   };
 }
