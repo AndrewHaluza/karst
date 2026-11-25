@@ -358,7 +358,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       .then((copied) => {
         if (copied === undefined) return undefined;
         const cur = getProposal(deps.store, id);
-        // Stryker disable next-line OptionalChaining: equivalent, a proposal row is never deleted
+        // Stryker disable next-line ConditionalExpression: equivalent, a proposal row is never deleted
         if (cur === undefined) return undefined;
         // A revise that superseded this copy leaves a pending row to the newer copy, but a resolved row owns no copy.
         if (cur.sourceUuid !== uuid && cur.status === 'pending') return undefined;

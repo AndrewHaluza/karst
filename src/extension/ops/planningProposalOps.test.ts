@@ -333,6 +333,25 @@ describe('planningProposalOps', () => {
       expect(warns).toEqual([`Draft ${formatId('draft', id)} still copies its files. Open Review again in a moment.`]);
     });
 
+    it('Review keeps waiting when the only warning is not a refusal', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['plan path not in attachments (attach or inline)']);
+      await ops().review(id);
+      expect(forms).toEqual([]);
+    });
+
+    it('Review opens when the listed file was copied', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
+      setProposalHostAttachments(store, id, '', [{ name: 'a.txt', storedName: '1111111111111111.txt', kind: 'file', byteSize: 1 }]);
+      await ops().review(id);
+      expect(forms).toHaveLength(1);
+    });
+
+    it('Review opens a draft that lists no file', async () => {
+      await ops().review(proposalId);
+      expect(forms).toHaveLength(1);
+      expect(warns).toEqual([]);
+    });
+
     it('Review opens when every listed file was refused', async () => {
       const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['attachment refused: a.txt (missing)']);
       await ops().review(id);
