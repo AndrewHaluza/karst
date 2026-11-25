@@ -162,7 +162,10 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
       bridge.push({ type: 'action-result', requestId: statusline!.requestId!, ok: true });
     });
     const note = screen.getByText('Saved');
-    expect(note.previousElementSibling?.textContent).toContain('Install for all Claude sessions');
+    // The note lands in the row of the control whose write it acknowledges (UI-R15).
+    const row = note.closest('.accounts-quota-row');
+    expect(row?.textContent).toContain('Install for all Claude sessions');
+    expect(row?.textContent).not.toContain('Use the Claude usage API');
   });
 
   it('shows the resolved default after clearing, not a blank that snaps back later', () => {
@@ -268,6 +271,17 @@ describe('Subscription quota card — copy and links (SET-45, US-30-QC)', () => 
     const { bridge } = mount();
     fireEvent.click(screen.getByRole('button', { name: 'See current quota' }));
     expect(bridge.last('open-quota')).toBeTruthy();
+  });
+
+  it('keeps the title and the link on one head line and every setting in its own row (T1360, @ui:UI-R39)', () => {
+    mount();
+    const card = document.querySelector('[data-region="accounts-quota"]') as HTMLElement;
+    const head = card.querySelector(':scope > .accounts-quota-head');
+    expect(head?.querySelector('h3')?.textContent).toBe('Subscription quota');
+    expect(head?.querySelector('button')?.textContent).toBe('See current quota');
+    const rows = card.querySelectorAll('.accounts-quota-row');
+    expect(rows).toHaveLength(3);
+    for (const row of rows) expect(row.querySelector('.k-field-help'), row.textContent ?? '').not.toBeNull();
   });
 
   it('capitalizes Karst in the statusline help (SET-11)', () => {

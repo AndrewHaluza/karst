@@ -296,6 +296,7 @@ function FieldBody({
             {control.switchLabel ?? label}
           </label>
         </span>
+        {meta}
         {helpNode}
         {errorNode}
       </div>

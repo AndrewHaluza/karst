@@ -482,13 +482,69 @@
 #section-agents .accounts-steps { display: flex; gap: var(--k-space-4, 12px); list-style: none; padding: 0; }
 #section-agents .accounts-steps [aria-current="step"] { font-weight: 600; }
 #section-agents .accounts-checklist { list-style: none; padding: 0; }
-#section-agents .accounts-quota { border: 1px solid var(--vscode-panel-border, transparent); border-radius: var(--k-radius-2, 4px); padding: var(--k-space-4, 12px); margin-block: var(--k-space-4, 12px); }
-#section-agents .accounts-quota h3 { margin: 0; }
-#section-agents .accounts-quota .k-field { margin-block-end: var(--k-space-5, 16px); }
-#section-agents .accounts-quota .k-field:last-child { margin-block-end: 0; }
-#section-agents .accounts-quota .k-field .k-field-help { display: block; margin-block-start: var(--k-space-1, 2px); }
-#section-agents .accounts-quota .field-label, #section-agents .accounts-quota .k-switch label { color: var(--vscode-foreground); }
+/* Quota section (D707/Q4-SAVE): the prototype's grammar below the table
+   (P69 settings-accounts.html, @ui:UI-R39) — a head line with the link at the
+   right edge and a rule under it, one muted line, then one divider-separated row
+   per setting: label + help at the left, control at the right (UI-R41/R42).
+   Below the 700px container tier every row stacks like the other settings forms
+   (@ui:RD-LADDERS2). The card border/radius of the old block is gone: the
+   prototype draws the section on the page surface, not in a card. */
+#section-agents .accounts-quota { margin-block: var(--k-space-7) 0; }
+#section-agents .accounts-quota-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--k-space-1) var(--k-space-4);
+  padding-bottom: var(--k-space-2);
+  border-bottom: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
+}
+#section-agents .accounts-quota-head h3 { margin: 0; min-width: 0; }
+#section-agents .accounts-quota-head .k-btn { flex: none; white-space: nowrap; min-height: var(--k-hit-min); }
+#section-agents .accounts-quota-intro { margin: var(--k-space-2) 0 var(--k-space-4); }
+#section-agents .accounts-quota .k-field.accounts-quota-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--k-space-7);
+  row-gap: var(--k-space-1);
+  align-items: center;
+  padding-block: var(--k-space-4);
+  border-top: var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border, var(--k-border)) 45%, transparent);
+}
+#section-agents .accounts-quota .accounts-quota-row > label,
+#section-agents .accounts-quota .accounts-quota-row > .k-check > label {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  margin: 0;
+  font-size: var(--k-text-md);
+  color: var(--k-text);
+}
+/* The toggle keeps its native checkbox + label pair (SET-18/Q4); the pair joins
+   the row grid, so the label holds the left edge and the box the right one. */
+#section-agents .accounts-quota .accounts-quota-row > .k-check { display: contents; }
+#section-agents .accounts-quota .accounts-quota-row > .k-check > input,
+#section-agents .accounts-quota .accounts-quota-row > .k-input {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+}
+#section-agents .accounts-quota .accounts-quota-row > .k-field-help { grid-column: 1; grid-row: 2; margin-block-start: 0; }
+#section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved { grid-column: 2; grid-row: 2; justify-self: end; }
+#section-agents .accounts-quota .accounts-quota-row > .k-field-error { grid-column: 1 / -1; grid-row: 3; }
 #section-agents .accounts-quota-threshold input { width: 10ch; min-width: 0; box-sizing: border-box; } /* 6 digits of text plus the padding and the number spinner */
+@container accounts-tab (max-width: 699px) {
+  #section-agents .accounts-quota .k-field.accounts-quota-row { grid-template-columns: minmax(0, 1fr); }
+  #section-agents .accounts-quota .accounts-quota-row > .k-check > input,
+  #section-agents .accounts-quota .accounts-quota-row > .k-input {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-help { grid-row: 3; }
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-error { grid-row: 4; }
+  #section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved { grid-column: 1; grid-row: 5; justify-self: start; }
+}
 #section-agents .accounts-actions { display: flex; gap: var(--k-space-3, 8px); }
 
 /* Accounts row actions (SET-41): ONE row that never wraps into a ragged second
