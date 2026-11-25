@@ -41,7 +41,7 @@ function hexToRgb(hex: string): string {
 
 karstTest.describe('NDL-219: the theme body class reaches the stage palette', () => {
   karstTest('document.body carries the theme class', async ({ gotoView, page, theme }) => {
-    await gotoView('dashboard');
+    await gotoView('dashboard', { variant: 'pending' });
     const className = await page.evaluate(() => document.body.className);
     expect(className).toBe(THEMES[theme].bodyClass);
   });
@@ -50,7 +50,7 @@ karstTest.describe('NDL-219: the theme body class reaches the stage palette', ()
     karstTest(
       `.stg-${stage} computes its stage token from the theme's layer`,
       async ({ gotoView, page, theme }) => {
-        await gotoView('dashboard');
+        await gotoView('dashboard', { variant: 'pending' });
 
         // `span.stage` — the subtask chip. The dashboard's stepper also carries
         // `stg-*` classes on its `.seg` segments, but those are deliberately

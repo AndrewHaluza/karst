@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
 import { expect } from '@playwright/test';
 import type { ViewId } from './corpora.js';
+import { DEFAULT_VARIANT } from './defaultVariant.js';
 import { LAYOUT_HEIGHT } from '../../src/ui/layout/layoutBreakpoints.js';
 
 /** UI-R48: capped views stay ≤ their cap and centered; uncapped views fill the viewport. */
@@ -41,7 +42,7 @@ karstTest.describe('content width cap (UI-R48)', () => {
   for (const [view, cap] of CAPPED) {
     karstTest(`${view}: capped and centered at 2560`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width: 2560, height: LAYOUT_HEIGHT });
-      await gotoView(view);
+      await gotoView(view, { variant: DEFAULT_VARIANT[view] });
       assertCapped(await bodyGeo(page), 2560, cap);
     });
   }
@@ -49,14 +50,14 @@ karstTest.describe('content width cap (UI-R48)', () => {
   for (const [view, cap, width] of [['gettingStarted', undefined, 1280], ['settings', 1600, 1920]] as const) {
     karstTest(`${view}: centered at ${width}`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width, height: LAYOUT_HEIGHT });
-      await gotoView(view);
+      await gotoView(view, { variant: DEFAULT_VARIANT[view] });
       assertCapped(await bodyGeo(page), width, cap);
     });
   }
 
   karstTest('dashboard: Full width mode fills the viewport at 2560', async ({ gotoView, page }) => {
     await page.setViewportSize({ width: 2560, height: LAYOUT_HEIGHT });
-    await gotoView('dashboard');
+    await gotoView('dashboard', { variant: 'pending' });
     // The host's `layout` push is what the menu's Layout setting ends in.
     await page.evaluate(() => window.postMessage({ type: 'layout', layout: 'full' }, '*'));
     await page.waitForFunction(() => document.body.dataset.layout === 'full');
@@ -102,7 +103,7 @@ karstTest.describe('content width cap (UI-R48)', () => {
   for (const view of UNCAPPED) {
     karstTest(`${view}: full width at 2560`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width: 2560, height: LAYOUT_HEIGHT });
-      await gotoView(view);
+      await gotoView(view, { variant: DEFAULT_VARIANT[view] });
       const w = await page.evaluate(() => document.body.getBoundingClientRect().width);
       expect(w).toBeGreaterThanOrEqual(2560 - 2);
     });

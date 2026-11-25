@@ -27,7 +27,6 @@ import { gettingStartedRenderFixtures } from '../../src/ui/gettingStarted/render
 import { diffsRenderFixtures } from '../../src/ui/diffs/renderFixtures.js';
 import type { DashboardState } from '../../src/ui/dashboard/state.js';
 import type { WebviewName } from '../../src/model/webviewChains.js';
-import { EMPTY_SETTINGS, REALISTIC_SETTINGS } from './realisticSettings.js';
 
 export type ViewId = WebviewName;
 
@@ -271,17 +270,6 @@ const MINIMAL_CORPORA: Record<ViewId, ViewCorpus> = {
     gettingStartedRenderFixtures(),
     'partial',
   ),
-};
-
-/**
- * Named settings scenarios beyond the default MINIMAL page. `realistic` is the
- * populated state the layout-sanity gate opens every route with; it is written
- * as `settings-realistic.html` and leaves the `settings` baseline untouched.
- */
-export const SETTINGS_SCENARIOS: Readonly<Record<string, ViewCorpus>> = {
-  realistic: { messages: [{ type: 'state', state: REALISTIC_SETTINGS }] },
-  // UX-10: 0 presets, 0 local/approach profiles.
-  empty: { messages: [{ type: 'state', state: EMPTY_SETTINGS }] },
 };
 
 export function getCorpus(view: ViewId): ViewCorpus {
