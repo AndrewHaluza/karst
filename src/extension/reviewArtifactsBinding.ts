@@ -8,6 +8,8 @@ import { fixRoundManifest } from '../store/fixRoundHeads.js';
 import { listRecoveryRounds } from '../store/recoveryRoundsRead.js';
 import type { OperatorManifestInfo } from '../workflow/review/manifestBlock.js';
 import { getTicket } from '../store/tickets.js';
+import { listAttachments } from '../store/attachments.js';
+import { attachmentPath } from '../attachments/paths.js';
 import { makeReviewArtifactsLoader } from '../workflow/review/artifactsLoader.js';
 import { noChangeClaimFor } from '../workflow/noChangeClaim.js';
 import { reviewBlockingFloor } from '../manifest/qualityDefaults.js';
@@ -31,6 +33,8 @@ function manifestChanged(registry: Store, ticketId: number, sha: string, mtimeMs
 /** Binds the review artifacts loader to the registry, the artifact store root and the live manifest. */
 export function makeReviewArtifactsBinding(deps: {
   registry: Store;
+  /** Global storage root: attachment bytes live at `<storageDir>/attachments/<ticketId>/`. */
+  storageDir: string;
   artifactsRoot: string;
   manifest: () => Manifest | undefined;
   fallbackProjectId: () => number | undefined;
@@ -58,6 +62,12 @@ export function makeReviewArtifactsBinding(deps: {
     noChangeClaimOf: (id) => noChangeClaimFor(deps.registry, id, 'review', reviewBlockingFloor(deps.manifest()?.review)),
     intentOf: (id) => getTicket(deps.registry, id).intent,
     descriptionOf: (id) => getTicket(deps.registry, id).description,
+    attachmentsOf: (id) =>
+      listAttachments(deps.registry, id).map((a) => ({
+        kind: a.kind,
+        path: attachmentPath(deps.storageDir, id, a.storedName),
+        name: a.originalName,
+      })),
     checksOf: (id) => {
       const approachId = getTicket(deps.registry, id).approach;
       const approach = deps.manifest()?.approaches?.find((a) => a.id === approachId);

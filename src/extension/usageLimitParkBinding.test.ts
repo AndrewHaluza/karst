@@ -406,6 +406,9 @@ describe('createUsageLimitParkBinding', () => {
 
     const options = vi.mocked(makeReviewArtifactsBinding).mock.calls.at(-1)?.[0];
     expect(options?.fallbackProjectId()).toBe(77);
+    // The same attachment list as the stage: the storage root above the artifacts root.
+    expect(options?.storageDir).toBe('/tmp');
+    expect(options?.artifactsRoot).toBe('/tmp/karst-artifacts');
   });
 
   it('defaults the git runner to the production seam', async () => {    const { store, ticket } = setup();

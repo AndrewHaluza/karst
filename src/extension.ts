@@ -3855,6 +3855,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           carryActivity: carriedPick.carryActivity,
           reviewArtifacts: makeReviewArtifactsBinding({
             registry: localStore,
+            storageDir,
             artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
             manifest: currentManifest,
             manifestPath: () => cliEntryAndManifest(context).manifestPath,

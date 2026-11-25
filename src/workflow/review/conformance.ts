@@ -16,6 +16,13 @@ import {
 import type { OperatorManifestInfo } from './manifestBlock.js';
 import type { NoChangeClaim } from '../noChangeClaimText.js';
 
+/** One ticket attachment, as a host path (ticket-bound headless calls run on the host, @arch:AC-33). */
+export interface ReviewAttachment {
+  kind: string;
+  path: string;
+  name: string;
+}
+
 export interface ReviewArtifacts {
   intent: string | null;
   spec: string | null;
@@ -30,6 +37,8 @@ export interface ReviewArtifacts {
   operatorManifest?: OperatorManifestInfo;
   /** The fix agent no-change claim for the open findings; set only on a no-change re-run. */
   noChangeClaim?: NoChangeClaim;
+  /** The ticket attachments (binding prototypes, evidence); set only when the ticket has one or more. */
+  attachments?: readonly ReviewAttachment[];
 }
 
 export interface AlignmentSnapshot {

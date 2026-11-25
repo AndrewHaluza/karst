@@ -153,6 +153,7 @@ flowchart LR
   extension --> agent
   extension --> approaches
   extension --> artifacts
+  extension --> attachments
   extension --> cli
   extension --> cloud
   extension --> commands
