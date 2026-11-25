@@ -93,6 +93,15 @@ describe('agents.webview.css — Accounts table', () => {
     expect(css).not.toContain('overflow-wrap: anywhere');
   });
 
+  it('lets one long unbroken account name wrap inside its flex cell (UI-R44)', () => {
+    // A flex item's automatic minimum is its min-content width; for one unbroken
+    // name that is the whole token, so the cell overflows unless it may shrink.
+    const rule = /#section-agents \.accounts-name\s*\{[^}]*\}/.exec(css);
+    expect(rule, 'account name rule').not.toBeNull();
+    expect(rule![0]).toMatch(/min-width:\s*0/);
+    expect(rule![0]).toMatch(/overflow-wrap:\s*break-word/);
+  });
+
   it('lays each narrow card out as a name line, a sign-in + location line, then the token line', () => {
     // Named areas, not source order: the location cell comes before the status in the
     // DOM, so auto-placement alone would give the location a line of its own and push

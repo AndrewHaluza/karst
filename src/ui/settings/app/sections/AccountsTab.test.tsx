@@ -89,8 +89,12 @@ describe('Accounts tab — one flat table', () => {
     expect(first[0]!.querySelector('[data-col="agent"] .agenticon')).not.toBeNull();
     for (const row of [first[1]!, first[2]!]) {
       const agent = row.querySelector('[data-col="agent"]') as HTMLElement;
-      expect(agent.textContent).toBe('');
-      expect(agent.getAttribute('aria-hidden')).toBe('true');
+      // Every row keeps its Agent cell in the accessibility tree; hiding it (or
+      // dropping it) shifts every later column left, so the row stops lining up
+      // with the headers. Later rows carry the core name visually hidden.
+      expect(agent.getAttribute('aria-hidden')).toBeNull();
+      expect(agent.textContent).toBe('Claude Code');
+      expect(agent.querySelector('.sr-only')?.textContent).toBe('Claude Code');
     }
     expect(groups[1]!.querySelector('[data-col="agent"]')!.textContent).toBe('Codex');
   });
@@ -295,6 +299,14 @@ describe('Accounts tab — sign-in status', () => {
     mount();
     expect(within(statusOf('Default')).queryByRole('button', { name: /log in/i })).toBeNull();
   });
+
+  it('keeps Log in for an account whose sign-in status is not checked (UI-R37)', () => {
+    const { bridge } = mount();
+    const status = statusOf('fold');
+    expect(status.textContent).toContain('Not checked');
+    fireEvent.click(within(status).getByRole('button', { name: 'Log in fold' }));
+    expect(bridge.last('accounts-login')).toMatchObject({ core: 'claude', name: 'fold' });
+  });
 });
 
 describe('Accounts tab — the ⋯ row menu', () => {
@@ -364,15 +376,27 @@ describe('Accounts tab — inline delete confirmation', () => {
     const trigger = screen.getByRole('button', { name: `More actions for ${name} (Claude Code)` });
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('menuitem', { name: `Delete ${name}` }));
-    return rowOf(name).nextElementSibling as HTMLElement;
+    const box = document.querySelector('[data-region="accounts-delete-confirm"]');
+    if (box === null) throw new Error(`no delete confirmation for ${name}`);
+    return box as HTMLElement;
   };
 
-  it('opens directly under the row, with a folder choice for a managed account', () => {
+  it('opens directly under the row as a row with one spanning cell, with a folder choice for a managed account', () => {
     const { bridge } = mount();
     const box = openDelete('work');
     expect(box.getAttribute('data-region')).toBe('accounts-delete-confirm');
-    expect(box.getAttribute('role')).toBe('group');
+    // A rowgroup may contain rows only: the confirmation is a row > cell, never a
+    // role="group" placed straight inside the rowgroup.
+    expect(box.getAttribute('role')).toBe('cell');
+    expect(Number(box.getAttribute('aria-colspan'))).toBe(screen.getAllByRole('columnheader').length);
     expect(box.getAttribute('aria-label')).toBe('Delete work');
+    const row = box.parentElement as HTMLElement;
+    expect(row.getAttribute('role')).toBe('row');
+    const group = row.closest('[role="rowgroup"]') as HTMLElement;
+    expect(group).not.toBeNull();
+    for (const child of Array.from(group.children)) expect(child.getAttribute('role')).toBe('row');
+    // It sits right under the account's own row.
+    expect(row.previousElementSibling).toBe(rowOf('work'));
     const folder = within(box).getByLabelText(/also remove its folder/i) as HTMLInputElement;
     fireEvent.click(folder);
     fireEvent.click(within(box).getByRole('button', { name: /^delete$/i }));

@@ -450,7 +450,15 @@
 #section-agents .accounts-row > [data-col="sbx-token"] { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-1); }
 #section-agents .accounts-agent { display: inline-flex; align-items: center; gap: var(--k-space-2); min-width: 0; font-weight: 600; }
 #section-agents .accounts-agent .agenticon { display: inline-flex; flex: none; }
-#section-agents .accounts-name { overflow-wrap: break-word; word-break: normal; }
+#section-agents .accounts-name {
+  /* A flex item's automatic minimum is its min-content width, which for one long
+     unbroken account name is the whole name: the cell then overflows instead of
+     wrapping (UI-R44). min-width lets it shrink; break-word then breaks the token. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
 #section-agents .accounts-project-choice { display: inline-flex; align-items: center; gap: var(--k-space-1); margin-inline-start: var(--k-space-2); color: var(--k-text-dim); }
 #section-agents .accounts-loc-mono {
   font-family: var(--k-font-mono);

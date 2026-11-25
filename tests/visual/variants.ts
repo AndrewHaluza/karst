@@ -945,6 +945,20 @@ const ROW_STATE_CORES = [
   },
 ];
 
+// T1360 review: the Account cell must break one long unbroken name instead of
+// pushing the row past its track (UI-R44); the name is a valid 50-char slug.
+const LONG_NAME_CORES = [{
+  core: 'claude', active: 'default', machineDefault: 'default', source: 'machine',
+  rows: [
+    { name: 'default', label: 'Default (CLI home)', active: true, builtIn: true, status: 'signed-in' },
+    {
+      name: 'claude-max-subscription-account-berlin-office-2026',
+      label: 'claude-max-subscription-account-berlin-office-2026',
+      active: false, builtIn: false, source: 'managed', status: 'signed-in',
+    },
+  ],
+}];
+
 const settingsVariants = (): Variant[] => [
   variant('settings', 'populated', () => stateMessage(REALISTIC_SETTINGS), { baseline: 'settings--populated', themes: ALL_THEMES }),
   // The pre-registry MINIMAL page; its baselines predate the registry.
@@ -987,6 +1001,8 @@ const settingsVariants = (): Variant[] => [
   accountsVariant('accounts-not-signed-in', ROW_STATE_CORES, { skipLayout: true, themes: DARK_ONLY }),
   // T1360: the stacked core cards under the 699px container tier (@ui:UI-R43, @ui:UI-R55). skipLayout, as above.
   accountsVariant('accounts-narrow', SEVERAL_CORES, { skipLayout: true, themes: DARK_ONLY, width: 480 }),
+  // T1360 review: one 50-char unbroken account name, the UI-R44 wrapping case.
+  accountsVariant('accounts-long-name', LONG_NAME_CORES, { skipLayout: true, themes: DARK_ONLY }),
   // D707: the Subscription quota card with a saved threshold and both opt-ins on; one core, so the card is inside the 720 px viewport.
   accountsVariant('accounts-quota', DEFAULT_ONLY_CORES.slice(0, 1), {
     skipLayout: true,

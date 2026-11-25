@@ -182,10 +182,17 @@ export function AccountsTab({ route }: AccountsTabProps) {
                   return (
                     <Fragment key={row.name}>
                       <div className={`accounts-row${idx === 0 ? ' is-first' : ''}${row.active ? ' is-active' : ''}`} role="row">
-                        <div role="cell" data-col="agent" aria-hidden={idx === 0 ? undefined : 'true'}>
+                        {/* The Agent column keeps its cell in every row: an
+                            aria-hidden (or dropped) cell shifts every later
+                            column left for assistive tech, so the row no longer
+                            lines up with its headers (UI-R26, UI-R41). The
+                            non-first rows carry the core name visually hidden. */}
+                        <div role="cell" data-col="agent">
                           {idx === 0 ? (
                             <span className="accounts-agent"><AgentCoreIcon provider={view.core} /><span>{coreName}</span></span>
-                          ) : null}
+                          ) : (
+                            <span className="sr-only">{coreName}</span>
+                          )}
                         </div>
                         <div role="cell" data-col="mark">
                           {row.active ? (
@@ -212,9 +219,14 @@ export function AccountsTab({ route }: AccountsTabProps) {
                         <div role="cell" data-col="location"><LocationCell row={row} /></div>
                         <div role="cell" data-col="status">
                           <span className={`accounts-status-dot${row.status === 'unknown' ? ' is-unknown' : ` is-${row.status}`}`} aria-hidden="true" />
-                          {row.status === 'not-signed-in' ? (
+                          <span className={row.status === 'not-signed-in' ? 'accounts-status-warn' : row.status === 'unknown' ? 'accounts-muted' : undefined}>
+                            {STATUS_TEXT[row.status]}
+                          </span>
+                          {/* An unknown status is not "signed in": the account keeps its
+                              Log in path, as the old cards offered for every non-signed-in
+                              row (UI-R37). Only a confirmed sign-in has no login to offer. */}
+                          {row.status !== 'signed-in' ? (
                             <>
-                              <span className="accounts-status-warn">{STATUS_TEXT[row.status]}</span>
                               <span className="accounts-sep" aria-hidden="true">·</span>
                               <Button
                                 variant="text"
@@ -225,9 +237,7 @@ export function AccountsTab({ route }: AccountsTabProps) {
                                 Log in
                               </Button>
                             </>
-                          ) : (
-                            <span className={row.status === 'unknown' ? 'accounts-muted' : undefined}>{STATUS_TEXT[row.status]}</span>
-                          )}
+                          ) : null}
                         </div>
                         <div role="cell" data-col="sbx-token" data-sbx-token-row={`${view.core}/${row.name}`}>
                           <SbxTokenCell
@@ -280,20 +290,32 @@ export function AccountsTab({ route }: AccountsTabProps) {
                         </div>
                       </div>
                       {rowConfirm !== null ? (
-                        <div className="accounts-delete" data-region="accounts-delete-confirm" role="group" aria-label={`Delete ${rowConfirm.row.name}`}>
-                          <p>Delete the {providerLabel(view.core)} account {rowConfirm.row.name}?</p>
-                          {rowConfirm.row.source === 'managed' ? (
-                            <Field label="Also remove its folder" control={{ kind: 'checkbox', checked: removeFolder, onChange: setRemoveFolder }} />
-                          ) : (
-                            <p>Karst keeps your folder. Only the account entry is removed.</p>
-                          )}
-                          {deleteError !== null ? <p className="accounts-error" role="alert">{deleteError}</p> : null}
-                          <div className="accounts-actions">
-                            <Button variant="danger" size="sm" onClick={() => send.accounts({
-                              type: 'accounts-delete', core: view.core, name: rowConfirm.row.name,
-                              removeFolder: rowConfirm.row.source === 'managed' && removeFolder,
-                            })}>Delete</Button>
-                            <Button variant="ghost" size="sm" onClick={() => setDeleting(null)}>Cancel</Button>
+                        // A rowgroup may hold rows only: the confirmation is its own
+                        // row whose single cell spans every column, so the ARIA table
+                        // stays valid (a role="group" here used to sit straight inside
+                        // the rowgroup) and it still opens directly under its account.
+                        <div role="row">
+                          <div
+                            className="accounts-delete"
+                            data-region="accounts-delete-confirm"
+                            role="cell"
+                            aria-colspan={8}
+                            aria-label={`Delete ${rowConfirm.row.name}`}
+                          >
+                            <p>Delete the {providerLabel(view.core)} account {rowConfirm.row.name}?</p>
+                            {rowConfirm.row.source === 'managed' ? (
+                              <Field label="Also remove its folder" control={{ kind: 'checkbox', checked: removeFolder, onChange: setRemoveFolder }} />
+                            ) : (
+                              <p>Karst keeps your folder. Only the account entry is removed.</p>
+                            )}
+                            {deleteError !== null ? <p className="accounts-error" role="alert">{deleteError}</p> : null}
+                            <div className="accounts-actions">
+                              <Button variant="danger" size="sm" onClick={() => send.accounts({
+                                type: 'accounts-delete', core: view.core, name: rowConfirm.row.name,
+                                removeFolder: rowConfirm.row.source === 'managed' && removeFolder,
+                              })}>Delete</Button>
+                              <Button variant="ghost" size="sm" onClick={() => setDeleting(null)}>Cancel</Button>
+                            </div>
                           </div>
                         </div>
                       ) : null}
