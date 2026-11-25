@@ -126,6 +126,10 @@
   background: var(--k-pending);
 }
 
+.rs-dot.interrupted {
+  background: var(--k-attention);
+}
+
 .rs-state {
   font-size: var(--k-text-xs);
   color: var(--k-text-dim);
@@ -133,6 +137,10 @@
 
 .rs-state.running {
   color: var(--k-running);
+}
+
+.rs-state.interrupted {
+  color: var(--k-attention);
 }
 
 .rs-lock {

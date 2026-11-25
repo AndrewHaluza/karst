@@ -245,11 +245,15 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
   const canSwitch = session ? session.canSwitch : true;
   const agentState = agent?.agentState ?? 'idle';
   const waiting = agentState === 'waiting';
-  // A round works the agent, so it reads running; an agent that waits for the user keeps its own word.
-  const running = agentState === 'running' || (agent?.autofixRound === true && !waiting);
-  // The strip owns the agent state. During an auto-fix round it adds the round as a suffix.
-  const baseWord = running ? 'running' : waiting && agent?.autofixRound ? 'waiting' : 'idle';
+  const interrupted = agentState === 'interrupted';
+  // A round works the agent, so it reads running; an agent that waits for the user or is interrupted keeps its own word.
+  const running = agentState === 'running' || (agent?.autofixRound === true && !waiting && !interrupted);
+  // The strip owns the agent state. An interrupted agent keeps its own word over a live round; during an auto-fix round
+  // the strip adds the round as a suffix.
+  const baseWord = running ? 'running' : interrupted ? 'interrupted' : waiting && agent?.autofixRound ? 'waiting' : 'idle';
   const stateWord = agent?.autofixRound ? `${baseWord} · auto-fix` : baseWord;
+  const dotClass = interrupted ? 'rs-dot interrupted' : running ? 'rs-dot running' : 'rs-dot idle';
+  const stateClass = interrupted ? 'rs-state interrupted' : running ? 'rs-state running' : 'rs-state';
   const secondary = sandbox ? secondaryText(sandbox) : null;
   const host = sandbox?.backend === 'host';
   const shell = sandbox?.shell ?? { available: false, why: 'No sandbox yet' };
@@ -272,10 +276,10 @@ export const RuntimeStrip = memo(function RuntimeStrip() {
             >
               <span className="rs-badge">
                 <RuntimeIcon kind="agent" provider={session.provider} />
-                <span className={running ? 'rs-dot running' : 'rs-dot idle'} aria-hidden="true" />
+                <span className={dotClass} aria-hidden="true" />
               </span>
               <span className="rs-name">{agentName(session.provider)}</span>
-              <span className={running ? 'rs-state running' : 'rs-state'}>{stateWord}</span>
+              <span className={stateClass}>{stateWord}</span>
               <span className="rs-sub" title={session.modelId ?? undefined} aria-label={`${session.modelLabel}${session.effort ? ` · ${session.effort}` : ''}`}>
                 {session.modelLabel}
                 {session.effort ? ` · ${session.effort}` : ''}

@@ -9,6 +9,7 @@ describe('ticketStatus', () => {
     [{ ...base, paused: true }, 'Paused', 'attention'],
     [{ ...base, agentState: 'waiting' }, 'Needs you', 'attention'],
     [{ ...base, agentState: 'not-started' }, 'Needs you', 'attention'],
+    [{ ...base, agentState: 'interrupted' }, 'Interrupted', 'attention'],
   ])('%j → %s', (input, word, tone) => {
     expect(ticketStatus(input)).toEqual({ word, tone });
   });
@@ -20,6 +21,12 @@ describe('ticketStatus', () => {
   it('paused wins over a waiting agent, and a finished ticket over both', () => {
     expect(ticketStatus({ stageCurrent: 'impl', paused: true, agentState: 'waiting' })?.word).toBe('Paused');
     expect(ticketStatus({ stageCurrent: 'done', paused: true, agentState: 'waiting' })?.word).toBe('Done');
+  });
+
+  it('paused, done and closed each win over an interrupted agent', () => {
+    expect(ticketStatus({ stageCurrent: 'impl', paused: true, agentState: 'interrupted' })?.word).toBe('Paused');
+    expect(ticketStatus({ stageCurrent: 'done', paused: false, agentState: 'interrupted' })?.word).toBe('Done');
+    expect(ticketStatus({ stageCurrent: 'closed', paused: false, agentState: 'interrupted' })?.word).toBe('Closed');
   });
 });
 

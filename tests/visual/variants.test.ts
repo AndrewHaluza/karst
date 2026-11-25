@@ -31,10 +31,10 @@ const allVariants = WEBVIEW_NAMES.flatMap((view) => VARIANTS[view].map((variant)
  */
 const ALLOWED_BASELINE_COLLISIONS: readonly AllowedCollision[] = [
   {
-    baselines: ['dashboard--inside-impl-interrupted', 'dashboard--inside-impl-running', 'dashboard-running'],
+    baselines: ['dashboard--inside-impl-running', 'dashboard-running'],
     reason:
-      'D772: the interrupted impl case does not draw its interrupted state yet. The populated page (10-repository ' +
-      'fixture) and the impl running case (2-repository fixture) draw the same page: the repository count is not on it.',
+      'The populated page (10-repository fixture) and the impl running case (2-repository fixture) draw the same page: ' +
+      'the repository count is not on it.',
   },
   {
     baselines: ['dashboard--inside-ship-running', 'dashboard-waiting'],
