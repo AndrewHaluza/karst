@@ -1680,6 +1680,24 @@ describe('buildTicketFormActions', () => {
       expect(ctx.posted.some((m) => m.type === 'error')).toBe(true);
     });
 
+    it('save attaches none of the staged files when one host copy is unreadable', async () => {
+      writeBlob(8, '0123456789abcdef.txt', 'hello');
+      const { ctx, left } = stagedCtx(8, [
+        { name: 'a.txt', storedName: '0123456789abcdef.txt' },
+        { name: 'b.txt', storedName: 'ffffffffffffffff.txt' },
+      ]);
+      await buildTicketFormActions(deps)(ctx).save(fields);
+      expect(listAttachments(deps.store, ctx.boundTicketId!)).toEqual([]);
+      expect(left().map((f) => f.name)).toEqual(['a.txt', 'b.txt']);
+    });
+
+    it('unstageAttachment also works once the form is bound to a ticket', () => {
+      const { ctx, left } = stagedCtx(9, [{ name: 'a.txt', storedName: '0123456789abcdef.txt' }]);
+      ctx.bindTicket(12);
+      buildTicketFormActions(deps)(ctx).unstageAttachment('0123456789abcdef.txt');
+      expect(left()).toEqual([]);
+    });
+
     it('unstageAttachment drops one staged file and pushes the state', () => {
       const { ctx, left } = stagedCtx(7, [{ name: 'a.txt', storedName: '0123456789abcdef.txt' }]);
       buildTicketFormActions(deps)(ctx).unstageAttachment('0123456789abcdef.txt');

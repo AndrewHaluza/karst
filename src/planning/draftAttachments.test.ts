@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   snapshotDraftAttachments,
-  pruneDraftAttachments,
   removeDraftAttachments,
   draftAttachmentDir,
 } from './draftAttachments.js';
@@ -95,12 +94,20 @@ describe('snapshotDraftAttachments', () => {
     expect(r.warnings[0]!.length).toBeLessThanOrEqual(60);
   });
 
-  it('prune keeps the named blobs and remove deletes the directory', async () => {
+  it('refuses every entry when the artifacts dir is itself a link', async () => {
+    const real = join(root, 'real');
+    mkdirSync(real);
+    writeFileSync(join(real, 'a.txt'), 'a');
+    const linked = join(root, 'linked');
+    symlinkSync(real, linked);
+    const r = await snapshotDraftAttachments({ storageDir: storage, artifactsDir: linked, proposalId: 7, entries: [{ path: 'a.txt' }] });
+    expect(r.list).toEqual([]);
+    expect(r.warnings).toEqual(['attachment refused: a.txt (link)']);
+  });
+
+  it('remove deletes the directory of a draft', async () => {
     writeFileSync(join(art, 'a.txt'), 'a');
-    writeFileSync(join(art, 'b.txt'), 'b');
-    const r = await run([{ path: 'a.txt' }, { path: 'b.txt' }]);
-    await pruneDraftAttachments(storage, 7, [r.list[0]!]);
-    expect(readdirSync(draftAttachmentDir(storage, 7))).toEqual([r.list[0]!.storedName]);
+    await run([{ path: 'a.txt' }]);
     await removeDraftAttachments(storage, 7);
     expect(existsSync(draftAttachmentDir(storage, 7))).toBe(false);
   });

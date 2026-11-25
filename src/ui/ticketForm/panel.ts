@@ -4,7 +4,7 @@ import { deleteTicket, getTicket, ticketLabel, updateTicketFields } from '../../
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
-import { applyPrefill, buildTicketFormState, type DesignConstraintsView, type TicketFormState } from './state.js';
+import { applyPrefill, buildTicketFormState, stagedAttachmentRows, type DesignConstraintsView, type TicketFormState } from './state.js';
 import { join } from 'node:path';
 import { draftAttachmentDir } from '../../planning/draftAttachments.js';
 import { reapAttachments } from '../../attachments/reap.js';
@@ -459,7 +459,8 @@ export class TicketFormManager {
     // action, never on a fetch/attach that merely bound a draft.
     let prefillCommitted = false;
     // Draft files the review form lists before the ticket exists. Save ingests them, then each leaves.
-    let staged: StagedAttachment[] = [...(prefill?.attachments ?? [])];
+    // A form that opens on an existing ticket (a restored review) stages nothing: the stored ticket is the truth.
+    let staged: StagedAttachment[] = ticketId === undefined ? [...(prefill?.attachments ?? [])] : [];
     // The row THIS prefilled panel minted (bind from unbound). Deleted on
     // dispose unless the user's Save/Submit committed it; a pre-existing row
     // (edit panel) is never recorded here.
@@ -493,7 +494,13 @@ export class TicketFormManager {
       );
       // A prefilled create page shows the prefill only until it has a ticket;
       // from then on the stored ticket is the truth.
-      const overlaid = prefill && boundId === undefined ? applyPrefill(built, { ...prefill, attachments: staged }) : built;
+      // A bound form still lists the files that Save did not attach yet, after the real rows.
+      const overlaid =
+        prefill && boundId === undefined
+          ? applyPrefill(built, { ...prefill, attachments: staged })
+          : staged.length > 0
+            ? { ...built, attachments: [...built.attachments, ...stagedAttachmentRows(staged)] }
+            : built;
       const dc = prefill ? designConstraintsView(prefill) : undefined;
       // The webview saves this flag with its identity so a reload can tell a proposal review form apart.
       const flagged = prefill && !prefillCommitted ? { ...overlaid, prefilled: true } : overlaid;

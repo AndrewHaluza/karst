@@ -135,6 +135,11 @@ export async function snapshotDraftAttachments(args: SnapshotArgs): Promise<Snap
   const warnings: string[] = [];
   let artifactsReal: string;
   try {
+    // The artifacts dir itself must be a real directory: a link there would move the confinement root.
+    if ((await lstat(args.artifactsDir)).isSymbolicLink()) {
+      for (const e of args.entries) warnings.push(refusal(basename(e.path), 'link'));
+      return { list, warnings };
+    }
     artifactsReal = await realpath(args.artifactsDir);
   } catch {
     for (const e of args.entries) warnings.push(refusal(basename(e.path), 'missing'));
@@ -162,23 +167,6 @@ export async function snapshotDraftAttachments(args: SnapshotArgs): Promise<Snap
     }
   }
   return { list, warnings };
-}
-
-/** Remove the blobs of a draft that the `keep` list no longer names. */
-export async function pruneDraftAttachments(
-  storageDir: string,
-  proposalId: number,
-  keep: readonly HostAttachment[],
-): Promise<void> {
-  const dir = draftAttachmentDir(storageDir, proposalId);
-  const names = new Set(keep.map((a) => a.storedName));
-  let present: string[];
-  try {
-    present = await readdir(dir);
-  } catch {
-    return;
-  }
-  for (const f of present) if (!names.has(f)) await rm(join(dir, f), { force: true });
 }
 
 /** Remove the whole host copy of a draft (accept or discard). */

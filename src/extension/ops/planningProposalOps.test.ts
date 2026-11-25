@@ -364,6 +364,13 @@ describe('planningProposalOps', () => {
       expect(removeDir).not.toHaveBeenCalled();
     });
 
+    it('keeps the host copy when the discard fails and the draft stays pending', async () => {
+      const removeDir = vi.fn().mockResolvedValue(undefined);
+      breakProposalWrites();
+      await ops({ storageDir: '/s', removeDir }).discard(proposalId);
+      expect(removeDir).not.toHaveBeenCalled();
+    });
+
     it('removes the host copy after discard', async () => {
       const removeDir = vi.fn().mockResolvedValue(undefined);
       await ops({ storageDir: '/s', removeDir }).discard(proposalId);

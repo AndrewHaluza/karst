@@ -691,6 +691,21 @@ export function buildTicketFormState(
   };
 }
 
+type StagedRowSource = { name: string; kind: string; byteSize: number; storedName: string };
+
+/** The attachment rows for draft files that are staged and not yet attached; their ids are negative. */
+export function stagedAttachmentRows(staged: readonly StagedRowSource[]): AttachmentView[] {
+  return staged.map((a, i) => ({
+    id: -(i + 1),
+    kind: a.kind as AttachmentKind,
+    name: a.name,
+    byteSize: a.byteSize,
+    src: '',
+    staged: true,
+    storedName: a.storedName,
+  }));
+}
+
 /** Overlay a proposal prefill on a built create-form state; picked bases stay overrides. */
 export function applyPrefill(
   state: TicketFormState,
@@ -705,15 +720,7 @@ export function applyPrefill(
     description: p.description,
     ...(p.attachments !== undefined
       ? {
-          attachments: p.attachments.map((a, i) => ({
-            id: -(i + 1),
-            kind: a.kind as AttachmentKind,
-            name: a.name,
-            byteSize: a.byteSize,
-            src: '',
-            staged: true,
-            storedName: a.storedName,
-          })),
+          attachments: stagedAttachmentRows(p.attachments),
         }
       : {}),
     brief: p.summary || null,

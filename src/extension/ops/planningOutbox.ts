@@ -337,47 +337,45 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         commitWarnings(p.constraints ?? [], deps.repoPaths!(p.repos), deps.commitExists!, debug)
       : Promise.resolve<string[]>([]);
     const missing = probe ? missingPathWarnings(probe.paths, probe.targets, deps.gitBatch!, debug) : Promise.resolve<string[]>([]);
-    const snapshot = snapshotOf(scratch, id, p);
-    void Promise.allSettled([commits, missing, snapshot])
-      .then(([c, m, snap]) => {
-        const extra = [c, m].flatMap((s) => {
-          if (s!.status === 'fulfilled') return s!.value as string[];
-          debug(`async check for proposal ${id} failed (${messageOf((s as PromiseRejectedResult).reason)})`);
+    // The git probes and the file copy settle on their own: a slow probe never delays the stored copy.
+    const probes = Promise.allSettled([commits, missing])
+      .then((settled) => {
+        const extra = settled.flatMap((s) => {
+          if (s.status === 'fulfilled') return s.value;
+          debug(`async check for proposal ${id} failed (${messageOf(s.reason)})`);
           return [];
         });
-        // Stryker disable next-line ConditionalExpression: equivalent, snapshotDraftAttachments never rejects
-        const copied = snap!.status === 'fulfilled' ? snap!.value : undefined;
-        // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral,CallExpression: equivalent, snapshotDraftAttachments never rejects; this line only logs a defensive failure
-        if (snap!.status === 'rejected') debug(`attachment copy for proposal ${id} failed (${messageOf(snap!.reason)})`);
         const cur = getProposal(deps.store, id);
         // A revise or resolution since ingest owns the row now.
-        if (!cur || cur.sourceUuid !== uuid) return;
-        if (cur.status !== 'pending') {
-          // Resolved before the copy ended: nothing will read the host copy, so drop it.
-          // Stryker disable next-line ConditionalExpression,EqualityOperator,LogicalOperator: equivalent, removing the directory of a draft with no copy is a no-op
-          if (copied && copied.list.length > 0) {
-            // Stryker disable next-line ArrowFunction,StringLiteral: equivalent, the removal only logs a failure that the host cannot cause here
-            const dropped = removeDraftAttachments(deps.storageDir!, id);
-            // Stryker disable next-line ArrowFunction,StringLiteral: equivalent, the handler only logs
-            return dropped.catch((e: unknown) => debug(`draft attachment cleanup for proposal ${id} failed (${messageOf(e)})`));
-          }
-          return;
-        }
-        const added = [...extra, ...(copied?.warnings ?? [])];
-        const ranSnapshot = copied !== undefined;
-        if (ranSnapshot) setProposalHostAttachments(deps.store, id, uuid, copied.list);
-        // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent, writing the same warnings again changes nothing
-        if (added.length > 0) setProposalWarnings(deps.store, id, [...cur.warnings, ...added]);
-        if (added.length === 0 && !ranSnapshot) return;
+        if (!cur || cur.sourceUuid !== uuid || cur.status !== 'pending' || extra.length === 0) return;
+        setProposalWarnings(deps.store, id, [...cur.warnings, ...extra]);
         const row = getProposal(deps.store, id);
         if (row) deps.onWarnings?.(row);
       })
-      .catch((e: unknown) => debug(`async checks for proposal ${id} failed (${messageOf(e)})`))
-      .finally(() => {
-        if (checking.get(id) !== uuid) return;
-        checking.delete(id);
-        safeRefresh(sessionId, scratch);
-      });
+      .catch((e: unknown) => debug(`async checks for proposal ${id} failed (${messageOf(e)})`));
+    const copying = snapshotOf(scratch, id, p)
+      .then((copied) => {
+        if (copied === undefined) return undefined;
+        const cur = getProposal(deps.store, id);
+        if (!cur || cur.sourceUuid !== uuid) return undefined;
+        if (cur.status !== 'pending') {
+          // Resolved before the copy ended: nothing will read the host copy, so drop it.
+          return removeDraftAttachments(deps.storageDir!, id).catch((e: unknown) =>
+            debug(`draft attachment cleanup for proposal ${id} failed (${messageOf(e)})`),
+          );
+        }
+        setProposalHostAttachments(deps.store, id, uuid, copied.list);
+        if (copied.warnings.length > 0) setProposalWarnings(deps.store, id, [...cur.warnings, ...copied.warnings]);
+        const row = getProposal(deps.store, id);
+        if (row) deps.onWarnings?.(row);
+        return undefined;
+      })
+      .catch((e: unknown) => debug(`attachment copy for proposal ${id} failed (${messageOf(e)})`));
+    void Promise.all([probes, copying]).finally(() => {
+      if (checking.get(id) !== uuid) return;
+      checking.delete(id);
+      safeRefresh(sessionId, scratch);
+    });
   }
 
   function ingest(sessionId: number, scratch: string, claimed: string, proposal: string): void {

@@ -623,8 +623,14 @@ export function buildTicketFormActions(
     const ingestStaged = async (ticketId: number): Promise<void> => {
       const draftId = ctx.stagedDraftId;
       if (draftId === undefined) return;
-      for (const staged of [...(ctx.stagedAttachments ?? [])]) {
-        const bytes = await readFile(join(draftAttachmentDir(deps.storageDir, draftId), staged.storedName));
+      // Read every file first: an unreadable host copy then fails before any file is attached.
+      const loaded = await Promise.all(
+        [...(ctx.stagedAttachments ?? [])].map(async (staged) => ({
+          staged,
+          bytes: await readFile(join(draftAttachmentDir(deps.storageDir, draftId), staged.storedName)),
+        })),
+      );
+      for (const { staged, bytes } of loaded) {
         const ok = await record(
           ticketId,
           await ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
@@ -901,8 +907,6 @@ export function buildTicketFormActions(
     },
 
     unstageAttachment: (storedName: string): void => {
-      // Only a create page stages files; once the ticket exists they are real attachments.
-      if (ctx.ticketId !== undefined) return;
       ctx.unstage?.(storedName);
       ctx.pushState();
     },

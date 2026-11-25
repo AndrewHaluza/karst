@@ -1304,6 +1304,23 @@ describe('planning outbox', () => {
       await drain(ob);
     });
 
+    it('records the copy before a slow git probe settles', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'], attachments: [{ path: 'p.html' }] });
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const ob = make({ storageDir: storageDir(), repoPaths: () => ['/nowhere'], commitExists: async () => { await gate; return true; } });
+      ob.scan();
+      const id = pending()[0]!.id;
+      for (let i = 0; i < 100 && getProposal(store, id)!.attachments.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
+      expect(getProposal(store, id)!.attachments).toHaveLength(1);
+      expect(ob.checkingIds().has(id)).toBe(true);
+      release();
+      await drain(ob);
+    });
+
     it('writes nothing when the draft was discarded before the copy ended', async () => {
       withFile('p.html', 'x');
       put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
