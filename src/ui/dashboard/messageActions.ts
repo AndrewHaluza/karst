@@ -119,6 +119,8 @@ export interface DashboardActions {
    * a session in.
    */
   resolveConflicts: (repo: string) => void | Promise<void>;
+  /** Hand every conflicted repo of the ticket to one agent session in one brief (`resolve-all-conflicts`). */
+  resolveAllConflicts: () => void | Promise<void>;
   /**
    * Merge one repo's PR. Takes the repo (not a url or a number) for the same
    * reason `resolveConflicts` does: the host resolves the PR from the store, so

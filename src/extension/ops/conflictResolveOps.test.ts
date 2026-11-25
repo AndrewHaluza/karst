@@ -1,6 +1,6 @@
 import type { SandboxProbe } from '../../agent/sessionRunner.js';
 import { describe, it, expect, vi } from 'vitest';
-import { resolveConflictClick, resolveConflictRound, makeSessionHandOff } from './conflictResolveOps.js';
+import { resolveAllConflictsClick, resolveConflictClick, resolveConflictRound, makeSessionHandOff } from './conflictResolveOps.js';
 
 function click(over: Partial<Parameters<typeof resolveConflictClick>[0]> = {}) {
   const notify = vi.fn();
@@ -211,5 +211,80 @@ describe('resolveConflictRound', () => {
     const out = await resolveConflictRound(input);
     expect(out).toMatchObject({ kind: 'declined', reason: expect.stringContaining('sbx ls failed') });
     expect(deliver).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveAllConflictsClick', () => {
+  function all(over: Partial<Parameters<typeof resolveAllConflictsClick>[0]> = {}) {
+    const notify = vi.fn();
+    const deliver = vi.fn();
+    const arm = vi.fn();
+    const probeSandbox = vi.fn(async (): Promise<SandboxProbe> => ({ state: 'absent' }));
+    const input = { repos: ['/repos/web', '/repos/api'], label: 'T7', probeSandbox, briefFor: (repo: string): string | null => `BRIEF ${repo}`, notify, deliver, arm, ...over };
+    return { input, notify, deliver, arm, probeSandbox };
+  }
+
+  // T1343 review: one message per repo started parallel hand-offs into the same ticket session.
+  it('sends ONE combined brief for every conflicted repo, probes once and arms each repo', async () => {
+    const { input, deliver, arm, probeSandbox, notify } = all();
+
+    await resolveAllConflictsClick(input);
+
+    expect(probeSandbox).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    const [brief, repo, sandboxed] = deliver.mock.calls[0] as [string, string, boolean];
+    expect(brief).toContain('Resolve the merge conflicts of 2 repositories in this session, one after the other.');
+    expect(brief.indexOf('BRIEF /repos/web')).toBeLessThan(brief.indexOf('BRIEF /repos/api'));
+    expect(repo).toBe('/repos/web');
+    expect(sandboxed).toBe(false);
+    expect(arm.mock.calls).toEqual([['/repos/web'], ['/repos/api']]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('skips a repo whose conflict is gone and sends the single brief unchanged', async () => {
+    const { input, deliver, arm } = all({ briefFor: (repo) => (repo === '/repos/web' ? null : 'ONLY API') });
+
+    await resolveAllConflictsClick(input);
+
+    expect(deliver).toHaveBeenCalledWith('ONLY API', '/repos/api', false);
+    expect(arm.mock.calls).toEqual([['/repos/api']]);
+  });
+
+  it('passes the sandbox answer to each brief', async () => {
+    const briefFor = vi.fn((repo: string, sandboxed: boolean): string | null => `${repo}:${String(sandboxed)}`);
+    const { input, deliver } = all({ briefFor, probeSandbox: async () => ({ state: 'present' }), prepareSandbox: async () => ({ ok: true }) as never });
+
+    await resolveAllConflictsClick(input);
+
+    expect(briefFor.mock.calls).toEqual([['/repos/web', true], ['/repos/api', true]]);
+    expect(deliver).toHaveBeenCalledWith(expect.stringContaining('/repos/api:true'), '/repos/web', true);
+  });
+
+  it('delivers without an arm seam (the arm is optional)', async () => {
+    const { input, deliver } = all({ arm: undefined });
+
+    await resolveAllConflictsClick(input);
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it('with no conflicted repo sends nothing and says why', async () => {
+    const { input, deliver, notify, probeSandbox } = all({ repos: [] });
+
+    await resolveAllConflictsClick(input);
+
+    expect(probeSandbox).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith('No merge conflict is recorded on ticket T7 — nothing to resolve.');
+  });
+
+  it('with every conflict gone sends nothing and arms nothing', async () => {
+    const { input, deliver, arm, notify } = all({ briefFor: () => null });
+
+    await resolveAllConflictsClick(input);
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(arm).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('No merge conflict is recorded'));
   });
 });

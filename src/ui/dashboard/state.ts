@@ -393,7 +393,7 @@ export function buildDashboardState(
     stepper,
     currentStage,
     stall: buildStallView(store, ticketId, displayBlocking?.review ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity),
-    ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
+    ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined, blocked),
     agentSwitch,
     capabilityIdentity,
     sandbox: buildSandbox(agentContext, ticket, sessionCore, placement),

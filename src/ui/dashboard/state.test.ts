@@ -1312,6 +1312,8 @@ describe('buildDashboardState', () => {
     expect(ship.needsUser).toBe(false);
     expect(ship.needs).toBeNull();
     expect(state.rail.main.every((s) => s.needs === null)).toBe(true);
+    // The session works the conflict: the header chip and the banner stay a calm wait (DB-3).
+    expect(state.ship).toEqual({ kind: 'waiting-merge', repos: 1 });
   });
 
   it('returns to needs-you on the same conflicted ship once the session ends', () => {
@@ -1351,12 +1353,15 @@ describe('buildDashboardState', () => {
       action: 'Resolve',
       cta: { kind: 'resolve-conflicts', repo: 'api' },
     });
+    // The banner and the chip read this one slot; its repo is the PR row's repo, the key Resolve sends (DB-3).
+    expect(state.ship).toEqual({ kind: 'merge-blocked', repos: ['api'] });
+    expect(state.prs[0]!.repo).toBe('api');
   });
 
   it('points a multi-repo conflict at the PR panel, never resolving blindly', () => {
     // Resolve is per-repo (one conflict brief, one session): a track-level
     // button cannot choose which of several conflicted repos to hand off, so
-    // the rail navigates to the panel that owns one Resolve control per repo.
+    // the verdict names the panel; the blocked banner owns one Resolve per repo (Q1).
     const t = createTicket(store, { key: 'N-11', title: 't' });
     setStage(store, t.id, 'ship', {
       status: 'passed',

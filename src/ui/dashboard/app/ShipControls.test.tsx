@@ -29,6 +29,21 @@ describe('ShipControls — the ship slot', () => {
     h.emit({ type: 'state', state: headerState({ ship: { kind: 'waiting-merge', repos: 0 } }) });
     expect($('#shipWait').getAttribute('title')).toBe('Waiting for the pull requests to be merged');
   });
+
+  it('during a conflict the chip mirrors the block: "Merge blocked", attention tone, no button (DB-3)', () => {
+    const h = mountHeader(headerState({ ship: { kind: 'merge-blocked', repos: ['/repos/web'] } }));
+    const chip = $('#shipWait');
+    expect(has('#shipWait', 'hidden')).toBe(false);
+    expect(chip.textContent).toBe('Merge blocked');
+    expect(chip.dataset.tone).toBe('attention');
+    expect(chip.getAttribute('title')).toBe('1 repo no longer merges cleanly');
+    expect(chip.querySelector('button')).toBeNull();
+    h.emit({ type: 'state', state: headerState({ ship: { kind: 'merge-blocked', repos: ['/repos/web', '/repos/api'] } }) });
+    expect($('#shipWait').getAttribute('title')).toBe('2 repos no longer merge cleanly');
+    h.emit({ type: 'state', state: headerState({ ship: { kind: 'waiting-merge', repos: 1 } }) });
+    expect($('#shipWait').textContent).toBe('Waiting to merge');
+    expect($('#shipWait').dataset.tone).toBeUndefined();
+  });
 });
 
 describe('ShipControls — toast', () => {

@@ -69,21 +69,21 @@ describe('Inside — the stage menu', () => {
     expect(h.menuOpen).toEqual([true]);
   });
 
-  it('the retry item leads and names the gate stage', () => {
+  it('re-run stays inside Actions as "Re-run stage…", never a header button beside the banner\'s Resume (DB-4)', () => {
     mountInside(insideState({ stageCurrent: 'review', sendBack: { available: true, stage: 'review' }, rerunGate: { available: true, stage: 'review' } }));
+    expect(q('.stageMain')).toBeNull();
     fireEvent.click(trigger());
-    expect(items().map((b) => b.dataset.act)).toEqual(['send-back-to-implement']);
-    const main = must<HTMLButtonElement>('.stageMain');
-    expect(main.dataset.act).toBe('rerun-gate');
-    expect(main.dataset.stage).toBe('review');
-    expect(text(main)).toBe('Retry');
-    expect(main.className).toContain('k-btn--secondary');
-    expect(main.title).toBe(main.getAttribute('aria-label'));
-    expect(main.title.startsWith('Retry — ')).toBe(true);
+    expect(items().map((b) => b.dataset.act)).toEqual(['rerun-gate', 'send-back-to-implement']);
+    const rerun = items()[0]!;
+    expect(rerun.dataset.stage).toBe('review');
+    expect(text(rerun.querySelector('.menuLabel'))).toBe('Re-run stage…');
+    expect(rerun.title.startsWith('Re-run stage… — ')).toBe(true);
+    expect(all('.stageMenu .menuButton').some((b) => /\bRetry\b/.test(text(b)))).toBe(false);
     cleanupInside();
     mountInside(insideState({ stageCurrent: 'uat', rerunGate: { available: true, stage: 'uat' } }));
-    expect(q('[data-stage-menu]')).toBeNull();
-    expect(must('.stageMain').dataset.stage).toBe('uat');
+    expect(q('.stageMain')).toBeNull();
+    fireEvent.click(trigger());
+    expect(must('.stageMenu [data-act="rerun-gate"]').dataset.stage).toBe('uat');
   });
 
   it('the trigger toggles, Escape closes, a click elsewhere closes, a click inside the menu does not', () => {
@@ -136,7 +136,8 @@ describe('Inside — the stage menu', () => {
 
   it('retry posts the stage and shares one request with send back (one confirmation dialog at a time)', () => {
     const h = mountInside(insideState({ stageCurrent: 'uat', sendBack: { available: true, stage: 'uat' }, rerunGate: { available: true, stage: 'uat' } }));
-    fireEvent.click(must('.stageMain[data-act="rerun-gate"]'));
+    fireEvent.click(trigger());
+    fireEvent.click(must('.stageMenu [data-act="rerun-gate"]'));
     expect(h.send.rerunGate.mock.calls).toEqual([['uat']]);
     fireEvent.click(trigger());
     fireEvent.click(must('.stageMenu [data-act="send-back-to-implement"]'));

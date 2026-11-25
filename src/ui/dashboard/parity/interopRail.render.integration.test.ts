@@ -196,12 +196,19 @@ describe('React rail and banner — one post per click, one request per operatio
     expect(v.query('#blocked [data-act="stage-resume"]')!.getAttribute('aria-busy')).toBe('true');
   });
 
-  it('the rail Resolve conflicts button posts once with a request id', async () => {
-    const s = withNeeds(populatedStateFor('ship'), 'ship', { kind: 'resolve-conflicts', repo: REPO });
+  it('a ship conflict: the rail draws no Resolve, the banner Resolve posts once with a request id (DB-3)', async () => {
+    const base = withNeeds(populatedStateFor('ship'), 'ship', { kind: 'resolve-conflicts', repo: REPO });
+    const cell = base.stepper.find((c) => c.stageKey === 'ship')!;
+    const s = {
+      ...base,
+      currentStage: { ...cell, status: 'passed', blocked: { kind: 'awaiting-merge', reason: 'conflicts', at: '2026-08-12T10:00:00.000Z', resumable: false } },
+      ship: { kind: 'merge-blocked', repos: [REPO] },
+    } as DashboardState;
     const v = await open(s);
+    expect(v.query('#rail .go')).toBeNull();
     const before = v.posted.length;
-    await click(v, '#rail .go[data-act="resolve-conflicts"]');
-    await click(v, '#rail .go[data-act="resolve-conflicts"]');
+    await click(v, '#blocked [data-act="resolve-conflicts"]');
+    await click(v, '#blocked [data-act="resolve-conflicts"]');
     expect(v.posted.slice(before)).toEqual([expect.objectContaining({ type: 'resolve-conflicts', repo: REPO, requestId: expect.any(String) })]);
   });
 

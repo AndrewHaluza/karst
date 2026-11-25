@@ -5,8 +5,12 @@
  *
  * The host's `state.ship` is the placement truth. The post-ship flash comes from the same shared ops state
  * (`pendingOps.ts`) the rail's Ship button drives.
+ *
+ * During a merge conflict the chip only MIRRORS the block: "Merge blocked" in the attention tone, with no button.
+ * The blocked banner owns the reason and Resolve (Q1, DB-3, UI-R40).
  */
 import { memo, useEffect, useState } from 'react';
+import { mergeBlockedDetail, type ShipSlot } from '../../../model/shipSlot.js';
 import { useDashboardSend, useOps } from './DashboardAppContext.js';
 import { selectControls } from './headerSlices.js';
 import { Icon } from './Icon.js';
@@ -41,6 +45,15 @@ function Mark() {
   );
 }
 
+const repoCount = (n: number): string => `${n} ${n === 1 ? 'repo' : 'repos'}`;
+
+/** The chip's tooltip: the conflict count, or how many repos the calm wait is for. */
+function waitTitle(slot: ShipSlot): string | undefined {
+  if (slot.kind === 'merge-blocked') return mergeBlockedDetail(slot.repos.length);
+  if (slot.kind !== 'waiting-merge') return undefined;
+  return slot.repos > 0 ? `Waiting for ${repoCount(slot.repos)} to be merged` : 'Waiting for the pull requests to be merged';
+}
+
 export const ShipControls = memo(function ShipControls() {
   const controls = useSlice(selectControls);
   const send = useDashboardSend();
@@ -48,26 +61,16 @@ export const ShipControls = memo(function ShipControls() {
   const slot = controls?.ship ?? { kind: 'none' as const };
   const onResume = usePendingAction((requestId) => send.unpauseExecution(requestId));
 
-  const waiting = slot.kind === 'waiting-merge';
+  const conflict = slot.kind === 'merge-blocked';
+  const waiting = slot.kind === 'waiting-merge' || conflict;
   const subtaskWait = controls?.subtaskWait ?? null;
 
   return (
     <>
       <Toast shipped={ship.shipped} />
-      <span
-        id="shipWait"
-        className={waiting ? 'shipWait' : 'shipWait hidden'}
-        role="status"
-        title={
-          waiting
-            ? slot.repos > 0
-              ? `Waiting for ${slot.repos} ${slot.repos === 1 ? 'repo' : 'repos'} to be merged`
-              : 'Waiting for the pull requests to be merged'
-            : undefined
-        }
-      >
+      <span id="shipWait" className={waiting ? 'shipWait' : 'shipWait hidden'} role="status" data-tone={conflict ? 'attention' : undefined} title={waitTitle(slot)}>
         <Mark />
-        <span>Waiting to merge</span>
+        <span>{conflict ? 'Merge blocked' : 'Waiting to merge'}</span>
       </span>
       <span
         id="subtaskWait"

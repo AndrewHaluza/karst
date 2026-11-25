@@ -77,17 +77,6 @@ export function CopyUrl({ url, label }: { readonly url: string; readonly label?:
   );
 }
 
-/** Hands one repo's conflict to an agent session; settled by the host's `action-result` like any posting control. */
-export function ResolveButton({ repo, label = 'Resolve conflicts' }: { readonly repo: string; readonly label?: string }) {
-  const send = useDashboardSend();
-  const onClick = usePendingAction(useCallback((requestId: string) => send.resolveConflicts(repo, requestId), [send, repo]));
-  return (
-    <button type="button" className={SECONDARY} data-act="resolve-conflicts" data-repo={repo} title="Hand this repo's conflict to an agent session" onClick={onClick}>
-      {label}
-    </button>
-  );
-}
-
 interface Pendable {
   readonly api: PrPendingApi;
   readonly busy: boolean;

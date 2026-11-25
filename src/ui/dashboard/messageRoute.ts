@@ -125,6 +125,8 @@ export function routeAction(
       return actions.openStageLog(msg.stageKey);
     case 'resolve-conflicts':
       return actions.resolveConflicts(msg.repo);
+    case 'resolve-all-conflicts':
+      return actions.resolveAllConflicts();
     case 'merge-pr':
       return actions.mergePr(msg.repo);
     case 'merge-all-prs':

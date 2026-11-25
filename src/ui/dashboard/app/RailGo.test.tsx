@@ -62,17 +62,14 @@ describe('Rail — the needs-you control acts or navigates, as the host says', (
     expect(h.send.mergePr).not.toHaveBeenCalled();
   });
 
-  it('Resolve conflicts posts the repo with a request id once and goes pending', () => {
-    const h = mountRail(ship({ kind: 'resolve-conflicts', repo: REPO }));
-    expect(go().dataset.act).toBe('resolve-conflicts');
-    fireEvent.click(go());
-    fireEvent.click(go());
-    expect(h.send.resolveConflicts).toHaveBeenCalledTimes(1);
-    expect(h.send.resolveConflicts).toHaveBeenCalledWith(REPO, 'req-1');
-    expect(go().getAttribute('aria-busy')).toBe('true');
+  it.each([['resolve-conflicts'], ['resolve-panel']])('%s draws no control: the blocked banner owns Resolve (DB-3, UI-R40)', (kind) => {
+    const h = mountRail(ship({ kind, repo: REPO }, { action: 'Resolve', detail: '1 repo no longer merges cleanly' }));
+    expect(q('#rail .go')).toBeNull();
+    expect(q('#rail [data-act="resolve-conflicts"]')).toBeNull();
+    for (const fn of Object.values(h.send)) expect(fn).not.toHaveBeenCalled();
   });
 
-  it.each([['merge-panel'], ['resolve-panel'], ['graph-panel'], ['open-session']])('%s navigates, posting nothing', (kind) => {
+  it.each([['merge-panel'], ['graph-panel'], ['open-session']])('%s navigates, posting nothing', (kind) => {
     const h = mountRail(ship({ kind }));
     expect(go().hasAttribute('data-act')).toBe(false);
     expect(go().hasAttribute('data-goto')).toBe(true);
@@ -104,7 +101,6 @@ describe('Rail — navigation targets', () => {
 
   it.each([
     ['merge-panel', '#panelMerge'],
-    ['resolve-panel', '#panelMerge'],
     ['open-session', '#agentButton'],
     ['graph-panel', '#inside'],
   ])('%s scrolls the owning control into view and focuses it', (kind, target) => {

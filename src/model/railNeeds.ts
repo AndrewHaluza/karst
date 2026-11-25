@@ -11,8 +11,8 @@ import type { StepperCell } from './stepper.js';
  * be untested and would drift from the Now line's.
  *
  * Deliberately NOT the Now line itself. That is a sentence with room to explain
- * ("Now: 2 repos no longer merge cleanly into the base. Resolve the conflicts
- * below, then merge."); this is three or four words inside a segment. One string
+ * ("Now: 2 repos no longer merge cleanly into the base. Resolve them from the
+ * banner, then merge."); this is three or four words inside a segment. One string
  * cannot be both, and the segment is what a user reads first.
  */
 export interface RailNeeds {
@@ -39,7 +39,7 @@ export interface RailNeeds {
  *
  * `ship-confirm`, `retry-ship`, `merge` and `resolve-conflicts` ACT: they post the same
  * message the header's Confirm ship button, the PR panel's Merge button and
- * its Resolve conflicts button post. The host's confirmation still guards the
+ * the blocked banner's Resolve button post. The host's confirmation still guards the
  * irreversible merge (it keeps its modal), and `resolve-conflicts` re-derives
  * the brief from the store before handing it to a session. The rest NAVIGATE:
  * a multi-repo wait or conflict has no single repo to act on, and the live
@@ -208,10 +208,10 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
       // Only a human rebase resolves it, per repo. A SINGLE conflicted repo is
       // one the rail can act on — the resolve-conflicts session is per-repo
       // and the host re-derives the brief from the store, so this click opens
-      // (or nudges) the exact session the PR panel's own Resolve button would
-      // (navigating there was the original gap). Several conflicted repos have
-      // no single target for a track-level button, so the rail points at the
-      // panel that owns one Resolve control per repo.
+      // (or nudges) the exact session the blocked banner's Resolve button would.
+      // Several conflicted repos have no single target for a track-level
+      // button. The dashboard rail draws no control for either kind: the
+      // banner owns one Resolve for all repos (Q1, UI-R40); the sidebar peek acts.
       case 'conflicted': {
         const detail = `${count(gate.repos)} ${
           gate.repos.length === 1 ? 'no longer merges' : 'no longer merge'
