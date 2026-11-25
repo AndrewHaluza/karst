@@ -224,13 +224,27 @@ export const INSIDE_CASE_CLICK: Readonly<Record<string, string>> = {
   'review-menu-retry-only': '[data-stage-menu="review"]',
 };
 
+/**
+ * T1361 (@ui:VISUAL-VARIANTS): the click steps an Inside case needs before its state is visible. Unlike `click`
+ * (screenshot-only) these also run in `layout.layout.ts`, so the geometry gate measures the SAME page the baseline
+ * records. Keyed `${stage}-${id}`.
+ */
+export const INSIDE_CASE_CLICKS: Readonly<Record<string, readonly string[]>> = {
+  // The DAG strip renders only after the Graph view toggle (EvidenceGraph.tsx).
+  'impl-graph-dag': ['[data-act="toggle-graph-view"]'],
+  // A blocked run maps to `wait`, so its graph <details> starts collapsed (InsideLedger.tsx).
+  'impl-graph-failed': ['[data-proc-id="impl:graph"] > summary'],
+};
+
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
 const insideCaseVariants = (): Variant[] =>
   INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').map((c) => {
     const click = INSIDE_CASE_CLICK[`${c.stage}-${c.id}`];
+    const clicks = INSIDE_CASE_CLICKS[`${c.stage}-${c.id}`];
     return variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), {
       ...(c.allThemes ? { themes: ALL_THEMES } : {}),
       ...(click === undefined ? {} : { click }),
+      ...(clicks === undefined ? {} : { clicks }),
     });
   });
 
@@ -270,6 +284,22 @@ const insideTierVariants = (): Variant[] =>
       variant('dashboard', `inside-${c.stage}-${c.id}-${tier}`, () => stateMessage(c.state()), { width }),
     ),
   );
+
+/**
+ * T1361 (@ui:VISUAL-VARIANTS-TIERS): the DAG strip's narrow tier. It is defined explicitly rather than through
+ * `INSIDE_TIER_CASES` because the tier helper records mid/tight too and drops `clicks`; here the toggle click must run
+ * and the variant shares `inside-impl-graph-dag`'s layout run (same corpus, clicks and widths).
+ */
+const insideGraphDagNarrow = (): Variant[] => {
+  const c = INSIDE_CASES.find((x) => x.stage === 'impl' && x.id === 'graph-dag');
+  if (!c) throw new Error('variants: no impl graph-dag case');
+  return [
+    variant('dashboard', 'inside-impl-graph-dag-narrow', () => stateMessage(c.state()), {
+      width: 500,
+      clicks: INSIDE_CASE_CLICKS['impl-graph-dag']!,
+    }),
+  ];
+};
 
 /** T1099: a viewport height above the 966px content of the ship/wide menu variant. */
 const SHIP_MENU_WIDE_VIEWPORT_H = 1000;
@@ -723,6 +753,7 @@ const dashboardVariants = (): Variant[] => [
   }))),
   ...insideCaseVariants(),
   ...insideTierVariants(),
+  ...insideGraphDagNarrow(),
   ...stageMenuOpenVariants(),
   ...liveTokenVariants(),
   ...agentPopoverVariants(),

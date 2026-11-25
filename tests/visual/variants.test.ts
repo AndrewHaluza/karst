@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 import { baselineCollisions, type AllowedCollision } from './baselineDistinct.js';
 import { settingsRoutes } from './settingsRoutes.js';
-import { INSIDE_CASE_CLICK, layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
+import { INSIDE_CASE_CLICK, INSIDE_CASE_CLICKS, layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
 
 const BASELINES = join(dirname(fileURLToPath(import.meta.url)), '__baselines__');
 /**
@@ -121,6 +121,21 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     expect(dash.has('panel-wt-normal-wide')).toBe(false);
     expect(dash.has('subtask-blocked')).toBe(false);
     expect(VARIANTS.serverLogs.find((v) => v.id === 'empty')?.corpus()).not.toEqual(VARIANTS.serverLogs.find((v) => v.id === 'no-services')?.corpus());
+  });
+
+  it('gives the Dynamic Graph cases their click steps and a lean narrow DAG tier (T1361)', () => {
+    const dash = new Map(VARIANTS.dashboard.map((v) => [v.id, v]));
+    for (const [key, clicks] of Object.entries(INSIDE_CASE_CLICKS)) expect(dash.get(`inside-${key}`)?.clicks, key).toEqual(clicks);
+    expect(dash.get('inside-impl-graph-dag')?.clicks).toEqual(['[data-act="toggle-graph-view"]']);
+    expect(dash.get('inside-impl-graph-dag-narrow')?.clicks).toEqual(['[data-act="toggle-graph-view"]']);
+    expect(dash.get('inside-impl-graph-failed')?.clicks).toEqual(['[data-proc-id="impl:graph"] > summary']);
+    expect(dash.get('inside-impl-graph-dag-narrow')?.width).toBe(500);
+    // The narrow shot is the DAG page at another width: it shares that layout run and adds mid/tight copies nowhere.
+    expect(layoutPlan().sharedWith.get('dashboard/inside-impl-graph-dag-narrow')).toBe('dashboard/inside-impl-graph-dag');
+    expect(dash.has('inside-impl-graph-dag-mid')).toBe(false);
+    expect(dash.has('inside-impl-graph-dag-tight')).toBe(false);
+    // The running graph proves the amber and blue states in every theme.
+    expect(dash.get('inside-impl-graph-running')?.themes).toEqual(['dark', 'light', 'hc']);
   });
 
   it('has a baseline PNG for every variant in every required theme project', () => {

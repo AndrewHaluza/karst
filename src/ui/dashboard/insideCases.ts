@@ -12,6 +12,7 @@ import {
   caseCell,
   caseFinding,
   caseGate,
+  caseGraphAttach,
   caseProcessRun,
   caseRound,
   caseStageRun,
@@ -348,6 +349,361 @@ const longGraphNodePatch = (s: DashboardState): DashboardState => {
   return { ...s, insideViews: { ...s.insideViews, impl: { ...view, processes } } };
 };
 
+// ------------------------------------------------- dynamic graph cases (T1361)
+
+type GraphFacts = NonNullable<CaseFacts['graphInside']>;
+
+/**
+ * The planner + worker rows every graph case shares. All fields are store-shaped
+ * rows, so the projection words and orders them exactly as production does.
+ */
+const graphRunningFacts: GraphFacts = {
+  enabled: true,
+  graphRun: {
+    id: 101,
+    runNumber: 1,
+    status: 'running',
+    approachId: 'graph-engineering',
+    stageAttempt: 1,
+    createdAt: t(10),
+  },
+  tokens: { total: 18_400, cacheRead: 6_200 },
+  revision: {
+    revisionNumber: 1,
+    status: 'active',
+    fingerprint: 'aa5fe61e0657b90c',
+    plannerArtifactSnapshotId: 'snap-1',
+  },
+  execution: { maxParallel: 2, maxNodeRuns: 20 },
+  plannerRuns: [
+    {
+      plannerRunNumber: 1,
+      plannerRunId: 1,
+      kind: 'bootstrap',
+      status: 'submitted',
+      compileAttempt: 1,
+      reason: null,
+      startedAt: t(10),
+      submittedAt: t(12),
+      endedAt: t(12),
+      graphSnapshotId: 'snap-1',
+    },
+  ],
+  nodeRuns: [
+    {
+      nodeRunId: 10,
+      nodeId: 'spec-api',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 1,
+      status: 'completed',
+      outcome: 'complete',
+      reason: null,
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      effort: 'low',
+      profile: 'worker',
+      launchAttempt: 1,
+      startedAt: t(13),
+      endedAt: t(20),
+    },
+    {
+      nodeRunId: 11,
+      nodeId: 'build-ui',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 2,
+      status: 'running',
+      outcome: null,
+      reason: null,
+      provider: 'claude',
+      model: 'claude-opus-5',
+      effort: 'high',
+      profile: 'expert',
+      launchAttempt: 1,
+      startedAt: t(21),
+      endedAt: null,
+    },
+  ],
+  overrides: [{ revisionId: 1, nodeId: 'build-ui', kinds: ['model', 'effort'] }],
+  deferrals: [
+    {
+      nodeId: 'verify-e2e',
+      reason: 'waiting for maxParallel slot (2 of 2 active)',
+      waitSince: t(22),
+    },
+  ],
+  artifacts: [
+    {
+      artifactId: 'plan-rationale',
+      byteSize: 4300,
+      mediaType: 'text/markdown',
+      createdAt: t(12),
+      producerPlannerRunNumber: 1,
+    },
+    {
+      artifactId: 'api-contract',
+      byteSize: 2860,
+      mediaType: 'application/json',
+      createdAt: t(20),
+      producerNodeRunId: 10,
+    },
+    {
+      artifactId: 'schema-diff',
+      byteSize: 1420,
+      mediaType: 'text/plain',
+      createdAt: t(20),
+      producerNodeRunId: 10,
+    },
+  ],
+  diagnostics: [],
+  liveSessions: [{ kind: 'node', runId: 11 }],
+  attach: caseGraphAttach,
+  topology: {
+    nodes: [{ id: 'spec-api' }, { id: 'build-ui' }, { id: 'verify-e2e' }, { id: 'join-impl' }],
+    edges: [
+      { from: 'spec-api', to: 'build-ui' },
+      { from: 'spec-api', to: 'verify-e2e' },
+      { from: 'build-ui', to: 'join-impl' },
+      { from: 'verify-e2e', to: 'join-impl' },
+    ],
+  },
+};
+
+/**
+ * A long, fan-out/fan-in chain: the DAG strip keeps the planner plus depth
+ * 0..10 (12 columns) and drops the two depth-11 tails into `+2 more`.
+ */
+const DAG_CHAIN = Array.from({ length: 8 }, (_, i) => `step-${i + 4}`);
+
+const graphDagFacts: GraphFacts = {
+  enabled: true,
+  graphRun: {
+    id: 103,
+    runNumber: 1,
+    status: 'running',
+    approachId: 'graph-engineering',
+    stageAttempt: 1,
+    createdAt: t(10),
+  },
+  tokens: { total: 41_200, cacheRead: 12_800 },
+  revision: {
+    revisionNumber: 1,
+    status: 'active',
+    fingerprint: 'aa5fe61e0657b90c',
+    plannerArtifactSnapshotId: 'snap-1',
+  },
+  execution: { maxParallel: 3, maxNodeRuns: 20 },
+  plannerRuns: [
+    {
+      plannerRunNumber: 1,
+      plannerRunId: 1,
+      kind: 'bootstrap',
+      status: 'submitted',
+      compileAttempt: 1,
+      reason: null,
+      startedAt: t(10),
+      submittedAt: t(12),
+      endedAt: t(12),
+      graphSnapshotId: 'snap-1',
+    },
+  ],
+  nodeRuns: [
+    {
+      nodeRunId: 30,
+      nodeId: 'spec-api',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 1,
+      status: 'completed',
+      outcome: 'complete',
+      reason: null,
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      effort: 'low',
+      profile: 'worker',
+      launchAttempt: 1,
+      startedAt: t(13),
+      endedAt: t(16),
+    },
+    {
+      nodeRunId: 31,
+      nodeId: 'build-ui',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 1,
+      status: 'running',
+      outcome: null,
+      reason: null,
+      provider: 'claude',
+      model: 'claude-opus-5',
+      effort: 'high',
+      profile: 'expert',
+      launchAttempt: 1,
+      startedAt: t(17),
+      endedAt: null,
+    },
+    {
+      nodeRunId: 32,
+      nodeId: 'build-api',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 1,
+      status: 'completed',
+      outcome: 'complete',
+      reason: null,
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      effort: 'low',
+      profile: 'worker',
+      launchAttempt: 1,
+      startedAt: t(17),
+      endedAt: t(20),
+    },
+  ],
+  overrides: [],
+  deferrals: [
+    {
+      nodeId: 'verify-e2e',
+      reason: 'waiting for maxParallel slot (3 of 3 active)',
+      waitSince: t(21),
+    },
+  ],
+  artifacts: [],
+  diagnostics: [],
+  liveSessions: [{ kind: 'node', runId: 31 }],
+  attach: caseGraphAttach,
+  topology: {
+    nodes: [
+      { id: 'spec-api' },
+      { id: 'build-ui' },
+      { id: 'build-api' },
+      { id: 'verify-e2e' },
+      { id: 'join-build' },
+      ...DAG_CHAIN.map((id) => ({ id })),
+      { id: 'tail-a' },
+      { id: 'tail-b' },
+    ],
+    edges: [
+      { from: 'spec-api', to: 'build-ui' },
+      { from: 'spec-api', to: 'build-api' },
+      { from: 'spec-api', to: 'verify-e2e' },
+      { from: 'build-ui', to: 'join-build' },
+      { from: 'build-api', to: 'join-build' },
+      { from: 'join-build', to: 'step-4' },
+      ...DAG_CHAIN.slice(0, -1).map((from, i) => ({ from, to: DAG_CHAIN[i + 1]! })),
+      { from: 'step-11', to: 'tail-a' },
+      { from: 'step-11', to: 'tail-b' },
+    ],
+  },
+};
+
+/** T1361: the graph block the impl cell carries when a node blocks the run. */
+const GRAPH_FAILED_BLOCKED = {
+  kind: 'approach-graph-failed' as const,
+  reason: 'approach-graph-failed: node build-api blocked after compile failure (graph run 102)',
+  at: t(25),
+  resumable: true,
+};
+
+const graphFailedFacts: GraphFacts = {
+  enabled: true,
+  graphRun: {
+    id: 102,
+    runNumber: 1,
+    status: 'blocked',
+    approachId: 'graph-engineering',
+    stageAttempt: 1,
+    createdAt: t(10),
+    blockedReason: 'node build-api blocked after compile failure',
+  },
+  revision: {
+    revisionNumber: 1,
+    status: 'active',
+    fingerprint: 'aa5fe61e0657b90c',
+    plannerArtifactSnapshotId: 'snap-1',
+  },
+  execution: { maxParallel: 2, maxNodeRuns: 20 },
+  plannerRuns: [
+    {
+      plannerRunNumber: 1,
+      plannerRunId: 1,
+      kind: 'bootstrap',
+      status: 'submitted',
+      compileAttempt: 1,
+      reason: null,
+      startedAt: t(10),
+      submittedAt: t(12),
+      endedAt: t(12),
+      graphSnapshotId: 'snap-1',
+    },
+  ],
+  nodeRuns: [
+    {
+      nodeRunId: 20,
+      nodeId: 'spec-api',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 1,
+      status: 'completed',
+      outcome: 'complete',
+      reason: null,
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      effort: 'low',
+      profile: 'worker',
+      launchAttempt: 1,
+      startedAt: t(13),
+      endedAt: t(17),
+    },
+    {
+      nodeRunId: 21,
+      nodeId: 'build-api',
+      nodeKind: 'agent',
+      revisionId: 1,
+      visitNumber: 2,
+      status: 'blocked',
+      outcome: 'blocked',
+      reason: 'TypeScript compile failed in src/api/routes.ts (2 errors)',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      effort: 'low',
+      profile: 'worker',
+      launchAttempt: 1,
+      startedAt: t(18),
+      endedAt: t(25),
+    },
+  ],
+  overrides: [],
+  deferrals: [],
+  artifacts: [],
+  diagnostics: [{ code: 'node-blocked', where: 'build-api', message: 'worker reported blocked outcome' }],
+  liveSessions: [],
+  attach: caseGraphAttach,
+  topology: {
+    nodes: [{ id: 'spec-api' }, { id: 'build-api' }],
+    edges: [{ from: 'spec-api', to: 'build-api' }],
+  },
+};
+
+/**
+ * T1361: the parked graph's impl cell + needs-you rail. The patch mirrors the
+ * production rail wording for `approach-graph-failed` (`src/model/railNeeds.ts`).
+ */
+const graphFailedPatch = (s: DashboardState): DashboardState => {
+  const implCell = s.currentStage ?? caseCell('impl', 'running', { blocked: GRAPH_FAILED_BLOCKED });
+  const stepper = s.stepper.map((cell) => (cell.stageKey === 'impl' ? implCell : cell));
+  return {
+    ...s,
+    stepper,
+    rail: buildStageRail(stepper, stepper, {
+      current: 'impl',
+      needsUser: true,
+      needs: { detail: 'the graph needs a recovery decision', action: 'Open graph', cta: { kind: 'graph-panel' } },
+    }),
+  };
+};
+
 // ------------------------------------------------------------------- registry
 
 export const INSIDE_CASES: readonly InsideCase[] = [
@@ -381,6 +737,39 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     })),
   },
   { stage: 'impl', id: 'graph-long-reason', state: legacy('impl', (s) => longGraphNodePatch(s)) },
+  // T1361 (@ui:VISUAL-VARIANTS): reducer-built Dynamic Graph states — multi-node ledger, the DAG strip, a failed park.
+  {
+    stage: 'impl',
+    id: 'graph-running',
+    allThemes: true,
+    state: fromFacts('impl', {
+      cells: { scope: { status: 'passed' }, impl: { status: 'running', startedAt: t(10) } },
+      graphInside: graphRunningFacts,
+    }),
+  },
+  {
+    stage: 'impl',
+    id: 'graph-dag',
+    state: fromFacts('impl', {
+      cells: { scope: { status: 'passed' }, impl: { status: 'running', startedAt: t(10) } },
+      graphInside: graphDagFacts,
+    }),
+  },
+  {
+    stage: 'impl',
+    id: 'graph-failed',
+    state: fromFacts(
+      'impl',
+      {
+        cells: {
+          scope: { status: 'passed' },
+          impl: { status: 'running', startedAt: t(10), blocked: GRAPH_FAILED_BLOCKED },
+        },
+        graphInside: graphFailedFacts,
+      },
+      graphFailedPatch,
+    ),
+  },
   { stage: 'impl', id: 'passed', state: fromFacts('impl', { cells: { impl: { status: 'passed' } } }) },
   {
     // A session with more rows than the timeline limit: the host ships the production '+N more' row (`role: 'event'` + action).
