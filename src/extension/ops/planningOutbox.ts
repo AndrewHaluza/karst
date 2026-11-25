@@ -6,6 +6,7 @@ import {
   getProposal,
   insertProposal,
   setProposalBaseShas,
+  setProposalHostAttachments,
   setProposalWarnings,
   updateProposalPayload,
   validateProposalDependsOn,
@@ -25,6 +26,7 @@ import {
   type GitBatch,
   type PathRepoTarget,
 } from './planningConstraintChecks.js';
+import { removeDraftAttachments, snapshotDraftAttachments, type SnapshotResult } from '../../planning/draftAttachments.js';
 import { listOverlapCandidates } from '../../store/draftOverlap.js';
 import { formatId } from '../../model/entityId.js';
 import { recordOutboxRejection, refreshProposalIndex } from './planningIndex.js';
@@ -73,6 +75,8 @@ export interface PlanningOutboxDeps {
   pathTargets?(names: string[]): PathRepoTarget[];
   /** Async `git cat-file --batch-check`, one per target; absent = path check skipped. */
   gitBatch?: GitBatch;
+  /** The storage root that holds the host copies of a draft's attachments; absent = attachments are not copied. */
+  storageDir?: string;
   /** A late (async) check added warnings or base shas to a stored proposal. */
   onWarnings?(p: PlanningProposal): void;
 }
@@ -296,9 +300,26 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     return targets.length > 0 && paths.length > 0 ? { paths, targets } : undefined;
   }
 
-  /** True when an async check (commit or path probe) will run for this draft. */
+  /** True when the draft lists files and a storage root exists for the host copy. */
+  function snapshotRuns(p: Proposal): boolean {
+    return deps.storageDir !== undefined && (p.attachments?.length ?? 0) > 0;
+  }
+
+  /** True when an async check (commit or path probe, or the attachment copy) will run for this draft. */
   function willVerify(p: Proposal): boolean {
-    return commitProbeRuns(p) || pathProbe(p) !== undefined;
+    return commitProbeRuns(p) || pathProbe(p) !== undefined || snapshotRuns(p);
+  }
+
+  /** Copy the listed files; a failure is one debug line and an empty result, never a throw. */
+  async function snapshotOf(scratch: string, id: number, p: Proposal): Promise<SnapshotResult | undefined> {
+    if (!snapshotRuns(p)) return undefined;
+    return snapshotDraftAttachments({
+      storageDir: deps.storageDir!,
+      artifactsDir: planningArtifactsDir(scratch),
+      proposalId: id,
+      // Stryker disable next-line ArrayDeclaration: equivalent, snapshotRuns is true only when the list is not empty
+      entries: p.attachments ?? [],
+    });
   }
 
   /**
@@ -316,27 +337,51 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         commitWarnings(p.constraints ?? [], deps.repoPaths!(p.repos), deps.commitExists!, debug)
       : Promise.resolve<string[]>([]);
     const missing = probe ? missingPathWarnings(probe.paths, probe.targets, deps.gitBatch!, debug) : Promise.resolve<string[]>([]);
-    void Promise.allSettled([commits, missing])
+    // The git probes and the file copy settle on their own: a slow probe never delays the stored copy.
+    const probes = Promise.allSettled([commits, missing])
       .then((settled) => {
         const extra = settled.flatMap((s) => {
           if (s.status === 'fulfilled') return s.value;
           debug(`async check for proposal ${id} failed (${messageOf(s.reason)})`);
           return [];
         });
-        if (extra.length === 0) return;
         const cur = getProposal(deps.store, id);
-        // A revise or resolution since ingest owns the warnings now.
-        if (!cur || cur.status !== 'pending' || cur.sourceUuid !== uuid) return;
+        // A revise or resolution since ingest owns the row now.
+        // Stryker disable next-line OptionalChaining: equivalent, a proposal row is never deleted
+        if (cur?.sourceUuid !== uuid || cur.status !== 'pending' || extra.length === 0) return;
         setProposalWarnings(deps.store, id, [...cur.warnings, ...extra]);
         const row = getProposal(deps.store, id);
         if (row) deps.onWarnings?.(row);
       })
-      .catch((e: unknown) => debug(`async checks for proposal ${id} failed (${messageOf(e)})`))
-      .finally(() => {
-        if (checking.get(id) !== uuid) return;
-        checking.delete(id);
-        safeRefresh(sessionId, scratch);
-      });
+      .catch((e: unknown) => debug(`async checks for proposal ${id} failed (${messageOf(e)})`));
+    const copying = snapshotOf(scratch, id, p)
+      .then((copied) => {
+        if (copied === undefined) return undefined;
+        const cur = getProposal(deps.store, id);
+        // Stryker disable next-line ConditionalExpression: equivalent, a proposal row is never deleted
+        if (cur === undefined) return undefined;
+        // A revise that superseded this copy leaves a pending row to the newer copy, but a resolved row owns no copy.
+        if (cur.sourceUuid !== uuid && cur.status === 'pending') return undefined;
+        if (cur.status !== 'pending') {
+          // Resolved before the copy ended: nothing will read the host copy, so drop it.
+          return removeDraftAttachments(deps.storageDir!, id).catch((e: unknown) =>
+            debug(`draft attachment cleanup for proposal ${id} failed (${messageOf(e)})`),
+          );
+        }
+        setProposalHostAttachments(deps.store, id, uuid, copied.list);
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent, writing the same warnings again changes nothing
+        if (copied.warnings.length > 0) setProposalWarnings(deps.store, id, [...cur.warnings, ...copied.warnings]);
+        const row = getProposal(deps.store, id);
+        // Stryker disable next-line ConditionalExpression: equivalent, the row of a pending draft always exists
+        if (row) deps.onWarnings?.(row);
+        return undefined;
+      })
+      .catch((e: unknown) => debug(`attachment copy for proposal ${id} failed (${messageOf(e)})`));
+    void Promise.all([probes, copying]).finally(() => {
+      if (checking.get(id) !== uuid) return;
+      checking.delete(id);
+      safeRefresh(sessionId, scratch);
+    });
   }
 
   function ingest(sessionId: number, scratch: string, claimed: string, proposal: string): void {
@@ -381,6 +426,10 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         return;
       }
       updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value, scratch, requestedId));
+      // A revise drops the old list at once, so a Review waits for the new copy and never stages the
+      // files of the old revision. The old blobs stay until accept or discard.
+      // Stryker disable next-line ArrayDeclaration: equivalent, the store drops an entry that has no stored name
+      setProposalHostAttachments(deps.store, requestedId, uuid, []);
       // A revise owns the latch: drop the old uuid's latch first, then set it
       // again only when this revision runs its own async check.
       checking.delete(requestedId);

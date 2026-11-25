@@ -1,8 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { draftAttachmentDir } from '../../planning/draftAttachments.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, getTicket, archiveTicket } from '../../store/tickets.js';
+import { insertAttachment } from '../../store/attachments.js';
 import { TicketFormManager, restoredTicketFormIdentity } from './panel.js';
-import type { TicketFormPanel, TicketFormPanelHost } from './panel.js';
+import type { TicketFormActionsFactory, TicketFormPanel, TicketFormPanelHost } from './panel.js';
 import type { TicketFormActions } from './messages.js';
 import type { RestoredPanel } from '../shared/restoredPanel.js';
 import { manifest as buildManifest } from '../../manifest/fixtures.js';
@@ -157,6 +162,11 @@ describe('TicketFormManager.adopt', () => {
     expect(restoredTicketFormIdentity({ karstPanel: { mode: 'create', prefilled: true, draftId: -1, mintedTicketId: 'x' } }))
       .toEqual({ mode: 'create', prefilled: true });
     expect(restoredTicketFormIdentity({ karstPanel: { mode: 'edit', ticketId: 4 } })).toEqual({ mode: 'edit', ticketId: 4 });
+    // The removed staged files ride along; an entry that is not a stored file name is dropped.
+    expect(restoredTicketFormIdentity({ karstPanel: { mode: 'create', prefilled: true, unstagedFiles: ['0123456789abcdef.png', '../x', 7] } }))
+      .toEqual({ mode: 'create', prefilled: true, unstagedFiles: ['0123456789abcdef.png'] });
+    expect(restoredTicketFormIdentity({ karstPanel: { mode: 'create', prefilled: true, unstagedFiles: 'x' } }))
+      .toEqual({ mode: 'create', prefilled: true });
   });
   describe('proposal review form', () => {
     const prefill = { title: 'Fix', description: 'd', summary: 's', repos: [], draftId: 5, onCreated: () => {} };
@@ -190,6 +200,47 @@ describe('TicketFormManager.adopt', () => {
       // restore never deletes a row: another form may have saved it since the reload
       r.panel.dispose();
       expect(getTicket(store, rowId).id).toBe(rowId);
+    });
+
+    it('stages the draft files the minted ticket lacks and the user kept, and never deletes a host copy', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'karst-adopt-'));
+      try {
+        mkdirSync(draftAttachmentDir(dir, 5), { recursive: true });
+        for (const n of ['a', 'b', 'c']) writeFileSync(join(draftAttachmentDir(dir, 5), `${n.repeat(16)}.txt`), n);
+        const host: TicketFormPanelHost = { createPanel: () => { const p = makePanel(); created.push(p); return p; } };
+        let ctx: Parameters<TicketFormActionsFactory>[0] | undefined;
+        const capture: TicketFormActionsFactory = (c) => { ctx = c; return noActions(); };
+        const withDir = new TicketFormManager(
+          store, () => buildManifest({}, {}), host, capture,
+          undefined, undefined, undefined, undefined, undefined, undefined, dir,
+        );
+        const rowId = mint('FETCHED-3');
+        insertAttachment(store, { ticketId: rowId, kind: 'file', storedName: 'aaaaaaaaaaaaaaaa.txt', originalName: 'a.txt', byteSize: 1 });
+        const files = ['a', 'b', 'c'].map((n) => ({ name: `${n}.txt`, storedName: `${n.repeat(16)}.txt`, kind: 'file', byteSize: 1 }));
+        const r = restored();
+        const saved = state({ mintedTicketId: rowId, unstagedFiles: ['cccccccccccccccc.txt'] });
+        expect(withDir.adopt(r.restored, saved, exists, () => ({ ...prefill, attachments: files }), pending)).toBe(true);
+        const rows = (r.panel.posted[0] as { state: { attachments: { name: string; staged?: boolean }[] } }).state.attachments;
+        // a.txt is attached to the minted ticket, the user removed c.txt before the reload.
+        expect(rows.filter((x) => x.staged === true).map((x) => x.name)).toEqual(['b.txt']);
+        // A removed staged row keeps its host copy: the draft is not accepted, so its evidence stays.
+        ctx!.unstage!('bbbbbbbbbbbbbbbb.txt');
+        expect(ctx!.stagedAttachments).toEqual([]);
+        ctx!.pushState();
+        const last = r.panel.posted[r.panel.posted.length - 1] as { state: { unstagedFiles?: string[] } };
+        expect(last.state.unstagedFiles).toEqual(['cccccccccccccccc.txt', 'bbbbbbbbbbbbbbbb.txt']);
+        await new Promise((res) => setTimeout(res, 20));
+        for (const n of ['a', 'b', 'c']) expect(existsSync(join(draftAttachmentDir(dir, 5), `${n.repeat(16)}.txt`))).toBe(true);
+        // A fresh Review (no saved state) stages every file again.
+        const fresh = restored();
+        r.panel.dispose();
+        expect(withDir.adopt(fresh.restored, state(), exists, () => ({ ...prefill, attachments: files }), pending)).toBe(true);
+        const freshRows = (fresh.panel.posted[0] as { state: { attachments: { staged?: boolean }[]; unstagedFiles?: string[] } }).state;
+        expect(freshRows.attachments.filter((x) => x.staged === true)).toHaveLength(3);
+        expect(freshRows.unstagedFiles).toBeUndefined();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     it('restores a saved proposal form as the edit form of its ticket and never deletes the ticket', () => {

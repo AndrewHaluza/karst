@@ -111,6 +111,7 @@ function recordingFactory(
       attachPick: async () => {},
       attachBytes: async () => {},
       detachAttachment: async () => {},
+      unstageAttachment: () => {},
       openAttachment: async () => {},
       attachBriefAttachment: async () => {},
       openSettings: () => {},

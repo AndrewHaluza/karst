@@ -544,6 +544,20 @@ describe('attachment strip', () => {
     expect(html).toContain('aria-label="Open a.png"');
   });
 
+  it('renders a staged row with its stored name on both controls', () => {
+    const html = render([
+      { id: -1, kind: 'file', name: 'a.html', byteSize: 1, src: '', staged: true, storedName: '0123456789abcdef.html' },
+    ]);
+    expect(html).toMatch(/\battachdetach\b[^>]*data-stored-name="0123456789abcdef.html"/);
+    expect(html).toMatch(/\battachopen\b[^>]*data-stored-name="0123456789abcdef.html"/);
+  });
+
+  it('posts unstage-attachment for a staged tile and never opens it', () => {
+    const script = scriptBlock();
+    expect(script).toContain("type: 'unstage-attachment'");
+    expect(script).toContain('if (open.dataset.storedName ||');
+  });
+
   it('carries the video row id on its media, detach control, and explicit open control', () => {
     const html = render([
       { id: 8, kind: 'video', name: 'b.mov', byteSize: 1, src: 'webview://b.mp4' },

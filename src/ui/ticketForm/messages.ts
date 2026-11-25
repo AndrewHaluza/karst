@@ -144,6 +144,8 @@ export type TicketFormMessage =
   // Buffer cannot cross it). Capped at both ends; see the parse guard.
   | { type: 'attach-bytes'; name: string; base64: string; draft?: FormDraft }
   | { type: 'detach-attachment'; id: number }
+  // Drop one staged draft file from the review form; carries the stored name the state listed.
+  | { type: 'unstage-attachment'; storedName: string }
   | { type: 'open-attachment'; id: number }
   // Copy one attachment of the LAST fetched brief into the ticket's attachments.
   // Carries an index, never a URL: the host resolves it against the brief it
@@ -287,6 +289,7 @@ export interface TicketFormActions {
   attachPick: (draft?: FormDraft) => Promise<void>;
   attachBytes: (name: string, base64: string, draft?: FormDraft) => Promise<void>;
   detachAttachment: (id: number) => Promise<void>;
+  unstageAttachment: (storedName: string) => void;
   openAttachment: (id: number) => Promise<void>;
   attachBriefAttachment: (index: number, draft?: FormDraft) => Promise<void>;
   openTicketLink: (url: string) => void | Promise<void>;
@@ -319,6 +322,9 @@ function isStringArray(v: unknown): v is string[] {
  * A positive integer row id. `typeof x === 'number'` is not enough: `1.5`, `NaN`
  * and `-1` all pass it and none is a row this store can hold.
  */
+/** A content-addressed stored name: 16 hex digits and an extension. */
+const STORED_NAME = /^[0-9a-f]{16}(?:\.[A-Za-z0-9]{1,16})?$/;
+
 function isRowId(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v > 0;
 }
@@ -509,6 +515,10 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
     }
     case 'detach-attachment':
       return isRowId(m.id) ? { type: 'detach-attachment', id: m.id } : null;
+    case 'unstage-attachment':
+      return typeof m.storedName === 'string' && STORED_NAME.test(m.storedName)
+        ? { type: 'unstage-attachment', storedName: m.storedName }
+        : null;
     case 'open-attachment':
       return isRowId(m.id) ? { type: 'open-attachment', id: m.id } : null;
     case 'attach-brief-attachment':
@@ -630,6 +640,9 @@ export function routeTicketFormAction(
       return actions.attachBytes(msg.name, msg.base64, msg.draft);
     case 'detach-attachment':
       return actions.detachAttachment(msg.id);
+    case 'unstage-attachment':
+      actions.unstageAttachment(msg.storedName);
+      return;
     case 'open-attachment':
       return actions.openAttachment(msg.id);
     case 'attach-brief-attachment':

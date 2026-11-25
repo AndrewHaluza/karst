@@ -28,6 +28,7 @@ import {
 import { addRelation, isBlocked, listBlockers } from '../../store/ticketRelations.js';
 import type { TicketFormActionsCtx } from './panel.js';
 import { routeTicketFormAction } from './messages.js';
+import type { TicketDraftFields } from './messages.js';
 import type { TicketFormHostMessage } from './messages.js';
 import type { ContextBrief, TicketingProvider } from '../../integrations/ticketing.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -1554,7 +1555,8 @@ describe('buildTicketFormActions', () => {
       key: 'NEW-O', title: 't', description: '', repos: ['fe'], approach: null, agent: null, model: null, ticketType: null,
       createInProvider: false,
     });
-    expect(order).toEqual(['start']); // still launching — panel stays put
+    // Persisting is async now (it attaches staged files first), so wait for the launch to begin.
+    await vi.waitFor(() => expect(order).toEqual(['start'])); // still launching — panel stays put
     expect(ctx.closes).toBe(0);
     release!();
     await done;
@@ -1636,6 +1638,112 @@ describe('buildTicketFormActions', () => {
     expect(openDashboard).not.toHaveBeenCalled();
     expect(ctx.closes).toBe(0); // panel stays open
     expect(onCreated).toHaveBeenCalled();
+  });
+
+  describe('staged draft attachments', () => {
+    const fields: TicketDraftFields = {
+      key: 'ST-1', title: 'staged', description: 'd', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false,
+    };
+    const stagedCtx = (draftId: number, files: { name: string; storedName: string }[]) => {
+      const base = mkCtx();
+      let list = files.map((f) => ({ ...f, kind: 'file', byteSize: 1 }));
+      const order: string[] = [];
+      const ctx = Object.assign(base, {
+        get stagedAttachments() { return list; },
+        stagedDraftId: draftId,
+        unstage: (n: string) => { list = list.filter((x) => x.storedName !== n); },
+        commitPrefill: () => { order.push('commit'); },
+      });
+      return { ctx, order, left: () => list };
+    };
+    const writeBlob = (draftId: number, storedName: string, text: string) => {
+      const dir = join(deps.storageDir, 'attachments', `draft-${draftId}`);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, storedName), text);
+    };
+
+    it('save attaches the staged files under their original names before the draft link commits', async () => {
+      writeBlob(5, '0123456789abcdef.txt', 'hello');
+      const { ctx, order, left } = stagedCtx(5, [{ name: 'notes.txt', storedName: '0123456789abcdef.txt' }]);
+      await buildTicketFormActions(deps)(ctx).save(fields);
+      const rows = listAttachments(deps.store, ctx.boundTicketId!);
+      expect(rows.map((r) => r.originalName)).toEqual(['notes.txt']);
+      expect(left()).toEqual([]);
+      expect(order).toEqual(['commit']);
+    });
+
+    it('two attaches at the same time attach each staged file once and post no error', async () => {
+      writeBlob(11, '0123456789abcdef.txt', 'hello');
+      const { ctx, left } = stagedCtx(11, [{ name: 'notes.txt', storedName: '0123456789abcdef.txt' }]);
+      // Each ingest reads the staged list once: the second one runs after the first and finds it empty.
+      const reads: number[] = [];
+      Object.defineProperty(ctx, 'stagedAttachments', { get: () => { const l = left(); reads.push(l.length); return l; } });
+      const actions = buildTicketFormActions(deps)(ctx);
+      const png = (n: number) => Buffer.from([0x89, 0x50, 0x4e, 0x47, n]).toString('base64');
+      await Promise.all([actions.attachBytes('one.png', png(1), fields), actions.attachBytes('two.png', png(2), fields)]);
+      expect(ctx.posted.filter((m) => m.type === 'error')).toEqual([]);
+      const names = listAttachments(deps.store, ctx.boundTicketId!).map((r) => r.originalName).sort();
+      expect(names).toEqual(['notes.txt', 'one.png', 'two.png']);
+      expect(left()).toEqual([]);
+      expect(reads).toEqual([1, 0]);
+    });
+
+    it('save throws before commitPrefill when a staged file cannot be read', async () => {
+      const { ctx, order } = stagedCtx(6, [{ name: 'gone.txt', storedName: 'ffffffffffffffff.txt' }]);
+      await buildTicketFormActions(deps)(ctx).save(fields);
+      expect(order).toEqual([]);
+      expect(ctx.posted.some((m) => m.type === 'error')).toBe(true);
+    });
+
+    it('save attaches none of the staged files when one host copy is unreadable', async () => {
+      writeBlob(8, '0123456789abcdef.txt', 'hello');
+      const { ctx, left } = stagedCtx(8, [
+        { name: 'a.txt', storedName: '0123456789abcdef.txt' },
+        { name: 'b.txt', storedName: 'ffffffffffffffff.txt' },
+      ]);
+      await buildTicketFormActions(deps)(ctx).save(fields);
+      expect(listAttachments(deps.store, ctx.boundTicketId!)).toEqual([]);
+      expect(left().map((f) => f.name)).toEqual(['a.txt', 'b.txt']);
+    });
+
+    it('save removes the first attached file again when the second cannot be attached', async () => {
+      writeBlob(10, '0123456789abcdef.txt', 'hello');
+      writeBlob(10, 'aaaaaaaaaaaaaaaa.exe', 'MZ');
+      const { ctx, order, left } = stagedCtx(10, [
+        { name: 'a.txt', storedName: '0123456789abcdef.txt' },
+        { name: 'noext', storedName: 'aaaaaaaaaaaaaaaa.exe' },
+      ]);
+      await buildTicketFormActions(deps)(ctx).save(fields);
+      expect(listAttachments(deps.store, ctx.boundTicketId!)).toEqual([]);
+      expect(left().map((f) => f.name)).toEqual(['a.txt', 'noext']);
+      expect(order).toEqual([]);
+      expect(ctx.posted.some((m) => m.type === 'error')).toBe(true);
+    });
+
+    it('unstageAttachment also works once the form is bound to a ticket', () => {
+      const { ctx, left } = stagedCtx(9, [{ name: 'a.txt', storedName: '0123456789abcdef.txt' }]);
+      ctx.bindTicket(12);
+      buildTicketFormActions(deps)(ctx).unstageAttachment('0123456789abcdef.txt');
+      expect(left()).toEqual([]);
+    });
+
+    it('pushes the state once the staged files are attached, also when the picked file then fails', async () => {
+      writeBlob(11, '0123456789abcdef.txt', 'hello');
+      const { ctx, left } = stagedCtx(11, [{ name: 'a.txt', storedName: '0123456789abcdef.txt' }]);
+      deps.pickAttachment = async () => [join(deps.storageDir, 'no-such-file.png')];
+      await buildTicketFormActions(deps)(ctx).attachPick();
+      expect(left()).toEqual([]);
+      expect(ctx.pushes).toBe(1);
+      expect(ctx.posted.some((m) => (m as { type: string }).type === 'error')).toBe(true);
+    });
+
+    it('unstageAttachment drops one staged file and pushes the state', () => {
+      const { ctx, left } = stagedCtx(7, [{ name: 'a.txt', storedName: '0123456789abcdef.txt' }]);
+      buildTicketFormActions(deps)(ctx).unstageAttachment('0123456789abcdef.txt');
+      expect(left()).toEqual([]);
+      expect(ctx.pushes).toBe(1);
+    });
   });
 
   it('save generates a unique key when the key field is left blank (manual creation)', async () => {
@@ -3123,7 +3231,7 @@ describe('buildTicketFormActions', () => {
       await vi.waitFor(() => expect(ctx.boundTicketId).toBeDefined());
       const id = ctx.boundTicketId!;
       expect(getTicket(store, id).effort).toBe('high');
-      expect(startTicket).toHaveBeenCalledWith(id, { pullBase: true });
+      await vi.waitFor(() => expect(startTicket).toHaveBeenCalledWith(id, { pullBase: true }));
     });
 
     it('keeps the picked effort on Save, and an absent effort still clears to inherit', async () => {

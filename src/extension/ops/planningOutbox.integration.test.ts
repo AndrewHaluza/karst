@@ -800,12 +800,14 @@ describe('planning outbox', () => {
 
     it('clears checking when the probe adds no warning', async () => {
       put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
-      withRepo({ commitExists: async () => true }).scan();
+      const onWarnings = vi.fn();
+      withRepo({ commitExists: async () => true, onWarnings }).scan();
       expect(readProposalIndex(scratch)[0]!.checking).toBe(true);
       await flush();
       const entry = readProposalIndex(scratch)[0]!;
       expect('checking' in entry).toBe(false);
       expect('warnings' in entry).toBe(false);
+      expect(onWarnings).not.toHaveBeenCalled();
     });
 
     it('clears checking when the probe fails', async () => {
@@ -1172,6 +1174,265 @@ describe('planning outbox', () => {
         expect(ob.checkingIds().size).toBe(0);
         expect(debug.mock.calls.some(([l]) => String(l).includes('no git'))).toBe(true);
       });
+    });
+  });
+
+  describe('attachments', () => {
+    const storageDir = (): string => join(root, 'storage');
+    const withFile = (name: string, body: string): void => {
+      mkdirSync(join(scratch, 'artifacts'), { recursive: true });
+      writeFileSync(join(scratch, 'artifacts', name), body);
+    };
+    const drain = async (ob: { checkingIds(): ReadonlySet<number> }): Promise<void> => {
+      for (let i = 0; i < 200 && ob.checkingIds().size > 0; i++) await new Promise((r) => setTimeout(r, 5));
+    };
+
+    it('copies a listed file into host storage with no refusal warning', async () => {
+      withFile('p.html', '<b>x</b>');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html', binding: true }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      const id = pending()[0]!.id;
+      expect(ob.checkingIds().has(id)).toBe(true);
+      await drain(ob);
+      const p = getProposal(store, id)!;
+      expect(p.attachments).toMatchObject([{ name: 'p.html', byteSize: 8, binding: true }]);
+      expect(existsSync(join(storageDir(), 'attachments', `draft-${id}`, p.attachments[0]!.storedName))).toBe(true);
+      expect(p.warnings.some((w) => w.startsWith('attachment refused'))).toBe(false);
+    });
+
+    it('keeps the draft and warns for a missing file', async () => {
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'nope.txt' }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      await drain(ob);
+      const p = pending()[0]!;
+      expect(p.attachments).toEqual([]);
+      expect(p.warnings).toContain('attachment refused: nope.txt (missing)');
+    });
+
+    it('a late warning keeps the attachments', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      await drain(ob);
+      const id = pending()[0]!.id;
+      const before = getProposal(store, id)!.attachments;
+      const { setProposalWarnings } = await import('../../store/planningProposals.js');
+      setProposalWarnings(store, id, ['late']);
+      expect(getProposal(store, id)!.attachments).toEqual(before);
+    });
+
+    it('a revise re-reads the files, keeps the old blobs and drops the list when none is named', async () => {
+      withFile('a.txt', 'aaa');
+      withFile('b.txt', 'bbb');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'a.txt' }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      await drain(ob);
+      const id = pending()[0]!.id;
+      const oldBlob = getProposal(store, id)!.attachments[0]!.storedName;
+      put(`${UUID(2)}.json`, { ...good, id, attachments: [{ path: 'b.txt' }] });
+      ob.scan();
+      await drain(ob);
+      expect(getProposal(store, id)!.attachments.map((a) => a.name)).toEqual(['b.txt']);
+      expect(existsSync(join(storageDir(), 'attachments', `draft-${id}`, oldBlob))).toBe(true);
+      put(`${UUID(3)}.json`, { ...good, id });
+      ob.scan();
+      await drain(ob);
+      expect(getProposal(store, id)!.attachments).toEqual([]);
+    });
+
+    it('does not copy, nor mark checking, without a storage dir or without a listed file', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      put(`${UUID(2)}.json`, { ...good, title: 'plain' });
+      const onWarnings = vi.fn();
+      const ob = make({ onWarnings });
+      ob.scan();
+      expect(ob.checkingIds().size).toBe(0);
+      const announced = vi.fn();
+      const withStorage = make({ storageDir: storageDir(), onProposal: announced });
+      put(`${UUID(3)}.json`, { ...good, title: 'plain 2' });
+      withStorage.scan();
+      expect(withStorage.checkingIds().size).toBe(0);
+      // A draft that lists no file is taken in and announced with a storage dir too.
+      expect(announced).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ title: 'plain 2' }) }));
+      await settle();
+      expect(pending().every((p) => p.attachments.length === 0)).toBe(true);
+      expect(onWarnings).not.toHaveBeenCalled();
+    });
+
+    it('announces the row after a copy, with or without a refusal warning', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const onWarnings = vi.fn();
+      const ob = make({ storageDir: storageDir(), onWarnings });
+      ob.scan();
+      await drain(ob);
+      expect(onWarnings).toHaveBeenCalledTimes(1);
+      expect(onWarnings.mock.calls[0]![0].attachments).toHaveLength(1);
+      put(`${UUID(2)}.json`, { ...good, id: pending()[0]!.id, attachments: [{ path: 'gone.txt' }] });
+      ob.scan();
+      await drain(ob);
+      expect(onWarnings).toHaveBeenCalledTimes(2);
+      expect(getProposal(store, pending()[0]!.id)!.warnings).toContain('attachment refused: gone.txt (missing)');
+    });
+
+    it('keeps the draft with a refusal when the copy cannot be written', async () => {
+      withFile('p.html', 'x');
+      writeFileSync(join(root, 'blocker'), 'f');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const ob = make({ storageDir: join(root, 'blocker', 'sub') });
+      ob.scan();
+      await drain(ob);
+      expect(pending()).toHaveLength(1);
+      expect(pending()[0]!.attachments).toEqual([]);
+      expect(pending()[0]!.warnings).toEqual(['attachment refused: p.html (missing)']);
+      expect(ob.checkingIds().size).toBe(0);
+    });
+
+    it('a revise drops the old list at once, so a Review never stages the files of the old revision', async () => {
+      withFile('a.txt', 'aaa');
+      withFile('b.txt', 'bbb');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'a.txt' }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      await drain(ob);
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, attachments: [{ path: 'b.txt' }] });
+      ob.scan();
+      expect(getProposal(store, id)!.attachments).toEqual([]);
+      expect(ob.checkingIds().has(id)).toBe(true);
+      await drain(ob);
+      expect(getProposal(store, id)!.attachments.map((a) => a.name)).toEqual(['b.txt']);
+    });
+
+    it('records the copy before a slow git probe settles', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'], attachments: [{ path: 'p.html' }] });
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const ob = make({ storageDir: storageDir(), repoPaths: () => ['/nowhere'], commitExists: async () => { await gate; return true; } });
+      ob.scan();
+      const id = pending()[0]!.id;
+      for (let i = 0; i < 100 && getProposal(store, id)!.attachments.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
+      expect(getProposal(store, id)!.attachments).toHaveLength(1);
+      expect(ob.checkingIds().has(id)).toBe(true);
+      release();
+      await drain(ob);
+    });
+
+    it('drops a late git warning when the draft was discarded meanwhile', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const onWarnings = vi.fn();
+      const debug = vi.fn();
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      make({ repoPaths: () => [root], commitExists: async () => { await gate; return false; }, onWarnings, debug }).scan();
+      const id = pending()[0]!.id;
+      discardProposal(store, id);
+      release();
+      await new Promise<void>((r) => setTimeout(r, 0));
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+      expect(onWarnings).not.toHaveBeenCalled();
+      expect(debug.mock.calls.map((c) => String(c[0])).join()).not.toMatch(/failed/);
+    });
+
+    it('a copy that ends after a revise writes nothing onto the new draft', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }, { path: 'gone.txt' }] });
+      const onWarnings = vi.fn();
+      const ob = make({ storageDir: storageDir(), onWarnings });
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, title: 'second' });
+      ob.scan();
+      // The revise holds no latch, so wait for the old copy by time.
+      await new Promise<void>((r) => setTimeout(r, 100));
+      expect(getProposal(store, id)!.attachments).toEqual([]);
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+      expect(onWarnings).not.toHaveBeenCalled();
+    });
+
+    it('logs a copy whose announce throws and still clears checking', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const debug = vi.fn();
+      const ob = make({ storageDir: storageDir(), debug, onWarnings: () => { throw new Error('boom'); } });
+      ob.scan();
+      const id = pending()[0]!.id;
+      await drain(ob);
+      expect(debug).toHaveBeenCalledWith(`[planning] attachment copy for proposal ${id} failed (boom)`);
+      expect(ob.checkingIds().size).toBe(0);
+    });
+
+    it('a git probe with no warning and no listed file announces nothing and logs no failure', async () => {
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      const debug = vi.fn();
+      const onWarnings = vi.fn();
+      const ob = make({ repoPaths: () => ['/nowhere'], commitExists: async () => true, debug, onWarnings });
+      ob.scan();
+      await drain(ob);
+      expect(onWarnings).not.toHaveBeenCalled();
+      expect(debug.mock.calls.map((c) => String(c[0])).join()).not.toMatch(/failed/);
+    });
+
+    it('a clean copy adds no warning and needs no onWarnings callback', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const debug = vi.fn();
+      const ob = make({ storageDir: storageDir(), debug });
+      ob.scan();
+      await drain(ob);
+      const id = pending()[0]!.id;
+      expect(getProposal(store, id)!.attachments).toHaveLength(1);
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+      expect(debug.mock.calls.map((c) => String(c[0])).join()).not.toMatch(/failed/);
+    });
+
+    it('logs a failed cleanup of the copy of a draft resolved meanwhile', async () => {
+      withFile('p.html', 'x');
+      writeFileSync(join(root, 'blocker'), 'f');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const debug = vi.fn();
+      const ob = make({ storageDir: join(root, 'blocker', 'sub'), debug });
+      ob.scan();
+      const id = pending()[0]!.id;
+      discardProposal(store, id);
+      await drain(ob);
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining(`draft attachment cleanup for proposal ${id} failed`));
+    });
+
+    it('writes nothing when the draft was discarded before the copy ended', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      const id = pending()[0]!.id;
+      discardProposal(store, id);
+      await drain(ob);
+      expect(getProposal(store, id)!.attachments).toEqual([]);
+      expect(existsSync(join(storageDir(), 'attachments', `draft-${id}`))).toBe(false);
+    });
+
+    it('drops the copy of a superseded revision when the draft was discarded before it ended', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, title: 'second' });
+      ob.scan();
+      discardProposal(store, id);
+      // The revise holds no latch, so wait for the old copy by time.
+      await new Promise<void>((r) => setTimeout(r, 100));
+      expect(existsSync(join(storageDir(), 'attachments', `draft-${id}`))).toBe(false);
     });
   });
 });

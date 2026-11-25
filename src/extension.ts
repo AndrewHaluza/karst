@@ -802,7 +802,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     archDocs: (repos, constraints) => archDocFiles(constraints, repoPathsOf(currentManifest(), repos)),
     openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
     refreshIndex: refreshPlanningIndex,
-    notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m) });
+    notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m), storageDir,
+    isChecking: (id) => planningCheckingIds().has(id) });
   // Onboarding setup sessions (§ ONBOARDING-SETUP-AGENT): a read-only agent
   // terminal that discovers the workspace and proposes a manifest + consented
   // repo changes. The binding lives in setupWiring.ts so this file stays thin.
@@ -7578,7 +7579,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const outbox = createPlanningOutbox({ store: localStore, projectId: () => currentProject()?.id,
     sessions: () => planning.list().map((s) => ({ id: s.id, scratch: join(planRoot, String(s.id)) })),
     knownRepos: () => { const m = currentManifest(); return m && Object.entries(m.repositories).filter(([, d]) => d.enabled !== false).map(([n]) => n); },
-    windowId: randomUUID(), now: () => Date.now(), notify, debug: (m) => logger.debug(m),
+    windowId: randomUUID(), now: () => Date.now(), notify, debug: (m) => logger.debug(m), storageDir,
     onProposal: (p, change) => { provider.refresh(); void proposalOps.announce(p, change); },
     repoPaths: (names) => repoPathsOf(currentManifest(), names), resolveBaseShas: (names) => resolveBaseShasOf(currentManifest(), names), commitExists: (r, h) => commitExistsViaGit(r, h, execGit),
     pathTargets: (names) => repoTargetsOf(currentManifest(), names), gitBatch: gitCatFileBatch, onWarnings: () => provider.refresh() });

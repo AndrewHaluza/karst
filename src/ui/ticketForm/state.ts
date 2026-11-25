@@ -134,6 +134,10 @@ export interface AttachmentView {
   name: string;
   byteSize: number;
   src: string;
+  /** A host-held draft file shown before the ticket exists; Save attaches it. */
+  staged?: boolean;
+  /** The file name inside the draft's host directory; what `unstage-attachment` carries. */
+  storedName?: string;
 }
 
 export interface DesignConstraintsView {
@@ -157,6 +161,8 @@ export interface TicketFormState {
   mode: 'create' | 'edit';
   /** True while the page reviews a planning-proposal prefill that still has to report back. */
   prefilled?: boolean;
+  /** Stored names of the draft files the user removed from a prefilled form; the webview saves them for a restore. */
+  unstagedFiles?: string[];
   ticketId?: number;
   /**
    * Host-built id label for the page header: `T583 · KEY` for a ticket, `D88`
@@ -687,10 +693,25 @@ export function buildTicketFormState(
   };
 }
 
+type StagedRowSource = { name: string; kind: string; byteSize: number; storedName: string };
+
+/** The attachment rows for draft files that are staged and not yet attached; their ids are negative. */
+export function stagedAttachmentRows(staged: readonly StagedRowSource[]): AttachmentView[] {
+  return staged.map((a, i) => ({
+    id: -(i + 1),
+    kind: a.kind as AttachmentKind,
+    name: a.name,
+    byteSize: a.byteSize,
+    src: '',
+    staged: true,
+    storedName: a.storedName,
+  }));
+}
+
 /** Overlay a proposal prefill on a built create-form state; picked bases stay overrides. */
 export function applyPrefill(
   state: TicketFormState,
-  p: Pick<TicketFormPrefill, 'title' | 'description' | 'summary' | 'repos' | 'baseRefs' | 'draftId'>,
+  p: Pick<TicketFormPrefill, 'title' | 'description' | 'summary' | 'repos' | 'baseRefs' | 'draftId' | 'attachments'>,
 ): TicketFormState {
   const want = new Set(p.repos);
   const baseRefs = p.baseRefs ?? {};
@@ -699,6 +720,11 @@ export function applyPrefill(
     ...(p.draftId !== undefined ? { refLabel: formatId('draft', p.draftId) } : {}),
     title: p.title,
     description: p.description,
+    ...(p.attachments !== undefined
+      ? {
+          attachments: stagedAttachmentRows(p.attachments),
+        }
+      : {}),
     brief: p.summary || null,
     briefSource: p.draftId !== undefined ? { kind: 'draft', draftId: p.draftId } : { kind: 'manual' },
     repos: want.size ? state.repos.map((r) => ({ ...r, selected: want.has(r.service) })) : state.repos,

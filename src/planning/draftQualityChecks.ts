@@ -20,7 +20,7 @@ export const OVERSIZED_DESCRIPTION_CHARS = 12_000;
 const SHINGLE_WORDS = 4;
 const MIN_NUMBERED_STEPS = 2;
 
-export const LEAK_WARNING = 'draft references session/agent plan path (inline it)';
+export const LEAK_WARNING = 'plan path not in attachments (attach or inline)';
 export const DROPPED_PLAN_WARNING = 'session has plan artifact but description is short';
 export const INVERTED_WARNING = 'plan details in summary instead of description';
 export const DUPLICATE_WARNING = 'description and summary duplicate each other';
@@ -31,6 +31,8 @@ export interface DraftText {
   description: string;
   summary: string;
   repos: readonly string[];
+  /** Files the draft lists as attachments; a cite of one is not a leak. */
+  attachments?: readonly { path: string }[];
 }
 
 export interface ReferencedPaths {
@@ -112,6 +114,26 @@ const LEAK_PATTERNS: readonly RegExp[] = [
   /(?<![\w./-])docs\/superpowers\/plans\//,
 ];
 
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** A cite ends here: no further path character, and no dot that starts a longer name. */
+const CITE_END = '(?![\\w/-]|\\.\\w)';
+
+/** `text` without each cite of a listed attachment: its artifacts path, then its bare file name. */
+function withoutListedAttachments(text: string, listed: readonly { path: string }[] | undefined): string {
+  const files = listed ?? [];
+  const full = files.flatMap(({ path }) => [`/artifacts/${path}`, `\${KARST_ARTIFACTS}/${path}`, `$KARST_ARTIFACTS/${path}`]);
+  // Remove whole paths first, longest first. Then remove a bare file name only when no path character precedes it.
+  // A cite of a longer, unlisted path (`a.md.bak`, `a.md/x`) is never a cite of the listed file.
+  const noPaths = full
+    .sort((a, b) => b.length - a.length)
+    .reduce((acc, c) => acc.replace(new RegExp(`${escapeRegExp(c)}${CITE_END}`, 'g'), ''), text);
+  return files.reduce((acc, { path }) => {
+    const name = path.slice(path.lastIndexOf('/') + 1);
+    if (name === '') return acc;
+    return acc.replace(new RegExp(`(?<![\\w./~$}-])${escapeRegExp(name)}${CITE_END}`, 'g'), '');
+  }, noPaths);
+}
+
 const VERIFICATION =
   /\b(?:test|tests|vitest|jest|pytest|playwright|spec|verify|verification|assert|acceptance|done when|typecheck|gate|lint|build|compile|confirm|reproduce|smoke)\b/i;
 const NUMBERED_STEP = /^\s*(?:\d+[.)]|step\s+\d+\b)/i;
@@ -161,7 +183,8 @@ export function draftQualityWarnings(p: DraftText, opts: { hasPlanArtifact?: boo
   const sumPaths = extractReferencedPaths(sum);
   const verified = VERIFICATION.test(desc);
   const out: string[] = [];
-  if (LEAK_PATTERNS.some((re) => re.test(`${desc}\n${sum}`))) out.push(LEAK_WARNING);
+  const leakText = withoutListedAttachments(`${desc}\n${sum}`, p.attachments);
+  if (LEAK_PATTERNS.some((re) => re.test(leakText))) out.push(LEAK_WARNING);
   const thin = desc.length < THIN_DESCRIPTION_CHARS;
   if (thin) out.push(`description is short (${desc.length} chars)`);
   const dropped =

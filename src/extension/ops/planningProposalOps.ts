@@ -9,6 +9,7 @@ import {
   type PlanningProposal,
   type ProposalStatus,
 } from '../../store/planningProposals.js';
+import { removeDraftAttachments } from '../../planning/draftAttachments.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
 import type { PriorityLevel } from '../../planning/proposal.js';
 import { formatId } from '../../model/entityId.js';
@@ -37,6 +38,12 @@ export interface PlanningProposalOpsDeps {
   /** Rewrite the session's on-disk proposal index after a state change. */
   refreshIndex?(sessionId: number): void;
   debug?: (line: string) => void;
+  /** The storage root that holds the host copies of draft attachments; absent = nothing to clean up. */
+  storageDir?: string;
+  /** True while the host still checks or copies the files of this draft; absent = never wait. */
+  isChecking?(proposalId: number): boolean;
+  /** Remove one draft's host copy; defaults to `removeDraftAttachments`. A seam for tests. */
+  removeDir?: (storageDir: string, proposalId: number) => Promise<void>;
 }
 
 export interface PlanningProposalOps {
@@ -56,6 +63,10 @@ export interface PlanningProposalOps {
   /** Set (or clear with `null`) the user's priority on a pending draft of this project. */
   setPriority(id: number, level: PriorityLevel | null): Promise<void>;
 }
+
+/** The same host files: a revise with new file content changes a stored name, not the payload. */
+const sameFiles = (a: readonly { storedName: string }[], b: readonly { storedName: string }[]): boolean =>
+  a.length === b.length && a.every((f, i) => f.storedName === b[i]!.storedName);
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -87,6 +98,13 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       await deps.notify.error(`Couldn't ${what} draft ${formatId('draft', id)}: ${errText(e)}`);
     }
     deps.onChange();
+  }
+
+  /** Remove the host copy of a draft's attachments. Logs a failure and never throws. */
+  function removeHostCopy(id: number): Promise<void> {
+    if (deps.storageDir === undefined) return Promise.resolve();
+    const remove = deps.removeDir ?? removeDraftAttachments;
+    return remove(deps.storageDir, id).catch((e: unknown) => debug(`proposal ${id}: attachment cleanup failed: ${errText(e)}`));
   }
 
   /**
@@ -132,6 +150,19 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     async review(id) {
       const p = await pending(id);
       if (!p) return;
+      if (stillCopying(p)) {
+        deps.notify.warn(`Draft ${formatId('draft', id)} still copies its files. Open Review again in a moment.`);
+        return;
+      }
+      // No copy runs now, so listed files with no copy and no refusal belong to a copy that stopped (a reload, an error).
+      const lost = uncopied(p);
+      if (lost > 0) {
+        const files = lost === 1 ? '1 file' : `${lost} files`;
+        const them = lost === 1 ? 'it' : 'them';
+        deps.notify.warn(
+          `Draft ${formatId('draft', id)} lists ${files} that the host did not copy (the copy stopped, for example on a window reload). Ask the planner to revise the draft to copy ${them} again.`,
+        );
+      }
       deps.openForm(prefillOf(p));
     },
 
@@ -153,6 +184,8 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
         }
         for (const sessionId of sessions) refresh(sessionId);
       });
+      // A failed discard leaves the draft pending: its files must stay for the next Review.
+      if (getProposal(deps.store, id)!.status !== 'pending') await removeHostCopy(id);
     },
 
     async setPriority(id, level) {
@@ -169,11 +202,23 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
   };
   return ops;
 
+  /** The number of listed files when the draft shows neither a host copy nor a refusal for any of them, else 0. */
+  function uncopied(p: PlanningProposal): number {
+    const listed = p.payload.attachments?.length ?? 0;
+    return p.attachments.length === 0 && !p.warnings.some((w) => w.startsWith('attachment refused:')) ? listed : 0;
+  }
+
+  /** True while a running host copy of the listed files has neither a file nor a refusal to show. */
+  function stillCopying(p: PlanningProposal): boolean {
+    return deps.isChecking?.(p.id) === true && uncopied(p) > 0;
+  }
+
   /** The review form prefill of a proposal; `onCreated` links the saved ticket to it. */
   function prefillOf(p: PlanningProposal): TicketFormPrefill {
     const id = p.id;
     const { title, description, summary, repos, constraints = [] } = p.payload;
     const reviewed = p.payload;
+    const reviewedFiles = p.attachments;
     return {
       draftId: id,
       title,
@@ -183,6 +228,15 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       constraints,
       constraintDocs: deps.archDocs?.(repos, constraints) ?? {},
       warnings: p.warnings,
+      attachments: [...p.attachments]
+        .sort((a, b) => Number(b.binding === true) - Number(a.binding === true))
+        .map(({ name, storedName, kind, byteSize, binding }) => ({
+          name,
+          storedName,
+          kind,
+          byteSize,
+          ...(binding === true ? { binding } : {}),
+        })),
       // Rethrows after the toast: the form must not start a ticket whose draft link failed.
       onCreated: (ticketId) => {
         try {
@@ -191,12 +245,14 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
           // The form's ticket is what the human saw and saved, so it is
           // linked regardless; but if the agent revised the draft while the
           // form was open, say so rather than dropping it silently.
-          if (current && !proposalPayloadEquals(current.payload, reviewed)) {
+          if (current && (!proposalPayloadEquals(current.payload, reviewed) || !sameFiles(current.attachments, reviewedFiles))) {
             deps.notify.warn(
               `Draft ${formatId('draft', id)} was revised while you were editing; your saved ticket is linked and the newer revision was discarded.`,
             );
           }
           refresh(p.sessionId);
+          // The ticket attachments exist by now (Save ingests them first), so the host copy can go.
+          void removeHostCopy(id);
         } catch (e) {
           debug(`proposal ${id}: link failed: ${errText(e)}`);
           void deps.notify.error(`Couldn't link draft ${formatId('draft', id)}: ${errText(e)}`);

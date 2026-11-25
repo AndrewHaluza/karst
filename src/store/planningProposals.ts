@@ -6,6 +6,7 @@ import { postMessage } from './ticketMessages.js';
 import { formatId } from '../model/entityId.js';
 import { PLANNING_BRIEF_HEADING } from '../model/planningBriefHeading.js';
 import { asPriorityLevel, type PriorityLevel } from '../model/priority.js';
+import type { ProposalAttachment } from '../planning/proposal.js';
 
 /**
  * Planning proposals (v65) — a draft ticket a planning session handed to the
@@ -23,6 +24,30 @@ const ticketDep = (n: number): ProposalDependency => `T${n}`;
 const isTicketDep = (d: ProposalDependency): d is `T${number}` => typeof d === 'string';
 const depTicketId = (d: `T${number}`): number => Number(d.slice(1));
 
+/** A host-owned copy of one evidence file a draft listed (stored under the reserved `hostAttachments` key). */
+export interface HostAttachment {
+  /** The original file name; the ticket attachment keeps it. */
+  name: string;
+  /** The content-addressed file name inside the draft's host directory. */
+  storedName: string;
+  kind: string;
+  byteSize: number;
+  note?: string;
+  binding?: boolean;
+}
+
+const isHostAttachment = (v: unknown): v is HostAttachment => {
+  if (typeof v !== 'object' || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.name === 'string' &&
+    typeof r.storedName === 'string' &&
+    typeof r.kind === 'string' &&
+    typeof r.byteSize === 'number' &&
+    Number.isFinite(r.byteSize)
+  );
+};
+
 export interface ProposalPayload {
   title: string;
   description: string;
@@ -38,6 +63,8 @@ export interface ProposalPayload {
   dependsOn?: ProposalDependency[];
   /** Design rules / prior work the draft cites (see `Proposal.constraints`). Absent when none. */
   constraints?: string[];
+  /** The evidence files the planner named (the request). The host copies are `PlanningProposal.attachments`. */
+  attachments?: ProposalAttachment[];
   /** The planner's proposed priority and its one-line reason (agent content; see `Proposal`). */
   priority?: PriorityLevel;
   priorityReason?: string;
@@ -76,6 +103,11 @@ export interface PlanningProposal {
    * warnings apart. Recomputed on every revise; `[]` for rows without the key.
    */
   warnings: string[];
+  /**
+   * Host copies of the files the draft listed (reserved `hostAttachments` key of
+   * `payload_json`, stripped from `payload`). `[]` when absent or corrupt.
+   */
+  attachments: HostAttachment[];
   /** The outbox file uuid that created or last revised this proposal. Host-owned
    *  correlation data, persisted here so the index is never read back. */
   sourceUuid: string;
@@ -128,9 +160,14 @@ function parseIdArray(raw: string | null): number[] {
 function splitPayload(
   payload: ProposalPayload,
   warnings: readonly string[],
+  hostAttachments: readonly HostAttachment[] = [],
 ): { body: string; dependsOn: string; dependsOnTickets: string } {
   const { dependsOn = [], ...rest } = payload;
-  const body = warnings.length > 0 ? { ...rest, hostWarnings: warnings } : rest;
+  const body = {
+    ...rest,
+    ...(warnings.length > 0 ? { hostWarnings: warnings } : {}),
+    ...(hostAttachments.length > 0 ? { hostAttachments } : {}),
+  };
   return {
     body: JSON.stringify(body),
     dependsOn: JSON.stringify(dependsOn.filter((d): d is number => !isTicketDep(d))),
@@ -154,7 +191,10 @@ function parseBaseShas(raw: string | null | undefined): Record<string, string> {
 }
 
 function toProposal(r: ProposalRow): PlanningProposal {
-  const { hostWarnings, ...payload } = JSON.parse(r.payload_json) as ProposalPayload & { hostWarnings?: unknown };
+  const { hostWarnings, hostAttachments, ...payload } = JSON.parse(r.payload_json) as ProposalPayload & {
+    hostWarnings?: unknown;
+    hostAttachments?: unknown;
+  };
   const warnings =
     Array.isArray(hostWarnings) && hostWarnings.every((w): w is string => typeof w === 'string') ? hostWarnings : [];
   const dependsOn: ProposalDependency[] = [
@@ -173,6 +213,7 @@ function toProposal(r: ProposalRow): PlanningProposal {
     priorityOverride: asPriorityLevel(r.priority_override) ?? null,
     revisionCount: r.revision_count ?? 0,
     warnings,
+    attachments: Array.isArray(hostAttachments) && hostAttachments.every(isHostAttachment) ? hostAttachments : [],
     sourceUuid: r.source_uuid,
     createdAt: r.created_at,
     // The v66 column is nullable on a migrated DB (SQLite forbids a function
@@ -344,10 +385,9 @@ export function updateProposalPayload(
   warnings: readonly string[] = [],
   baseShas?: Record<string, string>,
 ): void {
-  requirePending(store, id);
-  const { body, dependsOn, dependsOnTickets } = splitPayload(payload, warnings);
-  const cur = getProposal(store, id);
-  const shasJson = JSON.stringify(baseShas ?? cur?.baseShas ?? {});
+  const cur = requirePending(store, id);
+  const { body, dependsOn, dependsOnTickets } = splitPayload(payload, warnings, cur.attachments);
+  const shasJson = JSON.stringify(baseShas ?? cur.baseShas);
   if (sourceUuid === undefined) {
     store.db
       .prepare(
@@ -377,8 +417,26 @@ export function setProposalPriorityOverride(store: Store, id: number, level: Pri
 /** Replace only a pending proposal's host warnings (a late async check result). */
 export function setProposalWarnings(store: Store, id: number, warnings: readonly string[]): void {
   const p = requirePending(store, id);
-  const { body } = splitPayload(p.payload, warnings);
+  const { body } = splitPayload(p.payload, warnings, p.attachments);
   store.db.prepare('UPDATE planning_proposals SET payload_json = ?, updated_at = datetime(\'now\') WHERE id = ?').run(body, id);
+}
+
+/**
+ * Replace only a pending proposal's host attachment copies (a late async copy
+ * result). Writes nothing and returns `false` when the draft was revised
+ * (`source_uuid` differs), discarded or accepted meanwhile.
+ */
+export function setProposalHostAttachments(
+  store: Store,
+  id: number,
+  sourceUuid: string,
+  list: readonly HostAttachment[],
+): boolean {
+  const p = getProposal(store, id);
+  if (!p || p.status !== 'pending' || p.sourceUuid !== sourceUuid) return false;
+  const { body } = splitPayload(p.payload, p.warnings, list);
+  store.db.prepare("UPDATE planning_proposals SET payload_json = ?, updated_at = datetime('now') WHERE id = ?").run(body, id);
+  return true;
 }
 
 /** Replace only a pending proposal's recorded base shas (a late async resolve result). */
@@ -459,6 +517,7 @@ export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): b
   const bd = b.dependsOn ?? [];
   return (
     sameList(a.constraints ?? [], b.constraints ?? []) &&
+    JSON.stringify(a.attachments ?? []) === JSON.stringify(b.attachments ?? []) &&
     a.title === b.title &&
     a.description === b.description &&
     a.summary === b.summary &&

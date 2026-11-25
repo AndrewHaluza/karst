@@ -1,4 +1,6 @@
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { draftAttachmentDir } from '../../planning/draftAttachments.js';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { AgentProvider } from '../../manifest/types.js';
@@ -75,6 +77,7 @@ import {
   finalizeAttachmentDetach,
   finalizeAttachmentWrite,
   getAttachment,
+  listAttachments,
   prepareAttachmentDetach,
   releaseAttachmentDetach,
   releaseAttachmentOperation,
@@ -452,11 +455,12 @@ function resolveDraftKey(
  * Binds a create-mode panel to the new ticket. Does NOT touch startTicket;
  * callers decide whether a run follows.
  */
-function persistDraft(
+async function persistDraft(
   ctx: TicketFormActionsCtx,
   deps: TicketFormActionsDeps,
   input: TicketDraftFields,
-): number {
+  ingestStaged: (ticketId: number) => Promise<void>,
+): Promise<number> {
   // Validate BEFORE any write. `setBaseRef` runs this same assert on every
   // interactive change, but a rejection there leaves the stale text sitting in
   // the webview's input — `collectBaseRefs()` re-sends it on Submit/Save
@@ -515,6 +519,9 @@ function persistDraft(
     ...(input.intent !== undefined ? { intent: input.intent } : {}),
     ...(input.codePointers !== undefined ? { codePointers: input.codePointers } : {}),
   });
+  // The staged draft files must be attached before the draft link commits and before any launch.
+  // A failure throws here, so `commitPrefill` never runs and the caller reports it.
+  await ingestStaged(ticketId);
   // The user's explicit Save/Submit is the ONLY commit of a prefilled page; a
   // fetch/attach that bound an earlier draft must not have accepted it (see
   // `commitPrefill`). Fires the prefill's `onCreated` exactly once.
@@ -608,6 +615,97 @@ export function buildTicketFormActions(
       ctx.bindTicket(draft.id);
       deps.onChange(); // sidebar shows the new draft
       return draft.id;
+    };
+
+    /** Remove one attachment row of a ticket and its file. Throws on a failure. */
+    const detachRow = async (ticketId: number, id: number): Promise<void> => {
+      const decision = prepareAttachmentDetach(deps.store, id, ticketId);
+      if (!decision) return;
+      const { row } = decision;
+      if (!decision.needsUnlink) return;
+      // Keep a DB-visible detach claim across the async filesystem operation.
+      // Moving aside first makes a failed unlink reversible; final row delete
+      // is conditional on this detach still owning the token, so a concurrent
+      // same-content attach cancels it rather than losing its publication.
+      let staged: StagedAttachmentRemoval | null = null;
+      try {
+        staged = await stageAttachmentRemoval(deps.storageDir, row.ticketId, row.storedName, decision.token);
+      } catch (error) {
+        releaseAttachmentDetach(deps.store, row.id, decision.token);
+        throw error;
+      }
+      try {
+        await discardStagedAttachment(staged);
+      } catch (error) {
+        // Keep waiters/new detaches behind the handshake until rollback has
+        // restored the destination (without replacing a newer publication).
+        // If restoration itself fails, retain the token rather than exposing
+        // a live row whose destination is still absent.
+        await restoreStagedAttachment(staged);
+        releaseAttachmentDetach(deps.store, row.id, decision.token);
+        throw error;
+      }
+      // From here the published bytes are gone. If SQLite finalization throws,
+      // deliberately retain detach_token: the row is durable retry metadata,
+      // and prepareAttachmentDetach resumes that token on the next click.
+      finalizeAttachmentDetach(deps.store, row.id, decision.token);
+    };
+
+    /**
+     * Attach every staged draft file to the ticket, under its original name. The staged
+     * list empties only when every file is attached. A failure removes the files it attached and throws.
+     */
+    const ingestStaged = (ticketId: number): Promise<void> => {
+      // One ingest at a time: a Save and a paste at the same moment must not attach the same
+      // files twice, and a failed ingest must not detach the rows of the other one.
+      const run = ingestQueue.then(() => ingestStagedNow(ticketId));
+      ingestQueue = run.catch(() => undefined);
+      return run;
+    };
+    let ingestQueue: Promise<void> = Promise.resolve();
+
+    const ingestStagedNow = async (ticketId: number): Promise<void> => {
+      const draftId = ctx.stagedDraftId;
+      if (draftId === undefined) return;
+      // Read every file first: an unreadable host copy then fails before any file is attached.
+      const loaded = await Promise.all(
+        [...(ctx.stagedAttachments ?? [])].map(async (staged) => ({
+          staged,
+          bytes: await readFile(join(draftAttachmentDir(deps.storageDir, draftId), staged.storedName)),
+        })),
+      );
+      const before = new Set(listAttachments(deps.store, ticketId).map((r) => r.id));
+      try {
+        for (const { staged, bytes } of loaded) {
+          const ok = await record(
+            ticketId,
+            await ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
+            () => ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
+          );
+          if (!ok) throw new Error(`Could not attach ${staged.name}.`);
+        }
+      } catch (error) {
+        // All or none: a file attached before the failure leaves again, and the staged list stays whole.
+        await removeAdded(ticketId, before);
+        throw error;
+      }
+      for (const { staged } of loaded) ctx.unstage?.(staged.storedName);
+      // Push now: a later step of the caller can fail or still run, and the form must not show attached files as staged.
+      if (loaded.length > 0) ctx.pushState();
+    };
+
+    /** Remove the attachment rows of a ticket that are not in `before`. */
+    const removeAdded = async (ticketId: number, before: ReadonlySet<number>): Promise<void> => {
+      const failed: string[] = [];
+      for (const row of listAttachments(deps.store, ticketId)) {
+        if (before.has(row.id)) continue;
+        try {
+          await detachRow(ticketId, row.id);
+        } catch {
+          failed.push(row.originalName);
+        }
+      }
+      if (failed.length > 0) throw new Error(`Could not remove the partly attached ${failed.join(', ')}.`);
     };
 
     /**
@@ -793,6 +891,7 @@ export function buildTicketFormActions(
         const paths = await deps.pickAttachment();
         if (paths.length === 0) return; // cancelled — not an error, say nothing
         const ticketId = ensureTicket(draft);
+        await ingestStaged(ticketId);
         let changed = false;
         for (const path of paths) {
           // Sequential, not Promise.all: each ingest hashes and copies, and a
@@ -830,6 +929,7 @@ export function buildTicketFormActions(
           return;
         }
         const ticketId = ensureTicket(draft);
+        await ingestStaged(ticketId);
         if (await record(
           ticketId,
           await ingestBytes(deps.storageDir, ticketId, name, bytes),
@@ -860,6 +960,7 @@ export function buildTicketFormActions(
           return;
         }
         const ticketId = ensureTicket(draft);
+        await ingestStaged(ticketId);
         if (await record(
           ticketId,
           await ingestBytes(deps.storageDir, ticketId, attachment.name, bytes),
@@ -872,50 +973,18 @@ export function buildTicketFormActions(
       }
     },
 
+    unstageAttachment: (storedName: string): void => {
+      ctx.unstage?.(storedName);
+      ctx.pushState();
+    },
+
     detachAttachment: async (id: number): Promise<void> => {
       try {
         // Scoped to THIS panel's ticket. The id crosses an untrusted boundary, so
         // an id belonging to another ticket must not let this panel unlink that
         // ticket's file.
         if (ctx.ticketId === undefined) return;
-        const decision = prepareAttachmentDetach(deps.store, id, ctx.ticketId);
-        if (!decision) return;
-        const { row } = decision;
-        if (!decision.needsUnlink) {
-          ctx.pushState();
-          return;
-        }
-        // Keep a DB-visible detach claim across the async filesystem operation.
-        // Moving aside first makes a failed unlink reversible; final row delete
-        // is conditional on this detach still owning the token, so a concurrent
-        // same-content attach cancels it rather than losing its publication.
-        let staged: StagedAttachmentRemoval | null = null;
-        try {
-          staged = await stageAttachmentRemoval(
-            deps.storageDir,
-            row.ticketId,
-            row.storedName,
-            decision.token,
-          );
-        } catch (error) {
-          releaseAttachmentDetach(deps.store, row.id, decision.token);
-          throw error;
-        }
-        try {
-          await discardStagedAttachment(staged);
-        } catch (error) {
-          // Keep waiters/new detaches behind the handshake until rollback has
-          // restored the destination (without replacing a newer publication).
-          // If restoration itself fails, retain the token rather than exposing
-          // a live row whose destination is still absent.
-          await restoreStagedAttachment(staged);
-          releaseAttachmentDetach(deps.store, row.id, decision.token);
-          throw error;
-        }
-        // From here the published bytes are gone. If SQLite finalization throws,
-        // deliberately retain detach_token: the row is durable retry metadata,
-        // and prepareAttachmentDetach resumes that token on the next click.
-        finalizeAttachmentDetach(deps.store, row.id, decision.token);
+        await detachRow(ctx.ticketId, id);
         ctx.pushState();
       } catch (e) {
         ctx.post({ type: 'error', message: errorMessage(e) });
@@ -1342,6 +1411,7 @@ export function buildTicketFormActions(
         // Probe BEFORE minting: a disabled analysis must leave no row behind.
         const enabled = deps.resolveAnalysisProcess(ctx.ticketId, override) !== null;
         const ticketId = enabled ? ensureTicket(draft) : undefined;
+        if (ticketId !== undefined) await ingestStaged(ticketId);
         const process = ticketId === undefined ? null : deps.resolveAnalysisProcess(ticketId, override);
         if (ticketId === undefined || process === null) {
           // Configured absence (`processes.ticketAnalysis.enabled: false`),
@@ -1538,7 +1608,7 @@ export function buildTicketFormActions(
     async submit(input): Promise<void> {
       let ticketId: number;
       try {
-        ticketId = persistDraft(ctx, deps, input);
+        ticketId = await persistDraft(ctx, deps, input, ingestStaged);
       } catch (e) {
         // A rejected base-ref override (or any other validation persistDraft
         // enforces) must not create or half-write a ticket — nothing has been
@@ -1652,7 +1722,7 @@ export function buildTicketFormActions(
     async save(input): Promise<void> {
       ctx.post({ type: 'busy', what: 'save', on: true });
       try {
-        const ticketId = persistDraft(ctx, deps, input);
+        const ticketId = await persistDraft(ctx, deps, input, ingestStaged);
         ctx.post({ type: 'draft-saved' });
         // Spill oversized descriptions to the attachment shelf at ingest.
         if (input.description) {

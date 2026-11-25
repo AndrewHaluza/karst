@@ -209,6 +209,9 @@ function draftContract(artifactsDir: string | undefined): string[] {
     '- "summary" holds the decisions reached, the options rejected with reasons, and the key risks; it becomes the ticket brief.',
     '  It is NOT a copy of "description" and NOT where the implementation plan lives. Propose one draft per piece of work.',
     '- "constraints" holds bare @arch:KEY / @ui:KEY tokens, commit hashes, D<n>/T<n> refs and short invariants the tests must check.',
+    '- "attachments" lists evidence files from your artifacts dir that the ticket needs (a prototype, a screenshot, a spec): [{"path":"proto/a.html","note":"layout reference","binding":true}].',
+    '  Use a relative "path" (no "..", no leading "/"). Max 10 files; the host copies each file (10 MB each, 25 MB in all) and refuses a link, a hardlink or a folder.',
+    '  Review stages the files and Save attaches them to the ticket. A file over 2 MB reaches host agents but not a sandbox. Cite a listed file in the description by its path.',
     'After each propose, read the returned "warnings" or the host rejection error, and revise the draft in place with "id" to fix each real defect before you finish.',
   ];
 }

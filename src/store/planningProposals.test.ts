@@ -19,6 +19,7 @@ import {
   proposalPayloadEquals,
   setProposalWarnings,
   setProposalBaseShas,
+  setProposalHostAttachments,
   setProposalPriorityOverride,
   effectiveProposalPriority,
   validateProposalDependsOn,
@@ -671,6 +672,38 @@ describe('planning proposals', () => {
       const id = insertProposal(store, sessionId, { ...payload, dependsOn: [`T${t.id}`] });
       discardProposal(store, id);
       expect(listPendingProposalsDependingOn(store, t.id)).toEqual([]);
+    });
+  });
+
+  describe('host attachments', () => {
+    const list = [{ name: 'a.html', storedName: '0123456789abcdef.html', kind: 'file', byteSize: 5 }];
+    it('writes only for the matching uuid on a pending row', () => {
+      const id = insertProposal(store, sessionId, payload, 'u1');
+      expect(setProposalHostAttachments(store, id, 'other', list)).toBe(false);
+      expect(setProposalHostAttachments(store, id, 'u1', list)).toBe(true);
+      expect(getProposal(store, id)!.attachments).toEqual(list);
+      discardProposal(store, id);
+      expect(setProposalHostAttachments(store, id, 'u1', [])).toBe(false);
+    });
+    it('keeps the list across warnings, base shas and a revise', () => {
+      const id = insertProposal(store, sessionId, payload, 'u1');
+      setProposalHostAttachments(store, id, 'u1', list);
+      setProposalWarnings(store, id, ['w']);
+      setProposalBaseShas(store, id, { api: 'sha' });
+      expect(getProposal(store, id)!.attachments).toEqual(list);
+      updateProposalPayload(store, id, { ...payload, title: 'T2' }, 'u2');
+      const p = getProposal(store, id)!;
+      expect(p.attachments).toEqual(list);
+      expect(p.warnings).toEqual([]);
+    });
+    it('hides hostAttachments from the payload and reads [] when corrupt', () => {
+      const id = insertProposal(store, sessionId, payload, 'u1');
+      setProposalHostAttachments(store, id, 'u1', list);
+      expect(JSON.stringify(getProposal(store, id)!.payload)).not.toContain('hostAttachments');
+      store.db
+        .prepare("UPDATE planning_proposals SET payload_json = json_set(payload_json, '$.hostAttachments', 'x') WHERE id = ?")
+        .run(id);
+      expect(getProposal(store, id)!.attachments).toEqual([]);
     });
   });
 });
