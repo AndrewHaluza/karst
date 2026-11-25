@@ -1327,14 +1327,16 @@ describe('planning outbox', () => {
         release = r;
       });
       const onWarnings = vi.fn();
+      const debug = vi.fn();
       put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
-      make({ repoPaths: () => ['/nowhere'], commitExists: async () => { await gate; return false; }, onWarnings }).scan();
+      make({ repoPaths: () => [root], commitExists: async () => { await gate; return false; }, onWarnings, debug }).scan();
       const id = pending()[0]!.id;
       discardProposal(store, id);
       release();
       await new Promise<void>((r) => setTimeout(r, 0));
       expect(getProposal(store, id)!.warnings).toEqual([]);
       expect(onWarnings).not.toHaveBeenCalled();
+      expect(debug.mock.calls.map((c) => String(c[0])).join()).not.toMatch(/failed/);
     });
 
     it('a copy that ends after a revise writes nothing onto the new draft', async () => {
@@ -1346,7 +1348,8 @@ describe('planning outbox', () => {
       const id = pending()[0]!.id;
       put(`${UUID(2)}.json`, { ...good, id, title: 'second' });
       ob.scan();
-      await drain(ob);
+      // The revise holds no latch, so wait for the old copy by time.
+      await new Promise<void>((r) => setTimeout(r, 100));
       expect(getProposal(store, id)!.attachments).toEqual([]);
       expect(getProposal(store, id)!.warnings).toEqual([]);
       expect(onWarnings).not.toHaveBeenCalled();
