@@ -210,11 +210,26 @@ function dashboardScenario(
   };
 }
 
+/**
+ * T1357 (@ui:VISUAL-VARIANTS): the screenshot step of an Inside case whose state shows only after a click. Without
+ * it the page equals a sibling case. Keyed `${stage}-${id}`. `click` is screenshot-only: the layout key stays.
+ */
+export const INSIDE_CASE_CLICK: Readonly<Record<string, string>> = {
+  // The revalidation caption is in the Gates evidence body (EvidenceRows.tsx `gates-caption`); the row is a <details>.
+  'uat-gates-revalidation': '[data-proc-id="uat:gates"] > summary',
+  // A closed ticket differs from a passed one only in its menu: Reopen in place of Close.
+  'done-closed': '#moreBtn',
+};
+
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
 const insideCaseVariants = (): Variant[] =>
-  INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').map((c) =>
-    variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), { ...(c.allThemes ? { themes: ALL_THEMES } : {}) }),
-  );
+  INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').map((c) => {
+    const click = INSIDE_CASE_CLICK[`${c.stage}-${c.id}`];
+    return variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), {
+      ...(c.allThemes ? { themes: ALL_THEMES } : {}),
+      ...(click === undefined ? {} : { click }),
+    });
+  });
 
 /**
  * T1090: the Inside cases at the mid, narrow and tight tiers (@ui:RD-TIERS). The `width` is a screenshot field: each
@@ -386,7 +401,9 @@ const agentPopoverVariants = (): Variant[] => [
   ...['codex', 'antigravity', 'opencode'].map((core) => agentPopoverVariant(`${core}-wide`, { core }, 1100)),
   agentPopoverVariant('search-wide', { core: 'opencode', q: 'pickle' }, 1100),
   agentPopoverVariant('zero-count-tab-wide', { core: 'opencode', q: 'pickle', cap: 'text-only' }, 1100),
-  agentPopoverVariant('no-effort-model-wide', { core: 'opencode', model: 'opencode/big-pickle' }, 1100),
+  // T1357: the core switch already stages the recent Big Pickle, so picking it changed nothing. Kimi K3 Free also has
+  // no efforts and is not pre-staged, so the pick moves the selection and hides the effort control.
+  agentPopoverVariant('no-effort-model-wide', { core: 'opencode', model: 'opencode/kimi-k3-free' }, 1100),
   agentPopoverVariant('opencode-narrow', { core: 'opencode', q: 'pickle' }, 400),
 ];
 
@@ -458,11 +475,13 @@ const HOST_VIEW: SandboxView = {
   shell: { available: false, why: 'No sandbox yet' },
 };
 
-const RUNTIME_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState]> = [
+/** `[id, patch, open]`: `open` is the popover a state needs open to show what it changes (T1357). */
+const RUNTIME_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState, RuntimeOpen?]> = [
   ['docker', (s) => ({ ...s, sandbox: SBX_VIEW })],
   ['sbx', (s) => ({ ...s, sandbox: { ...SBX_VIEW, backend: 'sbx', network: 'sbx network policy (allowlist)' } })],
   ['carry', (s) => ({ ...s, sandbox: { ...SBX_VIEW, carry: true } })],
-  ['shell-off', (s) => ({ ...s, sandbox: { ...SBX_VIEW, shell: { available: false, why: 'Sandbox is stopped' } } })],
+  // The disabled shell and its reason show only in the ⋯ menu; the closed strip equals the docker state.
+  ['shell-off', (s) => ({ ...s, sandbox: { ...SBX_VIEW, shell: { available: false, why: 'Sandbox is stopped' } } }), 'more'],
   ['host-ok', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'core-native' } })],
   ['host-warn', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'prompted' } })],
   ['host-note', (s) => ({ ...s, sandbox: { ...HOST_VIEW, hostProtection: 'prompted', note: 'antigravity: sbx backend unsupported' } })],
@@ -478,9 +497,13 @@ const RUNTIME_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 400]] as const;
 const RUNTIME_MULTI_WIDTH: ReadonlySet<string> = new Set(['docker', 'host-note']);
 
 const runtimeStripVariants = (): Variant[] => [
-  ...RUNTIME_STATES.flatMap(([id, patch]) =>
+  ...RUNTIME_STATES.flatMap(([id, patch, open]) =>
     (RUNTIME_MULTI_WIDTH.has(id) ? RUNTIME_TIERS : RUNTIME_TIERS.slice(0, 1)).map(([tier, width]) =>
-      variant('dashboard', `runtime-${id}-${tier}`, dashboardScenario('running', 2, patch), { skipLayout: true, width }),
+      variant('dashboard', `runtime-${id}-${tier}`, dashboardScenario('running', 2, patch), {
+        skipLayout: true,
+        width,
+        ...(open === undefined ? {} : { runtimeOpen: open }),
+      }),
     ),
   ),
   ...(['sandbox', 'more'] as const).flatMap((open) =>

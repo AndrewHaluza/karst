@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 import { baselineCollisions, type AllowedCollision } from './baselineDistinct.js';
 import { settingsRoutes } from './settingsRoutes.js';
-import { layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
+import { INSIDE_CASE_CLICK, layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
 
 const BASELINES = join(dirname(fileURLToPath(import.meta.url)), '__baselines__');
 /**
@@ -70,6 +70,16 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     const { unexpected, stale } = baselineCollisions(shots, ALLOWED_BASELINE_COLLISIONS);
     expect(unexpected, 'variants that record the same picture').toEqual([]);
     expect(stale, 'allow-list entries that no longer collide').toEqual([]);
+  });
+
+  it('gives the collapsed dashboard variants the step that shows their state (T1357)', () => {
+    const dash = new Map(VARIANTS.dashboard.map((v) => [v.id, v]));
+    for (const [key, click] of Object.entries(INSIDE_CASE_CLICK)) expect(dash.get(`inside-${key}`)?.click, key).toBe(click);
+    expect(dash.get('runtime-shell-off-wide')?.runtimeOpen).toBe('more');
+    expect(dash.get('runtime-docker-wide')?.runtimeOpen).toBeUndefined();
+    expect(dash.get('inside-uat-passed-round-2')?.click).toBeUndefined();
+    expect(dash.get('agent-popover-no-effort-model-wide')?.agentPopover?.model).toBe('opencode/kimi-k3-free');
+    expect(dash.has('panel-wt-normal-wide')).toBe(false);
   });
 
   it('has a baseline PNG for every variant in every required theme project', () => {
