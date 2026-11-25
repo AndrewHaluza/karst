@@ -508,6 +508,12 @@ export const COVERED: readonly ParityCase[] = [
     sel: '#blocked ' + forRepo('resolve-conflicts'), posts: [{ type: 'resolve-conflicts', repo: REPO }], rid: true,
   },
   {
+    // Two conflicted repos: the one Resolve sends ONE resolve-all-conflicts; the host lists the repos (one session).
+    act: 'resolve-conflicts', variant: 'blocked banner, two repos',
+    state: () => { const s = mergeBlockedState(); return { ...s, ship: { kind: 'merge-blocked', repos: [REPO, 'fixture:/repos/api'] } } as DashboardState; },
+    sel: '#blocked [data-act="resolve-conflicts"]', posts: [{ type: 'resolve-all-conflicts' }], rid: true,
+  },
+  {
     act: 'send-ci-failure', variant: 'PR row',
     state: () => st('ship', {
       prs: [blockedPr('checks', { act: 'send-ci-failure', label: 'Send CI failure to agent' })],

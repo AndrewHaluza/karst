@@ -87,6 +87,47 @@ export async function resolveConflictClick(input: ResolveConflictInput): Promise
   if (outcome.kind === 'declined') input.notify(outcome.reason);
 }
 
+/** The banner's one Resolve: every conflicted repo of the ticket, the store's list (never the webview's). */
+export interface ResolveAllConflictsInput extends Omit<ResolveConflictInput, 'repo' | 'briefFor'> {
+  /** The repos the store records as conflicted, in display order. */
+  readonly repos: readonly string[];
+  readonly briefFor: (repo: string, sandboxed: boolean) => string | null;
+}
+
+/** Separates the per-repo briefs inside the one combined brief. */
+const BRIEF_SEPARATOR = '\n\n---\n\n';
+
+/**
+ * One click, one session, one brief (T1343 review): the conflicts of all repos go out as one combined brief, so the
+ * agent resolves them one after the other in the same session. One message per repo would start parallel hand-offs:
+ * with no live session, each would launch its own. The sandbox is probed and refreshed once; each repo is armed.
+ */
+export async function resolveAllConflictsClick(input: ResolveAllConflictsInput): Promise<void> {
+  const [first] = input.repos;
+  if (first === undefined) {
+    input.notify(`No merge conflict is recorded on ticket ${input.label} — nothing to resolve.`);
+    return;
+  }
+  const armed: string[] = [];
+  const outcome = await resolveConflictRound({
+    ...input,
+    repo: first,
+    briefFor: (sandboxed) => {
+      const briefs = input.repos.flatMap((repo) => {
+        const brief = input.briefFor(repo, sandboxed);
+        if (brief === null) return [];
+        armed.push(repo);
+        return [brief];
+      });
+      if (briefs.length < 2) return briefs[0] ?? null;
+      return [`Resolve the merge conflicts of ${briefs.length} repositories in this session, one after the other.`, ...briefs].join(BRIEF_SEPARATOR);
+    },
+    arm: input.arm === undefined ? undefined : () => armed.forEach((repo) => input.arm?.(repo)),
+    deliver: (brief, _repo, sandboxed) => input.deliver(brief, armed[0] ?? first, sandboxed),
+  });
+  if (outcome.kind === 'declined') input.notify(outcome.reason);
+}
+
 /**
  * Deliver a prompt to the ticket's session, live or not: nudge the open
  * terminal, else launch one seeded with it. A conflict brief handed to

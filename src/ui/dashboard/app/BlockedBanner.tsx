@@ -254,23 +254,22 @@ function ResourceKilledActions({ ticketId, stageKey }: ActionProps) {
 }
 
 /**
- * The one Resolve: hands every conflicted repo to an agent session, one message each. The first message carries the
- * request id, so the host's `action-result` settles the button once; the others follow without one.
+ * The one Resolve. One conflicted repo sends `resolve-conflicts` for it; several send one `resolve-all-conflicts`, and
+ * the host hands all of them to ONE agent session in one brief (one message per repo started parallel hand-offs).
  */
 function ResolveActions({ conflicts }: { readonly conflicts: readonly ConflictRepo[] }) {
   const send = useDashboardSend();
+  const single = conflicts.length === 1 ? conflicts[0] : undefined;
   const onClick = usePendingAction(
     useCallback(
-      (requestId: string) => {
-        conflicts.forEach((c, i) => send.resolveConflicts(c.repo, i === 0 ? requestId : undefined));
-      },
-      [send, conflicts],
+      (requestId: string) => (single === undefined ? send.resolveAllConflicts(requestId) : send.resolveConflicts(single.repo, requestId)),
+      [send, single],
     ),
   );
-  const title = conflicts.length === 1 ? "Hand this repo's conflict to an agent session" : `Hand the conflicts of ${conflicts.map((c) => c.label).join(', ')} to agent sessions`;
+  const title = single === undefined ? `Hand the conflicts of ${conflicts.map((c) => c.label).join(', ')} to one agent session` : "Hand this repo's conflict to an agent session";
   return (
     <div className="facts" data-role="merge-blocked">
-      <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="resolve-conflicts" data-repo={conflicts.length === 1 ? conflicts[0]?.repo : undefined} title={title} onClick={onClick}>
+      <button type="button" className="k-btn k-btn--primary k-btn--sm" data-act="resolve-conflicts" data-repo={single?.repo} title={title} onClick={onClick}>
         Resolve
       </button>
     </div>
