@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, getTicket, pauseTicket, setStageCurrent } from '../../store/tickets.js';
+import { createTicket, getTicket, pauseTicket, setAgentState, setStageCurrent } from '../../store/tickets.js';
 import { ensureStage, removeStage, setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
@@ -1927,6 +1927,8 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
       closeShipRun(store, run.id, 'interrupted', '2026-11-25T11:59:45.000Z');
     }],
     ['the ship stage row is gone', (tid) => { removeStage(store, tid, 'ship'); }],
+    ['autopilot turned off', (tid) => { setAutopilotOverride(store, tid, 'off'); }],
+    ['a session started', (tid) => { setAgentState(store, tid, 'running'); }],
   ];
   for (const [what, change] of changedWhileDeciding) {
     it(`keeps the retry off when ${what} while the decision awaits git`, async () => {
@@ -1944,6 +1946,24 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
       expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ticket changed while the decision awaited git');
     });
   }
+
+  it('keeps the retry off when a session starts or the host drains while the decision awaits git', async () => {
+    for (const change of ['session', 'drain'] as const) {
+      failedServerErrorShip();
+      let live = false;
+      const worktreeClean = async (): Promise<{ ok: true; clean: boolean }> => {
+        live = true;
+        return { ok: true, clean: true };
+      };
+      const r = retry({
+        ...(change === 'session' ? { sessionRunning: () => live } : {}),
+        ...(change === 'drain' ? { isDraining: () => live } : {}),
+        shipRetry: { worktreeClean, localHead: async () => HEAD },
+      });
+      expect((await autopilotTick(r.deps)).kind).toBe('idle');
+      expect(r.retryShip).not.toHaveBeenCalled();
+    }
+  });
 
   it('never retries a ticket that does not run on the host: its ship would pull sandbox commits', async () => {
     failedServerErrorShip();
@@ -2084,7 +2104,7 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     const r = retry({ retryShip: vi.fn(async () => ({ kind: 'busy' as const })) });
     expect((await autopilotTick(r.deps)).kind).toBe('busy');
     expect(r.notes).toEqual([]);
-    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the host drains for a reload');
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ship could not start (the host drains or another window holds the ticket)');
   });
 
   it('works only a failed, unblocked stage: a passed stage and a blocked failed stage stay quiet', async () => {

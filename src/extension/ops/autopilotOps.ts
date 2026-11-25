@@ -320,7 +320,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     return { kind: 'busy' };
   }
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
-  if (failedShip) return guardedRound(d, () => shipRetryStep(d));
+  if (failedShip) return guardedRound(d, () => shipRetryStep(d, cfg));
   if (blockKind === 'base-moved-failed') return guardedRound(d, () => runBaseMovedRound(d, cfg));
   // The merge check stays 'conflicted' (and the CI rollup stays on the old head) until the resolved merge is pushed and
   // probed again, so no time cooldown can tell a round in progress from a new one: read the round state itself.
@@ -408,11 +408,15 @@ async function guardedRound(d: AutopilotDeps, round: () => Promise<AutopilotResu
 }
 
 /**
- * The state the decision was made about, re-read right before the retry runs: the ticket is still at ship and not paused,
- * autopilot has no stop or pause, the ship stage is still failed and unblocked, and no newer run exists (@arch:AP-11).
+ * The state the decision was made about, re-read right before the retry runs (@arch:AP-11 rule 1): Autopilot is still on
+ * for the ticket, no session runs, the host does not drain, the ticket is at ship and not paused, Autopilot has no stop or
+ * pause, the ship stage is still failed and unblocked, and no newer run exists.
  */
-function stillRetryable(d: Pick<AutopilotDeps, 'store' | 'ticketId'>, runId: number): boolean {
+function stillRetryable(d: AutopilotDeps, cfg: AutopilotConfig, runId: number): boolean {
+  if (!effectiveAutopilot(d.store, d.ticketId, cfg.enabled)) return false;
   const ticket = getTicket(d.store, d.ticketId);
+  if (d.sessionRunning() || ticket.agentState === 'running') return false;
+  if (d.isDraining?.() === true) return false;
   if (ticket.stageCurrent !== 'ship') return false;
   if (ticket.pausedAt !== null) return false;
   const state = getAutopilotTicket(d.store, d.ticketId);
@@ -438,7 +442,7 @@ function shipRetryNoted(store: Store): Set<string> {
  * error, wait for its backoff, or stop once the bound is spent. The stop writes no block: the failed stage keeps its
  * Retry ship, and a newer run (a person's Retry ship or Ship click) resets the count.
  */
-async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
+async function shipRetryStep(d: AutopilotDeps, cfg: AutopilotConfig): Promise<AutopilotResult> {
   if (!d.shipRetry || !d.retryShip) return { kind: 'idle' };
   // Rule 1 (@arch:AP-11): a stop reason of ANY kind keeps the retry off; only a person clears it.
   if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== null) return { kind: 'idle' };
@@ -484,13 +488,14 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
     case 'retry': {
       // The decision awaited git and the placement: a person may have moved the ticket since its guards ran. Retry only
       // on the state it decided about, never on a running, blocked, paused or re-run ticket (@arch:AP-11).
-      if (!stillRetryable(d, decision.runId)) {
+      if (!stillRetryable(d, cfg, decision.runId)) {
         d.debug(`${LOG} ticket ${d.key}: no ship retry, the ticket changed while the decision awaited git`);
         return { kind: 'idle' };
       }
       const outcome = await d.retryShip(decision.repos);
       if (outcome.kind === 'busy') {
-        d.debug(`${LOG} ticket ${d.key}: no ship retry, the host drains for a reload`);
+        // Busy is either the host draining or another window holding the lease: name both, never just the drain.
+        d.debug(`${LOG} ticket ${d.key}: no ship retry, the ship could not start (the host drains or another window holds the ticket)`);
         return { kind: 'busy' };
       }
       // A saga that threw BEFORE opening its run leaves the same failed run, so the run history would never bound the
