@@ -21,7 +21,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHAINS, type ViewId } from './chains.js';
 import { THEMES, type ThemeId, THEME_IDS, fixtureThemeOf } from './themes.js';
-import { getCorpus, dashboardCorpora, ALL_VIEWS, SETTINGS_SCENARIOS } from './corpora.js';
+import { ALL_VIEWS } from './corpora.js';
 import { VARIANTS, fixtureFile } from './variants.js';
 import { fixtureDir } from './fixtureDir.mjs';
 
@@ -183,10 +183,9 @@ function buildSeedScript(
 /**
  * Write all fixture pages to the output directory.
  *
- * Structure: `<outDir>/<theme>/<view>.html` for every (view, theme) pair,
- * plus a copy of the catalog page at `<outDir>/catalog.html`.
- *
- * For dashboard, iterates over all 6 scenarios (one page per scenario per theme).
+ * Structure: `<outDir>/<theme>/<view>--<variant>.html` for each registered
+ * variant and each theme it declares (ui:VISUAL-VARIANTS), plus a copy of the
+ * catalog page at `<outDir>/catalog.html`. No other page is written.
  */
 export function resetFixtureDir(outDir: string): void {
   // A failed run keeps its pages for diagnosis (tmpCleanup.ts); the next run starts clean so no stale page survives.
@@ -203,25 +202,6 @@ export function writeFixtures(outDir: string = OUT_DIR, views: readonly ViewId[]
     mkdirSync(themeDir, { recursive: true });
 
     for (const view of views) {
-      if (view === 'dashboard') {
-        // Dashboard: one page per scenario.
-        const corpora = dashboardCorpora();
-        for (const { scenario, corpus } of corpora) {
-          const html = buildFixture(view, theme, corpus.messages);
-          const filename = `dashboard-${scenario}.html`;
-          writeFileSync(join(themeDir, filename), html, 'utf8');
-        }
-      } else {
-        const corpus = getCorpus(view);
-        const html = buildFixture(view, theme, corpus.messages);
-        writeFileSync(join(themeDir, `${view}.html`), html, 'utf8');
-        if (view === 'settings') {
-          for (const [scenario, scenarioCorpus] of Object.entries(SETTINGS_SCENARIOS)) {
-            const scenarioHtml = buildFixture(view, theme, scenarioCorpus.messages);
-            writeFileSync(join(themeDir, `settings-${scenario}.html`), scenarioHtml, 'utf8');
-          }
-        }
-      }
       // One page per registered variant (ui:UI-R57), only for themes the variant declares.
       for (const v of VARIANTS[view]) {
         if (!v.themes.some((project) => fixtureThemeOf(project) === theme)) continue;

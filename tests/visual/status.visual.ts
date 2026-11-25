@@ -23,7 +23,7 @@ import { test as karstTest, expect } from './fixtures.js';
 karstTest.describe('status/state screenshots', () => {
   karstTest('status primitives: full-page screenshot', async ({ gotoView, page }, testInfo) => {
     // Navigate to the dashboard — status primitives are most visible there.
-    await gotoView('dashboard', { scenario: 'running' });
+    await gotoView('dashboard', { variant: 'populated' });
 
     // UI-R28: grayscale is applied to the loaded document, not by addInitScript —
     // that runs before `document.documentElement` exists, so the style never landed

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
 import { ALL_VIEWS } from './corpora.js';
+import { DEFAULT_VARIANT } from './defaultVariant.js';
 import type { ViewId } from './corpora.js';
 
 /**
@@ -172,7 +173,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
 karstTest.describe('UI-R23 keyboard focus presentation', () => {
   for (const viewId of ALL_VIEWS) {
     karstTest(`${viewId}: focused elements have visible focus indicators`, async ({ gotoView, page }) => {
-      const pg = await gotoView(viewId);
+      const pg = await gotoView(viewId, { variant: DEFAULT_VARIANT[viewId] });
 
       // Enumerate focusable elements in DOM order. `nth` is the element's position among
       // the elements that share its selector string: repeated controls (the Settings nav)

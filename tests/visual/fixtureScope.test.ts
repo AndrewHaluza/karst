@@ -3,7 +3,7 @@ import { ALL_VIEWS } from './corpora.js';
 import { FIXTURE_VIEWS_ENV, fixtureViewsFromEnv, missingFixtureMessage } from './fixtureScope.js';
 
 describe('missingFixtureMessage', () => {
-  const path = '/dark/dashboard-pending.html';
+  const path = '/dark/dashboard--pending.html';
 
   it('gives null for a page that the server has', () => {
     expect(missingFixtureMessage({ path, status: 200, env: { KARST_VISUAL_FIXTURE_VIEWS: 'settings' } })).toBeNull();

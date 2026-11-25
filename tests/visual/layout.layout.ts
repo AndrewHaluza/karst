@@ -28,7 +28,7 @@ for (const route of settingsRoutes()) {
   for (const width of SETTINGS_LAYOUT_WIDTHS) {
     test(`${route.id} @${width}`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width, height: LAYOUT_HEIGHT });
-      await gotoView('settings', { scenario: 'realistic', route: openRoute });
+      await gotoView('settings', { variant: 'populated', route: openRoute });
       const expectations = readExpectations(route.section);
       const snapshot = await collectSnapshot(page);
       const failures = runChecks(snapshot, expectations?.[tierFor(width)]).map((f) => ({ ...f, route: route.id, width }));
@@ -39,7 +39,7 @@ for (const route of settingsRoutes()) {
   if (route.section === 'agents') {
     test(`${route.id} state survives resize`, async ({ gotoView, page }) => {
       await page.setViewportSize({ width: RESIZE_WIDE, height: LAYOUT_HEIGHT });
-      await gotoView('settings', { scenario: 'realistic', route: openRoute });
+      await gotoView('settings', { variant: 'populated', route: openRoute });
       const readState = (): Promise<ResizeState> =>
         page.evaluate(() => ({
           hash: window.location.hash,
