@@ -1,6 +1,7 @@
 import { defineConfig, devices, type PlaywrightTestOptions, type Project } from '@playwright/test';
 import { isMergeRun } from './tests/visual/layoutShards.js';
 import { outsideGrep, testIgnoreFor } from './tests/visual/projectFilter.js';
+import { PAGE_TOLERANCE } from './tests/visual/screenshotTolerance.js';
 import { resolveVisualWorkers } from './tests/visual/visualWorkers.js';
 import { WEB_SERVER_STDOUT, WEB_SERVER_TIMEOUT_MS } from './tests/visual/serveLimits.mjs';
 
@@ -70,9 +71,9 @@ export default defineConfig({
 
   expect: {
     toHaveScreenshot: {
-      threshold: 0.2,
-      maxDiffPixelRatio: 0.002,
-      maxDiffPixels: 400,
+      // @ui:VISUAL-TOLERANCE: the full-page tolerance. An element capture overrides it with ELEMENT_TOLERANCE
+      // (tests/visual/pages.visual.ts); the measurement behind both is @ui:VISUAL-TOLERANCE.
+      ...PAGE_TOLERANCE,
       animations: 'disabled',
       caret: 'hide',
     },

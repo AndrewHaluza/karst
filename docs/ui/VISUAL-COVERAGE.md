@@ -145,7 +145,7 @@ names the default page of each view (dashboard `pending`, settings `minimal`, ev
 - **Baseline names**: legacy names are kept (`sidebar.png`, `dashboard-running.png` for dashboard `populated`, `agents-*.png`); new ones are `<view>--<variant>.png`.
 - **`error` for gettingStarted**: the `error` variant posts a `state-error`; the fresh checklist is the `fresh` variant.
 - **Not covered**: the doctor has no webview (`src/ui/doctor/host.ts` only), so it is not in `WEBVIEW_NAMES`.
-- **Capture mode**: a variant is a full-page shot by default. A fixed overlay sets `capture: 'viewport'` (`fullPage: false`, `screenshotFullPage`); a full-page shot would also record the page height below it (T1060). Only the ticket-details drawer uses it; if it scrolls inside itself, the viewport shows its top.
+- **Capture mode**: a variant is a full-page shot by default. A fixed overlay sets `capture: 'viewport'` (`fullPage: false`, `screenshotFullPage`); a full-page shot would also record the page height below it (T1060). Only the ticket-details drawer uses it; if it scrolls inside itself, the viewport shows its top. Each mode has its own screenshot tolerance (`ui:VISUAL-TOLERANCE`).
 - **Element capture (T1364)**: a component variant records only its target element (`captureTarget`, `screenshotTarget`; `pages.visual.ts` shoots `page.locator(target)`). `CAPTURE_TARGET_FAMILIES` maps `panel-srv-*` -> `[data-region="servers"]`, `panel-wt-*` -> `[data-region="worktrees"]`, `panel-pr-*` -> `[data-region="prs"]`, `runtime-*` -> `[data-region="runtime"]`, `inside-*` -> `#inside` (no new `data-region`, which would shift the layout ledger keys). KEEP the page for fixed popovers/menus (`runtime-*-open-*`, `runtime-shell-off-*`, `panel-wt-base-*`, `panel-pr-ready-info-*`, `inside-*-menu-open-*`, `inside-review-menu-retry-only`) and header/runtime changes (`inside-impl-interrupted`, `inside-done-closed`, `inside-scope-needs-you`); when in doubt keep the page.
 - **Width tiers**: the multi-width keep rule (dark-only, representative states) and the pruned families are in `ui:VISUAL-VARIANTS-TIERS`.
 - **Adding a variant**: add it to the registry, run `npm run -s test:visual:docker:update`, review the new PNGs, run `npm run -s test:layout:docker` and ledger new failures with the owner's approval. `variants.test.ts` names the missing piece; `sweepBudget.test.ts` names the budget (`@ui:SWEEP-BUDGET`).
@@ -188,6 +188,83 @@ END_DOC_BLOCK: [@ui:VISUAL-VARIANTS-SERVERS]
 
 END_DOC_BLOCK: [@ui:VISUAL-VARIANTS-GRAPH]
 
+## [@ui:VISUAL-TOLERANCE] Screenshot tolerance per capture mode
+
+**The rule.** `expect.toHaveScreenshot` compares the shot with pixelmatch at `threshold` 0.2. A pixel is different when its colour distance is above that threshold. The comparison fails when the count of different pixels is GREATER than the allowance. The allowance is the SMALLER of `maxDiffPixels` and `area x maxDiffPixelRatio` (`compareImages` in `node_modules/playwright-core/lib/coreBundle.js`; a count equal to the allowance passes). Before T1367 one global pair served both capture modes, and it bound on a different limit in each: `maxDiffPixels` on a full page, the ratio on a small element.
+
+**Where the values live.** `tests/visual/screenshotTolerance.ts` holds `PAGE_TOLERANCE`, `ELEMENT_TOLERANCE` and `effectiveAllowance(area, tolerance)` (the min rule). `playwright.config.ts` sets `expect.toHaveScreenshot` from `PAGE_TOLERANCE`; `tests/visual/pages.visual.ts` spreads `ELEMENT_TOLERANCE` on the `page.locator(target)` branch. Do not write a tolerance number in a spec.
+
+**Capture areas** (registry scan, every theme). The 467 full-page baselines are 93,600-7,530,240 px. `maxDiffPixels: 400` binds above 200,000 px; the ratio binds below it (the 93,600 px page gets 187.2). The 191 element baselines are 26,100-883,300 px: under the old global pair the ratio bound below 200,000 px (52-187 px) and `maxDiffPixels` bound above it (400 px), so the same pair allowed a 52 px difference in one element capture and 1,766 px worth of area in another.
+
+**The probe.** `tests/visual/calibration/tolerance.calibrate.ts` opens each variant as the sweep does (same fixture, viewport and masks), takes an unperturbed shot, then one shot per perturbation, and counts with Playwright's own comparator (`utils.getComparator('image/png')`, `threshold` 0.2). It writes `tests/visual/.report/calibration/tolerance-<project>.json` and `.md` (gitignored). It is a `*.calibrate.ts` file, so the sweep's `testMatch` (`**/*.visual.ts`) never collects it. Perturbations: (a) one colour custom property shifted by 16/255 and 64/255 per channel; (b) a 1-2 word label change and a single-digit change in a visible label (a script or hidden text node is skipped); (c) the same page rendered twice, three times.
+
+**Measured, dark project** (2 page variants, 7 element variants; diff px; `PASS` means the count is within the allowance):
+
+| Variant | Mode | Area (px) | Perturbation | Diff px | Within old allowance | Within new allowance |
+| --- | --- | --- | --- | --- | --- | --- |
+| dashboard/populated | page | 1346560 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| dashboard/populated | page | 1346560 | +16 tint | 0 | PASS | PASS |
+| dashboard/populated | page | 1346560 | +64 tint | 26837 | FAIL | FAIL |
+| dashboard/populated | page | 1346560 | words: "Agent default" -> "Agent preset" | 41 | PASS | PASS |
+| dashboard/populated | page | 1346560 | digit: "T942017" -> "T942018" | 12 | PASS | PASS |
+| sidebar/populated | page | 216000 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| sidebar/populated | page | 216000 | +16 tint | 0 | PASS | PASS |
+| sidebar/populated | page | 216000 | +64 tint | 1661 | FAIL | FAIL |
+| sidebar/populated | page | 216000 | words: "Current" -> "Present" | 27 | PASS | PASS |
+| sidebar/populated | page | 216000 | digit: "P90" -> "P91" | 23 | PASS | PASS |
+| dashboard/panel-srv-one-wide | element | 63984 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| dashboard/panel-srv-one-wide | element | 63984 | +16 tint | 0 | PASS | PASS |
+| dashboard/panel-srv-one-wide | element | 63984 | +64 tint | 1720 | FAIL | FAIL |
+| dashboard/panel-srv-one-wide | element | 63984 | words: "all running" -> "all halted" | 71 | PASS | FAIL |
+| dashboard/panel-srv-one-wide | element | 63984 | digit: "5173" -> "5174" | 8 | PASS | FAIL |
+| dashboard/panel-pr-autofix-parked-wide | element | 226368 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| dashboard/panel-pr-autofix-parked-wide | element | 226368 | +16 tint | 0 | PASS | PASS |
+| dashboard/panel-pr-autofix-parked-wide | element | 226368 | +64 tint | 535 | FAIL | FAIL |
+| dashboard/panel-pr-autofix-parked-wide | element | 226368 | words: "Ready to merge" -> "Ready to land" | 474 | FAIL | FAIL |
+| dashboard/panel-pr-autofix-parked-wide | element | 226368 | digit: "#421" -> "#422" | 10 | PASS | FAIL |
+| dashboard/runtime-docker-narrow | element | 26100 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| dashboard/runtime-docker-narrow | element | 26100 | +16 tint | 0 | PASS | PASS |
+| dashboard/runtime-docker-narrow | element | 26100 | +64 tint | 103 | FAIL | FAIL |
+| dashboard/runtime-docker-narrow | element | 26100 | words: "Agent default" -> "Agent preset" | 41 | PASS | FAIL |
+| dashboard/runtime-carry-wide | element | 75456 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| dashboard/runtime-carry-wide | element | 75456 | +16 tint | 0 | PASS | PASS |
+| dashboard/runtime-carry-wide | element | 75456 | +64 tint | 126 | PASS | FAIL |
+| dashboard/runtime-carry-wide | element | 75456 | words: "Sync" -> "Push" | 85 | PASS | FAIL |
+| dashboard/inside-review-multi-repo-filter-tight | element | 45530 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| dashboard/inside-review-multi-repo-filter-tight | element | 45530 | +16 tint | 0 | PASS | PASS |
+| dashboard/inside-review-multi-repo-filter-tight | element | 45530 | +64 tint | 52 | PASS | FAIL |
+| dashboard/inside-review-multi-repo-filter-tight | element | 45530 | words: "reviewer" -> "checker" | 217 | FAIL | FAIL |
+| dashboard/inside-review-multi-repo-filter-tight | element | 45530 | digit: "3 blocking" -> "4 blocking" | 7 | PASS | FAIL |
+| dashboard/inside-impl-bounded-timeline | element | 883300 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| dashboard/inside-impl-bounded-timeline | element | 883300 | +16 tint | 0 | PASS | PASS |
+| dashboard/inside-impl-bounded-timeline | element | 883300 | +64 tint | 320 | PASS | FAIL |
+| dashboard/inside-impl-bounded-timeline | element | 883300 | words: "done" -> "pass" | 25 | PASS | FAIL |
+| dashboard/inside-impl-bounded-timeline | element | 883300 | digit: "12.4k tok" -> "12.5k tok" | 6 | PASS | FAIL |
+| dashboard/inside-impl-graph-running | element | 424710 | noise x3 | 0 / 0 / 0 | PASS | PASS |
+| dashboard/inside-impl-graph-running | element | 424710 | +16 tint | 0 | PASS | PASS |
+| dashboard/inside-impl-graph-running | element | 424710 | +64 tint | 546 | FAIL | FAIL |
+| dashboard/inside-impl-graph-running | element | 424710 | words: "Graph view" -> "Graph map" | 155 | PASS | FAIL |
+| dashboard/inside-impl-graph-running | element | 424710 | digit: "12.2k tok" -> "12.3k tok" | 5 | PASS | FAIL |
+
+**Measured, light and hc projects.** Only the two `populated` pages and `inside-impl-graph-running` record those themes. Light: page digits 14 and 23, page words 60 and 60, element digit 5, element words 119, element +64 tint 345. Hc: page digits 19 and 33, page words 78 and 114, element digit 10, element words 201, element +64 tint 0 (white clamps). Every noise repeat is 0. The +64 tint of `--k-border` is 0 px in light and hc: the shifted value clamps to white, and the comparator does not register the change. The element-mode bound is the 5 px digit change, in dark and light.
+
+**Chosen values.**
+
+| Mode | threshold | maxDiffPixels | maxDiffPixelRatio | Why |
+| --- | --- | --- | --- | --- |
+| page | 0.2 | 400 | 0.002 | UNCHANGED. The same sweep at `maxDiffPixels: 0` fails 48 existing full-page screenshots (60 tests across the projects, 0 element captures); the worst is 389 px (`sidebar/stage-chip-300`, see `ui:VISUAL-DEFECTS`). Re-recording is out of scope (`ui:RUNNING-SWEEP`), so the allowance must stay above 389. 400 catches the measured tint shift (1,661-28,713 px) and leaves 11 px of headroom. |
+| element | 0.2 | 3 | none | Every measured element regression is at least 5 px, and all 191 element baselines render pixel-identically (0 px) as do all 45 noise pairs. 3 px stays below 5 px with a margin of 40%, and 3 px above the noise floor. A ratio must stay out: it would allow 1,766 px on the 883,300 px Inside region. |
+
+**What the numbers say.**
+
+1. The noise floor is 0 px: 45 pairs (9 variants x 3 themes x 3 repeats) and 191 recorded element baselines agree with a fresh render. A small allowance is therefore safe for an element capture.
+2. The comparator ignores a colour shift below about 56/255 per channel: the +16 tint changes 0 px in every shot, the +64 tint changes 52-28,713 px. That limit is the `threshold`, not the allowance, and both modes share it. A tint change under it is not a pixel regression, whatever the allowance. A later ticket that wants it must lower `threshold` and prove that the anti-aliasing does not flake.
+3. The element mode now catches a single-digit label change (5-10 px against 3 px). The page mode cannot: see `ui:LIMITATIONS`. A runtime strip shows no numeric label, so the two runtime cases have no digit row.
+
+**Re-run the probe.** `npm run -s test:visual:calibrate:docker`. Add `KARST_VISUAL_FIXTURE_VIEWS=dashboard,sidebar` to write only the two fixture views. Read the table in `tests/visual/.report/calibration/tolerance-<project>.md`, or in the run log. A new capture mode, or a variant family whose smallest regression differs, needs a new case in `CASES` and a new row in the unit test `tests/visual/screenshotTolerance.test.ts`.
+
+END_DOC_BLOCK: [@ui:VISUAL-TOLERANCE]
+
 ## [@ui:SWEEP-BUDGET] Sweep budget ratchet
 
 `tests/visual/sweepBudget.ts` pins, for each view, the number of screenshots (variant x declared theme project) and layout tests (distinct page x width, plus the settings routes) that the view adds to the visual gate. `sweepBudget.test.ts` (unit gate) fails when a count moves. Above the budget: share a layout run, drop a theme, or raise the number with a reason (ticket and why) in a comment on that line. Below the budget: lower the number.
@@ -202,6 +279,7 @@ END_DOC_BLOCK: [@ui:SWEEP-BUDGET]
 - **Catalog is documentation-only (D15)**: `KARST-UI-CATALOG.html` has its own hard-coded palette and cannot be themed. Baselines prove what the catalog claims, not what ships.
 - **High-contrast-light excluded (C4)**: Not named by any rule; triples cost for no signal.
 - **Corpus ratchet outstanding (C8)**: Seven non-dashboard views use MINIMAL state. FEAT-37 shrinks the ratchet. The standalone `serverLogs` panel is not one of them: it seeds through its own `server-logs` protocol, not the generic `state` message.
+- **A page-mode label change under 400 px passes (T1367)**: an element capture now fails on a 5 px difference, but a full page still allows 400 px, so a one-digit (12-33 px) or one-word (27-114 px) change on a page passes. The blocker is not the measurement but 48 existing full-page screenshots that differ from their PNG, the worst by 389 px (`sidebar/stage-chip-300`, see `ui:VISUAL-DEFECTS`). A value below 389 turns them red, and this ticket may not re-record a baseline (`ui:RUNNING-SWEEP`). The full table and the drift evidence are in `ui:VISUAL-TOLERANCE`.
 END_DOC_BLOCK: [@ui:LIMITATIONS]
 
 ## [@ui:OPEN-RATCHETS] Open ratchets
@@ -277,4 +355,5 @@ The following were discovered during Task 8's baseline review and are reported, 
 3. **gettingStarted contrast**: Headings and lede use foreground on sidebar background, falling below WCAG AA 4.5:1 in dark and hc themes.
 4. **settings contrast**: Nav captions and help text fall below WCAG AA in light theme.
 5. **G6** (dark only): The server-logs surface renders SGR-coloured log lines with VS Code's terminal ANSI palette; some hues (red on dark) fall below WCAG AA against the editor background. Reported, not fixed for dark — the palette belongs to the user's terminal theme. T1317 LG-7 fixed the light and high-contrast foregrounds (design-system meaning tokens), so those themes no longer carry the gap.
+6. **Stale chip baselines hide under the page allowance (T1367)**: `sidebar/stage-chip-300`, `-320` and `-460` differ from a fresh render by 389 px in all three themes: the baseline shows `4 | accepted`, the current page truncates it to `4 | accepte...` plus a box. `settings/route-agents-agents-roles-uatTester` (323), `dashboard/inside-review-menu-retry-only` (312) and 44 other screenshots differ as well: 48 full-page screenshots in total, and no element capture. The 400 px allowance kept all of them green. Reported, not re-recorded: a baseline change needs its own ticket. `ui:VISUAL-TOLERANCE` has the measurement.
 END_DOC_BLOCK: [@ui:VISUAL-DEFECTS]
