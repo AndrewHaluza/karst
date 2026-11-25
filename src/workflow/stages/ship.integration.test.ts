@@ -1349,6 +1349,102 @@ setTimeout(() => {
     expect(ship?.verdict).toContain('unable to access remote');
   });
 
+  // T1356: a GitHub outage failed every ship at `gh pr create` with a GraphQL
+  // "Something went wrong" or an HTTP 502. Ship now retries a server error twice,
+  // and probes for the PR before each retry, because the failed create can still
+  // have made it.
+  describe('GitHub server error at PR creation', () => {
+    const BAD_GATEWAY = 'HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)';
+    const GRAPHQL =
+      'GraphQL: Something went wrong while executing your query. Please include `AB:CD` when reporting this issue.';
+    const URL = 'https://github.com/o/r/pull/18';
+    const okGit: GitRunner = async (args) =>
+      args[0] === 'diff' ? { stdout: '', stderr: '', exitCode: 1 } : { stdout: '', stderr: '', exitCode: 0 };
+
+    /**
+     * gh: `pr create` fails with `createErrors` in order, then prints URL. The
+     * branch probe (`pr view --json`) finds no PR until `probeFindsAfter` probes
+     * have answered. A probe by ref answers an OPEN PR with an empty body.
+     */
+    function serverErrorGh(createErrors: string[], probeFindsAfter = Infinity) {
+      const args: string[][] = [];
+      let creates = 0;
+      let probes = 0;
+      const gh: GhRunner = async (a) => {
+        args.push(a);
+        if (a[1] === 'list') return { stdout: '[]', stderr: '', exitCode: 0 };
+        if (a[1] === 'view' && a[2] === '--json') {
+          return probes++ < probeFindsAfter
+            ? { stdout: '', stderr: 'no pull requests found', exitCode: 1 }
+            : { stdout: JSON.stringify({ number: 18, url: URL, state: 'OPEN', body: '' }), exitCode: 0 };
+        }
+        if (a[1] === 'view') return { stdout: JSON.stringify({ state: 'OPEN', body: '' }), exitCode: 0 };
+        if (a[1] === 'edit') return { stdout: '', exitCode: 0 };
+        const err = createErrors[creates++];
+        return err === undefined ? { stdout: URL, exitCode: 0 } : { stdout: '', stderr: err, exitCode: 1 };
+      };
+      return { gh, args, creates: () => args.filter((a) => a[1] === 'create').length };
+    }
+
+    it('retries twice after 15 and 45 seconds and passes with one PR row', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh, creates } = serverErrorGh([BAD_GATEWAY, BAD_GATEWAY]);
+      const wait = vi.fn(async () => {});
+      const events: ShipStepEvent[] = [];
+      await shipTicket(store, { ticketId: id, wait }, gh, fakeAdapter(), okGit, (e) => events.push(e));
+
+      expect(creates()).toBe(3);
+      expect(wait.mock.calls).toEqual([[15_000], [45_000]]);
+      expect(events.filter((e) => e.step === 'pr' && e.status === 'note').map((e) => e.detail)).toEqual([
+        'GitHub server error at PR creation, retry 1/2 in 15s',
+        'GitHub server error at PR creation, retry 2/2 in 45s',
+      ]);
+      expect(listPrsByTicket(store, id)).toHaveLength(1);
+      expect(listShipEvidence(store, id).repos['/repo/frontend']?.steps.pr?.status).toBe('passed');
+    });
+
+    it('adopts the PR the failed create made, creates no second PR and backfills the body', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      // Probe 1 (before the create) finds nothing; probe 2 (before the retry) finds the PR.
+      const { gh, args, creates } = serverErrorGh([GRAPHQL], 1);
+      const wait = vi.fn(async () => {});
+      await shipTicket(store, { ticketId: id, wait }, gh, fakeAdapter(), okGit);
+
+      expect(creates()).toBe(1);
+      expect(wait).toHaveBeenCalledExactlyOnceWith(15_000);
+      const prs = listPrsByTicket(store, id);
+      expect(prs).toHaveLength(1);
+      expect(prs[0]?.url).toBe(URL);
+      expect(args.find((a) => a[1] === 'edit')?.slice(0, 4)).toEqual(['pr', 'edit', URL, '--body']);
+      expect(listShipEvidence(store, id).repos['/repo/frontend']?.steps.pr?.detail).toBe('adopted #18');
+    });
+
+    it('fails with the last error text, unchanged, after 3 server errors', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const third = 'HTTP 503: 503 Service Unavailable (third attempt)';
+      const { gh, creates } = serverErrorGh([BAD_GATEWAY, GRAPHQL, third]);
+      await expect(
+        shipTicket(store, { ticketId: id, wait: async () => {} }, gh, fakeAdapter(), okGit),
+      ).rejects.toThrow('HTTP 503: 503 Service Unavailable (third attempt)');
+
+      expect(creates()).toBe(3);
+      const step = listShipEvidence(store, id).repos['/repo/frontend']?.steps.pr;
+      expect(step?.status).toBe('failed');
+      expect(step?.detail).toContain('third attempt');
+      expect(listPrsByTicket(store, id)).toHaveLength(0);
+    });
+
+    it('fails at once on a non-server error, with no wait', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh, creates } = serverErrorGh(['HTTP 422: Validation Failed']);
+      const wait = vi.fn(async () => {});
+      await expect(shipTicket(store, { ticketId: id, wait }, gh, fakeAdapter(), okGit)).rejects.toThrow(/HTTP 422/);
+
+      expect(creates()).toBe(1);
+      expect(wait).not.toHaveBeenCalled();
+    });
+  });
+
   // T1201: a network timeout from `gh pr create` rejected out of the pr step and
   // left the step `running`, so "Retry ship" found no failed step.
   describe('when gh pr create rejects with a non-store error', () => {

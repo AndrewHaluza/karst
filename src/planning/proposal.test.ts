@@ -175,3 +175,28 @@ describe('priority', () => {
     expect(validateProposal({ ...ok, priority: 'high', priorityReason: 'x'.repeat(MAX_PRIORITY_REASON) }).ok).toBe(true);
   });
 });
+
+describe('attachments', () => {
+  const withA = (a: unknown) => validateProposal({ ...ok, attachments: a });
+  it('accepts a list and strips controls from a note', () => {
+    const r = withA([{ path: 'proto/a.html', note: 'x\u0007y', binding: true }]);
+    expect(r).toEqual({ ok: true, value: { ...ok, attachments: [{ path: 'proto/a.html', note: 'xy', binding: true }] } });
+  });
+  it.each([
+    [[{ path: 'a'.repeat(301) }]],
+    [[{ path: 'a', note: 'n'.repeat(201) }]],
+    [[{ path: 'a', note: 'two\nlines' }]],
+    [Array.from({ length: 11 }, (_, i) => ({ path: `f${i}` }))],
+    [[{ path: '' }]],
+    [[{ path: 'a', extra: 1 }]],
+    ['x'],
+  ])('rejects %j', (a) => {
+    expect(withA(a).ok).toBe(false);
+  });
+  it('keeps a path that leaves the session dir; the host refuses that one file', () => {
+    expect(withA([{ path: '../x' }, { path: '/etc/passwd' }]).ok).toBe(true);
+  });
+  it('rejects the reserved key hostAttachments', () => {
+    expect(validateProposal({ ...ok, hostAttachments: [] }).ok).toBe(false);
+  });
+});

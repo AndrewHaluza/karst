@@ -410,6 +410,11 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         constraints: strArray,
         priority: { type: 'string', enum: [...PRIORITY_LEVELS] },
         priorityReason: str,
+        attachments: {
+          type: "array",
+          maxItems: 10,
+          items: obj({ path: str, note: str, binding: bool }, ["path"]),
+        },
       },
       ['title', 'description', 'summary', 'repos'],
     ),

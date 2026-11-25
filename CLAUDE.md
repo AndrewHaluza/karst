@@ -62,7 +62,7 @@ Reference docs under `docs/` (all except `plans/`, `superpowers/` and the genera
 ## UI/UX (binding)
 Touching `src/ui/**` -> read `docs/ui/README.md` first (read order, verification; re-record a baseline only for an intended change, the user approves it in the baseline review; never edit baselines or the layout ledger to make an unintended change pass).
 React is the target for all webviews. Settings (`src/ui/settings/app/**`) is the reference pattern: mounted once into `#root`, `app/main.tsx` owns the single `acquireVsCodeApi()`, tests use `renderWebviewReady('<view>')`. New UI features are React only. The remaining views are vanilla (`@ui:APPX-V31`) until migrated. Migrate one view per change, preserving behavior: no baseline or ledger edits, the parity floor holds, and the visual, unit and integration gates pass. On a vanilla view, only bug fixes are allowed; a feature there means migrating the view first, as a separate change. This supersedes the "other views stay vanilla" scope in `@ui:REACT-VIEWS` and the UI-RULES v3.1 annex (`@ui:APPX-V31`). The dashboard is React (`@ui:DASHBOARD-MIGRATION`).
-Ticket-form migration exceptions (T690, T862, T926, T972, T1021, T1301, T1313): `@ui:TICKET-FORM-MIGRATION-EXCEPTIONS` in docs/ui/UI-INVARIANTS.md.
+Ticket-form migration exceptions (T690, T862, T926, T972, T1021, T1301, T1313, T1355): `@ui:TICKET-FORM-MIGRATION-EXCEPTIONS` in docs/ui/UI-INVARIANTS.md.
 
 ## TS/ESM quirks
 - ESM (`type:module`): imports need `.js` suffix; `moduleResolution:Bundler`.

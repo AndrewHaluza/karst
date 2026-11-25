@@ -1346,9 +1346,15 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
   };
 }
 
-/** Fixed offset from the render clock (mid-hour, so the `Xh` text is stable): an absolute date aged the visual baselines run by run. */
+/**
+ * The instant the visual sweep pins the dashboard clock to (`tests/visual/fixtures.ts`). The fixture stamps are
+ * offsets from it, not from `Date.now()`, so a page built at any time shows the same relative ages (T1357).
+ */
+export const FIXTURE_NOW_MS = Date.parse('2026-10-27T22:00:00.000Z');
+
+/** Fixed offset from the pinned fixture clock (mid-hour, so the `Xh` text is stable). */
 function hoursAgo(hours: number): string {
-  return new Date(Date.now() - hours * 3_600_000).toISOString();
+  return new Date(FIXTURE_NOW_MS - hours * 3_600_000).toISOString();
 }
 
 /**

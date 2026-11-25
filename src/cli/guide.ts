@@ -158,7 +158,12 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     set. Add \`"constraints":[…]\` (max 20 strings of ≤200 chars:
     \`@arch:KEY\`, a commit hash, a \`D<n>\`/\`T<n>\` ref, or free text) to cite the design rules
     and prior work the draft builds on; the user sees them on review, they are
-    appended to the ticket brief, and the host warns on unknown keys/commits. On success it prints \`{"ok":true,"file":…,"id":N,"ref":"D<n>"}\` — the draft's #id.
+    appended to the ticket brief, and the host warns on unknown keys/commits. Add
+    \`"attachments":[{"path":"proto/a.html","note":"…","binding":true}]\` (max 10; a relative
+    path inside your artifacts dir; \`note\` ≤200 chars) to carry evidence files: the host copies
+    each one, Review stages them and Save attaches them to the ticket (10 MB per file, 25 MB per
+    draft; a file over 2 MB is not mirrored into a sandbox). The host warns on a refused file.
+    On success it prints \`{"ok":true,"file":…,"id":N,"ref":"D<n>"}\` — the draft's #id.
     When the host flags the draft, the output also has \`"warnings":[…]\` and a
     \`hint\`: fix the warnings and revise the draft with its \`id\`, or leave them
     for the reviewer. The host finishes its commit checks first; when they still

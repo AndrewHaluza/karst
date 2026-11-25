@@ -780,6 +780,7 @@
         // the host cannot re-link it, so it must restore as a proposal form, not a plain edit form.
         // The planning draft id and the draft row the form minted ride along, so the host can
         // re-link the form to its proposal (the draft id is kept once seen: a bound page drops it).
+        // The draft files the user removed ride along too, so a restore does not stage them again.
         const draftId = state.briefSource && state.briefSource.kind === 'draft' && Number.isInteger(state.briefSource.draftId)
           ? state.briefSource.draftId
           : identity && Number.isInteger(identity.draftId) ? identity.draftId : undefined;
@@ -788,6 +789,7 @@
             mode: 'create', prefilled: true,
             ...(draftId !== undefined ? { draftId } : {}),
             ...(state.mode === 'edit' && Number.isInteger(state.ticketId) ? { mintedTicketId: state.ticketId } : {}),
+            ...(Array.isArray(state.unstagedFiles) && state.unstagedFiles.length > 0 ? { unstagedFiles: state.unstagedFiles } : {}),
           }
           : state.mode === 'edit' && Number.isInteger(state.ticketId)
             ? { mode: 'edit', ticketId: state.ticketId }
@@ -1069,13 +1071,15 @@
     if (!list || list.length === 0) return '';
     return list.map(function (a) {
       const icon = a.kind === 'video' ? 'video' : a.kind === 'file' ? 'file-text' : 'photo';
+      // A staged draft file has no ticket row yet: its tiles carry the stored name, not a row id.
+      const staged = a.staged && a.storedName ? ' data-stored-name="' + esc(a.storedName) + '"' : '';
       return '<span class="attachtile">'
         // The chip body opens the attachment; the label names the file for AT.
-        + '<button type="button" class="k-btn k-btn--ghost k-btn--sm attachopen" data-attach-id="' + esc(a.id) + '" '
+        + '<button type="button" class="k-btn k-btn--ghost k-btn--sm attachopen" data-attach-id="' + esc(a.id) + '"' + staged + ' '
         + 'title="Open attachment (' + esc(formatBytes(a.byteSize)) + ')" aria-label="Open ' + esc(a.name) + '">'
         + karstIcon(icon, 14) + '<span class="attachname">' + esc(a.name) + '</span></button>'
         // Destructive → `.k-iconbtn--danger` (UI-R10b); aria-label matches the tooltip (UI-R21, R24).
-        + '<button type="button" class="k-iconbtn attachdetach" data-attach-id="' + esc(a.id) + '" '
+        + '<button type="button" class="k-iconbtn attachdetach" data-attach-id="' + esc(a.id) + '"' + staged + ' '
         + 'aria-label="Remove attachment" title="Remove attachment">'
         + '<span aria-hidden="true">&times;</span></button>'
         + '</span>';
@@ -2770,12 +2774,17 @@
       if (karstIsPending(detach) || detach.disabled) return;
       const requestId = karstRequestId();
       karstBeginPending(detach, requestId);
+      if (detach.dataset.storedName) {
+        post({ type: 'unstage-attachment', storedName: detach.dataset.storedName, requestId });
+        return;
+      }
       post({ type: 'detach-attachment', id: Number(detach.dataset.attachId), requestId });
       return;
     }
     const open = e.target.closest('.attachopen');
     if (open) {
-      if (karstIsPending(open) || open.disabled) return;
+      // A staged file is not a ticket attachment yet: there is nothing to open.
+      if (open.dataset.storedName || karstIsPending(open) || open.disabled) return;
       const requestId = karstRequestId();
       karstBeginPending(open, requestId);
       post({ type: 'open-attachment', id: Number(open.dataset.attachId), requestId });

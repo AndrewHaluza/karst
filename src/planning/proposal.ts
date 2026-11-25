@@ -55,6 +55,18 @@ export interface Proposal {
   priority?: PriorityLevel;
   /** One-line reason for `priority` (at most 200 chars). Needs `priority`. */
   priorityReason?: string;
+  /** Optional evidence files the host copies at propose time; Review stages them for the ticket. */
+  attachments?: ProposalAttachment[];
+}
+
+export const MAX_ATTACHMENTS = 10;
+export const MAX_ATTACHMENT_PATH = 300;
+export const MAX_ATTACHMENT_NOTE = 200;
+/** One evidence file a draft names: `path` is relative to the session's artifacts dir. */
+export interface ProposalAttachment {
+  path: string;
+  note?: string;
+  binding?: boolean;
 }
 
 export type ProposalResult = { ok: true; value: Proposal } | { ok: false; reason: string };
@@ -63,7 +75,7 @@ import { PRIORITY_LEVELS, asPriorityLevel, type PriorityLevel } from '../model/p
 import { parseId } from '../model/entityId.js';
 
 const REQUIRED_KEYS = ['description', 'repos', 'summary', 'title'];
-const OPTIONAL_KEYS = ['id', 'dependsOn', 'constraints', 'priority', 'priorityReason'];
+const OPTIONAL_KEYS = ['id', 'dependsOn', 'constraints', 'priority', 'priorityReason', 'attachments'];
 const ALLOWED_KEYS = [...REQUIRED_KEYS, ...OPTIONAL_KEYS];
 // C0 (minus \t \n), DEL, C1, and bidi embedding/override/isolate/mark controls.
 const BODY_CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g;
@@ -92,6 +104,37 @@ function asDependency(v: unknown): number | `T${number}` | undefined {
   }
 }
 
+function validateAttachments(v: unknown): { ok: true; value: ProposalAttachment[] } | { ok: false; reason: string } {
+  const bad = (reason: string) => ({ ok: false as const, reason });
+  if (!Array.isArray(v)) return bad('attachments must be an array');
+  if (v.length > MAX_ATTACHMENTS) return bad(`attachments must have at most ${MAX_ATTACHMENTS} entries`);
+  const value: ProposalAttachment[] = [];
+  for (const e of v as unknown[]) {
+    if (typeof e !== 'object' || e === null || Array.isArray(e)) return bad('attachments entries must be objects');
+    const r = e as Record<string, unknown>;
+    for (const k of Object.keys(r)) {
+      if (k !== 'path' && k !== 'note' && k !== 'binding') return bad(`unknown attachment key "${k}"`);
+    }
+    const p = r.path;
+    if (typeof p !== 'string' || p.length === 0 || p.length > MAX_ATTACHMENT_PATH) {
+      return bad(`attachment path must be 1-${MAX_ATTACHMENT_PATH} characters`);
+    }
+    const out: ProposalAttachment = { path: p.replace(ALL_CONTROLS, '') };
+    if (r.note !== undefined) {
+      if (typeof r.note !== 'string' || /[\r\n]/.test(r.note)) return bad('attachment note must be a single-line string');
+      const note = r.note.replace(ALL_CONTROLS, '');
+      if (note.length > MAX_ATTACHMENT_NOTE) return bad(`attachment note must be at most ${MAX_ATTACHMENT_NOTE} characters`);
+      out.note = note;
+    }
+    if (r.binding !== undefined) {
+      if (typeof r.binding !== 'boolean') return bad('attachment binding must be a boolean');
+      out.binding = r.binding;
+    }
+    value.push(out);
+  }
+  return { ok: true, value };
+}
+
 const fail = (reason: string): ProposalResult => ({ ok: false, reason });
 
 function body(raw: Record<string, unknown>, key: 'description' | 'summary'): string | undefined {
@@ -104,6 +147,7 @@ export function validateProposal(raw: unknown): ProposalResult {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return fail('proposal must be a JSON object');
   const rec = raw as Record<string, unknown>;
   if ('hostWarnings' in rec) return fail('hostWarnings is host-owned and may not be supplied');
+  if ('hostAttachments' in rec) return fail('hostAttachments is host-owned and may not be supplied');
   for (const k of Object.keys(rec)) {
     if (!ALLOWED_KEYS.includes(k)) {
       return fail(`unknown key "${k}"; allowed keys are ${ALLOWED_KEYS.join(', ')}`);
@@ -165,6 +209,13 @@ export function validateProposal(raw: unknown): ProposalResult {
     }
   }
 
+  let attachments: ProposalAttachment[] | undefined;
+  if ('attachments' in rec) {
+    const a = validateAttachments(rec.attachments);
+    if (!a.ok) return fail(a.reason);
+    attachments = a.value;
+  }
+
   if (id !== undefined && dependsOn?.includes(id)) {
     return fail('dependsOn may not contain the proposal\'s own id');
   }
@@ -190,5 +241,6 @@ export function validateProposal(raw: unknown): ProposalResult {
   if (constraints !== undefined) value.constraints = constraints;
   if (priority !== undefined) value.priority = priority;
   if (priorityReason !== undefined) value.priorityReason = priorityReason;
+  if (attachments !== undefined) value.attachments = attachments;
   return { ok: true, value };
 }

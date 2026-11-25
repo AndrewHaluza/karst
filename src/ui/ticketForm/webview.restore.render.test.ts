@@ -112,6 +112,16 @@ describe('ticket form — draft persistence', () => {
     expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true, draftId: 5, mintedTicketId: 9 } });
   });
 
+  it('saves the draft files the user removed in the identity of a proposal form', () => {
+    h = renderWebview('ticketForm');
+    const files = ['0123456789abcdef.png'];
+    h.receive({ type: 'state', state: baseState({ prefilled: true, unstagedFiles: files, briefSource: { kind: 'draft', draftId: 5 } }) });
+    expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true, draftId: 5, unstagedFiles: files } });
+    // an empty list is not saved
+    h.receive({ type: 'state', state: baseState({ prefilled: true, unstagedFiles: [], briefSource: { kind: 'draft', draftId: 5 } }) });
+    expect(h.state).toEqual({ karstPanel: { mode: 'create', prefilled: true, draftId: 5 } });
+  });
+
   it('drops the saved text on draft-saved, even when the submit fails afterwards', async () => {
     h = renderWebview('ticketForm');
     h.receive({ type: 'state', state: baseState() });

@@ -43,6 +43,7 @@ import { latestBatch } from '../model/inside/gates.js';
 import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
 import { latestStageRun, previousStageRun } from '../store/stageRuns.js';
 import { isMarkerStage } from '../agent/markerStage.js';
+import { MIRROR_MAX_BYTES } from '../agent/bridge/mirror.js';
 import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES } from '../agent/promptText.js';
 import type { Manifest, RepositoryDef } from '../manifest/types.js';
 import { unitsOf } from '../manifest/runnable.js';
@@ -92,7 +93,12 @@ export interface TicketContextAttachment {
   kind: AttachmentKind;
   path: string;
   name: string;
+  /** True when the file is over the sandbox mirror limit: a sandboxed launch does not copy it. */
+  notInSandbox?: true;
 }
+
+/** The note a ticket context gives a file the sandbox does not mirror. */
+const NOT_IN_SANDBOX_NOTE = ' (attachment >2 MB, not in sandbox)';
 
 /** One recorded gate from the current (or explaining) stage's latest batch. */
 export interface TicketContextGate {
@@ -651,6 +657,7 @@ export function buildTicketContext(
             kind: a.kind,
             path: attachmentPath(storageDir, ticketId, a.storedName),
             name: a.originalName,
+            ...(a.byteSize > MIRROR_MAX_BYTES ? { notInSandbox: true as const } : {}),
           })),
     parent,
     subtaskParent,
@@ -1041,7 +1048,7 @@ export function renderTicketContext(
         // Video is stated as unreadable rather than omitted. Omitting it would let
         // an agent conclude nothing was attached; listing it bare would let one
         // report on footage it never opened.
-        const note = a.kind === 'video' ? ' (not agent-readable)' : '';
+        const note = (a.kind === 'video' ? ' (not agent-readable)' : '') + (a.notInSandbox ? NOT_IN_SANDBOX_NOTE : '');
         return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
       })
       .join('\n');
@@ -1148,7 +1155,7 @@ function renderTesterContext(
   const brief = ctx.brief?.trim();
   if (brief && brief !== criteria) parts.push(`## Context brief\n${bound(brief, SEED_BUDGETS.brief)}`);
   if (ctx.attachments.length > 0) {
-    const rows = ctx.attachments.map((a) => `- ${a.kind}: ${a.path} — "${a.name}"`).join('\n');
+    const rows = ctx.attachments.map((a) => `- ${a.kind}: ${a.path} — "${a.name}"${a.notInSandbox ? NOT_IN_SANDBOX_NOTE : ''}`).join('\n');
     parts.push(`## Attachments\n${bound(rows, SEED_BUDGETS.attachments)}`);
   }
   if (ctx.placement) parts.push(`## Placement\n${ctx.placement}`);

@@ -1,10 +1,12 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
+import { baselineCollisions, type AllowedCollision } from './baselineDistinct.js';
 import { settingsRoutes } from './settingsRoutes.js';
-import { layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
+import { INSIDE_CASE_CLICK, layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
 
 const BASELINES = join(dirname(fileURLToPath(import.meta.url)), '__baselines__');
 /**
@@ -22,6 +24,53 @@ const NON_VIEW_BASELINES = new Set([
 ]);
 
 const allVariants = WEBVIEW_NAMES.flatMap((view) => VARIANTS[view].map((variant) => ({ view, variant })));
+
+/**
+ * Groups of variants that may record the same picture in one theme project, each with the reason
+ * (@ui:VISUAL-VARIANTS). An entry that stops colliding fails the distinctness test, so remove it when its fix lands.
+ */
+const ALLOWED_BASELINE_COLLISIONS: readonly AllowedCollision[] = [
+  {
+    baselines: ['dashboard--inside-impl-interrupted', 'dashboard--inside-impl-running', 'dashboard-running'],
+    reason:
+      'D772: the interrupted impl case does not draw its interrupted state yet. The populated page (10-repository ' +
+      'fixture) and the impl running case (2-repository fixture) draw the same page: the repository count is not on it.',
+  },
+  {
+    baselines: ['dashboard--inside-ship-running', 'dashboard-waiting'],
+    reason: 'The waiting scenario is the populated ship stage; the 10- and 2-repository fixtures draw the same page.',
+  },
+  {
+    baselines: ['settings--populated', 'settings--route-general'],
+    reason: 'The mandatory populated id and the route sweep both open the General route on the realistic settings.',
+  },
+  {
+    baselines: ['settings--nav-agents-narrow', 'settings--roles-narrow-collapsed'],
+    reason: 'The Agents route opens on the Roles tab with every row collapsed, so the nav shot equals the roles shot.',
+  },
+  {
+    baselines: ['settings--nav-agents-tight', 'settings--roles-graph-tight', 'settings--roles-tight-collapsed'],
+    reason: 'At 320 px all three open the Roles tab with no row selected, so the graph rows stay collapsed.',
+  },
+  {
+    baselines: ['sidebar--activity-300', 'sidebar--activity-populated'],
+    reason: 'The 300 px tier records light and hc too; the dark shot equals the single 300 px shot of the same page.',
+  },
+  {
+    baselines: ['sidebar--planning-deps', 'sidebar--stage-chip-300'],
+    reason: 'The 300 px tier records light and hc too; the dark shot equals the single 300 px shot of the same page.',
+  },
+  {
+    baselines: ['sidebar--queue-chips-300', 'sidebar--queue-populated'],
+    reason: 'The 300 px tier records light and hc too; the dark shot equals the single 300 px shot of the same page.',
+  },
+  {
+    baselines: ['sidebar--empty', 'sidebar--queue-empty'],
+    reason: 'An empty Queue pane draws collapsed, so the open-Queue view state gives the same page.',
+  },
+];
+
+const sha256 = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 describe('variant registry coverage (ui:UI-R57)', () => {
   it('has a registry entry for every webview', () => {
@@ -48,6 +97,30 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     for (const { view, variant } of allVariants) {
       expect(Array.isArray(variant.corpus().messages), `${view}/${variant.id}`).toBe(true);
     }
+  });
+
+  it('records a distinct picture for every variant in each theme project, unless allow-listed (@ui:VISUAL-VARIANTS)', () => {
+    const shots = allVariants.flatMap(({ variant }) =>
+      variant.themes
+        .map((theme) => ({ theme, file: join(BASELINES, theme, `${variant.baseline}.png`) }))
+        .filter(({ file }) => existsSync(file))
+        .map(({ theme, file }) => ({ theme, baseline: variant.baseline, hash: sha256(file) })),
+    );
+    const { unexpected, stale } = baselineCollisions(shots, ALLOWED_BASELINE_COLLISIONS);
+    expect(unexpected, 'variants that record the same picture').toEqual([]);
+    expect(stale, 'allow-list entries that no longer collide').toEqual([]);
+  });
+
+  it('gives the collapsed dashboard variants the step that shows their state (T1357)', () => {
+    const dash = new Map(VARIANTS.dashboard.map((v) => [v.id, v]));
+    for (const [key, click] of Object.entries(INSIDE_CASE_CLICK)) expect(dash.get(`inside-${key}`)?.click, key).toBe(click);
+    expect(dash.get('runtime-shell-off-wide')?.runtimeOpen).toBe('more');
+    expect(dash.get('runtime-docker-wide')?.runtimeOpen).toBeUndefined();
+    expect(dash.get('inside-uat-passed-round-2')?.click).toBeUndefined();
+    expect(dash.get('agent-popover-no-effort-model-wide')?.agentPopover?.model).toBe('opencode/kimi-k3-free');
+    expect(dash.has('panel-wt-normal-wide')).toBe(false);
+    expect(dash.has('subtask-blocked')).toBe(false);
+    expect(VARIANTS.serverLogs.find((v) => v.id === 'empty')?.corpus()).not.toEqual(VARIANTS.serverLogs.find((v) => v.id === 'no-services')?.corpus());
   });
 
   it('has a baseline PNG for every variant in every required theme project', () => {

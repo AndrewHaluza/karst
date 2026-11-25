@@ -121,7 +121,7 @@ view's production state shape. The visual sweep seeds from them via
 | `src/ui/gettingStarted/renderFixtures.ts` | hand-written state | Uses `TUTORIAL_STEPS` from `./state.js` (not store) |
 | `src/ui/diffs/renderFixtures.ts` | hand-written state | Pure data, reserved ticket ids 900001–999999 |
 | `src/ui/settings/app/testFixtures.ts` | hand-written state | `buildSettingsState` over `manifest/fixtures.ts` literals |
-| `tests/visual/corpora.ts` MINIMAL_SETTINGS / MINIMAL_TICKET_FORM | hand-written state | Inline seeds for `settings` and `ticketForm` (no renderFixtures module) |
+| `tests/visual/corpora.ts` MINIMAL_SETTINGS / MINIMAL_TICKET_FORM, `tests/visual/realisticTicketForm.ts` | hand-written state | Inline seeds for `settings` and `ticketForm` (no renderFixtures module); the ticketForm populated page merges REALISTIC_TICKET_FORM over MINIMAL_TICKET_FORM |
 
 Built from store: none among UI fixtures. Store-seeded fixtures are non-UI:
 `src/uatHost/fixtures.ts` (seeds for UAT host stores) and

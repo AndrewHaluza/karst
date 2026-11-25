@@ -287,4 +287,10 @@ describe('planningInstructions draft contract', () => {
   it('asks for bare design-key tokens in the checklist', () => {
     expect(plain).toContain('4. Cite what you relied on in the draft\'s "constraints" as bare tokens');
   });
+
+  it('tells the planner how to list evidence files as attachments', () => {
+    expect(plain).toContain('"attachments" lists evidence files');
+    expect(plain).toContain('Max 10 files');
+    expect(plain).toContain('A file over 2 MB reaches host agents but not a sandbox');
+  });
 });

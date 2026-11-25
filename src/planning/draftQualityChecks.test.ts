@@ -120,6 +120,40 @@ describe('draftQualityWarnings', () => {
     it('flags a leak in the summary too', () => {
       expect(draftQualityWarnings(draft(WELL_DESC, `${WELL_SUM} ~/.claude/plans/p.md`))).toContain(LEAK_WARNING);
     });
+    it('does not flag a cite of a listed attachment (path or bare name)', () => {
+      const d = {
+        ...draft(`${WELL_DESC} See /artifacts/proto/a.html and a.html, or $KARST_ARTIFACTS/proto/a.html for the layout.`),
+        attachments: [{ path: 'proto/a.html' }],
+      };
+      expect(draftQualityWarnings(d)).not.toContain(LEAK_WARNING);
+    });
+    it('keeps the warning for a path that is not listed', () => {
+      const d = {
+        ...draft(`${WELL_DESC} See /tmp/x/artifacts/proto/b.html for the layout.`),
+        attachments: [{ path: 'proto/a.html' }],
+      };
+      expect(draftQualityWarnings(d)).toContain(LEAK_WARNING);
+    });
+    it('keeps the warning for an unlisted path with the same base name', () => {
+      const d = {
+        ...draft(`${WELL_DESC} See /tmp/x/artifacts/other/a.html for the layout.`),
+        attachments: [{ path: 'proto/a.html' }],
+      };
+      expect(draftQualityWarnings(d)).toContain(LEAK_WARNING);
+    });
+    it('keeps the warning for a longer unlisted path that starts like a listed one', () => {
+      for (const cite of ['$KARST_ARTIFACTS/proto/a.html.bak', '$KARST_ARTIFACTS/proto/a.html/x.md', '${KARST_ARTIFACTS}/proto/a.htmlx']) {
+        const d = { ...draft(`${WELL_DESC} See ${cite} for the layout.`), attachments: [{ path: 'proto/a.html' }] };
+        expect(draftQualityWarnings(d), cite).toContain(LEAK_WARNING);
+      }
+    });
+    it('still accepts a listed cite that ends a sentence', () => {
+      const d = { ...draft(`${WELL_DESC} The layout is in $KARST_ARTIFACTS/proto/a.html.`), attachments: [{ path: 'proto/a.html' }] };
+      expect(draftQualityWarnings(d)).not.toContain(LEAK_WARNING);
+    });
+    it('uses the attachments wording', () => {
+      expect(LEAK_WARNING).toBe('plan path not in attachments (attach or inline)');
+    });
     it.each(['docs/artifacts/spec.md', 'src/artifacts/x.ts', '.codex/config.toml', 'my.claude/plans/x'])('does not flag %s', (ok) => {
       expect(draftQualityWarnings(draft(`${WELL_DESC} ${ok}`))).not.toContain(LEAK_WARNING);
     });

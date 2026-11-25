@@ -157,6 +157,13 @@ const FOCUS_CAP = 12;
  * net-new verb the ticket introduced (follow the newest output, turn wrapping off
  * for one long line, copy the lines shown); none folds into the existing Prev/Next,
  * filter and current-run controls or into "Clear view".
+ *
+ * Updated an eighteenth time by the realistic ticketForm corpus (T1357): `ticketForm`
+ * 31 → 44. The default page left the MINIMAL seed (no repositories, no approaches,
+ * no presets, no attachment) for the realistic create state. No control is new: the
+ * count grows because the page now renders the rows the seed left empty: among them the
+ * repository rows, the base-branch override, the approach options, the agent presets,
+ * the provider ticket search and the attachment.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 49, // fourteenth note: #closeTicket / #reopenTicket
@@ -166,7 +173,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)
   diffs: 35,
   settings: 195,
-  ticketForm: 31,
+  ticketForm: 44, // eighteenth note: the realistic create state renders the rows the MINIMAL seed left empty
   gettingStarted: 6,
 };
 

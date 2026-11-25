@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { formatId } from '../../model/entityId.js';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createPlanningSession, listPlanningTickets } from '../../store/planningSessions.js';
-import { getProposal, insertProposal, updateProposalPayload } from '../../store/planningProposals.js';
+import { getProposal, insertProposal, setProposalHostAttachments, updateProposalPayload } from '../../store/planningProposals.js';
 import { listTickets, createTicket, getTicket } from '../../store/tickets.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
 import type { PlanningProposalOpsDeps } from './planningProposalOps.js';
@@ -313,6 +314,154 @@ describe('planningProposalOps', () => {
     it('refreshes the index of the draft session after a change', async () => {
       await ops().setPriority(proposalId, 'high');
       expect(refreshed).toEqual([sessionId]);
+    });
+  });
+
+  describe('draft attachments', () => {
+    const list = [
+      { name: 'b.txt', storedName: '2222222222222222.txt', kind: 'file', byteSize: 1 },
+      { name: 'a.html', storedName: '1111111111111111.html', kind: 'file', byteSize: 1, binding: true },
+    ];
+    const withList = (): void => {
+      setProposalHostAttachments(store, proposalId, '', list);
+    };
+
+    it('Review waits with a notice while the listed files are still being copied', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
+      await ops({ isChecking: () => true }).review(id);
+      expect(forms).toEqual([]);
+      expect(warns).toEqual([`Draft ${formatId('draft', id)} still copies its files. Open Review again in a moment.`]);
+    });
+
+    it('Review keeps waiting when the only warning is not a refusal', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['plan path not in attachments (attach or inline)']);
+      await ops({ isChecking: () => true }).review(id);
+      expect(forms).toEqual([]);
+    });
+
+    it('Review opens with a warning when no copy runs for the listed files, so a lost copy never blocks it', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
+      await ops({ isChecking: () => false }).review(id);
+      expect(forms).toHaveLength(1);
+      const lost = `Draft ${formatId('draft', id)} lists 1 file that the host did not copy (the copy stopped, for example on a window reload). Ask the planner to revise the draft to copy it again.`;
+      expect(warns).toEqual([lost]);
+      await ops().review(id);
+      expect(forms).toHaveLength(2);
+      expect(warns).toEqual([lost, lost]);
+    });
+
+    it('the lost-copy warning counts the listed files', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }, { path: 'b.txt' }] });
+      await ops().review(id);
+      expect(warns).toEqual([`Draft ${formatId('draft', id)} lists 2 files that the host did not copy (the copy stopped, for example on a window reload). Ask the planner to revise the draft to copy them again.`]);
+    });
+
+    it('Review gives no lost-copy warning when the listed file was copied or refused', async () => {
+      const copied = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
+      setProposalHostAttachments(store, copied, '', [{ name: 'a.txt', storedName: '1111111111111111.txt', kind: 'file', byteSize: 1 }]);
+      const refused = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['attachment refused: a.txt (missing)']);
+      await ops().review(copied);
+      await ops().review(refused);
+      await ops().review(proposalId);
+      expect(forms).toHaveLength(3);
+      expect(warns).toEqual([]);
+    });
+
+    it('Review opens when the listed file was copied', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
+      setProposalHostAttachments(store, id, '', [{ name: 'a.txt', storedName: '1111111111111111.txt', kind: 'file', byteSize: 1 }]);
+      await ops({ isChecking: () => true }).review(id);
+      expect(forms).toHaveLength(1);
+    });
+
+    it('Review opens a draft that lists no file', async () => {
+      await ops({ isChecking: () => true }).review(proposalId);
+      expect(forms).toHaveLength(1);
+      expect(warns).toEqual([]);
+    });
+
+    it('Review opens when every listed file was refused', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['attachment refused: a.txt (missing)']);
+      await ops({ isChecking: () => true }).review(id);
+      expect(forms).toHaveLength(1);
+      expect(warns).toEqual([]);
+    });
+
+    it('warns when a revise changed only the file content, not the payload', async () => {
+      const payload = { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] };
+      const id = insertProposal(store, sessionId, payload, 'u1');
+      setProposalHostAttachments(store, id, 'u1', [{ name: 'a.txt', storedName: '1111111111111111.txt', kind: 'file', byteSize: 1 }]);
+      await ops().review(id);
+      setProposalHostAttachments(store, id, 'u1', [{ name: 'a.txt', storedName: '2222222222222222.txt', kind: 'file', byteSize: 1 }]);
+      const t = createTicket(store, { key: 'K-9', title: 'T', projectId });
+      forms[0]!.onCreated(t.id);
+      expect(warns.join()).toContain('was revised while you were editing');
+    });
+
+    it.each([
+      ['the same files', ['1111111111111111.txt'], false],
+      ['one more file', ['1111111111111111.txt', '2222222222222222.txt'], true],
+    ])('warns on accept only when the host files changed: %s', async (_n, after, warned) => {
+      const payload = { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] };
+      const id = insertProposal(store, sessionId, payload, 'u1');
+      const row = (storedName: string) => ({ name: storedName, storedName, kind: 'file' as const, byteSize: 1 });
+      setProposalHostAttachments(store, id, 'u1', [row('1111111111111111.txt')]);
+      await ops().review(id);
+      setProposalHostAttachments(store, id, 'u1', after.map(row));
+      forms[0]!.onCreated(createTicket(store, { key: 'K-8', title: 'T', projectId }).id);
+      expect(warns.some((w) => w.includes('was revised while you were editing'))).toBe(warned);
+    });
+
+    it('prefill lists the host attachments, binding first', async () => {
+      withList();
+      await ops().review(proposalId);
+      expect(forms[0]!.attachments!.map((a) => a.name)).toEqual(['a.html', 'b.txt']);
+    });
+
+    it('removes the host copy after accept and never throws when the removal fails', async () => {
+      const removeDir = vi.fn().mockRejectedValue(new Error('boom'));
+      await ops({ storageDir: '/s', removeDir }).review(proposalId);
+      const ticket = createTicket(store, { key: 'K-1', title: 't', projectId });
+      expect(() => forms[0]!.onCreated(ticket.id)).not.toThrow();
+      await flush();
+      expect(removeDir).toHaveBeenCalledWith('/s', proposalId);
+      expect(getProposal(store, proposalId)!.status).toBe('accepted');
+      expect(debugs.some((d) => d.includes('attachment cleanup failed'))).toBe(true);
+    });
+
+    it('prefill orders binding rows first, keeps the rest in order and sets binding only when true', async () => {
+      const row = (name: string, binding?: boolean) => ({
+        name,
+        storedName: `${name.length}${name.charCodeAt(0)}`.padEnd(16, '0') + '.txt',
+        kind: 'file' as const,
+        byteSize: 1,
+        ...(binding === undefined ? {} : { binding }),
+      });
+      setProposalHostAttachments(store, proposalId, '', [row('n1'), row('b1', true), row('n2', false), row('b2', true), row('n3')]);
+      await ops().review(proposalId);
+      const got = forms[0]!.attachments!;
+      expect(got.map((a) => a.name)).toEqual(['b1', 'b2', 'n1', 'n2', 'n3']);
+      expect(got.map((a) => 'binding' in a)).toEqual([true, true, false, false, false]);
+      expect(got[0]).toEqual({ name: 'b1', storedName: row('b1').storedName, kind: 'file', byteSize: 1, binding: true });
+    });
+
+    it('does not remove a host copy without a storage dir', async () => {
+      const removeDir = vi.fn().mockResolvedValue(undefined);
+      await ops({ removeDir }).discard(proposalId);
+      expect(removeDir).not.toHaveBeenCalled();
+    });
+
+    it('keeps the host copy when the discard fails and the draft stays pending', async () => {
+      const removeDir = vi.fn().mockResolvedValue(undefined);
+      breakProposalWrites();
+      await ops({ storageDir: '/s', removeDir }).discard(proposalId);
+      expect(removeDir).not.toHaveBeenCalled();
+    });
+
+    it('removes the host copy after discard', async () => {
+      const removeDir = vi.fn().mockResolvedValue(undefined);
+      await ops({ storageDir: '/s', removeDir }).discard(proposalId);
+      expect(removeDir).toHaveBeenCalledWith('/s', proposalId);
     });
   });
 });

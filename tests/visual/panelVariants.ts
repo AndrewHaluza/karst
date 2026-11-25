@@ -150,7 +150,7 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   { id: 'wt-one', patch: withWorktrees((w) => w.slice(0, 1)) },
   { id: 'subtask-empty', patch: (s) => ({ ...s, subtasks: [], subtaskProgress: { done: 0, total: 0 }, canAddSubtask: true }) },
   { id: 'subtask-one', patch: (s) => ({ ...s, subtasks: s.subtasks.slice(0, 1), subtaskProgress: { done: 0, total: 1 }, canAddSubtask: true }) },
-  { id: 'wt-normal', patch: (s) => s },
+  // T1357: no `wt-normal`. The unpatched running page is the `srv-running` picture (two running servers, the same worktrees).
   { id: 'wt-base', patch: (s) => s, click: '[data-act="toggle-base-form"]', multiWidth: true },
   { id: 'wt-ext', patch: withWorktrees((w) => w.map((x, i) => ({ ...x, launchable: true, branch: i === 0 ? x.branch : 'feat/other-branch' }))), multiWidth: true },
   { id: 'wt-empty', patch: withWorktrees(() => []) },
