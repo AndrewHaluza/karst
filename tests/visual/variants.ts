@@ -212,6 +212,33 @@ function dashboardScenario(
 }
 
 /**
+ * T1359: a blocked dynamic-graph run on `impl`, with the host's recovery verdict (`DashboardState.graphBlock`).
+ * The banner renders the one action that will not refuse (Replan) and the rail only mirrors the wait — the
+ * same split D744 gave the merge-conflict banner.
+ */
+function graphScenarioBlocked(
+  reason: string,
+  graphBlock: NonNullable<DashboardState['graphBlock']>,
+): () => ViewCorpus {
+  return dashboardScenario('running', 2, (s) => {
+    const blocked = { kind: 'approach-graph-failed' as const, reason, at: '2026-01-01T00:00:00.000Z', resumable: true };
+    const stepper = s.stepper.map((c) => (c.stageKey === 'impl' ? { ...c, status: 'running' as const, blocked } : c));
+    return {
+      ...s,
+      stageCurrent: 'impl',
+      currentStage: { stageKey: 'impl', status: 'running', blocked },
+      graphBlock,
+      stepper,
+      rail: buildStageRail(stepper, stepper, {
+        current: 'impl',
+        needsUser: true,
+        needs: { detail: 'the graph needs a recovery decision', action: 'Open graph', cta: { kind: 'graph-panel' } },
+      }),
+    };
+  });
+}
+
+/**
  * T1357 (@ui:VISUAL-VARIANTS): the screenshot step of an Inside case whose state shows only after a click. Without
  * it the page equals a sibling case. Keyed `${stage}-${id}`. `click` is screenshot-only: the layout key stays.
  */
@@ -701,6 +728,19 @@ const dashboardVariants = (): Variant[] => [
       },
     },
   })), { skipLayout: true }),
+  // T1359, D793: a blocked GRAPH run on impl. Three states, dark-only, each with the layout gate ON (no
+  // `skipLayout`), so the gate opens the banner with its Replan row and the longer "replans used n of m"
+  // line at every dashboard width (1280/900/700/699/480).
+  //  - config: a reparable `config-then-resume` block inside the budget, so no config change is needed;
+  //  - explicit: `explicit-resolution`, where Resume refuses by design and no revision budget is readable (`maxReplans: null`);
+  //  - exhausted: `resource-claim-violated` evidence kept (D790) with the revision's replan budget spent.
+  ...([
+    ['graph-blocked-config', 'approach-graph-failed: graph-workspace-deps: node run 3 (web: node_modules missing) (graph run 1)', { primary: 'replan', replanCount: 0, maxReplans: 2 }],
+    ['graph-blocked-explicit', 'approach-graph-failed: integration-conflict: git apply refused in src/api.ts (graph run 1)', { primary: 'replan', replanCount: 0, maxReplans: null }],
+    ['graph-blocked-replans-exhausted', 'approach-graph-failed: resource-claim-violated: src/outside.ts (graph run 1)', { primary: 'replan', replanCount: 2, maxReplans: 2 }],
+  ] as const).map(([id, reason, graphBlock]) =>
+    variant('dashboard', id, graphScenarioBlocked(reason, graphBlock)),
+  ),
   // T820's subtask-blocked shot left in T1357: it recorded the same picture as `populated` (dashboard-running),
   // whose Sub-tasks panel already shows the blocked blocker, the PR, the agent and the queued row.
   // T1266: a graph ticket's header names expert / worker / fast, the approach fallback included.

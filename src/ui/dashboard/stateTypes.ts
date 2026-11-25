@@ -18,6 +18,7 @@ import type { PrPanelRow } from '../../model/prPanelView.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type { AgentSessionView } from '../../agent/sessionSwitch.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
+import type { GraphBlockRecovery } from '../../model/inside/graph.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
 import type { TicketEnvOverrides } from '../../store/ticketEnvOverrides.js';
 import type { ResetStageState } from '../../workflow/resetStage.js';
@@ -374,6 +375,21 @@ export interface DashboardState {
    * so this map has EXACTLY six keys and never a peer `fix` entry.
    */
   insideViews: Record<InsideStageKey, InsideStageView>;
+  /**
+   * The host-derived recovery verdict for a BLOCKED graph run (T1359, D793):
+   * which control actually works on the block (`primary`), the run's accepted
+   * replan count, and the active revision's `budgets.maxReplans` (`null` when
+   * no readable revision exists, so no budget can be proven spent).
+   *
+   * Absent for every other snapshot — a running run, a non-graph block, or no
+   * graph projection at all — so existing snapshots stay byte-for-byte
+   * unchanged. It is carried here so the blocked banner can render the ONE
+   * action that will not refuse: the recovery-category table lives in
+   * `approaches/**`, which the standalone webview cannot import, and the
+   * webview must never re-derive it from the reason string. The Inside graph
+   * header row only MIRRORS this state; the banner owns the primary action.
+   */
+  graphBlock?: GraphBlockRecovery;
   /** Auto-fix override, default, banner and log for the ship panel (T1004). */
   autopilot: AutopilotSlice;
   /** The host's waiting reload: the live runs it waits for and the held tickets (@arch:DRAIN-01). */

@@ -224,6 +224,15 @@ describe('graphInsideProcess', () => {
     expect(labels(run({ blockedReason: 'graph-workspace-deps: node run 3 (web: x)' }))).toContain('workspace deps');
     expect(labels(run({ blockedReason: 'failed-to-launch: node run 3' }))).not.toContain('workspace deps');
     expect(labels(run({ blockedReason: null }))).not.toContain('workspace deps');
+    // The repair ends in Replan: Resume refuses every config-then-resume
+    // block, so promising one here sent the user to a dead button (T1359).
+    const depsRow = run({ blockedReason: 'graph-workspace-deps: node run 3 (web: x)' });
+    if (depsRow.evidence?.kind !== 'rows') throw new Error('expected rows evidence');
+    const workspaceDeps = depsRow.evidence.rows.find((r) => r.label === 'workspace deps')!;
+    expect(workspaceDeps.detail).toBe(
+      'Open karst.yml at the repository to set graphWorkspace, then Replan',
+    );
+    expect(workspaceDeps.detail).not.toContain('then Resume');
     const warned = run({ status: 'running', depsWarning: 'deps: web not provided' });
     expect(JSON.stringify(warned)).toContain(' · deps: web not provided');
     expect(JSON.stringify(run({ status: 'running' }))).not.toContain('deps: web');
@@ -628,6 +637,35 @@ describe('graphInsideProcess', () => {
     expect(process.evidence.rows.find((row) => row.label === 'replan')!.action).toMatchObject({
       kind: 'graph-replan',
     });
+  });
+
+  it('mirrors the recovery verdict without adding a primary Replan to the header row', () => {
+    // D793: the blocked banner owns the primary Replan action. The Inside
+    // header row stays the mirror it always was — a `graph-resume` target —
+    // even when the verdict says Resume would refuse.
+    const targets: GraphActionTarget[] = [];
+    const process = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          runNumber: 7,
+          status: 'blocked',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+          blockedReason: 'integration-conflict: api/src/a.ts',
+          recovery: { primary: 'replan', replanCount: 2, maxReplans: 2 },
+        },
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: `snapshot-1:action-${targets.length}`, kind: target.kind };
+        },
+      }),
+    )!;
+    if (process.evidence?.kind !== 'rows') return;
+    expect(process.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-resume' });
+    // Exactly the one existing replan row — no second, primary replan button.
+    expect(targets.filter((t) => t.kind === 'graph-replan')).toHaveLength(1);
   });
 
   it('attaches no action to a run awaiting the implementation marker (no Mark done button)', () => {

@@ -2890,4 +2890,59 @@ describe('inside: the re-entry window with two or more recorded attempts (Findin
     expect(unblocks.map((u) => u.displayTextParts.id)).toEqual([`T${waiter.id}`, `D${draft}`]);
     expect(buildDashboardState(store, waiter.id).unblocks).toEqual([]);
   });
+
+  /**
+   * `graphInside` is the 16th positional argument (T1359): the projection is
+   * injected, so this test supplies it and leaves every earlier default in place.
+   */
+  const withGraphInside = (ticketId: number, graphInside: unknown) =>
+    buildDashboardState(
+      store,
+      ticketId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      graphInside as never,
+    );
+
+  const graphRun = (status: string, recovery?: Record<string, unknown>) => ({
+    enabled: true,
+    graphRun: { id: 1, runNumber: 1, status, approachId: 'dynamic-graph', stageAttempt: 0, createdAt: '2026-01-01T00:00:00.000Z', ...(recovery ? { recovery } : {}) },
+    plannerRuns: [],
+    nodeRuns: [],
+    overrides: [],
+    deferrals: [],
+    execution: { maxParallel: 2, maxNodeRuns: 8 },
+    revision: null,
+    diagnostics: [],
+    artifacts: [],
+    liveSessions: [],
+    now: '2026-01-01T00:00:00.000Z',
+  });
+
+  it('exposes a blocked graph run’s recovery verdict as graphBlock (T1359)', () => {
+    const t = createTicket(store, { key: 'GB-1', title: 'graph' });
+    const recovery = { primary: 'replan', replanCount: 1, maxReplans: 2 };
+    expect(withGraphInside(t.id, graphRun('blocked', recovery)).graphBlock).toEqual(recovery);
+  });
+
+  it('omits graphBlock for a run that is not blocked, for a blocked run with no verdict, and with no projection', () => {
+    const t = createTicket(store, { key: 'GB-2', title: 'graph' });
+    // A running run has nothing to recover, so the field is absent.
+    expect(withGraphInside(t.id, graphRun('running', { primary: 'resume', replanCount: 0, maxReplans: 2 }))).not.toHaveProperty('graphBlock');
+    // A blocked run the host could not judge (an older projection) carries none either.
+    expect(withGraphInside(t.id, graphRun('blocked'))).not.toHaveProperty('graphBlock');
+    // No projection → no field, so every graph-less snapshot is unchanged.
+    expect(buildDashboardState(store, t.id)).not.toHaveProperty('graphBlock');
+  });
 });

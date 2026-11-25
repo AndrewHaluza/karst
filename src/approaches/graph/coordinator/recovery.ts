@@ -106,6 +106,7 @@ import {
   type ReplanLaunchRequest,
 } from './replan.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
+import { recoveryGuidance } from './recoveryGuidance.js';
 import { ARTIFACT_FAULT_STATUSES, recheckArtifactFaults } from './artifactRecheck.js';
 import { DEFAULT_GRAPH_LIMITS, GRAPH_HARD_CEILINGS } from '../../../manifest/graphConfig.js';
 import { activeRevision } from '../../../store/graph/revisions.js';
@@ -849,31 +850,30 @@ export function recoverGraphRun(
         detail: `refused (discard-required): ${run.blocked_reason ?? 'unknown reason'} — discard the unknown process`,
       });
       return { kind: 'refused', reason: 'discard-required' };
-    case 'config-then-resume':
+    case 'config-then-resume': {
+      const guidance = recoveryGuidance('config-then-resume', {
+        blockedReason: run.blocked_reason,
+        replanCount: graphRunStatusReplanCount(store.db, input.graphRunId)?.replan_count ?? 0,
+        projectMaxReplans: deps.projectMaxReplans ?? DEFAULT_GRAPH_LIMITS.maxReplans,
+      });
       emitGraphDiagnostic({ db: deps.store.db, debug: deps.debug }, {
         category: 'recovery',
         graphRunId: input.graphRunId,
-        detail: run.blocked_reason?.startsWith('graph-workspace-deps')
-          ? `refused (config-then-resume): ${run.blocked_reason} — install the dependencies in the ` +
-            `ticket worktree or set repositories.<name>.graphWorkspace in the manifest, then Replan`
-          : run.blocked_reason?.startsWith('graph-preserve-failed')
-            ? `refused (config-then-resume): ${run.blocked_reason} — the node workspace holds work ` +
-              `that could not be written to a patch; correct the cause, then Replan`
-          : run.blocked_reason?.startsWith('graph-budget-exhausted') && run.blocked_reason.includes('workspace ceiling')
-            ? `refused (config-then-resume): ${run.blocked_reason} — raise limits.maxAggregateWorkspaceBytes ` +
-              `in the manifest, or free workspace space, then Replan`
-          : `refused (config-then-resume): ${run.blocked_reason ?? 'unknown reason'} — ` +
-            `Replan bypasses the revision document’s frozen budget; raise limits.maxReplans ` +
-            `if the project hard cap is reached`,
+        detail: `refused (config-then-resume): ${run.blocked_reason ?? 'unknown reason'} — ${guidance}`,
       });
       return { kind: 'refused', reason: 'config-then-resume' };
-    case 'explicit-resolution':
+    }
+    case 'explicit-resolution': {
+      const guidance = recoveryGuidance('explicit-resolution', {
+        blockedReason: run.blocked_reason,
+      });
       emitGraphDiagnostic({ db: deps.store.db, debug: deps.debug }, {
         category: 'recovery',
         graphRunId: input.graphRunId,
-        detail: `refused (explicit-resolution): ${run.blocked_reason ?? 'unknown reason'} — corrected artifacts/claims or replan, then explicit Resume`,
+        detail: `refused (explicit-resolution): ${run.blocked_reason ?? 'unknown reason'} — ${guidance}`,
       });
       return { kind: 'refused', reason: 'explicit-resolution' };
+    }
   }
   const unreachable: never = category;
   throw new Error(`unhandled recovery category: ${String(unreachable)}`);

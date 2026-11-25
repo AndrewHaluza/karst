@@ -187,6 +187,22 @@ export type GraphActionTarget =
 /** The block-reason prefix a node workspace dependency failure records (`driver.ts`). */
 export const GRAPH_WORKSPACE_DEPS_REASON_PREFIX = 'graph-workspace-deps';
 
+/**
+ * Which recovery control actually works on a blocked graph run (T1359, D793).
+ *
+ * Deliberately a plain data type with no category knowledge: the verdict is
+ * computed host-side (`ui/dashboard/graphInside.ts`, which may read the
+ * coordinator's category table) and passed in, because `src/model/**` may not
+ * value-import `src/approaches/**` (lint:layers `core-agent-seam`). The Inside
+ * projection only MIRRORS the state; the blocked banner owns the primary
+ * Replan action.
+ */
+export interface GraphBlockRecovery {
+  primary: 'resume' | 'replan';
+  replanCount: number;
+  maxReplans: number | null;
+}
+
 export interface GraphInsideInput {
   /** Feature flag: the projection ships inert until Slice 3 enables it. */
   enabled: boolean;
@@ -203,6 +219,9 @@ export interface GraphInsideInput {
     createdAt: string;
     /** The run's recorded block reason; a `graph-workspace-deps:` prefix offers the edit action. */
     blockedReason?: string | null;
+    /** Which recovery control works on a blocked run (T1359). Present only for
+     *  a blocked run — a running one has nothing to recover. */
+    recovery?: GraphBlockRecovery;
     /** The dependency preflight warning of the run start, shown as a header suffix. */
     depsWarning?: string;
   } | null;
@@ -428,7 +447,7 @@ export function graphInsideProcess(
     if (input.graphRun.blockedReason?.startsWith(GRAPH_WORKSPACE_DEPS_REASON_PREFIX)) {
       rows.push({
         label: 'workspace deps',
-        detail: 'Open karst.yml at the repository to set graphWorkspace, then Resume',
+        detail: 'Open karst.yml at the repository to set graphWorkspace, then Replan',
         status: 'wait',
         action: input.attach({ kind: 'graph-edit-workspace-deps', graphRunId: input.graphRun.id }),
       });

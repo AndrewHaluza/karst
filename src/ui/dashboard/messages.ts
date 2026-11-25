@@ -207,6 +207,15 @@ export type WebviewMessage =
    * moved to another stage must not be resumable by this message.
    */
   | { type: 'stage-resume'; ticketId: number; stageKey: StageKey }
+  /**
+   * Replan a blocked GRAPH stage: start a new revision from the recorded
+   * failure evidence (T1359, D793). The blocked banner offers it whenever the
+   * host's `graphBlock.primary` is `replan`, because Resume refuses there. Same
+   * contract as `stage-resume`: both fields are validated host-side against
+   * the ticket the panel actually owns, so a stale panel or a stage that moved
+   * on is a no-op.
+   */
+  | { type: 'stage-replan'; ticketId: number; stageKey: StageKey }
   | { type: 'run-gate-on-host'; ticketId: number; stageKey: StageKey }
   /** Pick agent/model to resolve a usage-limit block (D159). */
   | { type: 'usage-limit-pick'; ticketId: number; stageKey: StageKey }

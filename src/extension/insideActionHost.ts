@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { type Store } from '../store/db.js';
 import { dispatchGraphRecovery, type GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
 import { recoverGraphRun } from '../approaches/graph/coordinator/recovery.js';
-import { graphRecoveryRefusalNotice, graphRefusalHandling } from './ops/graphRecovery.js';
+import { graphRecoveryRefusalNotice, graphRefusalHandling, graphRefusalContext, projectMaxReplans } from './ops/graphRecovery.js';
 import { SessionManager } from '../ui/session.js';
 import { type RecoveryDeps } from '../approaches/graph/coordinator/recovery.js';
 import type { ReplanLaunchRequest } from '../approaches/graph/coordinator/replan.js';
@@ -61,6 +61,13 @@ export function makeInsideActionHost(
 ): InsideActionHost {
   // The ticket name every toast of this host uses (@arch:NTF-03).
   const label = (id: number): string => ticketToastLabel(store, id);
+  /**
+   * The truthful refusal context (T1359): the run's recorded block reason and its accepted replan
+   * count against the project's `limits.maxReplans`. Without it the guidance could not tell a
+   * reparable block from a spent budget, and advised a config change that was already in place.
+   */
+  const refusalContext = (graphRunId: number) =>
+    graphRefusalContext(store.db, graphRunId, projectMaxReplans(graphRecoveryDeps(graphRunId).projectMaxReplans));
   const recoverySeams: GraphRecoverySeams = {
     recover: (input) => recoverGraphRun(graphRecoveryDeps(input.graphRunId), input),
     launchReplan: graphReplanLaunch,
@@ -82,7 +89,7 @@ export function makeInsideActionHost(
         // A plain Resume on a node that already exited before starting twice is
         // the loop, not a recovery: offer the explicit Force retry the guard
         // refused to do on its own. Every other refusal is informational.
-        const handling = graphRefusalHandling(ticketId, mode, recovery.reason);
+        const handling = graphRefusalHandling(ticketId, mode, recovery.reason, refusalContext(graphRunId));
         if (handling.offerForce) {
           void ask
             .warn(handling.message, { modal: true }, 'Force retry')
@@ -174,7 +181,7 @@ export function makeInsideActionHost(
           void toast.info(`${label(ticketId)}: the planner of the implementation graph started again.`);
         } else if (recovery.kind === 'refused') {
           void toast.info(
-            graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
+            graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason, refusalContext(outcome.graphRunId)),
           );
         }
       }

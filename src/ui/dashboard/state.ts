@@ -369,6 +369,14 @@ export function buildDashboardState(
   const draft = getProposalForTicket(store, ticket.id);
   const acceptedDraftId = draft?.status === 'accepted' ? draft.id : null;
 
+  // A blocked graph run's recovery verdict (T1359, D793) rides the snapshot ONLY
+  // while the run is actually blocked and the host projection supplies one: the
+  // blocked banner is its one reader, and every other snapshot stays unchanged.
+  const graphBlock =
+    graphInside?.enabled && graphInside.graphRun?.status === 'blocked'
+      ? graphInside.graphRun.recovery
+      : undefined;
+
   return {
     ticketId: ticket.id,
     idLabel: formatId('ticket', ticket.id),
@@ -431,6 +439,7 @@ export function buildDashboardState(
     autopilot: autofixReading.slice,
     drain: drainView(drain),
     presentedStage,
+    ...(graphBlock ? { graphBlock } : {}),
     approach: ticket.approach ? { id: ticket.approach, phases, reported } : null,
     artifacts: buildArtifacts({
       store,

@@ -14,7 +14,7 @@ import type {
   SupervisedAgentSession,
   TransportTerminal,
 } from '../../approaches/graph/transport/agentTransport.js';
-import { buildGraphInsideInput, type GraphInsideDeps } from './graphInside.js';
+import { buildGraphInsideInput, graphBlockRecovery, type GraphInsideDeps } from './graphInside.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
 
 let store: Store;
@@ -59,19 +59,31 @@ function session(over: Partial<SupervisedAgentSession> = {}): SupervisedAgentSes
 }
 
 function seedGraph(
-  over: { ticketId?: number; status?: string; approachId?: string } = {},
+  over: {
+    ticketId?: number;
+    status?: string;
+    approachId?: string;
+    blockedReason?: string | null;
+    replanCount?: number;
+    canonicalGraph?: string;
+    /** One graph run per (ticket, attempt): vary it to seed several runs. */
+    stageAttempt?: number;
+  } = {},
 ): { graphRunId: number; revisionId: number } {
   const graphRunId = Number(
     store.db
       .prepare(
         `INSERT INTO approach_graph_runs
-           (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
-         VALUES (?, 'impl', 0, ?, ?, '2026-08-12T00:00:00.000Z')`,
+           (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, replan_count, created_at)
+         VALUES (?, 'impl', ?, ?, ?, ?, ?, '2026-08-12T00:00:00.000Z')`,
       )
       .run(
         over.ticketId ?? 1,
+        over.stageAttempt ?? 0,
         over.approachId ?? 'karst-graph-engineering',
         over.status ?? 'running',
+        over.blockedReason ?? null,
+        over.replanCount ?? 0,
       )
       .lastInsertRowid,
   );
@@ -80,9 +92,9 @@ function seedGraph(
       .prepare(
         `INSERT INTO approach_graph_revisions
            (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
-         VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+         VALUES (?, 1, ?, 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
       )
-      .run(graphRunId)
+      .run(graphRunId, over.canonicalGraph ?? '{}')
       .lastInsertRowid,
   );
   return { graphRunId, revisionId };
@@ -442,5 +454,196 @@ describe('buildGraphInsideInput', () => {
     expect(other).toBeGreaterThan(graphRunId);
     expect(buildGraphInsideInput(h, 2)!.graphRun!.runNumber).toBe(1);
     expect(buildGraphInsideInput(h, 1)!.graphRun!.runNumber).toBe(1);
+  });
+});
+
+/** A compile-valid canonical document (`parseGraphDocument` accepts it), so
+ *  the block reader proves its `budgets.maxReplans`. */
+function canonicalGraph(maxReplans: number): string {
+  return JSON.stringify({
+    version: 1,
+    title: 't',
+    rationaleArtifact: 'r',
+    entries: ['a'],
+    artifacts: [],
+    nodes: [
+      {
+        id: 'a',
+        kind: 'agent',
+        label: 'a',
+        profile: 'default',
+        instructionsArtifact: 'i',
+        inputs: [],
+        outputs: [],
+        resources: { reads: [], writes: [] },
+        outcomes: ['complete', 'blocked', 'replan'],
+        budget: { maxVisits: 1 },
+      },
+    ],
+    edges: [{ id: 'e-a-end', from: 'a', on: 'complete', to: 'END' }],
+    budgets: { maxNodeRuns: 10, maxExpertRuns: 1, maxReplans },
+  });
+}
+
+describe('graphBlockRecovery', () => {
+  it('sends every non-resumable category to Replan', () => {
+    // Resume refuses the whole `explicit-resolution` and `config-then-resume`
+    // categories, whatever their reason — so the banner must not offer it.
+    const reasons = [
+      'graph-budget-exhausted',
+      'graph-workspace-deps: node run 3 (web: x)',
+      'graph-preserve-failed: node run 3',
+      'integration-conflict: api/src/a.ts',
+      'graph-topology-deadlock',
+      null,
+      'weird-unmapped-failure: something',
+    ];
+    for (const [index, blockedReason] of reasons.entries()) {
+      const { graphRunId } = seedGraph({
+        status: 'blocked',
+        blockedReason,
+        canonicalGraph: canonicalGraph(2),
+        stageAttempt: index,
+      });
+      expect(graphBlockRecovery(store, graphRunId), String(blockedReason)).toEqual({
+        primary: 'replan',
+        replanCount: 0,
+        maxReplans: 2,
+      });
+    }
+  });
+
+  it('sends a replan-category block to Replan only once the document budget is spent', () => {
+    // `resource-claim-violated` (D790's preserved evidence) is a replan
+    // category: the banner resumes it while the document has replans left and
+    // replans it at exactly the budget and past it.
+    for (const [index, replanCount] of [1, 2, 3].entries()) {
+      const { graphRunId } = seedGraph({
+        status: 'blocked',
+        blockedReason: 'resource-claim-violated: api/src/a.ts',
+        replanCount,
+        canonicalGraph: canonicalGraph(2),
+        stageAttempt: index,
+      });
+      expect(graphBlockRecovery(store, graphRunId)).toEqual({
+        primary: replanCount < 2 ? 'resume' : 'replan',
+        replanCount,
+        maxReplans: 2,
+      });
+    }
+  });
+
+  it('treats a compile-new-revision block the same way', () => {
+    const headroom = seedGraph({
+      status: 'blocked',
+      blockedReason: 'command-definition-changed: npm test',
+      replanCount: 1,
+      canonicalGraph: canonicalGraph(2),
+      stageAttempt: 0,
+    });
+    expect(graphBlockRecovery(store, headroom.graphRunId).primary).toBe('resume');
+    const spent = seedGraph({
+      status: 'blocked',
+      blockedReason: 'command-definition-changed: npm test',
+      replanCount: 2,
+      canonicalGraph: canonicalGraph(2),
+      stageAttempt: 1,
+    });
+    expect(graphBlockRecovery(store, spent.graphRunId).primary).toBe('replan');
+  });
+
+  it('keeps Resume for every retryable, discard and recheck category', () => {
+    const reasons = [
+      'node-blocked: node 5 (agent said blocked)',
+      'failed-to-launch: folder trust',
+      'launch-unknown: node 8 crash after possible spawn',
+      'output-artifact-missing: results/r.md',
+      'prompt-config-changed: profile prompt',
+    ];
+    for (const [index, blockedReason] of reasons.entries()) {
+      const { graphRunId } = seedGraph({
+        status: 'blocked',
+        blockedReason,
+        canonicalGraph: canonicalGraph(2),
+        stageAttempt: index,
+      });
+      expect(graphBlockRecovery(store, graphRunId).primary, blockedReason).toBe('resume');
+    }
+  });
+
+  it('reports no budget when the active revision is missing or unparseable', () => {
+    const missing = seedGraph({
+      status: 'blocked',
+      blockedReason: 'resource-claim-violated: api/src/a.ts',
+      replanCount: 9,
+      stageAttempt: 0,
+    });
+    store.db
+      .prepare('DELETE FROM approach_graph_revisions WHERE graph_run_id = ?')
+      .run(missing.graphRunId);
+    expect(graphBlockRecovery(store, missing.graphRunId)).toEqual({
+      primary: 'resume',
+      replanCount: 9,
+      maxReplans: null,
+    });
+
+    for (const [index, unparseable] of ['{', '{}'].entries()) {
+      const { graphRunId } = seedGraph({
+        status: 'blocked',
+        blockedReason: 'resource-claim-violated: api/src/a.ts',
+        replanCount: 2,
+        canonicalGraph: unparseable,
+        stageAttempt: index + 1,
+      });
+      // Without a document there is no frozen budget to prove spent — but a
+      // category that refuses Resume regardless still reads Replan.
+      expect(graphBlockRecovery(store, graphRunId)).toEqual({
+        primary: 'resume',
+        replanCount: 2,
+        maxReplans: null,
+      });
+    }
+    const explicit = seedGraph({
+      status: 'blocked',
+      blockedReason: 'integration-conflict: api/src/a.ts',
+      canonicalGraph: '{',
+      stageAttempt: 3,
+    });
+    expect(graphBlockRecovery(store, explicit.graphRunId)).toMatchObject({
+      primary: 'replan',
+      maxReplans: null,
+    });
+    const config = seedGraph({
+      status: 'blocked',
+      blockedReason: 'graph-workspace-deps: node run 3',
+      canonicalGraph: '{',
+      stageAttempt: 4,
+    });
+    expect(graphBlockRecovery(store, config.graphRunId)).toMatchObject({
+      primary: 'replan',
+      maxReplans: null,
+    });
+  });
+});
+
+describe('buildGraphInsideInput graph recovery verdict', () => {
+  it('carries the verdict for a blocked run, and omits it for a running one', () => {
+    const { graphRunId } = seedGraph({
+      status: 'blocked',
+      blockedReason: 'integration-conflict: api/src/a.ts',
+      replanCount: 1,
+      canonicalGraph: canonicalGraph(2),
+    });
+    expect(buildGraphInsideInput(deps(), 1)!.graphRun!.recovery).toEqual({
+      primary: 'replan',
+      replanCount: 1,
+      maxReplans: 2,
+    });
+    expect(graphRunId).toBeGreaterThan(0);
+
+    // A second ticket's running run keeps the field absent, so every existing
+    // fixture reads exactly as before.
+    seedGraph({ ticketId: 2, status: 'running' });
+    expect(buildGraphInsideInput(deps(), 2)!.graphRun).not.toHaveProperty('recovery');
   });
 });

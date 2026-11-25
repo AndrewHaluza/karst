@@ -153,6 +153,8 @@ export function routeAction(
       return actions.openTicketMarkdown(msg.text);
     case 'stage-resume':
       return actions.resumeStage(msg.ticketId, msg.stageKey);
+    case 'stage-replan':
+      return actions.replanStage(msg.ticketId, msg.stageKey);
     case 'run-gate-on-host':
       return actions.runGateOnHost(msg.ticketId, msg.stageKey);
     case 'usage-limit-pick':

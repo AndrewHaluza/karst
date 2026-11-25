@@ -94,11 +94,17 @@ const uatMenuState = (): DashboardState =>
     resetStage: { available: true, stage: 'uat' },
   });
 
-const blockedState = (kind: string, resumable: boolean): DashboardState => {
-  const s = populatedStateFor('uat');
-  const cell = s.stepper.find((c) => c.stageKey === 'uat')!;
+const blockedState = (
+  kind: string,
+  resumable: boolean,
+  opts: { stage?: Stage; graphBlock?: DashboardState['graphBlock'] } = {},
+): DashboardState => {
+  const stage = opts.stage ?? 'uat';
+  const s = populatedStateFor(stage);
+  const cell = s.stepper.find((c) => c.stageKey === stage)!;
   return {
     ...s,
+    ...(opts.graphBlock === undefined ? {} : { graphBlock: opts.graphBlock }),
     currentStage: { ...cell, blocked: { kind, reason: 'quota exhausted', at: '2026-08-12T10:00:00.000Z', resumable } },
   } as DashboardState;
 };
@@ -670,6 +676,17 @@ export const COVERED: readonly ParityCase[] = [
   {
     act: 'stage-resume', state: () => blockedState('boot-failed', true), sel: act('stage-resume', '[data-stagekey="uat"]'),
     posts: [{ type: 'stage-resume', ticketId: 942017, stageKey: 'uat' }], rid: true,
+  },
+  {
+    // T1359, D793: a graph block whose Resume would refuse offers the primary Replan instead — the same
+    // ticket/stage payload on its own message, so the host can route it to graph-aware recovery.
+    act: 'stage-replan', variant: 'blocked banner',
+    state: () => blockedState('approach-graph-failed', true, {
+      stage: 'impl',
+      graphBlock: { primary: 'replan', replanCount: 1, maxReplans: 2 },
+    }),
+    sel: act('stage-replan', '[data-stagekey="impl"]'),
+    posts: [{ type: 'stage-replan', ticketId: 942017, stageKey: 'impl' }], rid: true,
   },
   {
     act: 'run-gate-on-host', state: () => blockedState('resource-killed', true), sel: act('run-gate-on-host', '[data-stagekey="uat"]'),

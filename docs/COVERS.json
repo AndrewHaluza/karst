@@ -271,11 +271,15 @@
   "src/approaches/graph/coordinator/recovery.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/approaches/graph/coordinator/recoveryGuidance.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
   "src/approaches/graph/coordinator/replan.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
   "src/approaches/graph/coordinator/replanDrain.ts": [
-    "arch:GRAPH-AUTORECOVERY"
+    "arch:GRAPH-AUTORECOVERY",
+    "arch:GRAPH-REPLAN-DRAIN"
   ],
   "src/approaches/graph/integration/changeSetCapture.ts": [
     "arch:GRAPH-PRESERVE"
@@ -620,7 +624,8 @@
     "arch:GRAPH-AUTORECOVERY"
   ],
   "src/extension/ops/graphReplanDrain.ts": [
-    "arch:GRAPH-AUTORECOVERY"
+    "arch:GRAPH-AUTORECOVERY",
+    "arch:GRAPH-REPLAN-DRAIN"
   ],
   "src/extension/ops/hostUserUat.ts#hasRunningHostPlacedServices": [
     "arch:AC-58"
