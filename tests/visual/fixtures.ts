@@ -12,6 +12,7 @@ import type { ViewId } from './chains.js';
 import { fixtureFile } from './variants.js';
 import { missingFixtureMessage } from './fixtureScope.js';
 import { SECTION_LABELS, type SettingsSection } from '../../src/ui/settings/sections.js';
+import { FIXTURE_NOW_MS } from '../../src/ui/dashboard/renderFixtures.js';
 
 /** A settings route: the outer nav section, plus an optional in-page hash. */
 export interface SettingsRoute {
@@ -61,8 +62,9 @@ async function openRoute(page: Page, route: SettingsRoute): Promise<void> {
  * The dashboard reads `Date.now()` for its relative ages (Sub-tasks `14h ago`,
  * PR `opened 2 days ago`) against fixed fixture stamps, so an unpinned clock
  * drifts every dashboard baseline as the day moves. Pinned for dashboard pages.
+ * The fixture stamps age from the same instant (`FIXTURE_NOW_MS`, T1357).
  */
-const DASHBOARD_NOW = new Date('2026-10-27T22:00:00.000Z');
+const DASHBOARD_NOW = new Date(FIXTURE_NOW_MS);
 
 /** How long `gotoView` waits for the page's seed script to mark `<html data-karst-ready>`. */
 const READY_TIMEOUT_MS = 5000;
