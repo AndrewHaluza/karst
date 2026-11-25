@@ -77,6 +77,7 @@ import {
   finalizeAttachmentDetach,
   finalizeAttachmentWrite,
   getAttachment,
+  listAttachments,
   prepareAttachmentDetach,
   releaseAttachmentDetach,
   releaseAttachmentOperation,
@@ -616,9 +617,43 @@ export function buildTicketFormActions(
       return draft.id;
     };
 
+    /** Remove one attachment row of a ticket and its file. Throws on a failure. */
+    const detachRow = async (ticketId: number, id: number): Promise<void> => {
+      const decision = prepareAttachmentDetach(deps.store, id, ticketId);
+      if (!decision) return;
+      const { row } = decision;
+      if (!decision.needsUnlink) return;
+      // Keep a DB-visible detach claim across the async filesystem operation.
+      // Moving aside first makes a failed unlink reversible; final row delete
+      // is conditional on this detach still owning the token, so a concurrent
+      // same-content attach cancels it rather than losing its publication.
+      let staged: StagedAttachmentRemoval | null = null;
+      try {
+        staged = await stageAttachmentRemoval(deps.storageDir, row.ticketId, row.storedName, decision.token);
+      } catch (error) {
+        releaseAttachmentDetach(deps.store, row.id, decision.token);
+        throw error;
+      }
+      try {
+        await discardStagedAttachment(staged);
+      } catch (error) {
+        // Keep waiters/new detaches behind the handshake until rollback has
+        // restored the destination (without replacing a newer publication).
+        // If restoration itself fails, retain the token rather than exposing
+        // a live row whose destination is still absent.
+        await restoreStagedAttachment(staged);
+        releaseAttachmentDetach(deps.store, row.id, decision.token);
+        throw error;
+      }
+      // From here the published bytes are gone. If SQLite finalization throws,
+      // deliberately retain detach_token: the row is durable retry metadata,
+      // and prepareAttachmentDetach resumes that token on the next click.
+      finalizeAttachmentDetach(deps.store, row.id, decision.token);
+    };
+
     /**
-     * Attach every staged draft file to the ticket, under its original name. Each file leaves the
-     * staged list once it is attached, so a repeat call never attaches it twice. A failure throws.
+     * Attach every staged draft file to the ticket, under its original name. The staged
+     * list empties only when every file is attached. A failure removes the files it attached and throws.
      */
     const ingestStaged = async (ticketId: number): Promise<void> => {
       const draftId = ctx.stagedDraftId;
@@ -630,15 +665,36 @@ export function buildTicketFormActions(
           bytes: await readFile(join(draftAttachmentDir(deps.storageDir, draftId), staged.storedName)),
         })),
       );
-      for (const { staged, bytes } of loaded) {
-        const ok = await record(
-          ticketId,
-          await ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
-          () => ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
-        );
-        if (!ok) throw new Error(`Could not attach ${staged.name}.`);
-        ctx.unstage?.(staged.storedName);
+      const before = new Set(listAttachments(deps.store, ticketId).map((r) => r.id));
+      try {
+        for (const { staged, bytes } of loaded) {
+          const ok = await record(
+            ticketId,
+            await ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
+            () => ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
+          );
+          if (!ok) throw new Error(`Could not attach ${staged.name}.`);
+        }
+      } catch (error) {
+        // All or none: a file attached before the failure leaves again, and the staged list stays whole.
+        await removeAdded(ticketId, before);
+        throw error;
       }
+      for (const { staged } of loaded) ctx.unstage?.(staged.storedName);
+    };
+
+    /** Remove the attachment rows of a ticket that are not in `before`. */
+    const removeAdded = async (ticketId: number, before: ReadonlySet<number>): Promise<void> => {
+      const failed: string[] = [];
+      for (const row of listAttachments(deps.store, ticketId)) {
+        if (before.has(row.id)) continue;
+        try {
+          await detachRow(ticketId, row.id);
+        } catch {
+          failed.push(row.originalName);
+        }
+      }
+      if (failed.length > 0) throw new Error(`Could not remove the partly attached ${failed.join(', ')}.`);
     };
 
     /**
@@ -917,44 +973,7 @@ export function buildTicketFormActions(
         // an id belonging to another ticket must not let this panel unlink that
         // ticket's file.
         if (ctx.ticketId === undefined) return;
-        const decision = prepareAttachmentDetach(deps.store, id, ctx.ticketId);
-        if (!decision) return;
-        const { row } = decision;
-        if (!decision.needsUnlink) {
-          ctx.pushState();
-          return;
-        }
-        // Keep a DB-visible detach claim across the async filesystem operation.
-        // Moving aside first makes a failed unlink reversible; final row delete
-        // is conditional on this detach still owning the token, so a concurrent
-        // same-content attach cancels it rather than losing its publication.
-        let staged: StagedAttachmentRemoval | null = null;
-        try {
-          staged = await stageAttachmentRemoval(
-            deps.storageDir,
-            row.ticketId,
-            row.storedName,
-            decision.token,
-          );
-        } catch (error) {
-          releaseAttachmentDetach(deps.store, row.id, decision.token);
-          throw error;
-        }
-        try {
-          await discardStagedAttachment(staged);
-        } catch (error) {
-          // Keep waiters/new detaches behind the handshake until rollback has
-          // restored the destination (without replacing a newer publication).
-          // If restoration itself fails, retain the token rather than exposing
-          // a live row whose destination is still absent.
-          await restoreStagedAttachment(staged);
-          releaseAttachmentDetach(deps.store, row.id, decision.token);
-          throw error;
-        }
-        // From here the published bytes are gone. If SQLite finalization throws,
-        // deliberately retain detach_token: the row is durable retry metadata,
-        // and prepareAttachmentDetach resumes that token on the next click.
-        finalizeAttachmentDetach(deps.store, row.id, decision.token);
+        await detachRow(ctx.ticketId, id);
         ctx.pushState();
       } catch (e) {
         ctx.post({ type: 'error', message: errorMessage(e) });

@@ -449,6 +449,17 @@ describe('buildTicketContext', () => {
       );
     });
 
+    it('marks a file over the sandbox mirror limit as not in the sandbox', () => {
+      const ticketId = seed();
+      insertAttachment(store, { ticketId, kind: 'file', storedName: 'b3f9e1b2c3d4e5f6.txt', originalName: 'big.txt', byteSize: 3 * 1024 * 1024 });
+      insertAttachment(store, { ticketId, kind: 'file', storedName: 'c3f9e1b2c3d4e5f6.txt', originalName: 'edge.txt', byteSize: 2 * 1024 * 1024 });
+      const ctx = buildTicketContext(store, undefined, ticketId, '/storage');
+      expect(ctx.attachments.map((x) => x.notInSandbox)).toEqual([true, undefined]);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('"big.txt" (attachment >2 MB, not in sandbox)');
+      expect(md).toMatch(/"edge\.txt"$/m);
+    });
+
     it('marks a video as not agent-readable', () => {
       const ticketId = seed();
       insertAttachment(store, {

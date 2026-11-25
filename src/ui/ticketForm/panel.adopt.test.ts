@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket, getTicket, archiveTicket } from '../../store/tickets.js';
+import { insertAttachment } from '../../store/attachments.js';
 import { TicketFormManager, restoredTicketFormIdentity } from './panel.js';
 import type { TicketFormPanel, TicketFormPanelHost } from './panel.js';
 import type { TicketFormActions } from './messages.js';
@@ -190,6 +191,19 @@ describe('TicketFormManager.adopt', () => {
       // restore never deletes a row: another form may have saved it since the reload
       r.panel.dispose();
       expect(getTicket(store, rowId).id).toBe(rowId);
+    });
+
+    it('stages only the draft files that the minted ticket does not hold yet', () => {
+      const rowId = mint('FETCHED-3');
+      insertAttachment(store, { ticketId: rowId, kind: 'file', storedName: 'aaaaaaaaaaaaaaaa.txt', originalName: 'a.txt', byteSize: 1 });
+      const files = [
+        { name: 'a.txt', storedName: 'aaaaaaaaaaaaaaaa.txt', kind: 'file', byteSize: 1 },
+        { name: 'b.txt', storedName: 'bbbbbbbbbbbbbbbb.txt', kind: 'file', byteSize: 1 },
+      ];
+      const r = restored();
+      expect(mgr.adopt(r.restored, state({ mintedTicketId: rowId }), exists, () => ({ ...prefill, attachments: files }), pending)).toBe(true);
+      const rows = (r.panel.posted[0] as { state: { attachments: { name: string; staged?: boolean }[] } }).state.attachments;
+      expect(rows.filter((x) => x.staged === true).map((x) => x.name)).toEqual(['b.txt']);
     });
 
     it('restores a saved proposal form as the edit form of its ticket and never deletes the ticket', () => {

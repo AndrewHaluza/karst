@@ -144,6 +144,10 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     async review(id) {
       const p = await pending(id);
       if (!p) return;
+      if (stillCopying(p)) {
+        deps.notify.warn(`Draft ${formatId('draft', id)} still copies its files. Open Review again in a moment.`);
+        return;
+      }
       deps.openForm(prefillOf(p));
     },
 
@@ -182,6 +186,12 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     },
   };
   return ops;
+
+  /** True while the host copy of the listed files has neither a file nor a refusal to show. */
+  function stillCopying(p: PlanningProposal): boolean {
+    const listed = p.payload.attachments?.length ?? 0;
+    return listed > 0 && p.attachments.length === 0 && !p.warnings.some((w) => w.startsWith('attachment refused:'));
+  }
 
   /** The review form prefill of a proposal; `onCreated` links the saved ticket to it. */
   function prefillOf(p: PlanningProposal): TicketFormPrefill {

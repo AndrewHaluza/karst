@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { formatId } from '../../model/entityId.js';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createPlanningSession, listPlanningTickets } from '../../store/planningSessions.js';
@@ -324,6 +325,20 @@ describe('planningProposalOps', () => {
     const withList = (): void => {
       setProposalHostAttachments(store, proposalId, '', list);
     };
+
+    it('Review waits with a notice while the listed files are still being copied', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] });
+      await ops().review(id);
+      expect(forms).toEqual([]);
+      expect(warns).toEqual([`Draft ${formatId('draft', id)} still copies its files. Open Review again in a moment.`]);
+    });
+
+    it('Review opens when every listed file was refused', async () => {
+      const id = insertProposal(store, sessionId, { title: 'T', description: 'd'.repeat(40), summary: 's', repos: ['api'], attachments: [{ path: 'a.txt' }] }, '', ['attachment refused: a.txt (missing)']);
+      await ops().review(id);
+      expect(forms).toHaveLength(1);
+      expect(warns).toEqual([]);
+    });
 
     it('prefill lists the host attachments, binding first', async () => {
       withList();

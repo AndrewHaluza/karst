@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { RestoredPanel } from '../shared/restoredPanel.js';
 import { deleteTicket, getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.js';
+import { listAttachments } from '../../store/attachments.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
@@ -460,7 +461,10 @@ export class TicketFormManager {
     let prefillCommitted = false;
     // Draft files the review form lists before the ticket exists. Save ingests them, then each leaves.
     // A form that opens on an existing ticket (a restored review) stages nothing: the stored ticket is the truth.
-    let staged: StagedAttachment[] = ticketId === undefined ? [...(prefill?.attachments ?? [])] : [];
+    // A restored form that holds a minted ticket stages only the files that ticket does not hold yet.
+    const held = new Set(mintedTicketId === undefined ? [] : listAttachments(this.store, mintedTicketId).map((r) => r.originalName));
+    let staged: StagedAttachment[] =
+      ticketId === undefined ? (prefill?.attachments ?? []).filter((f) => !held.has(f.name)) : [];
     // The row THIS prefilled panel minted (bind from unbound). Deleted on
     // dispose unless the user's Save/Submit committed it; a pre-existing row
     // (edit panel) is never recorded here.

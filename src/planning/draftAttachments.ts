@@ -153,9 +153,10 @@ export async function snapshotDraftAttachments(args: SnapshotArgs): Promise<Snap
       const { bytes, name } = await readConfined(artifactsReal, args.artifactsDir, entry.path, used);
       const v = validateAttachment(name, bytes.length);
       if (!v.ok) throw new Refused('type');
-      const storedName = `${createHash('sha256').update(bytes).digest('hex').slice(0, 16)}.${v.extension}`;
+      // The name joins the hash: two files with equal bytes and different names need two staged keys.
+      const storedName = `${createHash('sha256').update(name).update('\0').update(bytes).digest('hex').slice(0, 16)}.${v.extension}`;
       used += bytes.length;
-      if (list.some((x) => x.storedName === storedName && x.name === name)) continue;
+      if (list.some((x) => x.storedName === storedName)) continue;
       await writeBlob(dir, storedName, bytes);
       const item: HostAttachment = { name, storedName, kind: v.kind, byteSize: bytes.length };
       if (entry.note !== undefined) item.note = entry.note;

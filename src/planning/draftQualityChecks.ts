@@ -114,16 +114,23 @@ const LEAK_PATTERNS: readonly RegExp[] = [
   /(?<![\w./-])docs\/superpowers\/plans\//,
 ];
 
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** A cite ends here: no further path character, and no dot that starts a longer name. */
+const CITE_END = '(?![\\w/-]|\\.\\w)';
+
 /** `text` without each cite of a listed attachment: its artifacts path, then its bare file name. */
 function withoutListedAttachments(text: string, listed: readonly { path: string }[] | undefined): string {
   const files = listed ?? [];
   const full = files.flatMap(({ path }) => [`/artifacts/${path}`, `\${KARST_ARTIFACTS}/${path}`, `$KARST_ARTIFACTS/${path}`]);
   // Remove whole paths first, longest first. Then remove a bare file name only when no path character precedes it.
-  const noPaths = full.sort((a, b) => b.length - a.length).reduce((acc, c) => acc.split(c).join(''), text);
+  // A cite of a longer, unlisted path (`a.md.bak`, `a.md/x`) is never a cite of the listed file.
+  const noPaths = full
+    .sort((a, b) => b.length - a.length)
+    .reduce((acc, c) => acc.replace(new RegExp(`${escapeRegExp(c)}${CITE_END}`, 'g'), ''), text);
   return files.reduce((acc, { path }) => {
     const name = path.slice(path.lastIndexOf('/') + 1);
     if (name === '') return acc;
-    return acc.replace(new RegExp(`(?<![\\w./~$}-])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), '');
+    return acc.replace(new RegExp(`(?<![\\w./~$}-])${escapeRegExp(name)}${CITE_END}`, 'g'), '');
   }, noPaths);
 }
 

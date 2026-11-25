@@ -1691,6 +1691,20 @@ describe('buildTicketFormActions', () => {
       expect(left().map((f) => f.name)).toEqual(['a.txt', 'b.txt']);
     });
 
+    it('save removes the first attached file again when the second cannot be attached', async () => {
+      writeBlob(10, '0123456789abcdef.txt', 'hello');
+      writeBlob(10, 'aaaaaaaaaaaaaaaa.exe', 'MZ');
+      const { ctx, order, left } = stagedCtx(10, [
+        { name: 'a.txt', storedName: '0123456789abcdef.txt' },
+        { name: 'noext', storedName: 'aaaaaaaaaaaaaaaa.exe' },
+      ]);
+      await buildTicketFormActions(deps)(ctx).save(fields);
+      expect(listAttachments(deps.store, ctx.boundTicketId!)).toEqual([]);
+      expect(left().map((f) => f.name)).toEqual(['a.txt', 'noext']);
+      expect(order).toEqual([]);
+      expect(ctx.posted.some((m) => m.type === 'error')).toBe(true);
+    });
+
     it('unstageAttachment also works once the form is bound to a ticket', () => {
       const { ctx, left } = stagedCtx(9, [{ name: 'a.txt', storedName: '0123456789abcdef.txt' }]);
       ctx.bindTicket(12);

@@ -105,6 +105,14 @@ describe('snapshotDraftAttachments', () => {
     expect(r.warnings).toEqual(['attachment refused: a.txt (link)']);
   });
 
+  it('gives two files with equal bytes and different names two stored names', async () => {
+    writeFileSync(join(art, 'a.txt'), 'same');
+    writeFileSync(join(art, 'b.txt'), 'same');
+    const r = await run([{ path: 'a.txt' }, { path: 'b.txt' }]);
+    expect(r.list.map((x) => x.name)).toEqual(['a.txt', 'b.txt']);
+    expect(new Set(r.list.map((x) => x.storedName)).size).toBe(2);
+  });
+
   it('remove deletes the directory of a draft', async () => {
     writeFileSync(join(art, 'a.txt'), 'a');
     await run([{ path: 'a.txt' }]);

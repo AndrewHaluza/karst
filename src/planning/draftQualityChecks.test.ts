@@ -141,6 +141,16 @@ describe('draftQualityWarnings', () => {
       };
       expect(draftQualityWarnings(d)).toContain(LEAK_WARNING);
     });
+    it('keeps the warning for a longer unlisted path that starts like a listed one', () => {
+      for (const cite of ['$KARST_ARTIFACTS/proto/a.html.bak', '$KARST_ARTIFACTS/proto/a.html/x.md', '${KARST_ARTIFACTS}/proto/a.htmlx']) {
+        const d = { ...draft(`${WELL_DESC} See ${cite} for the layout.`), attachments: [{ path: 'proto/a.html' }] };
+        expect(draftQualityWarnings(d), cite).toContain(LEAK_WARNING);
+      }
+    });
+    it('still accepts a listed cite that ends a sentence', () => {
+      const d = { ...draft(`${WELL_DESC} The layout is in $KARST_ARTIFACTS/proto/a.html.`), attachments: [{ path: 'proto/a.html' }] };
+      expect(draftQualityWarnings(d)).not.toContain(LEAK_WARNING);
+    });
     it('uses the attachments wording', () => {
       expect(LEAK_WARNING).toBe('plan path not in attachments (attach or inline)');
     });

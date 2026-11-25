@@ -1415,5 +1415,19 @@ describe('planning outbox', () => {
       expect(getProposal(store, id)!.attachments).toEqual([]);
       expect(existsSync(join(storageDir(), 'attachments', `draft-${id}`))).toBe(false);
     });
+
+    it('drops the copy of a superseded revision when the draft was discarded before it ended', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, title: 'second' });
+      ob.scan();
+      discardProposal(store, id);
+      // The revise holds no latch, so wait for the old copy by time.
+      await new Promise<void>((r) => setTimeout(r, 100));
+      expect(existsSync(join(storageDir(), 'attachments', `draft-${id}`))).toBe(false);
+    });
   });
 });
