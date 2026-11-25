@@ -1332,7 +1332,7 @@ describe('planning outbox', () => {
       const id = pending()[0]!.id;
       discardProposal(store, id);
       release();
-      await flush();
+      await new Promise<void>((r) => setTimeout(r, 0));
       expect(getProposal(store, id)!.warnings).toEqual([]);
       expect(onWarnings).not.toHaveBeenCalled();
     });
