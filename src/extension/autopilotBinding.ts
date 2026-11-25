@@ -19,6 +19,7 @@ import { deliverTargets } from '../workflow/deliverState.js';
 import { listPrsByTicket } from '../store/dashboard.js';
 import { regenerateCommand, type RegenerateEntry } from '../workflow/gates/regenerate.js';
 import type { StaleRebaseSeams } from './ops/autopilotStaleRebase.js';
+import type { ShipRetryOutcome, ShipRetrySeams } from './ops/autopilotShipRetry.js';
 
 /** Tracks the session launch a hand-off started, so autopilot can read a failed launch as a failed round instead of a sent one. */
 export function makeLaunchTracker(
@@ -155,6 +156,10 @@ export interface AutopilotBindingDeps {
   readonly markRound?: (ticketId: number, on: boolean) => void;
   /** The gh runner of the one re-run of a transient CI failure (T1019). Absent: no re-run. */
   readonly gh?: GhRunner;
+  /** The worktree reads of the ship retry after a GitHub server error (@arch:AP-11). Absent: no retry. */
+  readonly shipRetry?: (ticketId: number) => ShipRetrySeams;
+  /** Re-runs a confirmed ship for the named repos through the Retry ship path (@arch:AP-11). Absent: no retry. */
+  readonly retryShip?: (ticketId: number, repos: readonly string[]) => Promise<ShipRetryOutcome>;
 }
 
 /**
@@ -269,6 +274,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
     sweeping = true;
     void autopilotSweep({
       store: d.store, projectId: d.projectId, manifest: d.manifest, caps: d.caps, debug: d.debug, changed: d.changed,
+      now: () => now(),
       seamsFor: (id) => ({
         controls: () => (d.canLaunch?.(id) ?? true) && !cooling(id) && ['self', 'none'].includes(holder(id))
           && claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS),
@@ -291,6 +297,8 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         },
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
         ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseHeld(id, () => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) }))) } : {}),
+        ...(d.shipRetry ? { shipRetry: d.shipRetry(id) } : {}),
+        ...(d.retryShip ? { retryShip: (repos: readonly string[]) => d.retryShip!(id, repos) } : {}),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };

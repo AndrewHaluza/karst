@@ -82,7 +82,7 @@ import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import type { ShipGatesDeps } from './extension/ops/shipGatesOps.js';
-import { autoDeliverAction, shipBaseCheck, shipBaseRemedy, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import { autoDeliverAction, headShaOf, shipBaseCheck, shipBaseRemedy, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { sendBackBriefForTicket } from './extension/ops/sendBackBriefForTicket.js';
@@ -2130,6 +2130,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dropConflictRound: (id) => conflictRounds.disarm(id),
     isDraining: () => drain.isDraining(),
     startAutoDeliver: (id) => startAutoDeliver(id),
+    // @arch:AP-11: a confirmed ship that failed only on a GitHub server error is retried through the Retry ship path.
+    shipRetry: (id) => {
+      const pathOf = new Map(listWorktreesByTicket(localStore, id).map((w) => [w.repo, w.path]));
+      const input = ciInput(id);
+      return {
+        worktreeClean: async (repo) => {
+          const cwd = pathOf.get(repo);
+          if (cwd === undefined) return { ok: false as const };
+          const r = await input.git(['status', '--porcelain', '-uall'], cwd);
+          return r.exitCode === 0 ? { ok: true as const, clean: r.stdout.trim() === '' } : { ok: false as const };
+        },
+        localHead: async (repo) => {
+          const cwd = pathOf.get(repo);
+          return cwd === undefined ? null : headShaOf(input, cwd);
+        },
+      };
+    },
+    retryShip: async (id, repos) => {
+      try {
+        await runShipSaga(id, false, { repos });
+        return { kind: 'sent' as const };
+      } catch (e) {
+        if (e instanceof ShipDrainingError) return { kind: 'busy' as const };
+        // The saga recorded the failure on the ship stage and opened its run: the next tick reads that run.
+        logger.debug(`[ship] autopilot ticket ${formatId('ticket', id)}: the ship retry ended (${e instanceof Error ? e.message : String(e)})`);
+        return { kind: 'sent' as const };
+      }
+    },
   });
   context.subscriptions.push(autopilot);
   freeSlotOnConflictRoundEnd(localStore);

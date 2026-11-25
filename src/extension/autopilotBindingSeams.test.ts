@@ -101,6 +101,17 @@ describe('the seams of one ticket', () => {
     handle.dispose();
   });
 
+  it('forwards the ship-retry seams for the ticket (T1362)', async () => {
+    const shipRetry = vi.fn(() => ({ worktreeClean: async () => ({ ok: true as const, clean: true }), localHead: async () => 'h' }));
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const r = rig({ shipRetry, retryShip });
+    const { handle, seams } = open(r);
+    expect(seams.shipRetry).toBe(shipRetry.mock.results[0]!.value);
+    await expect(seams.retryShip!(['repo-a'])).resolves.toEqual({ kind: 'sent' });
+    expect(retryShip).toHaveBeenCalledWith(r.id, ['repo-a']);
+    handle.dispose();
+  });
+
   it('pass the optional seams only when the deps carry them', () => {
     const bare = open(rig());
     expect(Object.keys(bare.seams)).not.toEqual(expect.arrayContaining(['isDraining', 'resumeDeliver', 'transientCi', 'staleRebase', 'sandboxPreflight']));
