@@ -1,8 +1,10 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
+import { baselineCollisions, type AllowedCollision } from './baselineDistinct.js';
 import { settingsRoutes } from './settingsRoutes.js';
 import { layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
 
@@ -22,6 +24,14 @@ const NON_VIEW_BASELINES = new Set([
 ]);
 
 const allVariants = WEBVIEW_NAMES.flatMap((view) => VARIANTS[view].map((variant) => ({ view, variant })));
+
+/**
+ * Groups of variants that may record the same picture in one theme project, each with the reason
+ * (@ui:VISUAL-VARIANTS). An entry that stops colliding fails the distinctness test, so remove it when its fix lands.
+ */
+const ALLOWED_BASELINE_COLLISIONS: readonly AllowedCollision[] = [];
+
+const sha256 = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 describe('variant registry coverage (ui:UI-R57)', () => {
   it('has a registry entry for every webview', () => {
@@ -48,6 +58,18 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     for (const { view, variant } of allVariants) {
       expect(Array.isArray(variant.corpus().messages), `${view}/${variant.id}`).toBe(true);
     }
+  });
+
+  it('records a distinct picture for every variant in each theme project, unless allow-listed (@ui:VISUAL-VARIANTS)', () => {
+    const shots = allVariants.flatMap(({ variant }) =>
+      variant.themes
+        .map((theme) => ({ theme, file: join(BASELINES, theme, `${variant.baseline}.png`) }))
+        .filter(({ file }) => existsSync(file))
+        .map(({ theme, file }) => ({ theme, baseline: variant.baseline, hash: sha256(file) })),
+    );
+    const { unexpected, stale } = baselineCollisions(shots, ALLOWED_BASELINE_COLLISIONS);
+    expect(unexpected, 'variants that record the same picture').toEqual([]);
+    expect(stale, 'allow-list entries that no longer collide').toEqual([]);
   });
 
   it('has a baseline PNG for every variant in every required theme project', () => {
