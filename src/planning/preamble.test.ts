@@ -117,6 +117,12 @@ describe('planningArtifactsDir', () => {
     expect(text).not.toContain('KARST_ARTIFACTS');
     expect(text).not.toContain('Do not install packages, copy repositories or write build output');
   });
+
+  it('names the verb that imports a file of another planning session, never a manual copy', () => {
+    const text = planningInstructions({ sessionId: 7, title: 'T', manifest, artifactsDir: '/s/7/artifacts' });
+    expect(text).toContain('plan-artifacts import --session P<n> --path <rel>');
+    expect(text).toContain('never a manual copy');
+  });
 });
 
 describe('planningInstructions — project notes index', () => {

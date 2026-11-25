@@ -37,12 +37,14 @@ import { runSubtaskCommand } from './subtaskCommand.js';
 import { runPauseCommand } from './pauseCommand.js';
 import { runCloseCommand } from './closeCommand.js';
 import { runDraftCommand } from './draftCommand.js';
+import { runPlanArtifactsCommand } from './planArtifactsCommand.js';
 import { parseBlockedArgs, runBlockedCommand } from './blockedCommand.js';
 import { parseQueueArgs, runQueueCommand } from './queueCommand.js';
 import { configureOpencode2FromEnv } from '../agent/opencode2Binary.js';
 import { KARST_DB_READONLY_ENV, KARST_MANIFEST_ENV, KARST_PROJECT_ENV, KARST_REVIEW_FLOOR_ENV } from '../agent/cliEnv.js';
 import { BLOCKING_SEVERITIES, reviewBlockingFloor } from '../manifest/qualityDefaults.js';
 import { getProjectById, getProjectBySlug } from '../store/projects.js';
+import { getPlanningSession } from '../store/planningSessions.js';
 import { KARST_PLANNING_SESSION_ENV } from '../planning/preamble.js';
 import { runMessageCommand } from './messageCommand.js';
 import { runNotesCommand, runNotesReposCommand } from './notesCommand.js';
@@ -76,14 +78,29 @@ function writeManifestDiagnostics(diagnostics: readonly string[]): void {
   for (const d of diagnostics) process.stderr.write(`karst: ${d}\n`);
 }
 
-/** The verbs a planning session may run: reads, plus the `manifest` and `draft` parse paths. */
-const PLANNING_VERBS: ReadonlySet<string> = new Set(['context', 'stats', 'blocked', 'queue', 'guide', 'schema', 'manifest', 'draft']);
+/**
+ * The verbs a planning session may run: reads, the `manifest` and `draft`
+ * parse paths, and `plan-artifacts` (list; its import writes only inside the
+ * session's own artifacts dir).
+ */
+const PLANNING_VERBS: ReadonlySet<string> = new Set([
+  'context',
+  'stats',
+  'blocked',
+  'queue',
+  'guide',
+  'schema',
+  'manifest',
+  'draft',
+  'plan-artifacts',
+]);
 
 /**
- * A planning session may run only the read verbs, and `notes --repos` (the read
- * its preamble names). It is refused here even when the caller passes `--db`
- * itself, so no flag opens a write path (@arch:CLI-13). Both `runCli` and
- * `runCliAsync` call it, so an async-only write verb is refused too.
+ * A planning session may run only the read verbs, `notes --repos` (the read its
+ * preamble names), and the two verbs that write inside its own scratch dir. It
+ * is refused here even when the caller passes `--db` itself, so no flag opens a
+ * write path (@arch:CLI-13). Both `runCli` and `runCliAsync` call it, so an
+ * async-only write verb is refused too.
  */
 export function assertPlanningVerbAllowed(env: Readonly<Record<string, string | undefined>>, rest: readonly string[]): void {
   if (env[KARST_PLANNING_SESSION_ENV] === undefined) return;
@@ -93,7 +110,7 @@ export function assertPlanningVerbAllowed(env: Readonly<Record<string, string | 
   const mcpServe = verb === 'mcp' && rest[1] === 'serve';
   if (PLANNING_VERBS.has(verb) || notesRead || mcpServe) return;
   throw new Error(
-    `'${verb}' is not available in a planning session (read verbs only: context, stats, blocked, queue, guide, schema, notes --repos)`,
+    `'${verb}' is not available in a planning session (read verbs only: context, stats, blocked, queue, guide, schema, notes --repos; the verbs that write inside the session scratch: draft propose and plan-artifacts import)`,
   );
 }
 
@@ -226,6 +243,13 @@ function loadProjectSlug(
  *             a PLANNING session proposes a draft ticket: one JSON object on
  *             stdin, written into `$KARST_OUTBOX`. No store, no flags — the host
  *             ingests it and a human confirms (see draftCommand.ts, cli.md).
+ *
+ *   plan-artifacts: `… plan-artifacts list [--session P<n>] [--json]`
+ *             `… plan-artifacts import --session P<n> --path <rel> [--as <name>] [--force]`
+ *             a PLANNING session reads a file of ANOTHER session of the same
+ *             project: `list` walks that session's scratch dir, `import` copies
+ *             one confined regular file into the caller's own artifacts dir
+ *             (see planArtifactsCommand.ts, cli.md).
  *
  *   message / inbox: `… message send --to parent|<child-key> --body <t> --db <db> --ticket <key>`
  *             `… inbox [--all] [--json] --db <db> --ticket <key>`
@@ -385,6 +409,23 @@ export function runCli(
   // session's read-only registry path. No write verb reads this, so a write in
   // a planning session still refuses with `missing --db` (@arch:CLI-13).
   const readDb = db ?? env[KARST_DB_READONLY_ENV];
+
+  // `karst plan-artifacts list|import` — a PLANNING session reads a file of
+  // another session of the same project. The store is opened READ-ONLY, only to
+  // prove the session belongs to KARST_PROJECT; the files come from the scratch
+  // root and the copy lands in the caller's own artifacts dir (@arch:CLI-13).
+  if (subcommand === 'plan-artifacts') {
+    if (!readDb) throw new Error('missing --db <path>');
+    const store = openReadonlyStore(readDb);
+    try {
+      return runPlanArtifactsCommand(effectiveRest, {
+        env,
+        sessionProject: (id) => getPlanningSession(store, id)?.projectId,
+      });
+    } finally {
+      store.close();
+    }
+  }
 
   if (subcommand === 'context') {
     if (!readDb) throw new Error('missing --db <path>');
@@ -781,7 +822,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'queue', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'message', 'inbox', 'notes', 'arch', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'blocked', 'queue', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'close', 'reopen', 'subtask', 'draft', 'plan-artifacts', 'message', 'inbox', 'notes', 'arch', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
 }
 

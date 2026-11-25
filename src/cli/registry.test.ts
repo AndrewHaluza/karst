@@ -26,6 +26,7 @@ describe('command registry', () => {
       'reopen',
       'subtask',
       'draft',
+      'plan-artifacts',
       'message',
       'inbox',
       'notes',
@@ -91,6 +92,36 @@ describe('validateCommandInput', () => {
     expect(() => validateCommandInput('draft', { ...base, priority: 'high', priorityReason: 'blocks release' })).not.toThrow();
     expect(() => validateCommandInput('draft', { ...base, priority: 'critical' })).toThrow(/priority/);
     expect(() => validateCommandInput('draft', { ...base, priorityReason: 7 })).toThrow(/priorityReason/);
+  });
+
+  it('plan-artifacts encodes both subcommands and accepts P<n> or an integer session', () => {
+    const spec = getCommandSpec('plan-artifacts')!;
+    expect(spec.writes).toBe(true);
+    expect(
+      validateCommandInput('plan-artifacts', { action: 'import', session: 'P17', path: 'ref-chip/ref-chip.html', as: 'chip.html', force: true }),
+    ).toEqual({ action: 'import', session: 'P17', path: 'ref-chip/ref-chip.html', as: 'chip.html', force: true });
+    expect(spec.toArgv!({ action: 'list', session: 17, json: true })).toEqual([
+      'plan-artifacts',
+      'list',
+      '--session',
+      '17',
+      '--json',
+    ]);
+    expect(spec.toArgv!({ action: 'import', session: 'P17', path: 'a.md' })).toEqual([
+      'plan-artifacts',
+      'import',
+      '--session',
+      'P17',
+      '--path',
+      'a.md',
+    ]);
+  });
+
+  it('plan-artifacts rejects a bad session reference and a list with a path', () => {
+    expect(() => validateCommandInput('plan-artifacts', { action: 'list', session: 'X7' })).toThrow(/session/);
+    const spec = getCommandSpec('plan-artifacts')!;
+    expect(() => spec.toArgv!({ action: 'list', path: 'a.md' })).toThrow(/import only/);
+    expect(() => spec.toArgv!({ action: 'import' })).toThrow(/path/);
   });
 
   it('rejects a CSV array element containing a comma', () => {

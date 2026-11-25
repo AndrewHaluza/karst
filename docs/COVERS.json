@@ -437,6 +437,9 @@
   "src/cli/phase.ts#parsePhaseArgs": [
     "arch:CLI-02"
   ],
+  "src/cli/planArtifactsCommand.ts#runPlanArtifactsCommand": [
+    "arch:CLI-25"
+  ],
   "src/cli/readonlyStore.ts#openReadonlyStore": [
     "arch:CLI-05"
   ],

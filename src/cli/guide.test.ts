@@ -19,6 +19,11 @@ describe('karst guide — content', () => {
     expect(AGENT_GUIDE).toContain('Review stages them and Save attaches them');
   });
 
+  it('tells the planner to import another session\'s file through the verb, never a manual copy', () => {
+    expect(AGENT_GUIDE).toContain('plan-artifacts import --session P<n> --path <rel>');
+    expect(AGENT_GUIDE).toContain('Never copy another');
+  });
+
   it('lists the no-change form of the fix marker', () => {
     expect(AGENT_GUIDE).toContain('stage fix pass --no-change "<reason>"');
   });
@@ -40,7 +45,7 @@ describe('karst guide — content', () => {
     // and env are intercepted by runCliAsync.
     // Verbs are named backtick-quoted (e.g. `phase <name>`), so match the
     // opening tick.
-    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'pause', 'unpause', 'subtask', 'draft', 'fix-brief', 'conflict-brief', 'servers', 'env', 'schema', 'mcp', 'manifest', 'setup', 'notes', 'arch', 'base']) {
+    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'pause', 'unpause', 'subtask', 'draft', 'plan-artifacts', 'fix-brief', 'conflict-brief', 'servers', 'env', 'schema', 'mcp', 'manifest', 'setup', 'notes', 'arch', 'base']) {
       expect(AGENT_GUIDE).toContain(`\`${verb}`);
     }
   });
