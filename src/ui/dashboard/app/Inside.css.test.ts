@@ -190,6 +190,20 @@ describe('Inside CSS — the container queries', () => {
     expect(tight).toMatch(/\.autofix-default,[^{]*\.clock-start\{display:none\}/);
   });
 
+  it('keeps a graph node\'s facts inside its row at every narrow width (T1361)', () => {
+    // A control in the `auto` track and the 105 px `override model,effort` badge pushed a node's visit, age and
+    // override past the detail track (layout containment at 320/399/400). The facts wrap at the narrow tier…
+    expect(containerBlock('699px')).toMatch(
+      /#inside \.graph-node-visit,#inside \.graph-node-age,#inside \.graph-node-override\{white-space:normal;overflow-wrap:anywhere\}/,
+    );
+    // …and at the floor a row that carries a control gives it its own line, so the detail keeps the width.
+    const tight = containerBlock('399px');
+    expect(tight).toMatch(/#inside \.graph-node:has\(> \.ev-tail\)\{grid-template-columns:18px minmax\(56px,76px\) minmax\(0,1fr\)\}/);
+    expect(tight).toMatch(/#inside \.graph-node:has\(> \.ev-tail\)>\.ev-tail\{grid-column:2\/-1;grid-row:2/);
+    // The control's label never drops (RD-NEVER #1).
+    expect(tight).not.toMatch(/#inside \.graph-node[^{]*\.ev-tail[^{]*\{[^}]*display:none/);
+  });
+
   it('never introduces whole-component horizontal scrolling at the tiers (B7)', () => {
     for (const w of ['999px', '699px', '399px']) {
       expect(containerBlock(w), `@container (max-width: ${w}) scrolls horizontally`).not.toMatch(/overflow-x:\s*(?:scroll|auto)/);

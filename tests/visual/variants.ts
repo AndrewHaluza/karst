@@ -236,15 +236,28 @@ export const INSIDE_CASE_CLICKS: Readonly<Record<string, readonly string[]>> = {
   'impl-graph-failed': ['[data-proc-id="impl:graph"] > summary'],
 };
 
+/**
+ * T1361 (@ui:VISUAL-VARIANTS): the DAG matrix is a horizontally scrolling strip whose 12 columns plus the trailing
+ * `uat` chip and `+2 more` cap are ~1,400 px wide. Its default shot therefore records a 1600 px desktop viewport so
+ * the whole strip AND the cap are visible; at the 1280 px project default the strip ends past the box and the cap is
+ * off-screen. `width` is a screenshot field only: the page keeps its one layout run, and
+ * `inside-impl-graph-dag-narrow` (500 px) records the contained scroll.
+ */
+export const INSIDE_CASE_WIDTHS: Readonly<Record<string, number>> = {
+  'impl-graph-dag': 1600,
+};
+
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
 const insideCaseVariants = (): Variant[] =>
   INSIDE_CASES.filter((c) => c.aliasOf === undefined && c.id !== 'live-tokens').map((c) => {
     const click = INSIDE_CASE_CLICK[`${c.stage}-${c.id}`];
     const clicks = INSIDE_CASE_CLICKS[`${c.stage}-${c.id}`];
+    const width = INSIDE_CASE_WIDTHS[`${c.stage}-${c.id}`];
     return variant('dashboard', `inside-${c.stage}-${c.id}`, () => stateMessage(c.state()), {
       ...(c.allThemes ? { themes: ALL_THEMES } : {}),
       ...(click === undefined ? {} : { click }),
       ...(clicks === undefined ? {} : { clicks }),
+      ...(width === undefined ? {} : { width }),
     });
   });
 

@@ -130,6 +130,9 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     expect(dash.get('inside-impl-graph-dag-narrow')?.clicks).toEqual(['[data-act="toggle-graph-view"]']);
     expect(dash.get('inside-impl-graph-failed')?.clicks).toEqual(['[data-proc-id="impl:graph"] > summary']);
     expect(dash.get('inside-impl-graph-dag-narrow')?.width).toBe(500);
+    // The default DAG shot is a wide viewport so the whole 12-column strip and its `+2 more` cap fit; width is a
+    // screenshot field, so the page still shares one layout run.
+    expect(dash.get('inside-impl-graph-dag')?.width).toBe(1600);
     // The narrow shot is the DAG page at another width: it shares that layout run and adds mid/tight copies nowhere.
     expect(layoutPlan().sharedWith.get('dashboard/inside-impl-graph-dag-narrow')).toBe('dashboard/inside-impl-graph-dag');
     expect(dash.has('inside-impl-graph-dag-mid')).toBe(false);
