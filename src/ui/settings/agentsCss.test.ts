@@ -92,4 +92,16 @@ describe('agents.webview.css — Accounts table', () => {
     expect(css).toMatch(/\.accounts-loc-mono[^{]*\{[^}]*overflow-wrap:\s*break-word/);
     expect(css).not.toContain('overflow-wrap: anywhere');
   });
+
+  it('lays each narrow card out as a name line, a sign-in + location line, then the token line', () => {
+    // Named areas, not source order: the location cell comes before the status in the
+    // DOM, so auto-placement alone would give the location a line of its own and push
+    // the status, Use and ⋯ onto a third (T1360).
+    const squashed = css.replace(/\s+/g, ' ');
+    expect(squashed).toContain("grid-template-areas: 'mark name name use menu' '. stat loc loc loc' '. token token token token'");
+    expect(squashed).toContain("grid-template-areas: 'agent agent agent agent agent' 'mark name name use menu' '. stat loc loc loc' '. token token token token'");
+    // 320px: the sign-in state and the location each take a full line of their own.
+    expect(squashed).toContain("grid-template-areas: 'mark name name use menu' '. stat stat stat stat' '. loc loc loc loc' '. token token token token'");
+    expect(squashed).toContain("grid-template-areas: 'agent agent agent agent agent' 'mark name name use menu' '. stat stat stat stat' '. loc loc loc loc' '. token token token token'");
+  });
 });

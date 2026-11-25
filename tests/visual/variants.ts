@@ -888,12 +888,17 @@ const autopilotVariants = (): Variant[] => {
 };
 
 /** Accounts tab (T1015) with the host's accounts-state pushed after the settings state. */
-function accountsVariant(id: string, cores: unknown[], opts: { skipLayout?: boolean; settings?: typeof REALISTIC_SETTINGS } = {}): Variant {
+function accountsVariant(
+  id: string,
+  cores: unknown[],
+  opts: { skipLayout?: boolean; settings?: typeof REALISTIC_SETTINGS; themes?: readonly string[]; width?: number } = {},
+): Variant {
   return {
     ...variant('settings', id, () => ({ messages: [...stateMessage(opts.settings ?? REALISTIC_SETTINGS).messages, { type: 'accounts-state', cores }] as never }), {
       baseline: `settings--${id}`,
-      themes: ALL_THEMES,
+      themes: opts.themes ?? ALL_THEMES,
       ...(opts.skipLayout ? { skipLayout: true } : {}),
+      ...(opts.width === undefined ? {} : { width: opts.width }),
     }),
     route: { section: 'agents', hash: formatAgentsHash({ tab: 'accounts' }) },
     ...(opts.skipLayout ? {} : { layoutRouteId: `agents${formatAgentsHash({ tab: 'accounts' })}` }),
@@ -920,6 +925,25 @@ const TOKEN_CORES = SEVERAL_CORES.map((c) => c.core !== 'claude' ? c : {
   ...c,
   rows: c.rows.map((r) => r.name === 'work' ? { ...r, sbxToken: 'set' } : r.name === 'shared-team' ? { ...r, sbxToken: 'not-set' } : r),
 });
+
+// T1360: the row states the flat accounts table must carry in one screen — a not-signed-in active account (warning
+// dot + inline Log in), a managed account with no folder ("Managed"), a command account, and every sbx token state
+// (`set`, `not-set`, `unknown`). One single-account core stays beside it, so the table has two cores.
+const ROW_STATE_CORES = [
+  {
+    core: 'claude', active: 'team', machineDefault: 'default', source: 'project',
+    rows: [
+      { name: 'default', label: 'Default (CLI home)', active: false, builtIn: true, status: 'signed-in' },
+      { name: 'team', label: 'team', active: true, builtIn: false, source: 'managed', status: 'not-signed-in', sbxToken: 'set' },
+      { name: 'claude-personal', label: 'claude-personal', active: false, builtIn: false, source: 'command', command: 'claude-personal --profile work', dir: '/Users/dev/.claude-personal', status: 'unknown', sbxToken: 'not-set' },
+      { name: 'consulting', label: 'consulting', active: false, builtIn: false, source: 'folder', dir: '/Users/dev/consulting/claude', status: 'signed-in', sbxToken: 'unknown' },
+    ],
+  },
+  {
+    core: 'codex', active: 'default', machineDefault: 'default', source: 'machine',
+    rows: [{ name: 'default', label: 'Default (CLI home)', active: true, builtIn: true, status: 'signed-in' }],
+  },
+];
 
 const settingsVariants = (): Variant[] => [
   variant('settings', 'populated', () => stateMessage(REALISTIC_SETTINGS), { baseline: 'settings--populated', themes: ALL_THEMES }),
@@ -958,6 +982,11 @@ const settingsVariants = (): Variant[] => [
   accountsVariant('accounts-default-only', DEFAULT_ONLY_CORES, { skipLayout: true }),
   accountsVariant('accounts-several', SEVERAL_CORES),
   accountsVariant('accounts-sbx-token', TOKEN_CORES, { skipLayout: true }),
+  // T1360: the flat table's row states in one shot. skipLayout, because `accounts-several` already runs this route at
+  // every SETTINGS_LAYOUT_WIDTHS width.
+  accountsVariant('accounts-not-signed-in', ROW_STATE_CORES, { skipLayout: true, themes: DARK_ONLY }),
+  // T1360: the stacked core cards under the 699px container tier (@ui:UI-R43, @ui:UI-R55). skipLayout, as above.
+  accountsVariant('accounts-narrow', SEVERAL_CORES, { skipLayout: true, themes: DARK_ONLY, width: 480 }),
   // D707: the Subscription quota card with a saved threshold and both opt-ins on; one core, so the card is inside the 720 px viewport.
   accountsVariant('accounts-quota', DEFAULT_ONLY_CORES.slice(0, 1), {
     skipLayout: true,

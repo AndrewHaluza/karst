@@ -516,9 +516,12 @@
 }
 #section-agents .accounts-menu-list .k-btn { justify-content: flex-start; text-align: start; }
 
-/* Narrow: every core becomes its own card. The head is hidden (the agent line
-   names the core), and each account is two lines: (check) name Use ⋯, then
-   sign-in + location, with the sbx token on its own line when the row has one. */
+/* Narrow: every core becomes its own card. The head is hidden (the card's first
+   line names the core), and each account is two lines: (check) name Use ⋯, then
+   sign-in + location, with the sbx token on its own line when the row has one.
+   The named areas fix the line of every cell: DOM order alone would put the
+   location (before the status in the source) on line 2 and push the status,
+   Use and ⋯ onto a third line. */
 @container accounts-tab (max-width: 699px) {
   #section-agents .accounts-head { display: none; }
   #section-agents .accounts-table { border: 0; border-radius: 0; margin-block: 0; }
@@ -529,31 +532,54 @@
   }
   #section-agents .accounts-row {
     grid-template-columns: var(--k-space-8) auto minmax(0, 1fr) auto var(--k-hit-min);
-    column-gap: var(--k-space-2);
+    grid-template-areas:
+      'mark name name use menu'
+      '. stat loc loc loc'
+      '. token token token token';
+    column-gap: var(--k-space-4);
     row-gap: var(--k-space-1);
-    padding: var(--k-space-3);
+    padding: var(--k-space-3) var(--k-space-4);
+  }
+  #section-agents .accounts-row.is-first {
+    grid-template-areas:
+      'agent agent agent agent agent'
+      'mark name name use menu'
+      '. stat loc loc loc'
+      '. token token token token';
   }
   #section-agents .accounts-row.is-first > [data-col="agent"] {
-    grid-column: 1 / -1;
-    grid-row: 1;
     padding-bottom: var(--k-space-2);
     margin-bottom: var(--k-space-1);
     border-bottom: var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border, var(--k-border)) 45%, transparent);
   }
   #section-agents .accounts-row:not(.is-first) > [data-col="agent"] { display: none; }
-  #section-agents .accounts-row > [data-col="mark"] { grid-column: 1; }
-  #section-agents .accounts-row > [data-col="name"] { grid-column: 2 / 4; }
-  #section-agents .accounts-row > [data-col="use"] { grid-column: 4; }
-  #section-agents .accounts-row > [data-col="menu"] { grid-column: 5; }
-  #section-agents .accounts-row > [data-col="status"] { grid-column: 2; }
-  #section-agents .accounts-row > [data-col="location"] { grid-column: 3 / -1; }
-  #section-agents .accounts-row > [data-col="sbx-token"] { grid-column: 2 / -1; }
+  #section-agents .accounts-row > [data-col="agent"] { grid-area: agent; }
+  #section-agents .accounts-row > [data-col="mark"] { grid-area: mark; }
+  #section-agents .accounts-row > [data-col="name"] { grid-area: name; }
+  #section-agents .accounts-row > [data-col="use"] { grid-area: use; }
+  #section-agents .accounts-row > [data-col="menu"] { grid-area: menu; }
+  #section-agents .accounts-row > [data-col="status"] { grid-area: stat; }
+  #section-agents .accounts-row > [data-col="location"] { grid-area: loc; }
+  #section-agents .accounts-row > [data-col="sbx-token"] { grid-area: token; }
   #section-agents .accounts-row > [data-col="sbx-token"]:has(> .accounts-empty) { display: none; }
 }
 @container accounts-tab (max-width: 399px) {
-  /* 320px: "Not signed in · Log in" and a long path each take their own full line. */
-  #section-agents .accounts-row > [data-col="status"],
-  #section-agents .accounts-row > [data-col="location"] { grid-column: 2 / -1; }
+  /* 320px: "Not signed in · Log in" and a long path each take a full line of their own. */
+  #section-agents .accounts-row {
+    grid-template-areas:
+      'mark name name use menu'
+      '. stat stat stat stat'
+      '. loc loc loc loc'
+      '. token token token token';
+  }
+  #section-agents .accounts-row.is-first {
+    grid-template-areas:
+      'agent agent agent agent agent'
+      'mark name name use menu'
+      '. stat stat stat stat'
+      '. loc loc loc loc'
+      '. token token token token';
+  }
 }
 
 /* Sandbox tab (SET-46..48): one form-grid row per core — the display name and
