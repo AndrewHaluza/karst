@@ -158,6 +158,17 @@ function rowToEvent(r: EventRow): KarstEvent {
   };
 }
 
+/**
+ * Whether the ticket already holds an event with this exact title and a body that contains `bodyContains`. The persisted
+ * dedupe of a line whose in-memory note is gone after a reload (T1362): the title alone cannot tell two outages apart.
+ */
+export function hasTicketEvent(store: Store, ticketId: number, title: string, bodyContains: string): boolean {
+  const row = store.db
+    .prepare('SELECT 1 AS one FROM karst_events WHERE ticket_id = ? AND title = ? AND instr(body, ?) > 0 LIMIT 1')
+    .get(ticketId, title, bodyContains);
+  return row !== undefined;
+}
+
 /** The project's events, newest first. */
 export function listEvents(store: Store, input: ListEventsInput): KarstEvent[] {
   const rows = store.db

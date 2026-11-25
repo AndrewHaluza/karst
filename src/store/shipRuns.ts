@@ -1020,6 +1020,64 @@ export function countShipRuns(store: Store, ticketId: number): number {
   return row?.n ?? 0;
 }
 
+/**
+ * A ticket's ship runs, newest first. `listShipEvidence` keeps only the LATEST
+ * run; the ship retry after a GitHub server error (@arch:AP-11) reads the
+ * history to know the backoff and the bound.
+ */
+export function listShipRuns(store: Store, ticketId: number, limit = 50): ShipRun[] {
+  return store.db
+    .prepare(`${RUN_SELECT} WHERE ticket_id = ? ORDER BY id DESC LIMIT ?`)
+    .all(ticketId, limit)
+    .map((r) => rowToShipRun(r as ShipRunRowShape));
+}
+
+/**
+ * Whether a PERSON's ship ever opened a run of this ticket (an attended run, `unattended = 0`). Run ids are monotonic,
+ * so such a run is always at or before the newest failed one: an unattended resume can only follow a ship a person
+ * started (@arch:AP-11 rule 3).
+ */
+export function hasAttendedShipRun(store: Store, ticketId: number): boolean {
+  return store.db
+    .prepare('SELECT 1 AS one FROM ship_runs WHERE ticket_id = ? AND unattended = 0 LIMIT 1')
+    .get(ticketId) !== undefined;
+}
+
+/** Every step row of one ship run, in insertion order. */
+export function listShipRepoSteps(store: Store, shipRunId: number): ShipRepoStep[] {
+  return store.db
+    .prepare(`${STEP_SELECT} WHERE ship_run_id = ? ORDER BY id`)
+    .all(shipRunId)
+    .map((r) => rowToShipRepoStep(r as ShipRepoStepRowShape));
+}
+
+/**
+ * The `localHead` of the NEWEST `push` intent of a ticket + repo, whatever its
+ * status: the head the ship that ended intended to push. A retry re-pushes that
+ * exact head, so a HEAD that moved means new work and no retry (@arch:AP-11).
+ *
+ * Read from `intent_json` (the exact intended effect), and only from
+ * `pre_state_json` when the row never got its intent (`preparing`): a base-moved
+ * rebase keeps the OLD head in the pre-state and the head to push in the intent.
+ * Null when karst never prepared a push for the repo, or the row is unreadable.
+ */
+export function newestPushIntentHead(store: Store, ticketId: number, repo: string): string | null {
+  const row = store.db
+    .prepare(
+      `SELECT i.pre_state_json AS pre, i.intent_json AS intent
+         FROM ship_operation_intents i
+         JOIN ship_runs r ON r.id = i.ship_run_id
+        WHERE r.ticket_id = ? AND i.repo = ? AND i.step = 'push'
+        ORDER BY i.id DESC LIMIT 1`,
+    )
+    .get(ticketId, repo) as { pre: string; intent: string | null } | undefined;
+  if (row === undefined) return null;
+  const intent = parseShipIntent(row.intent, 'push');
+  if (intent !== null && intent.step === 'push' && intent.localHead !== '') return intent.localHead;
+  const pre = parseShipPreState(row.pre, 'push');
+  return pre !== null && pre.step === 'push' && pre.localHead !== '' ? pre.localHead : null;
+}
+
 /** The step detail a sweep-closed step carries. */
 const INTERRUPTED_STEP_DETAIL = 'interrupted — the host that ran it died; retry ship to continue';
 

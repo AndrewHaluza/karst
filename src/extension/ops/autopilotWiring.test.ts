@@ -14,6 +14,7 @@ import { parkGateStage } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { markConflictRound } from '../../store/autopilot.js';
+import { beginShipOperationPreparation, closeShipRun, finishShipRepoStep, openShipRepoStep, openShipRun } from '../../store/shipRuns.js';
 import { autopilotSweep, concurrencyFullFor, listSlotHolders, postAutopilotNote, type TicketSeams } from './autopilotWiring.js';
 import { EVENT_BODY_MAX, EVENT_TITLE_MAX } from '../../store/karstEvents.js';
 
@@ -128,6 +129,56 @@ describe('autopilotSweep', () => {
     expect(s.sendCi).not.toHaveBeenCalled();
     expect(acted).toBe(1);
     expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the ship-retry seams to the tick, and a ship retry counts as an action (T1362)', async () => {
+    const { store, projectId, id } = shipTicket();
+    const endedAt = '2026-11-25T12:00:00.000Z';
+    setStage(store, id, 'ship', { status: 'failed', endedAt, blockedKind: null, blockedReason: null, blockedAt: null });
+    const run = openShipRun(store, { ticketId: id, attempt: 1, startedAt: '2026-11-25T11:59:00.000Z' });
+    const step = openShipRepoStep(store, { shipRunId: run.id, repo: 'r', step: 'pr', detail: 'run', startedAt: '2026-11-25T11:59:00.000Z' });
+    finishShipRepoStep(store, step.id, { status: 'failed', detail: 'gh: HTTP 502 Bad Gateway', endedAt });
+    beginShipOperationPreparation(store, {
+      shipRunId: run.id, repo: 'r', step: 'push', operationKey: `push-${run.id}`, createdAt: '2026-11-25T11:59:00.000Z',
+      preState: { step: 'push', localHead: 'a'.repeat(40), remote: 'origin', ref: 'b', preRemoteHead: null },
+    });
+    closeShipRun(store, run.id, 'failed', endedAt);
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const changed = vi.fn();
+    const s = seams({ retryShip, shipRetry: { worktreeClean: async () => ({ ok: true, clean: true }), localHead: async () => 'a'.repeat(40) } });
+    const acted = await autopilotSweep({
+      store, projectId: () => projectId, manifest: () => ({ autopilot: cfg }) as never,
+      caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed,
+      now: () => Date.parse('2026-11-25T12:10:00.000Z'),
+    });
+    expect(retryShip).toHaveBeenCalledWith(['r']);
+    expect(acted).toBe(1);
+    expect(changed).toHaveBeenCalledOnce();
+    expect((store.db.prepare('SELECT title FROM karst_events').get() as { title: string }).title).toBe('Autopilot: retried ship after a GitHub server error (1/5)');
+  });
+
+  it('reads the injected clock: before the backoff it does not retry (T1362)', async () => {
+    const { store, projectId, id } = shipTicket();
+    // A far-past failure: a tick on the real clock would retry at once, so only the injected clock can hold it back.
+    const endedAt = '2020-01-01T00:00:00.000Z';
+    setStage(store, id, 'ship', { status: 'failed', startedAt: '2019-12-31T23:00:00.000Z', endedAt, blockedKind: null, blockedReason: null, blockedAt: null });
+    const run = openShipRun(store, { ticketId: id, attempt: 1, startedAt: '2019-12-31T23:59:00.000Z' });
+    const step = openShipRepoStep(store, { shipRunId: run.id, repo: 'r', step: 'pr', detail: 'run', startedAt: '2019-12-31T23:59:00.000Z' });
+    finishShipRepoStep(store, step.id, { status: 'failed', detail: 'gh: HTTP 502 Bad Gateway', endedAt });
+    beginShipOperationPreparation(store, {
+      shipRunId: run.id, repo: 'r', step: 'push', operationKey: `push-${run.id}`, createdAt: '2019-12-31T23:59:00.000Z',
+      preState: { step: 'push', localHead: 'a'.repeat(40), remote: 'origin', ref: 'b', preRemoteHead: null },
+    });
+    closeShipRun(store, run.id, 'failed', endedAt);
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const s = seams({ retryShip, shipRetry: { worktreeClean: async () => ({ ok: true, clean: true }), localHead: async () => 'a'.repeat(40) } });
+    const acted = await autopilotSweep({
+      store, projectId: () => projectId, manifest: () => ({ autopilot: cfg }) as never,
+      caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed: () => {},
+      now: () => Date.parse('2020-01-01T00:01:00.000Z'),
+    });
+    expect(retryShip).not.toHaveBeenCalled();
+    expect(acted).toBe(0);
   });
 
   it('does nothing without a bound project, and when this window does not control the ticket', async () => {

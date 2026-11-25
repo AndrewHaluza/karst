@@ -15,6 +15,7 @@ import {
   recordEvent,
   onEventRecorded,
   unreadEventCount,
+  hasTicketEvent,
 } from './karstEvents.js';
 
 describe('karstEvents', () => {
@@ -30,6 +31,14 @@ describe('karstEvents', () => {
   afterEach(() => store.close());
 
   const base = () => ({ projectId, level: 'info' as const, source: 'autopilot' as const, title: 't' });
+
+  it('finds a ticket event by its exact title and a body fragment, and nothing else', () => {
+    const id = createTicket(store, { key: 'E-1', title: 't', projectId }).id;
+    recordEvent(store, { ...base(), ticketId: id, title: 'stop 5/5', body: 'the failed ship (ship run 5)' }, debug);
+    expect(hasTicketEvent(store, id, 'stop 5/5', 'ship run 5')).toBe(true);
+    expect(hasTicketEvent(store, id, 'stop 5/5', 'ship run 6')).toBe(false);
+    expect(hasTicketEvent(store, id, 'stop 4/4', 'ship run 5')).toBe(false);
+  });
 
   it('tells a listener after a record, never after a failed one, and stops after unsubscribe', () => {
     let calls = 0;

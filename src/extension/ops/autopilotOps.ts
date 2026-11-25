@@ -13,6 +13,9 @@ import { holdsPark, refusedMergeBody, refusedMergeReason, STALLED_REASON, UNFINI
 import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
+import { isHostTicket, MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
+import { listShipRuns } from '../../store/shipRuns.js';
+import { hasTicketEvent } from '../../store/karstEvents.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
@@ -106,7 +109,14 @@ export interface AutopilotDeps {
   readonly transientCi?: TransientCiSeams;
   /** Host seams of the one rebase for a stale generated file (T1081, @arch:AP-05). Absent: today's rules apply. */
   readonly staleRebase?: StaleRebaseSeams;
-  /** Clock for the re-run settle time. Default: `Date.now`. */
+  /**
+   * Re-runs a confirmed ship for the repos Retry ship would name, after a failure that was only a GitHub server error
+   * (@arch:AP-11). Absent: no retry.
+   */
+  readonly retryShip?: (repos: readonly string[]) => Promise<ShipRetryOutcome>;
+  /** The worktree reads of that retry (clean status and HEAD). Absent: no retry. */
+  readonly shipRetry?: ShipRetrySeams;
+  /** Clock for the re-run settle time and the ship retry's backoff. Default: `Date.now`. */
   readonly now?: () => number;
   /** Bulletin note (arch:BULLETIN) for every auto action and fallback. */
   readonly note: (title: string, body: string) => void;
@@ -123,7 +133,9 @@ export type AutopilotResult =
   /** A transient CI failure was re-run once (T1019); the ticket waits for the result. */
   | { readonly kind: 'rerun' }
   /** A host rebase and regenerate ran for a stale generated file (T1081); the ticket waits for the next CI run. */
-  | { readonly kind: 'rebased' };
+  | { readonly kind: 'rebased' }
+  /** A confirmed ship that failed only on a GitHub server error was retried (T1362, @arch:AP-11). */
+  | { readonly kind: 'shipRetried' };
 
 const LOG = '[ship] autopilot';
 
@@ -288,15 +300,19 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   const state = getAutopilotTicket(d.store, d.ticketId);
   if (state.stopAfter || state.pausedReason !== null || ticket.pausedAt !== null) return { kind: 'idle' };
   // A ship saga in flight owns the ticket: no round while it runs.
-  if (getStage(d.store, d.ticketId, 'ship')?.status === 'running') return { kind: 'busy' };
+  const shipStage = getStage(d.store, d.ticketId, 'ship');
+  if (shipStage?.status === 'running') return { kind: 'busy' };
   // An undelivered round parked the ticket: the CI rollup is of the old head, so no round starts until a person acts (approve
   // one more, set the mode) or the PRs are proven clean.
   if (holdsPark(state.stoppedReason) && !provenClean(d)) return { kind: 'idle' };
   // Only a SHIPPED ticket (the awaiting-merge block) is worked: a ticket that waits for Confirm ship has no block, and its
   // stored CI result belongs to an older head. Push-diverged and every other foreign block need a person too.
   // A failed base-moved check (`base-moved-failed`) is worked like a red CI rollup, by its own round (@arch:AP-00).
+  // A FAILED ship with NO block is the one other state: a retry of a person's confirmed ship that failed only on a GitHub
+  // server error (@arch:AP-11).
   const blockKind = stageBlock(d.store, d.ticketId, 'ship')?.kind;
-  if (blockKind !== 'awaiting-merge' && blockKind !== 'base-moved-failed') return { kind: 'idle' };
+  const failedShip = blockKind === undefined && shipStage?.status === 'failed';
+  if (!failedShip && blockKind !== 'awaiting-merge' && blockKind !== 'base-moved-failed') return { kind: 'idle' };
   if (blockKind === 'base-moved-failed' && (!d.sendGateFailure || state.stoppedReason !== null)) return { kind: 'idle' };
   if (!d.controls()) return { kind: 'not-controller' };
   if (d.isDraining?.() === true) {
@@ -304,6 +320,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     return { kind: 'busy' };
   }
   if (d.sessionRunning() || ticket.agentState === 'running') return { kind: 'busy' };
+  if (failedShip) return guardedRound(d, () => shipRetryStep(d, cfg));
   if (blockKind === 'base-moved-failed') return guardedRound(d, () => runBaseMovedRound(d, cfg));
   // The merge check stays 'conflicted' (and the CI rollup stays on the old head) until the resolved merge is pushed and
   // probed again, so no time cooldown can tell a round in progress from a new one: read the round state itself.
@@ -387,6 +404,115 @@ async function guardedRound(d: AutopilotDeps, round: () => Promise<AutopilotResu
     return await round();
   } finally {
     inFlight.delete(flightKey);
+  }
+}
+
+/**
+ * The state the decision was made about, re-read right before the retry runs (@arch:AP-11 rule 1): Autopilot is still on
+ * for the ticket, no session runs, the host does not drain, the ticket is at ship and not paused, Autopilot has no stop or
+ * pause, the ship stage is still failed and unblocked, and no newer run exists.
+ */
+function stillRetryable(d: AutopilotDeps, cfg: AutopilotConfig, runId: number): boolean {
+  if (!effectiveAutopilot(d.store, d.ticketId, cfg.enabled)) return false;
+  const ticket = getTicket(d.store, d.ticketId);
+  if (d.sessionRunning() || ticket.agentState === 'running') return false;
+  if (d.isDraining?.() === true) return false;
+  if (ticket.stageCurrent !== 'ship') return false;
+  if (ticket.pausedAt !== null) return false;
+  const state = getAutopilotTicket(d.store, d.ticketId);
+  if (state.stopAfter || state.pausedReason !== null || state.stoppedReason !== null) return false;
+  const stage = getStage(d.store, d.ticketId, 'ship');
+  if (stage?.status !== 'failed') return false;
+  if (stageBlock(d.store, d.ticketId, 'ship') !== null) return false;
+  // The decision only says retry when a newest failed run exists, so this read always finds one.
+  return listShipRuns(d.store, d.ticketId, 1)[0]!.id === runId;
+}
+
+/** Waits and stops already announced for the ship retry: one line per armed state, not one per 2 s tick. */
+const shipRetryNotedByStore = new WeakMap<Store, Set<string>>();
+
+function shipRetryNoted(store: Store): Set<string> {
+  let set = shipRetryNotedByStore.get(store);
+  if (!set) { set = new Set(); shipRetryNotedByStore.set(store, set); }
+  return set;
+}
+
+/**
+ * The failed-ship branch of the tick (@arch:AP-11): retry a person's confirmed ship that failed only on a GitHub server
+ * error, wait for its backoff, or stop once the bound is spent. The stop writes no block: the failed stage keeps its
+ * Retry ship, and a newer run (a person's Retry ship or Ship click) resets the count.
+ */
+async function shipRetryStep(d: AutopilotDeps, cfg: AutopilotConfig): Promise<AutopilotResult> {
+  if (!d.shipRetry || !d.retryShip) return { kind: 'idle' };
+  // Rule 1 (@arch:AP-11): a stop reason of ANY kind keeps the retry off; only a person clears it.
+  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== null) return { kind: 'idle' };
+  const seen = shipRetryNoted(d.store);
+  // A sandboxed ticket's ship first pulls the sandbox into the worktree (assertInSync), so an unattended retry would
+  // publish commits no person confirmed. Checked BEFORE the decision: a sandboxed ticket reads no git and writes no stop.
+  if (!(await isHostTicket(d.placement))) {
+    if (!seen.has(flightKeyOf(d))) {
+      seen.add(flightKeyOf(d));
+      d.debug(`${LOG} ticket ${d.key}: no ship retry, the ticket does not run on the host`);
+    }
+    return { kind: 'idle' };
+  }
+  const decision = await shipRetryDecision(d.store, d.ticketId, (d.now ?? Date.now)(), d.shipRetry);
+  switch (decision.kind) {
+    case 'none': {
+      const key = JSON.stringify([flightKeyOf(d), decision.why]);
+      if (!seen.has(key)) {
+        seen.add(key);
+        d.debug(`${LOG} ticket ${d.key}: no ship retry (${decision.why})`);
+      }
+      return { kind: 'idle' };
+    }
+    case 'wait': {
+      const key = JSON.stringify([flightKeyOf(d), decision.until]);
+      if (!seen.has(key)) {
+        seen.add(key);
+        d.debug(`${LOG} ticket ${d.key}: the ship retry waits until ${new Date(decision.until).toISOString()}`);
+      }
+      return { kind: 'idle' };
+    }
+    case 'park': {
+      // One event per failed run, read back from the STORE, never from this process: a reload finds it and writes no
+      // duplicate (@arch:EVENTS). The run id in the body tells two outages apart.
+      const marker = `ship run ${decision.runId}`;
+      const title = `Autopilot: ${decision.reason}`;
+      if (!hasTicketEvent(d.store, d.ticketId, title, marker)) {
+        d.note(title, `${d.key}: every ship run since the person's confirm failed on a GitHub server error (${marker}); the failed ship keeps its Retry ship.`);
+        d.debug(`${LOG} ticket ${d.key}: ${decision.reason}; no block, Retry ship stays`);
+      }
+      return { kind: 'idle' };
+    }
+    case 'retry': {
+      // The decision awaited git and the placement: a person may have moved the ticket since its guards ran. Retry only
+      // on the state it decided about, never on a running, blocked, paused or re-run ticket (@arch:AP-11).
+      if (!stillRetryable(d, cfg, decision.runId)) {
+        d.debug(`${LOG} ticket ${d.key}: no ship retry, the ticket changed while the decision awaited git`);
+        return { kind: 'idle' };
+      }
+      const outcome = await d.retryShip(decision.repos);
+      if (outcome.kind === 'busy') {
+        // Busy is either the host draining or another window holding the lease: name both, never just the drain.
+        d.debug(`${LOG} ticket ${d.key}: no ship retry, the ship could not start (the host drains or another window holds the ticket)`);
+        return { kind: 'busy' };
+      }
+      // A saga that threw BEFORE opening its run leaves the same failed run, so the run history would never bound the
+      // 2 s tick: pause with a visible reason and keep the failed stage's Retry ship (@arch:AP-11).
+      if (outcome.kind === 'failed' && listShipRuns(d.store, d.ticketId, 1)[0]!.id === decision.runId) {
+        const reason = `auto-fix stopped: ship retry could not run (${outcome.reason})`;
+        setAutopilotStopped(d.store, d.ticketId, reason);
+        setAutopilotPaused(d.store, d.ticketId, reason);
+        d.note(`Autopilot: ${reason}`, `${d.key}: the ship retry did not open a run; the failed ship keeps its Retry ship. Start it by hand, then set the auto-fix mode again.`);
+        d.debug(`${LOG} ticket ${d.key}: ${reason}; paused`);
+        return { kind: 'parked', reason };
+      }
+      const n = `${decision.n}/${MAX_AUTO_SHIP_RETRIES}`;
+      d.note(`Autopilot: retried ship after a GitHub server error (${n})`, `${d.key}: ran Retry ship for ${decision.repos.join(', ')} after a GitHub server error (retry ${n}).`);
+      d.debug(`${LOG} ticket ${d.key}: retried ship after a GitHub server error (${n}) for ${decision.repos.join(', ')}`);
+      return { kind: 'shipRetried' };
+    }
   }
 }
 

@@ -16,6 +16,7 @@ import type { StaleRebaseSeams } from './autopilotStaleRebase.js';
 import { nudgeSurface } from '../../approaches/graph/entryPoints.js';
 import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
 import { resolveConflictRound, type ResolveConflictInput } from './conflictResolveOps.js';
+import type { ShipRetryOutcome, ShipRetrySeams } from './autopilotShipRetry.js';
 
 /**
  * Binds the autopilot engine to the real ship actions. Only the mapping lives here:
@@ -104,6 +105,10 @@ export interface TicketSeams {
   readonly transientCi?: TransientCiSeams;
   /** Host seams of the one rebase for a stale generated file (T1081). */
   readonly staleRebase?: StaleRebaseSeams;
+  /** The worktree reads of the ship retry after a GitHub server error (@arch:AP-11). Absent: no retry. */
+  readonly shipRetry?: ShipRetrySeams;
+  /** Re-runs a confirmed ship for the named repos through the Retry ship path (@arch:AP-11). Absent: no retry. */
+  readonly retryShip?: (repos: readonly string[]) => Promise<ShipRetryOutcome>;
 }
 
 export interface AutopilotSweepDeps {
@@ -115,6 +120,8 @@ export interface AutopilotSweepDeps {
   readonly debug: (message: string) => void;
   /** Called once per sweep that changed any ticket, so the views refresh. */
   readonly changed: () => void;
+  /** Clock of the ship retry's backoff (@arch:AP-11). Default: `Date.now`. */
+  readonly now?: () => number;
 }
 
 /** A sub-task that holds a concurrency slot (arch:CONCURRENCY). */
@@ -194,11 +201,14 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         ...(seams.localHead ? { localHead: seams.localHead } : {}),
         ...(seams.transientCi ? { transientCi: seams.transientCi } : {}),
         ...(seams.staleRebase ? { staleRebase: seams.staleRebase } : {}),
+        ...(seams.shipRetry ? { shipRetry: seams.shipRetry } : {}),
+        ...(seams.retryShip ? { retryShip: seams.retryShip } : {}),
+        ...(d.now ? { now: d.now } : {}),
         note: (title, body) => postAutopilotNote(d.store, projectId, t.id, title, body, d.debug),
         debug: d.debug,
       });
       if (result.kind === 'armed' && t.subtaskParentId !== null) armed.set(t.id, { id: t.id, subtaskParentId: t.subtaskParentId });
-      if (result.kind === 'armed' || result.kind === 'parked' || result.kind === 'cleared' || result.kind === 'rerun' || result.kind === 'rebased') acted += 1;
+      if (result.kind === 'armed' || result.kind === 'parked' || result.kind === 'cleared' || result.kind === 'rerun' || result.kind === 'rebased' || result.kind === 'shipRetried') acted += 1;
     } catch (err) {
       d.debug(`[ship] autopilot ticket ${t.key ?? formatId('ticket', t.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);
     }

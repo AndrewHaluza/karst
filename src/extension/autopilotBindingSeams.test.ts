@@ -101,6 +101,58 @@ describe('the seams of one ticket', () => {
     handle.dispose();
   });
 
+  it('leaves the ship-retry seams absent until the host finished wiring them (T1362)', async () => {
+    let ready = false;
+    const shipRetry = vi.fn(() => ({ worktreeClean: async () => ({ ok: true as const, clean: true }), localHead: async () => 'h' }));
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const r = rig({ ready: () => ready, shipRetry, retryShip });
+    const handle = startAutopilot(r.deps);
+    vi.advanceTimersByTime(INTERVAL);
+    const before = vi.mocked(autopilotSweep).mock.calls.at(-1)![0].seamsFor(r.id) as Seams;
+    expect(before.shipRetry).toBeUndefined();
+    expect(before.retryShip).toBeUndefined();
+    ready = true;
+    vi.advanceTimersByTime(INTERVAL);
+    const after = vi.mocked(autopilotSweep).mock.calls.at(-1)![0].seamsFor(r.id) as Seams;
+    expect(after.shipRetry).toBe(shipRetry.mock.results.at(-1)!.value);
+    expect(after.retryShip).toBeTypeOf('function');
+    handle.dispose();
+  });
+
+  it('holds the ticket lease for a whole round while the ship retry runs (T1362)', async () => {
+    const during: number[] = [];
+    const shipRetry = () => ({ worktreeClean: async () => ({ ok: true as const, clean: true }), localHead: async () => 'h' });
+    const retryShip = vi.fn(async () => { during.push(lease(r)); return { kind: 'sent' as const }; });
+    const r = rig({ shipRetry, retryShip });
+    const { handle, seams } = open(r);
+    await seams.retryShip!(['repo-a']);
+    expect(during).toEqual([NOW + COOLDOWN]);
+    expect(lease(r)).toBe(NOW + INTERVAL * 3);
+    handle.dispose();
+  });
+
+  it('reports busy instead of retrying when another window holds the lease (T1362)', async () => {
+    const shipRetry = () => ({ worktreeClean: async () => ({ ok: true as const, clean: true }), localHead: async () => 'h' });
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const r = rig({ shipRetry, retryShip });
+    claimAutopilotTicket(r.store, r.id, 'OTHER-WINDOW', NOW, COOLDOWN);
+    const { handle, seams } = open(r);
+    await expect(seams.retryShip!(['repo-a'])).resolves.toEqual({ kind: 'busy' });
+    expect(retryShip).not.toHaveBeenCalled();
+    handle.dispose();
+  });
+
+  it('forwards the ship-retry seams for the ticket (T1362)', async () => {
+    const shipRetry = vi.fn(() => ({ worktreeClean: async () => ({ ok: true as const, clean: true }), localHead: async () => 'h' }));
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const r = rig({ shipRetry, retryShip });
+    const { handle, seams } = open(r);
+    expect(seams.shipRetry).toBe(shipRetry.mock.results[0]!.value);
+    await expect(seams.retryShip!(['repo-a'])).resolves.toEqual({ kind: 'sent' });
+    expect(retryShip).toHaveBeenCalledWith(r.id, ['repo-a']);
+    handle.dispose();
+  });
+
   it('pass the optional seams only when the deps carry them', () => {
     const bare = open(rig());
     expect(Object.keys(bare.seams)).not.toEqual(expect.arrayContaining(['isDraining', 'resumeDeliver', 'transientCi', 'staleRebase', 'sandboxPreflight']));
