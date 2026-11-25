@@ -13,7 +13,7 @@ import { holdsPark, refusedMergeBody, refusedMergeReason, STALLED_REASON, UNFINI
 import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
-import { AUTO_SHIP_RETRY_STOP_REASON, MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
+import { MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
 import { listShipRuns } from '../../store/shipRuns.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
