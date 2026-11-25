@@ -1017,6 +1017,9 @@ const AGY_PERMISSION_DOCTOR_HINT =
  * reader instead of a fixed string. A run with no detail — every legacy run —
  * keeps the `generic` wording. A permission denial also earns the doctor hint.
  */
+/** The unreadable row's short label while the blocked banner carries the full reason (DB-9). */
+const UNREADABLE_SHORT_DETAIL = 'output unreadable';
+
 function executionFailedDetail(run: ProcessRun, generic: string): string {
   const detail = run.failureDetail?.trim() ?? '';
   if (detail === '') return generic;
@@ -1201,7 +1204,11 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
     ...(run
       ? {
           detail:
-            run.resultKind === 'blocking'
+            // While the blocked banner shows the full reason, the row keeps only the short label:
+            // one owner for the reason (DB-9, UI-R40). A past attempt has no banner, so it keeps the reason.
+            input.cell.blocked && !eff.historical && isUnreadableRun(run)
+              ? UNREADABLE_SHORT_DETAIL
+              : run.resultKind === 'blocking'
               ? `${blocking} blocking finding${blocking === 1 ? '' : 's'}`
               : run.resultKind === 'validated'
                 ? 'no blocking findings'

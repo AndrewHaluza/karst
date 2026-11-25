@@ -69,6 +69,7 @@ function actions(): DashboardActions {
     reopenTicket: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
+    resolveAllConflicts: vi.fn(),
     mergePr: vi.fn(),
     dismissPr: vi.fn(),
     undismissPr: vi.fn(),
@@ -588,6 +589,14 @@ describe('routeAction', () => {
       type: 'merge-pr',
       repo: 'api',
     });
+  });
+
+  it('dispatches resolve-all-conflicts with no payload: the store, not the webview, names the repos', () => {
+    expect(parseWebviewMessage({ type: 'resolve-all-conflicts', repo: '/etc' })).toEqual({ type: 'resolve-all-conflicts' });
+    const a = actions();
+    routeAction({ type: 'resolve-all-conflicts' }, a);
+    expect(a.resolveAllConflicts).toHaveBeenCalledWith();
+    expect(a.resolveConflicts).not.toHaveBeenCalled();
   });
 
   it('dispatches merge-all-prs with no payload: the webview cannot choose which PRs merge', () => {

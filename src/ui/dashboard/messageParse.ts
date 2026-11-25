@@ -155,6 +155,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return typeof m.repo === 'string' && m.repo.length > 0
         ? { type: 'resolve-conflicts', repo: m.repo }
         : null;
+    case 'resolve-all-conflicts':
+      return { type: 'resolve-all-conflicts' };
     // A companion `method` is DROPPED, not honored: how to merge is the host's
     // question to the user, never the webview's to answer.
     case 'merge-pr':

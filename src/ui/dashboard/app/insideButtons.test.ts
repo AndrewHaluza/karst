@@ -7,23 +7,23 @@ const NONE: MenuFlags = { sendBack: false, retry: null, reset: null, prFeedback:
 describe('mainActionOf', () => {
   it('returns null when the host offers no recovery action', () => {
     expect(mainActionOf(NONE)).toBeNull();
-    // Reset, send back, stop and dismiss never become the main action.
-    expect(mainActionOf({ ...NONE, reset: 'uat', sendBack: true, autofixStop: true, deliverFailures: true })).toBeNull();
+    // Reset, re-run, send back, stop and dismiss never become the main action: re-run stays in Actions,
+    // never a header button beside the banner's Resume (DB-4).
+    expect(mainActionOf({ ...NONE, reset: 'uat', retry: 'uat', sendBack: true, autofixStop: true, deliverFailures: true })).toBeNull();
   });
 
   it('picks each single action', () => {
-    expect(mainActionOf({ ...NONE, retry: 'uat' })).toBe('retry');
     expect(mainActionOf({ ...NONE, ci: true })).toBe('ci');
     expect(mainActionOf({ ...NONE, prFeedback: true })).toBe('prFeedback');
     expect(mainActionOf({ ...NONE, rebase: true })).toBe('rebase');
   });
 
-  it('keeps the priority retry > ci > prFeedback > rebase', () => {
+  it('keeps the priority ci > prFeedback > rebase, and never picks re-run', () => {
     const all: MenuFlags = { ...NONE, retry: 'uat', ci: true, prFeedback: true, rebase: true };
-    expect(mainActionOf(all)).toBe('retry');
-    expect(mainActionOf({ ...all, retry: null })).toBe('ci');
-    expect(mainActionOf({ ...all, retry: null, ci: false })).toBe('prFeedback');
-    expect(mainActionOf({ ...all, retry: null, ci: false, prFeedback: false })).toBe('rebase');
+    expect(mainActionOf(all)).toBe('ci');
+    expect(mainActionOf({ ...all, ci: false })).toBe('prFeedback');
+    expect(mainActionOf({ ...all, ci: false, prFeedback: false })).toBe('rebase');
+    expect(mainActionOf({ ...all, ci: false, prFeedback: false, rebase: false })).toBeNull();
   });
 });
 

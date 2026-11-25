@@ -15,7 +15,8 @@ import { type makeSandboxWiring } from './ops/sandboxWiring.js';
 import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
 import { type Store } from '../store/db.js';
-import { resolveConflictClick } from './ops/conflictResolveOps.js';
+import { listMergeChecksByTicket } from '../store/mergeChecks.js';
+import { resolveAllConflictsClick, resolveConflictClick } from './ops/conflictResolveOps.js';
 import { graphRecoveryRefusalNotice } from './ops/graphRecovery.js';
 import type { Notify } from './ops/notify.js';
 import { conflictRounds, armConflictRound } from './ops/autoDeliverOps.js';
@@ -663,6 +664,21 @@ export function makeDashboardActions(
         repo, label: formatId('ticket', ticketId),
         probeSandbox: () => sandbox.bindings()?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
+        arm: (r) => armConflictRound(store, conflictRounds, ticketId, r),
+        prepareSandbox: () => sandbox.life().ensureInSync(ticketId),
+        notify: (message) => void toast.info(message),
+        deliver: (brief, hit) => handOffToSession(brief, hit),
+      }) : undefined));
+    },
+    // The banner's one Resolve: every conflicted repo in ONE brief to ONE session. The store lists the repos (the
+    // message has no payload); per-repo messages would start parallel hand-offs into the same ticket session.
+    resolveAllConflicts: async () => {
+      if (!(await guardCapability('sessions', ticketId))) return;
+      void askPausedModal(store, ticketId, 'resolving conflicts', 'Resolve conflicts', () => afterServerChange()).then((r) => (r === 'proceed' ? resolveAllConflictsClick({
+        repos: listMergeChecksByTicket(store, ticketId).filter((c) => c.state === 'conflicted').map((c) => c.repo),
+        label: formatId('ticket', ticketId),
+        probeSandbox: () => sandbox.bindings()?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
+        briefFor: (repo, sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
         arm: (r) => armConflictRound(store, conflictRounds, ticketId, r),
         prepareSandbox: () => sandbox.life().ensureInSync(ticketId),
         notify: (message) => void toast.info(message),

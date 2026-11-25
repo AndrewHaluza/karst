@@ -1600,6 +1600,40 @@ describe("reviewProcesses", () => {
     );
   });
 
+  it.each(["unreadable-output", "execution-failed"] as const)(
+    "while the banner shows the block reason, an unreadable (%s) Review row shows the short label only (DB-9)",
+    (resultKind) => {
+      const blockedReview = {
+        ...reviewCell,
+        status: "running" as const,
+        blocked: {
+          kind: "capability-missing",
+          reason: "review findings: unreadable output from /wt/web — no findings could be read",
+          at: "2026-07-20T12:05:00.000Z",
+          resumable: true,
+        },
+      };
+      const views = reviewProcesses(
+        qualityInput({
+          cell: blockedReview as never,
+          processRuns: [
+            processRun({
+              stageKey: "review",
+              processId: "review",
+              status: "failed",
+              resultKind,
+              failureDetail: "unreadable output from /wt/web — no findings could be read",
+            }),
+          ],
+        }),
+      );
+      const review = views.find((p) => p.id === "review")!;
+      expect(review.statusLabel).toBe("Unknown");
+      expect(review.detail).toBe("output unreadable");
+      expect(review.console).toBe(true);
+    },
+  );
+
   it("reads a legacy execution-failed unreadable Review row as unknown, not failed", () => {
     const views = reviewProcesses(
       qualityInput({

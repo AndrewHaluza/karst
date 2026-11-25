@@ -60,15 +60,11 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
     expect(b.hasAttribute('data-copied')).toBe(false);
   });
 
-  it('resolve-conflicts posts the repo with a request id exactly once and goes pending', () => {
+  it('a conflict reason draws no Resolve in the panel: the blocked banner owns block recovery (DB-3, UI-R40)', () => {
     const h = mount(stateWith([pr({ readiness: conflictReason() })]));
-    const b = one('resolve-conflicts');
-    fireEvent.click(b);
-    expect(h.send.resolveConflicts).toHaveBeenCalledTimes(1);
-    expect(h.send.resolveConflicts).toHaveBeenCalledWith(REPO, 'req-1');
-    expect(b.getAttribute('aria-busy')).toBe('true');
-    fireEvent.click(b);
-    expect(h.send.resolveConflicts).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('#prs [data-act="resolve-conflicts"]')).toBeNull();
+    expect(document.querySelector('.prblock')).not.toBeNull();
+    expect(h.send.resolveConflicts).not.toHaveBeenCalled();
   });
 });
 
@@ -348,7 +344,6 @@ describe('PrsPanel — every act posts exactly once', () => {
     ['undismiss-pr', 'undismissPr', stateWith([pr({ dismissed: true, status: 'closed' })])],
     ['open-pr', 'openPr', stateWith([pr()])],
     ['copy-pr-url', 'copyPrUrl', stateWith([pr()])],
-    ['resolve-conflicts', 'resolveConflicts', stateWith([pr({ readiness: conflictReason() })])],
     ['send-ci-failure', 'sendCiFailure', stateWith([pr({ readiness: ciReason() })], { ci: { available: true, repos: [REPO] } })],
     ['refresh-prs', 'refreshPrs', stateWith([pr()])],
   ] as const)('%s calls %s once and no other sender', (act, fn, state) => {

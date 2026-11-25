@@ -127,6 +127,7 @@ export function createSender(api: WebviewApi) {
       send({ type: 'open-stage-log', stageKey }, requestId),
     resolveConflicts: (repo: Msg<'resolve-conflicts'>['repo'], requestId?: string) =>
       send({ type: 'resolve-conflicts', repo }, requestId),
+    resolveAllConflicts: (requestId?: string) => send({ type: 'resolve-all-conflicts' }, requestId),
     mergePr: (repo: Msg<'merge-pr'>['repo'], requestId?: string) =>
       send({ type: 'merge-pr', repo }, requestId),
     mergeAllPrs: (requestId?: string) => send({ type: 'merge-all-prs' }, requestId),

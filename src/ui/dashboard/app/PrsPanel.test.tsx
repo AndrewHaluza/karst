@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent } from '@testing-library/react';
 import type { Reason } from '../../../model/prMergeReadiness.js';
 import type { DashboardState } from '../state.js';
+import { prsSummary } from './PrsPanel.js';
+
+const READY = { ready: true, headline: 'Ready to merge', facts: '', reasons: [] };
 import { blockedBy, waitsOnChecks, failing, staleChecks, installRuntimeDoubles, mount, one, byAct, pr, refreshBtn, REPO, stateWith, text, texts, URL } from './fixtures/prsPanelKit.js';
 
 installRuntimeDoubles();
@@ -43,6 +46,16 @@ describe('PrsPanel — header and empty states', () => {
     expect(text('.phead .count')).toBe('');
     expect(text('.phead .sec-sum')).toBe('2 blocked');
     expect(document.querySelectorAll('#prs .prrow')).toHaveLength(2);
+  });
+
+  it('counts ready and blocked from the same readiness verdict as the row chip (DB-2)', () => {
+    const ready = READY;
+    const conflicted = blockedBy(['conflicts', 'warn']);
+    // canMerge says GitHub would take it; the row reads "Merge blocked" on the conflict, so the header must too.
+    mount(stateWith([pr({ canMerge: true, mergeBlockedReason: '', readiness: conflicted }), pr({ repo: '/repos/api', repoDisplay: 'api', readiness: ready })]));
+    expect(text('.phead .sec-sum')).toBe('1 ready · 1 blocked');
+    expect(prsSummary([pr({ canMerge: true, readiness: conflicted })])).toBe('1 blocked');
+    expect(prsSummary([pr({ canMerge: false, readiness: ready })])).toBe('1 ready');
   });
 
   it('keeps the count when no summary part is non-zero: every row landed', () => {
@@ -368,7 +381,8 @@ describe('PrsPanel — the folded readiness list', () => {
 
   it('shows the actions on the summary line in reason order and not again in the body', () => {
     mount(stateWith([pr({ readiness: two([act('checks', 'Send CI failure'), act('conflicts', 'Resolve')]) })]));
-    expect(texts('.prblock-acts button')).toEqual(['Send CI failure', 'Resolve']);
+    // Resolve is block recovery: the banner owns it, so the panel keeps only the per-PR action (DB-3).
+    expect(texts('.prblock-acts button')).toEqual(['Send CI failure']);
     expect(document.querySelectorAll('.prsn-line button')).toHaveLength(0);
   });
 
@@ -481,7 +495,7 @@ describe('PrsPanel — slice selection (migration plan A4)', () => {
 describe('PrsPanel — summary, the details popover and the blocked reason', () => {
   it('summarises ready, blocked and dismissed PRs, non-zero parts only, with the full text in the title', () => {
     mount(stateWith([
-      pr({ canMerge: true }),
+      pr({ canMerge: true, readiness: READY }),
       pr({ repo: '/repos/b', canMerge: false }),
       pr({ repo: '/repos/c', status: 'closed', dismissed: true, dismissedLabel: 'dismissed Aug 11' }),
     ]));
@@ -489,7 +503,7 @@ describe('PrsPanel — summary, the details popover and the blocked reason', () 
     expect(sum.textContent).toBe('1 ready · 1 blocked · 1 dismissed');
     expect(sum.getAttribute('title')).toBe('1 ready · 1 blocked · 1 dismissed');
     cleanup();
-    mount(stateWith([pr({ canMerge: true })]));
+    mount(stateWith([pr({ canMerge: true, readiness: READY })]));
     expect(text('.phead .sec-sum')).toBe('1 ready');
   });
 

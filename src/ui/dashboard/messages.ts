@@ -128,6 +128,11 @@ export type WebviewMessage =
   | { type: 'open-stage-log'; stageKey: StageKey }
   | { type: 'resolve-conflicts'; repo: string }
   /**
+   * Hand every conflicted repo of the ticket to ONE agent session in one brief (the banner's single Resolve). No payload:
+   * the host lists the conflicted repos from the store, so a crafted message cannot name a repo.
+   */
+  | { type: 'resolve-all-conflicts' }
+  /**
    * Merge one repo's PR from the ship stage. Carries the repo ONLY: the merge
    * method is asked for host-side, in the confirmation the user must answer, so a
    * crafted (or stale) message can neither choose the strategy nor skip the

@@ -19,7 +19,7 @@ import { STAGE_TITLE } from './railText.js';
 export interface MenuFlags {
   /** Send back to Implement (the stage the host names). */
   readonly sendBack: boolean;
-  /** The gate stage whose Retry the host offers, or null. */
+  /** The gate stage whose re-run the host offers, or null. It is always a menu item ("Re-run stage…"), never the main button. */
   readonly retry: string | null;
   /** The failed gate stage whose Reset the host offers, or null. */
   readonly reset: string | null;
@@ -35,14 +35,14 @@ export interface MenuFlags {
 }
 
 /** The one action the header shows as a visible button; the others stay in the Actions menu. */
-export type MainAction = 'retry' | 'ci' | 'prFeedback' | 'rebase';
+export type MainAction = 'ci' | 'prFeedback' | 'rebase';
 
 /**
- * The action that fits the state, picked from the host's availability flags in a fixed order: a failed gate asks for
- * Retry, then a failing CI for Send CI failure, then PR feedback, then a conflict for Rebase. Null when none is offered.
+ * The action that fits the state, picked from the host's availability flags in a fixed order: a failing CI for Send
+ * CI failure, then PR feedback, then a conflict for Rebase. Null when none is offered. A gate re-run is never the main
+ * button: the blocked banner's Resume is the recovery, and "Re-run stage…" stays in Actions (DB-4, UI-R40).
  */
 export function mainActionOf(menu: MenuFlags): MainAction | null {
-  if (menu.retry !== null) return 'retry';
   if (menu.ci) return 'ci';
   if (menu.prFeedback) return 'prFeedback';
   if (menu.rebase) return 'rebase';

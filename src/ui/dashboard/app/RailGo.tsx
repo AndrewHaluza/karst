@@ -1,13 +1,16 @@
 /**
  * The needs-you control inside the current rail segment, rendered from the host's `cta` verdict, never from
  * the action LABEL (which is prose). Three kinds ACT, posting the same message as the header's Confirm ship,
- * the PR panel's Merge and its Resolve conflicts button; the host's confirmation still guards the irreversible
- * merge. The rest NAVIGATE to the control that owns the action and post nothing.
+ * the PR panel's Merge and the Retry ship; the host's confirmation still guards the irreversible merge. The
+ * rest NAVIGATE to the control that owns the action and post nothing.
+ *
+ * A merge conflict (`resolve-conflicts`, `resolve-panel`) draws NO control: the blocked banner owns the reason and
+ * Resolve, and the segment keeps only its glyph and short label (Q1, DB-3, UI-R40). The host verdict keeps both
+ * kinds, because the sidebar peek still acts on them.
  *
  * Ship and Merge share their in-flight state with the header and the PR panel (`pendingOps.ts`): one
  * operation, one dialog. They carry no request id on the wire (the host answers with a state push); the
- * shared state keeps the id the runtime settles. Resolve conflicts rides the generic path like the panel's own
- * button (pending on click, settled by the host's `action-result`).
+ * shared state keeps the id the runtime settles.
  *
  * A control that may be runtime-pending keeps one className whatever it shows: the runtime's `is-pending`
  * class lives on that node.
@@ -23,8 +26,8 @@ type Needs = NonNullable<RailSeg['needs']>;
 
 /**
  * Scrolls the control that owns the action into view and focuses it. Graph waits belong to the selected
- * Inside view, never the agent header; an open session is the agent header; the merge and conflict kinds
- * live on the PR panel, where each repo has its own control.
+ * Inside view, never the agent header; an open session is the agent header; the merge kinds live on the PR
+ * panel, where each repo has its own control.
  */
 export function gotoAction(kind: string): void {
   const byId = (id: string): HTMLElement | null => document.getElementById(id);
@@ -85,16 +88,6 @@ const MergeGo = memo(function MergeGo({ label, repo, busy }: { readonly label: s
   );
 });
 
-const ResolveGo = memo(function ResolveGo({ label, repo }: { readonly label: string; readonly repo: string }) {
-  const send = useDashboardSend();
-  const onClick = usePendingAction(useCallback((requestId: string) => send.resolveConflicts(repo, requestId), [send, repo]));
-  return (
-    <button type="button" className="go" data-act="resolve-conflicts" data-repo={repo} onClick={onClick}>
-      {label}
-    </button>
-  );
-});
-
 const RetryShipGo = memo(function RetryShipGo({ label }: { readonly label: string }) {
   const send = useDashboardSend();
   const onClick = usePendingAction(useCallback((requestId: string) => send.retryShip(requestId), [send]));
@@ -119,6 +112,6 @@ export const RailGo = memo(function RailGo({ needs, busy }: { readonly needs: Ne
   if (cta?.kind === 'ship-confirm') return <ShipGo label={label} busy={busy} />;
   if (cta?.kind === 'retry-ship') return <RetryShipGo label={label} />;
   if (cta?.kind === 'merge') return <MergeGo label={label} repo={cta.repo} busy={busy} />;
-  if (cta?.kind === 'resolve-conflicts') return <ResolveGo label={label} repo={cta.repo} />;
+  if (cta?.kind === 'resolve-conflicts' || cta?.kind === 'resolve-panel') return null;
   return <GotoGo label={label} kind={cta ? cta.kind : 'open-session'} />;
 });

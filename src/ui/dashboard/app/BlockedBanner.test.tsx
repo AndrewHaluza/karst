@@ -78,6 +78,70 @@ describe('BlockedBanner — when it shows', () => {
   });
 });
 
+describe('BlockedBanner — a ship conflict (Q1: the banner owns the reason and Resolve, @arch:BLOCKED)', () => {
+  const WEB = '/repos/web';
+  const API = '/repos/api';
+  const wait = (ship: Record<string, unknown>, over: Record<string, unknown> = {}) =>
+    railState({
+      stageCurrent: 'ship',
+      currentStage: { stageKey: 'ship', status: 'passed', blocked: block('awaiting-merge', { resumable: false, reason: 'PR #412 is open and unmerged' }) },
+      ship,
+      prs: [
+        { repo: WEB, repoDisplay: 'web', status: 'open' },
+        { repo: API, repoDisplay: 'api', status: 'open' },
+      ],
+      ...over,
+    });
+
+  it('shows "Merge is blocked" with the repo count and one Resolve, never Resume', () => {
+    const h = mountRail(wait({ kind: 'merge-blocked', repos: [WEB] }));
+    expect(shown()).toBe(true);
+    expect(text('.ftitle')).toBe('Merge is blocked');
+    expect(text('.freason')).toBe(' · 1 repo no longer merges cleanly');
+    const resolve = btn('resolve-conflicts');
+    expect(resolve.textContent).toBe('Resolve');
+    expect(resolve.dataset.repo).toBe(WEB);
+    expect(resolve.className).toContain('k-btn--primary');
+    expect(resolve.hasAttribute('data-stage')).toBe(false);
+    expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
+    expect(banner().textContent).not.toContain('Resume');
+    fireEvent.click(resolve);
+    fireEvent.click(resolve);
+    expect(h.send.resolveConflicts).toHaveBeenCalledTimes(1);
+    expect(h.send.resolveConflicts).toHaveBeenCalledWith(WEB, 'req-1');
+    expect(h.send.stageResume).not.toHaveBeenCalled();
+  });
+
+  it('offers one Resolve for every conflicted repo and sends ONE resolve-all message (one session, not one per repo)', () => {
+    const h = mountRail(wait({ kind: 'merge-blocked', repos: [WEB, API] }));
+    expect(text('.freason')).toBe(' · 2 repos no longer merge cleanly');
+    const buttons = all('#blocked [data-act="resolve-conflicts"]');
+    expect(buttons.map((b) => b.textContent)).toEqual(['Resolve']);
+    fireEvent.click(buttons[0]!);
+    expect(h.send.resolveAllConflicts.mock.calls).toEqual([['req-1']]);
+    expect(h.send.resolveConflicts).not.toHaveBeenCalled();
+  });
+
+  it('a calm wait (no conflict, CI running, ship running) shows no banner and no action that clears the block', () => {
+    mountRail(wait({ kind: 'waiting-merge', repos: 2 }));
+    expect(shown()).toBe(false);
+    expect(banner().childElementCount).toBe(0);
+    cleanupRail();
+    mountRail(wait({ kind: 'shipping' }, { currentStage: { stageKey: 'ship', status: 'running', blocked: block('awaiting-merge', { resumable: false }) } }));
+    expect(shown()).toBe(false);
+    expect(q('#blocked [data-act]')).toBeNull();
+  });
+
+  it('an auto-fix park keeps its own banner even while a conflict is recorded', () => {
+    mountRail(wait({ kind: 'merge-blocked', repos: [WEB] }, {
+      currentStage: { stageKey: 'ship', status: 'passed', blocked: block('awaiting-merge', { resumable: false, reason: 'auto-fix stopped: conflicts 2/2' }) },
+    }));
+    expect(banner().textContent).toContain('auto-fix stopped: conflicts 2/2');
+    expect(banner().textContent).not.toContain('Merge is blocked');
+    expect(q('#blocked [data-act="stage-resume"]')).toBeNull();
+  });
+});
+
 describe('BlockedBanner — a resumable fault', () => {
   it('names the stage, shows the machine reason, and offers Resume on the block’s own key, never the rail’s data-stage', () => {
     mountRail(blockedState(block('boot-failed')));
