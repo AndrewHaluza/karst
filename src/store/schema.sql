@@ -435,6 +435,10 @@ CREATE TABLE IF NOT EXISTS phase_marks (
   attempt       INTEGER NOT NULL,     -- the stage's attempt when this mark landed
   phase_name    TEXT NOT NULL,        -- as reported; NOT constrained to the declared list
   marked_at     TEXT NOT NULL,
+  -- v139: WHO wrote the mark — the agent through `karst phase` ('agent'), or
+  -- the host inferring phase entry from evidence it already holds ('host').
+  -- A host mark is evidence, never a verdict (@arch:RESULTS).
+  source        TEXT NOT NULL DEFAULT 'agent' CHECK (source IN ('agent','host')),
   -- v28 implementation-run linkage (kept in sync with migrations.ts v28 ALTERs):
   -- the stable implementation run and its segment the mark was reported inside.
   -- NULL = a pre-v28 mark, or a mark reported outside any segment. Never backfilled.

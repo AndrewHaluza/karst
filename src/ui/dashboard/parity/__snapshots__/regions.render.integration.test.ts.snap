@@ -1946,15 +1946,7 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
       <div.krow-sub>"
 `;
 
-exports[`dashboard region parity (DOM contract) > prs #prs · none > prs · none 1`] = `
-"<div#prs.pbody>
-  <div.estate>
-    <span.emark>
-      <svg.k-icon aria-hidden="true">
-    <div>
-      <div.ehead> "No pull requests."
-      <div.esub> "Ship opens one per repository with changes.""
-`;
+exports[`dashboard region parity (DOM contract) > prs #prs · none > prs · none 1`] = `"<div#prs.k-empty.k-empty--inline> "No pull requests yet.""`;
 
 exports[`dashboard region parity (DOM contract) > prs #prs · one open PR awaiting review > prs · one open PR awaiting review 1`] = `
 "<div#prs.pbody>
@@ -2704,13 +2696,7 @@ exports[`dashboard region parity (DOM contract) > servers .svpanel · none, noth
   <div.phead>
     <span.sec-title> "Servers"
     <span.pops>
-  <div#servers.pbody>
-    <div.dead.estate>
-      <span.emark>
-        <svg.k-icon aria-hidden="true">
-      <div>
-        <div.ehead> "No runnable services in scope."
-        <div.esub> "This ticket scopes only repositories without a service block, so there is nothing here to run.""
+  <div#servers.k-empty.k-empty--inline> "No runnable services in scope.""
 `;
 
 exports[`dashboard region parity (DOM contract) > servers .svpanel · own and shared services > servers · own and shared services 1`] = `
@@ -2815,13 +2801,7 @@ exports[`dashboard region parity (DOM contract) > servers .svpanel · runnable b
         <svg.k-icon aria-hidden="true">
       <button.ib.k-iconbtn.t-open aria-label="Configure environment variables" data-act="env-overrides-open" title="Configure environment variables" type="button">
         <svg.k-icon aria-hidden="true">
-  <div#servers.pbody>
-    <div.estate>
-      <span.emark>
-        <svg.k-icon aria-hidden="true">
-      <div>
-        <div.ehead> "No servers running."
-        <div.esub> "Start the services in scope to get their local addresses here.""
+  <div#servers.k-empty.k-empty--inline> "No servers running yet.""
 `;
 
 exports[`dashboard region parity (DOM contract) > servers .svpanel · two running services > servers · two running services 1`] = `
@@ -2883,7 +2863,7 @@ exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none
       <svg.k-icon aria-hidden="true">
       <span.k-btn-label> "Add sub-task"
   <div#subtasks.pbody>
-    <div.subtask-empty> "No sub-tasks yet. Add one to split off unfinished work.""
+    <div.k-empty.k-empty--inline> "No sub-tasks yet.""
 `;
 
 exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none but can add > subtasks · none but can add 1`] = `
@@ -2894,7 +2874,7 @@ exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · none
       <svg.k-icon aria-hidden="true">
       <span.k-btn-label> "Add sub-task"
   <div#subtasks.pbody>
-    <div.subtask-empty> "No sub-tasks yet. Add one to split off unfinished work.""
+    <div.k-empty.k-empty--inline> "No sub-tasks yet.""
 `;
 
 exports[`dashboard region parity (DOM contract) > subtasks #subtaskPanel · populated with progress > subtasks · populated with progress 1`] = `
@@ -3114,15 +3094,7 @@ exports[`dashboard region parity (DOM contract) > ticketData #ticketDataDrawer �
           <p> "A brief.""
 `;
 
-exports[`dashboard region parity (DOM contract) > worktrees #worktrees · none > worktrees · none 1`] = `
-"<div#worktrees.pbody>
-  <div.estate>
-    <span.emark>
-      <svg.k-icon aria-hidden="true">
-    <div>
-      <div.ehead> "No worktrees."
-      <div.esub> "Implement creates one per repository in scope.""
-`;
+exports[`dashboard region parity (DOM contract) > worktrees #worktrees · none > worktrees · none 1`] = `"<div#worktrees.k-empty.k-empty--inline> "No worktrees yet.""`;
 
 exports[`dashboard region parity (DOM contract) > worktrees #worktrees · two repos > worktrees · two repos 1`] = `
 "<div#worktrees.pbody>

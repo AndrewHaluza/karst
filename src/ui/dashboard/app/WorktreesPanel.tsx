@@ -15,7 +15,6 @@ import { useDashboardSend, useHostMessage } from './DashboardAppContext.js';
 import { useSlice } from './useSlice.js';
 import { usePendingAction } from './usePendingAction.js';
 import { CopyBranchButton, WorktreeRow } from './WorktreeRow.js';
-import { EmptyState } from './EmptyState.js';
 import { Icon } from './Icon.js';
 import type { DashboardSender } from './hostBridge.js';
 import { Section } from './Section.js';
@@ -160,6 +159,8 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
       summaryTitle={headerBranch ?? undefined}
       summaryMono
       bodyId="worktrees"
+      // Q3 (UI-R46): no worktree yet is one muted line under the header, in the panel's own place.
+      empty={worktrees !== null && worktrees.length === 0 ? 'No worktrees yet.' : null}
       actions={
         // DB-19: with no worktree there is nothing to show, and a disabled button is not focusable, so its title-only
         // reason is unreachable (UI-R19). Before the first snapshot the control stays: the answer is not known yet.
@@ -178,10 +179,9 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
         )
       }
     >
-      {worktrees === null ? null : worktrees.length === 0 ? (
-        <EmptyState icon="folder" heading="No worktrees." sub="Implement creates one per repository in scope." />
-      ) : (
-        worktrees.map((w) => (
+      {worktrees === null || worktrees.length === 0
+        ? null
+        : worktrees.map((w) => (
           <WorktreeRow
             key={w.repo}
             w={w}
@@ -196,8 +196,7 @@ export const WorktreesPanel = memo(function WorktreesPanel() {
             onClearRefusal={clearRefusal}
             onChangeRequested={trackRequest}
           />
-        ))
-      )}
+        ))}
     </Section>
   );
 });

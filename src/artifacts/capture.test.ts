@@ -84,6 +84,13 @@ describe('captureWorktree', () => {
     expect(throwing.debug).toHaveBeenCalledWith(expect.stringContaining('revision listener failed'));
   });
 
+  it('marks a deletion event so a listener can tell it from a write', async () => {
+    const { deps, target } = setup('D\0docs/plans/a.md\0');
+    const events: unknown[] = [];
+    await captureWorktree({ ...deps, onRevision: (e) => events.push(e) }, target);
+    expect(events).toEqual([{ ticketId: 4, kind: 'plan', sha: 'sha', path: 'app/docs/plans/a.md', deleted: true }]);
+  });
+
   it('does not notify for a skipped (null) commit', async () => {
     const { deps, target } = setup('M\0docs/plans/a.md\0');
     const events: unknown[] = [];

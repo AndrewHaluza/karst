@@ -104,7 +104,7 @@ export const SubtasksPanel = memo(function SubtasksPanel() {
           subtasks.length ? (
             subtasks.map((s) => <SubtaskRow key={s.id} s={s} parentKey={slice?.parentKey ?? ''} />)
           ) : (
-            <div className="subtask-empty">No sub-tasks yet. Add one to split off unfinished work.</div>
+            <div className="k-empty k-empty--inline">No sub-tasks yet.</div>
           )
         ) : null}
       </RegionPortal>

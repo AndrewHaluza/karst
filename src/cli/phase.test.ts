@@ -19,7 +19,7 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { upsertProject } from '../store/projects.js';
 import { setStage } from '../store/stages.js';
-import { listPhaseMarks } from '../store/phaseMarks.js';
+import { listPhaseMarks, recordPhaseMark } from '../store/phaseMarks.js';
 import { openImplementationRun } from '../store/implementationRuns.js';
 
 describe('parsePhaseArgs', () => {
@@ -87,7 +87,7 @@ describe('parsePhaseArgs', () => {
 
 describe('runPhaseCommand', () => {
   it('records the mark and returns the phase name', () => {
-    const record = vi.fn();
+    const record = vi.fn(() => true);
     const store = {} as Store;
     const out = runPhaseCommand(store, 7, ['phase', 'research'], {
       record,
@@ -100,12 +100,13 @@ describe('runPhaseCommand', () => {
       attempt: 4,
       phaseName: 'research',
       markedAt: '2026-01-02T03:04:05.000Z',
+      source: 'agent',
     });
     expect(out).toBe('research');
   });
 
   it('records NOTHING when the name fails the charset', () => {
-    const record = vi.fn();
+    const record = vi.fn(() => true);
     expect(() =>
       runPhaseCommand({} as Store, 7, ['phase', 'x; rm -rf ~'], {
         record,
@@ -215,6 +216,29 @@ describe('runCli — phase marker', () => {
   it('carries the stage’s attempt at the moment the mark landed', () => {
     runCli(['phase', 'plan', '--db', dbPath, '--manifest', manifestPath, '--ticket', 'K-1']);
     expect(marksFor(2)[0]!.attempt).toBe(3);
+    expect(marksFor(2)[0]!.source).toBe('agent');
+  });
+
+  it('exits 0 with its normal output when the host already marked that phase', () => {
+    // The host writes its evidence mark at run start; the agent's own mark for
+    // the same entry is not a second entry, so the row is not duplicated — and
+    // the command must never fail because of it.
+    const seed = openStore(dbPath);
+    recordPhaseMark(seed, {
+      ticketId: 2,
+      stageKey: 'impl',
+      attempt: 3,
+      phaseName: 'plan',
+      markedAt: '2026-07-20T12:00:00.000Z',
+      source: 'host',
+    });
+    seed.close();
+
+    const out = runCli(['phase', 'plan', '--db', dbPath, '--manifest', manifestPath, '--ticket', 'K-1']);
+    expect(out.trim()).toBe('plan');
+    const marks = marksFor(2);
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.source).toBe('host');
   });
 
   it('attributes a phase mark to the ticket’s open implementation run', () => {

@@ -449,8 +449,8 @@ approaches:
     # here MUST resolve to a fetched commands/<name>.md or install fails.
     workflow:
       - { name: describe }
-      - { name: research, command: /rpi:research }
-      - { name: plan, command: /rpi:plan }
+      - { name: research, command: /rpi:research, evidence: { outputKind: research } }
+      - { name: plan, command: /rpi:plan, evidence: { outputKind: plan } }
       - { name: implement, command: /rpi:implement }
   # GSD (Get Shit Done) — a spec-driven phase-loop framework. Its npm package
   # `@opengsd/gsd-core` is a Claude-Code PLUGIN: the skills/agents/commands live
@@ -491,7 +491,7 @@ approaches:
               include: [templates/commands] }
     workflow:
       - { name: describe }
-      - { name: specify, command: /speckit:specify }
+      - { name: specify, command: /speckit:specify, evidence: { outputKind: spec } }
       - { name: clarify, command: /speckit:clarify }
       - { name: plan, command: /speckit:plan }
       - { name: tasks, command: /speckit:tasks }
@@ -505,8 +505,14 @@ approaches:
               include: [skills/writing-plans] }
     # Phases in order; no `command` because this source ships no slash
     # commands — each phase is handled manually and reported via `phase`.
+    # `evidence` is what the HOST reads when the agent files no mark: the first
+    # captured output of that kind proves the phase happened. `outputs` is
+    # required for that — without it rule B can never fire.
+    outputs:
+      - { glob: docs/superpowers/plans/**, kind: plan }
+      - { glob: docs/superpowers/specs/**, kind: spec }
     workflow:
-      - { name: plan }
+      - { name: plan, evidence: { outputKind: plan } }
       - { name: implement }
   - id: "superpowers:test-driven-development"
     label: "TDD"

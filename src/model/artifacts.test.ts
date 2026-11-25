@@ -1271,6 +1271,7 @@ describe('plan artifact (session phases, non-graph)', () => {
       attempt: 0,
       phaseName: name,
       markedAt: at,
+      source: 'agent',
     });
   }
 

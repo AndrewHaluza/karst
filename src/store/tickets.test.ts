@@ -707,6 +707,7 @@ describe('ticket + stage persistence', () => {
       attempt: 0,
       phaseName: 'plan',
       markedAt: '2026-08-01T10:00:00.000Z',
+      source: 'agent',
     });
     setMergeCheck(store, {
       ticketId: t.id,

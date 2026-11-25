@@ -31,6 +31,7 @@ function mark(phaseName: string, markedAt: string, extra: Partial<PhaseMark> = {
     attempt: 0,
     phaseName,
     markedAt,
+    source: 'agent',
     implementationRunId: null,
     implementationSegmentId: null,
     ...extra,
@@ -74,6 +75,16 @@ describe('reportedPhases', () => {
     expect(
       reportedPhases([mark('research', at('10:00'), { stageKey: 'fix' })], cell('impl', 'running')),
     ).toEqual([]);
+  });
+
+  // A host mark is the same fact as an agent mark for the stepper (@arch:RESULTS):
+  // evidence that the phase was entered. Only the diagnostics care WHO said it.
+  it('treats an agent mark and a host mark the same', () => {
+    const agent = reportedPhases([mark('plan', at('10:00'))], cell('impl', 'running'));
+    const host = reportedPhases([mark('plan', at('10:00'), { source: 'host' })], cell('impl', 'running'));
+
+    expect(host.map((m) => [m.phaseName, m.attempt])).toEqual(agent.map((m) => [m.phaseName, m.attempt]));
+    expect(host[0]!.source).toBe('host');
   });
 });
 
@@ -231,6 +242,58 @@ describe('implementationSessionProcess', () => {
     expect(timeline[1]!.detail).toBe(`reported · ${formatTime(runAt('12:10'))}`);
     expect(timeline[2]!.detail).toBe(`reported · ${formatTime(runAt('12:20'))}`);
     expect(timeline[4]!.detail).toBe(`reported · ${formatTime(runAt('12:40'))}`);
+  });
+
+  // Decision 10 (@arch:RESULTS): the host's run-start mark proves the phase was
+  // entered, NOT that the work after it started. So a run carrying only host
+  // marks derives no `implement` row — that row would claim progress nobody made.
+  it('shows a host first-phase mark alone with the open status and no derived row', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      [mark('plan', runAt('12:10'), { implementationRunId: 1, source: 'host' })],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    expect(timeline.map((r) => r.label)).toEqual(['started', 'plan']);
+    expect(timeline[1]!.status).toBe('run');
+    expect(timeline[1]!.detail).toBe(`recorded by karst · ${formatTime(runAt('12:10'))}`);
+  });
+
+  it('derives the implement row from a host first-phase mark plus an agent mark', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'running'),
+      tl([segment({ id: 1 })]),
+      [
+        mark('plan', runAt('12:10'), { implementationRunId: 1, source: 'host' }),
+        mark('research', runAt('12:20'), { implementationRunId: 1 }),
+      ],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    expect(timeline.map((r) => r.label)).toEqual(['started', 'plan', 'research', 'implement']);
+    expect(timeline[1]!.detail).toBe(`recorded by karst · ${formatTime(runAt('12:10'))}`);
+    expect(timeline[2]!.detail).toBe(`reported · ${formatTime(runAt('12:20'))}`);
+    expect(timeline[3]!.detail).toBe('derived · after the last reported phase');
+  });
+
+  it('derives a passed implement row from a host-only first phase on a passed run', () => {
+    const process = implementationSessionProcess(
+      cell('impl', 'passed', { startedAt: runAt('12:00'), endedAt: runAt('12:30') }),
+      tl([segment({ id: 1 })], { status: 'passed', endedAt: runAt('12:30') }),
+      [mark('plan', runAt('12:10'), { implementationRunId: 1, source: 'host' })],
+      undefined,
+      undefined,
+      NOW,
+    );
+    const timeline = rows(process);
+    expect(timeline.map((r) => r.label)).toEqual(['started', 'plan', 'implement', 'done']);
+    expect(timeline[2]!.status).toBe('pass');
+    expect(timeline[2]!.detail).toBe('derived · closed by the done marker');
   });
 
   it('shows the recorded segment as the execution once the run has started', () => {

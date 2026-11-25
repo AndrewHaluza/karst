@@ -180,6 +180,13 @@ export interface RecordSessionLaunchIntentInput {
    * than freshly opened.
    */
   promptTelemetry?: import('./processRuns.js').PromptTelemetry | null;
+  /**
+   * Rule A (@arch:RESULTS): the approach's first declared phase, when the
+   * caller resolved one. Passed through to `openImplementationRun`, which writes
+   * the host's first-phase mark only when it OPENS a run — a reused run already
+   * carries it. Absent for a fix launch.
+   */
+  firstPhase?: string | null;
 }
 
 /**
@@ -217,6 +224,7 @@ export function recordSessionLaunchIntent(
           model: input.model ?? null,
           promptTelemetry: input.promptTelemetry ?? null,
           startedAt: input.at,
+          firstPhase: input.firstPhase ?? null,
         });
         implementationRunId = run.id;
         processRunId = run.processRunId;
