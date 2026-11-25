@@ -93,7 +93,9 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   //   @ui:UI-R57: 2 x 1 theme (dark) (+2 screenshots); skipLayout, because accounts-several already runs the route.
   // T1360 review accounts-long-name (one 50-char unbroken name, the UI-R44 wrapping case), @ui:UI-R57: 1 theme
   //   (dark) (+1 screenshot); skipLayout, because accounts-several already runs the route.
-  settings: { screenshots: 118, layout: 156 },
+  // T1368 accounts-quota-narrow (the compact quota list at 400 px: label, help, control under them), @ui:UI-R57:
+  //   1 theme (dark) (+1 screenshot); skipLayout, because the wide accounts-quota shot already covers the route.
+  settings: { screenshots: 119, layout: 156 },
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
   // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).

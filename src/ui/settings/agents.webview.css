@@ -521,13 +521,14 @@
 #section-agents .accounts-steps { display: flex; gap: var(--k-space-4, 12px); list-style: none; padding: 0; }
 #section-agents .accounts-steps [aria-current="step"] { font-weight: 600; }
 #section-agents .accounts-checklist { list-style: none; padding: 0; }
-/* Quota section (D707/Q4-SAVE): the prototype's grammar below the table
-   (P69 settings-accounts.html, @ui:UI-R39) — a head line with the link at the
-   right edge and a rule under it, one muted line, then one divider-separated row
-   per setting: label + help at the left, control at the right (UI-R41/R42).
-   Below the 700px container tier every row stacks like the other settings forms
-   (@ui:RD-LADDERS2). The card border/radius of the old block is gone: the
-   prototype draws the section on the page surface, not in a card. */
+/* Quota section (D707/Q4-SAVE, T1368/D829): the prototype's grammar below the
+   table (P69 settings-accounts.html, @ui:UI-R39) — a head line with the link at
+   the right edge and a rule under it, one muted lead line, then one
+   divider-separated row per setting: label + short help at the left, control at
+   the right (UI-R41/R42). Below the 700px container tier every row stacks
+   (@ui:RD-LADDERS2): label, help, then the control under them, left-aligned
+   (UI-R43). The card border/radius of the old block is gone: the prototype draws
+   the section on the page surface, not in a card. */
 #section-agents .accounts-quota { margin-block: var(--k-space-7) 0; }
 #section-agents .accounts-quota-head {
   display: flex;
@@ -535,12 +536,12 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--k-space-1) var(--k-space-4);
-  padding-bottom: var(--k-space-2);
+  padding-bottom: var(--k-space-4);
   border-bottom: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
 }
 #section-agents .accounts-quota-head h3 { margin: 0; min-width: 0; }
 #section-agents .accounts-quota-head .k-btn { flex: none; white-space: nowrap; min-height: var(--k-hit-min); }
-#section-agents .accounts-quota-intro { margin: var(--k-space-2) 0 var(--k-space-4); }
+#section-agents .accounts-quota-intro { margin: var(--k-space-3) 0 var(--k-space-5); }
 #section-agents .accounts-quota .k-field.accounts-quota-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -548,6 +549,10 @@
   row-gap: var(--k-space-1);
   align-items: center;
   padding-block: var(--k-space-4);
+}
+/* The prototype draws the first row under the lead line with no rule above it;
+   only the rows after it carry the faint divider (UI-R42). */
+#section-agents .accounts-quota .k-field.accounts-quota-row + .k-field.accounts-quota-row {
   border-top: var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border, var(--k-border)) 45%, transparent);
 }
 #section-agents .accounts-quota .accounts-quota-row > label {
@@ -579,24 +584,47 @@
   grid-row: 1;
   justify-self: end;
 }
+/* T1368: the threshold row adds the unit as a third track, so "% used" sits
+   directly after the input with the row's 16px gap (prototype `.qctl`). */
+#section-agents .accounts-quota .k-field.accounts-quota-threshold { grid-template-columns: minmax(0, 1fr) auto auto; }
+#section-agents .accounts-quota .accounts-quota-threshold > .accounts-quota-suffix {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  white-space: nowrap;
+  color: var(--k-text-dim);
+  font-size: var(--k-text-md);
+}
 #section-agents .accounts-quota .accounts-quota-row > .k-field-help { grid-column: 1; grid-row: 2; margin-block-start: 0; }
 #section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved { grid-column: 2; grid-row: 2; justify-self: end; }
+/* The threshold acknowledges under its own unit, on the line the help already
+   occupies: the ack never adds a row, so the control does not jump (UI-R15). */
+#section-agents .accounts-quota .accounts-quota-threshold > .accounts-quota-saved { grid-column: 3; grid-row: 2; }
 #section-agents .accounts-quota .accounts-quota-row > .k-field-error { grid-column: 1 / -1; grid-row: 3; }
 #section-agents .accounts-quota-threshold input { width: 10ch; min-width: 0; box-sizing: border-box; } /* 6 digits of text plus the padding and the number spinner */
 @container accounts-tab (max-width: 699px) {
-  /* Narrow: label above control above help, in source order (RD-LADDERS2). The
-     toggle stays one line (SET-18), with its label at the left and box at the right. */
+  /* Narrow: label, then help, then the control under them, all left-aligned
+     (UI-R43). The toggle keeps its label + box pair on ONE line (SET-18); its
+     help sits under that line. */
   #section-agents .accounts-quota .k-field.accounts-quota-row { grid-template-columns: minmax(0, 1fr); }
   #section-agents .accounts-quota .accounts-quota-row > label,
-  #section-agents .accounts-quota .accounts-quota-row > .k-input,
   #section-agents .accounts-quota .accounts-quota-row > .k-field-help,
   #section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved,
   #section-agents .accounts-quota .accounts-quota-row > .k-field-error {
-    grid-column: 1;
-    grid-row: auto;
+    grid-column: 1 / -1;
     justify-self: start;
   }
-  #section-agents .accounts-quota .accounts-quota-row > .k-check { grid-column: 1; grid-row: auto; }
+  #section-agents .accounts-quota .accounts-quota-row > label { grid-row: 1; }
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-help { grid-row: 2; }
+  #section-agents .accounts-quota .accounts-quota-row > .k-check { grid-column: 1 / -1; grid-row: 1; }
+  #section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved,
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-error { grid-row: auto; }
+  /* The threshold's control group is the third line: input, then its unit. */
+  #section-agents .accounts-quota .k-field.accounts-quota-threshold { grid-template-columns: auto auto; }
+  #section-agents .accounts-quota .accounts-quota-threshold > .k-input { grid-column: 1; grid-row: 3; justify-self: start; }
+  #section-agents .accounts-quota .accounts-quota-threshold > .accounts-quota-suffix { grid-column: 2; grid-row: 3; justify-self: start; }
+  #section-agents .accounts-quota .accounts-quota-threshold > .accounts-quota-saved,
+  #section-agents .accounts-quota .accounts-quota-threshold > .k-field-error { grid-column: 1 / -1; grid-row: auto; }
 }
 #section-agents .accounts-actions { display: flex; gap: var(--k-space-3, 8px); }
 

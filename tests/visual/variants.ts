@@ -1206,6 +1206,14 @@ const settingsVariants = (): Variant[] => [
     skipLayout: true,
     settings: { ...REALISTIC_SETTINGS, manifest: { ...REALISTIC_SETTINGS.manifest, quota: { warnThresholdPct: 90, claudeGlobalStatusline: true, claudeOauthUsageApi: true } } } as typeof REALISTIC_SETTINGS,
   }),
+  // T1368 (D829): the same compact quota list under the 699 px container tier — label, help, then the control
+  // under them, left-aligned (UI-R43), with no horizontal scroll. One core so the card is inside the viewport.
+  accountsVariant('accounts-quota-narrow', DEFAULT_ONLY_CORES.slice(0, 1), {
+    skipLayout: true,
+    themes: DARK_ONLY,
+    width: 400,
+    settings: { ...REALISTIC_SETTINGS, manifest: { ...REALISTIC_SETTINGS.manifest, quota: { warnThresholdPct: 90, claudeGlobalStatusline: true, claudeOauthUsageApi: true } } } as typeof REALISTIC_SETTINGS,
+  }),
   qualityStallVariant('quality-stall-disabled', { enabled: false, sameFileRounds: 3, repeatedFindingRounds: null }),
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),

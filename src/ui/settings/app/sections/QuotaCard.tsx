@@ -62,7 +62,7 @@ export function QuotaCard() {
     send: (requestId, patch) => send.setQuota(patch, requestId),
   });
   const statuslineSave = useHostMutation<[QuotaPatch]>({
-    kind: 'Install for all Claude sessions',
+    kind: 'Show quota in all Claude sessions',
     send: (requestId, patch) => send.setQuota(patch, requestId),
   });
   const usageSave = useHostMutation<[QuotaPatch]>({
@@ -142,15 +142,19 @@ export function QuotaCard() {
         <Button variant="text" onClick={() => send.openQuota()}>See current quota</Button>
       </div>
       <p className="accounts-hint accounts-quota-intro">
-        Warn before a launch whose agent core is near its provider subscription limit. View-only: a
-        warning never blocks a launch and never switches cores.
+        Warnings only. Karst never blocks a launch or switches the agent.
       </p>
       <Field
-        label="Warn at % used"
+        label={<>{'Warn at '}<span className="sr-only">% used</span></>}
         className="accounts-quota-row accounts-quota-threshold"
         error={error ?? undefined}
-        meta={savedNote('threshold')}
-        help={`Blank = ${DEFAULT_QUOTA_WARN_THRESHOLD_PCT}. Karst compares the tightest window of the launched core's subscription with this value. Saves when you leave the field or press Enter.`}
+        meta={
+          <>
+            <span className="accounts-quota-suffix" aria-hidden="true">% used</span>
+            {savedNote('threshold')}
+          </>
+        }
+        help={`The tightest quota window of the agent. Blank = ${DEFAULT_QUOTA_WARN_THRESHOLD_PCT}.`}
         control={{
           kind: 'input',
           name: 'quotaWarnThresholdPct',
@@ -172,10 +176,10 @@ export function QuotaCard() {
         }}
       />
       <Field
-        label="Install for all Claude sessions"
+        label="Show quota in all Claude sessions"
         className="accounts-quota-row"
         meta={savedNote('statusline')}
-        help="Adds Karst's statusline wrapper to your global Claude settings, so Claude sessions Karst did not launch report quota too. Your own statusline command is kept and chained; turning this off restores it."
+        help="Adds the Karst statusline to your global Claude settings. Your own statusline still runs."
         control={{
           kind: 'checkbox',
           name: 'quotaClaudeGlobalStatusline',
@@ -189,7 +193,7 @@ export function QuotaCard() {
         label="Use the Claude usage API"
         className="accounts-quota-row"
         meta={savedNote('usage')}
-        help="When the statusline cache is missing or stale, read the 5-hour and 7-day windows from Anthropic's usage API using the OAuth token Claude Code already stored. The token stays in memory for the request — never logged, stored or refreshed — and a failure keeps the last value or shows unknown."
+        help="When the statusline data is old, read the 5-hour and 7-day windows from Anthropic. The token is not stored or logged."
         control={{
           kind: 'checkbox',
           name: 'quotaClaudeOauthUsageApi',
