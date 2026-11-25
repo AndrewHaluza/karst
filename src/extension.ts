@@ -2102,6 +2102,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void subtaskAutostart.sweep();
   const launches = makeLaunchTracker((id, options) => Promise.resolve(vscode.commands.executeCommand<SessionOutcome | undefined>('karst.openSession', id, options)));
+  // @arch:AP-11: the ship retry calls `runShipSaga` and `ciInput`, which this function defines further down. A sweep can fire
+  // before then, so the retry stays unwired until activation reaches them (a sweep in between reads "no retry").
+  let shipRetryReady = false;
   const autopilot = startAutopilot({
     store: localStore, projectId: () => currentProject()?.id, manifest: currentManifest, caps: () => autostartCapsFrom(currentManifest()),
     debug: (m) => logger.debug(m), changed: () => { provider.refresh(); dashboard.pushAll(); }, intervalMs: SUBTASK_AUTOSTART_INTERVAL_MS,
@@ -2132,6 +2135,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     isDraining: () => drain.isDraining(),
     startAutoDeliver: (id) => startAutoDeliver(id),
     // @arch:AP-11: a confirmed ship that failed only on a GitHub server error is retried through the Retry ship path.
+    ready: () => shipRetryReady,
     shipRetry: (id) => makeShipRetrySeams({ store: localStore, ticketId: id, ciInput: () => ciInput(id) }),
     retryShip: (id, repos) => makeRetryShip({ runShip: (r) => runShipSaga(id, false, { repos: r }), debug: (m) => logger.debug(m), label: formatId('ticket', id) })(repos),
   });
@@ -6066,6 +6070,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showStatusFor(ticketId);
     dashboard.postInsideProgress(ticketId, shipClearedEvent(ticketId));
   };
+  shipRetryReady = true;
 
   if (startupProject) {
     void resumeStrandedShips({

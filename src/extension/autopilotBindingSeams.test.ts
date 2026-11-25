@@ -101,6 +101,24 @@ describe('the seams of one ticket', () => {
     handle.dispose();
   });
 
+  it('leaves the ship-retry seams absent until the host finished wiring them (T1362)', async () => {
+    let ready = false;
+    const shipRetry = vi.fn(() => ({ worktreeClean: async () => ({ ok: true as const, clean: true }), localHead: async () => 'h' }));
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const r = rig({ ready: () => ready, shipRetry, retryShip });
+    const handle = startAutopilot(r.deps);
+    vi.advanceTimersByTime(INTERVAL);
+    const before = vi.mocked(autopilotSweep).mock.calls.at(-1)![0].seamsFor(r.id) as Seams;
+    expect(before.shipRetry).toBeUndefined();
+    expect(before.retryShip).toBeUndefined();
+    ready = true;
+    vi.advanceTimersByTime(INTERVAL);
+    const after = vi.mocked(autopilotSweep).mock.calls.at(-1)![0].seamsFor(r.id) as Seams;
+    expect(after.shipRetry).toBe(shipRetry.mock.results.at(-1)!.value);
+    expect(after.retryShip).toBeTypeOf('function');
+    handle.dispose();
+  });
+
   it('holds the ticket lease for a whole round while the ship retry runs (T1362)', async () => {
     const during: number[] = [];
     const shipRetry = () => ({ worktreeClean: async () => ({ ok: true as const, clean: true }), localHead: async () => 'h' });

@@ -160,6 +160,12 @@ export interface AutopilotBindingDeps {
   readonly shipRetry?: (ticketId: number) => ShipRetrySeams;
   /** Re-runs a confirmed ship for the named repos through the Retry ship path (@arch:AP-11). Absent: no retry. */
   readonly retryShip?: (ticketId: number, repos: readonly string[]) => Promise<ShipRetryOutcome>;
+  /**
+   * The host finished wiring the services the ship retry calls (`runShipSaga`, the CI input). Until then both ship-retry
+   * seams are ABSENT, so a sweep that fires during activation reads "no retry" instead of touching a const before it is
+   * initialized (@arch:AP-11). Default: ready.
+   */
+  readonly ready?: () => boolean;
 }
 
 /**
@@ -203,6 +209,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
 } {
   const now = d.now ?? Date.now;
   const owner = d.windowId;
+  const ready = d.ready ?? (() => true);
   // A live session whose agent runs, or waits on a permission prompt or a question, is in use: no round. An open terminal
   // with an idle agent is not. The engine also refuses a ticket whose stored agent state is running (another window).
   const running = (id: number): boolean => {
@@ -307,8 +314,8 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         },
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
         ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseHeld(id, () => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) }))) } : {}),
-        ...(d.shipRetry ? { shipRetry: d.shipRetry(id) } : {}),
-        ...(d.retryShip ? { retryShip: (repos: readonly string[]) => shipRetryHeld(id, repos) } : {}),
+        ...(ready() && d.shipRetry ? { shipRetry: d.shipRetry(id) } : {}),
+        ...(ready() && d.retryShip ? { retryShip: (repos: readonly string[]) => shipRetryHeld(id, repos) } : {}),
       }),
     }).catch((err: unknown) => d.debug(`[ship] autopilot sweep failed: ${err instanceof Error ? err.message : String(err)}`)).finally(() => { sweeping = false; });
   };

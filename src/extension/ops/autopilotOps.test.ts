@@ -2070,5 +2070,8 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     setAutopilotOverride(store, id, 'on');
     expect((await autopilotTick(rig({ now: () => AT, retryShip }).deps)).kind).toBe('idle');
     expect(retryShip).not.toHaveBeenCalled();
+    // An absent seam means "not wired yet", never a failed attempt: no pause and no stop reason.
+    expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
+    expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
   });
 });
