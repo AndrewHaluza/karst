@@ -219,6 +219,8 @@ export const INSIDE_CASE_CLICK: Readonly<Record<string, string>> = {
   'uat-gates-revalidation': '[data-proc-id="uat:gates"] > summary',
   // A closed ticket differs from a passed one only in its menu: Reopen in place of Close.
   'done-closed': '#moreBtn',
+  // The two review menu cases differ only in the open stage menu: Retry alone here, Retry and Send back in the other.
+  'review-menu-retry-only': '[data-stage-menu="review"]',
 };
 
 /** ui:VISUAL-VARIANTS: one dark-only variant per Inside stage x state case (aliases reuse an older variant). */
@@ -685,8 +687,8 @@ const dashboardVariants = (): Variant[] => [
       },
     },
   })), { skipLayout: true }),
-  // T820: the Sub-tasks panel with a blocked blocker (usage-limit fault), a PR, an agent and a queued row.
-  variant('dashboard', 'subtask-blocked', dashboardScenario('running', 2), { themes: ['dark', 'light'], skipLayout: true }),
+  // T820's subtask-blocked shot left in T1357: it recorded the same picture as `populated` (dashboard-running),
+  // whose Sub-tasks panel already shows the blocked blocker, the PR, the agent and the queued row.
   // T1266: a graph ticket's header names expert / worker / fast, the approach fallback included.
   variant('dashboard', 'graph-header', dashboardScenario('running', 2, (s) => ({
     ...s,
@@ -1064,7 +1066,8 @@ const serverLogsVariants = (): Variant[] => {
       fill: { selector: '#logsSearch', text: 'timeout' },
       replies: [{ type: 'server-logs-match-text', seq: 1, text: logMatchText(1) }],
     }),
-    variant('serverLogs', 'empty', () => logs()),
+    // T1357: a service whose log has no line yet. `no-services` is the page with no service at all.
+    variant('serverLogs', 'empty', () => logs(entry('api', '', { state: 'empty', message: 'api has not written to its log yet.' }))),
     variant('serverLogs', 'loading', LOADING),
     variant('serverLogs', 'error', () => logs(entry('api', '2026-01-01T00:00:00.000Z \u001b[31merror\u001b[0m ECONNREFUSED 127.0.0.1:5432\n'))),
     variant('serverLogs', 'long-content', () =>

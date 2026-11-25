@@ -160,6 +160,11 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:span#subtaskWaitText': { ratio: 3.12 },
   'light:span.subtaskBlock': { ratio: 2.81 },
   'light:span#subtaskCount.count': { ratio: 2.36, gap: 'G5' },
+  // T1357: the approach list's check mark (`.acheck`, aria-hidden, --k-focus). The MINIMAL
+  // ticketForm seed had no approaches, so the sweep never saw it. The realistic corpus
+  // renders it; the colour is unchanged and predates this ticket (a G5 instance).
+  'dark:span.acheck': { ratio: 3.3, gap: 'G5' },
+  'light:span.acheck': { ratio: 2.74, gap: 'G5' },
   // hc theme — T1317 LG-7 removed `hc:span.k-ansi-fg-red` (3.6): the
   // high-contrast log foregrounds now map to --k-danger, which clears AA.
 };

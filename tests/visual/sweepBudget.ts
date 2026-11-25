@@ -49,7 +49,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // short label beside the banner), @ui:UI-R57: 2 Inside cases x 1 theme (dark), default shot only after the T1352 prune
   // (+2 screenshots), and their layout runs (+16).
   // T1357 panel-wt-normal removed: it recorded the same picture as panel-srv-running, @ui:VISUAL-VARIANTS (-1 screenshot).
-  dashboard: { screenshots: 335, layout: 801 },
+  // T1357 subtask-blocked removed: it recorded the same picture as populated (dashboard-running) in dark and light, @ui:VISUAL-VARIANTS (-2 screenshots; it had no layout run).
+  dashboard: { screenshots: 333, layout: 801 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21
@@ -69,7 +70,8 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // +3 screenshots; +2 distinct pages x 5 widths = +10 layout runs, because --no-services sends the same
   // zero-service `server-logs` message as `empty` and so shares its page), and --long-content-nowrap (+1
   // screenshot; it shares the long-content layout run, since Wrap off is a click, not a different page).
-  serverLogs: { screenshots: 13, layout: 40 },
+  // T1357 empty is now a service with an empty log, not the no-services page, @ui:VISUAL-VARIANTS (+5 layout: the two no longer share one layout run).
+  serverLogs: { screenshots: 13, layout: 45 },
   // T1228 accounts-sbx-token (the sbx token cell, set and not set), @ui:UI-R57: 3 themes (+3 screenshots); skipLayout, because accounts-several already runs the same route.
   // T1237 the Sandbox tab route (#agents/sandbox), @ui:UI-R57: 3 themes (+3 screenshots) and 6 layout widths (+6); agents-sandbox-error: 1 theme (dark) (+1 screenshot); skipLayout.
   // T1236 nav-narrow variants (the nav chip row on general, agents roles and autopilot at 630 and 320 px), @ui:UI-R57: 6 variants x 1 theme (+6 screenshots); skipLayout, because the route layout runs already cover these routes.

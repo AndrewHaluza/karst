@@ -200,6 +200,7 @@ END_DOC_BLOCK: [@ui:LIMITATIONS]
 4. **MINIMAL_RATCHET** (`corpora.ts`): Views still on MINIMAL state seed. Only `settings` remains: `ticketForm` left in T1357, when its populated page took the realistic create state. Shrink-only.
 5. **SWEEP_BUDGET** (`sweepBudget.ts`): screenshots and layout tests per view (`@ui:SWEEP-BUDGET`). A raise needs a reason on its line.
 6. **Visual ledger** (`tests/visual/visual-known-failures.json`): red screenshots that the gate excuses (`@ui:RUNNING-SWEEP`). Empty at the start. Shrink-only: the PR gate fails an added entry.
+7. **ALLOWED_BASELINE_COLLISIONS** (`variants.test.ts`, T1357): groups of variants that record the same PNG in one theme folder, each with a reason (`@ui:VISUAL-VARIANTS`). Any other collision fails the test, and so does an entry that no longer collides. Shrink-only.
 END_DOC_BLOCK: [@ui:OPEN-RATCHETS]
 
 ## [@ui:RUNNING-SWEEP] Running the sweep
