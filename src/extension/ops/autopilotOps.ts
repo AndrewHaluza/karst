@@ -420,7 +420,8 @@ function stillRetryable(d: Pick<AutopilotDeps, 'store' | 'ticketId'>, runId: num
   const stage = getStage(d.store, d.ticketId, 'ship');
   if (stage?.status !== 'failed') return false;
   if (stageBlock(d.store, d.ticketId, 'ship') !== null) return false;
-  return listShipRuns(d.store, d.ticketId, 1)[0]?.id === runId;
+  // The decision only says retry when a newest failed run exists, so this read always finds one.
+  return listShipRuns(d.store, d.ticketId, 1)[0]!.id === runId;
 }
 
 /** Waits and stops already announced for the ship retry: one line per armed state, not one per 2 s tick. */

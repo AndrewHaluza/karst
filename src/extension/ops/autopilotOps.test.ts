@@ -1926,6 +1926,7 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
       const run = openShipRun(store, { ticketId: tid, attempt: 2, startedAt: '2026-11-25T11:59:30.000Z' });
       closeShipRun(store, run.id, 'interrupted', '2026-11-25T11:59:45.000Z');
     }],
+    ['the ship stage row is gone', (tid) => { removeStage(store, tid, 'ship'); }],
   ];
   for (const [what, change] of changedWhileDeciding) {
     it(`keeps the retry off when ${what} while the decision awaits git`, async () => {
