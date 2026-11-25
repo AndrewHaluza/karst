@@ -18,6 +18,9 @@ import {
   failRunningShipRepoSteps,
   getShipRepoStepById,
   countShipRuns,
+  listShipRuns,
+  listShipRepoSteps,
+  newestPushIntentHead,
   reconcileShipRuns,
   parseShipPreState,
   parseShipIntent,
@@ -967,6 +970,41 @@ describe('ship_runs', () => {
       run();
       const other = createTicket(store, { key: 'SHIP-2', title: 'other' });
       expect(countShipRuns(store, other.id)).toBe(0);
+    });
+  });
+
+  describe('run history reads (T1362)', () => {
+    it('lists a ticket\'s runs newest first, capped', () => {
+      const first = run();
+      closeShipRun(store, first.id, 'failed', '2026-08-08T10:30:00.000Z');
+      const second = run({ attempt: 2 });
+      closeShipRun(store, second.id, 'passed', '2026-08-08T11:00:00.000Z');
+      expect(listShipRuns(store, ticketId).map((r) => r.id)).toEqual([second.id, first.id]);
+      expect(listShipRuns(store, ticketId, 1).map((r) => r.id)).toEqual([second.id]);
+      const other = createTicket(store, { key: 'SHIP-2', title: 'other' });
+      expect(listShipRuns(store, other.id)).toEqual([]);
+    });
+
+    it('lists every step row of one run in insertion order', () => {
+      const r = run();
+      const push = step(r.id, { repo: 'web', step: 'push', detail: 'push' });
+      const pr = step(r.id, { repo: 'web', step: 'pr', detail: 'pr' });
+      finishShipRepoStep(store, pr.id, { status: 'failed', detail: 'HTTP 502', endedAt: '2026-08-08T10:02:00.000Z' });
+      expect(listShipRepoSteps(store, r.id).map((s) => [s.id, s.step, s.status])).toEqual([[push.id, 'push', 'running'], [pr.id, 'pr', 'failed']]);
+    });
+
+    it('reads the head the newest push intent intended, whatever its status', () => {
+      const r = run();
+      beginShipOperationPreparation(store, {
+        shipRunId: r.id, repo: 'web', step: 'push', operationKey: 'push-old',
+        preState: { ...pushPreState, localHead: 'a'.repeat(40) }, createdAt: '2026-08-08T10:01:00.000Z',
+      });
+      beginShipOperationPreparation(store, {
+        shipRunId: r.id, repo: 'web', step: 'push', operationKey: 'push-new',
+        preState: { ...pushPreState, localHead: 'b'.repeat(40) }, createdAt: '2026-08-08T10:02:00.000Z',
+      });
+      expect(newestPushIntentHead(store, ticketId, 'web')).toBe('b'.repeat(40));
+      expect(newestPushIntentHead(store, ticketId, 'other')).toBeNull();
     });
   });
 });
