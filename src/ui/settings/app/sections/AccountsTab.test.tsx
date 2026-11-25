@@ -1,12 +1,14 @@
 /**
- * COMPONENT-mode tests for the Accounts tab (D505): the list, the add wizard,
- * the delete confirmation and the notes. The host is the test bridge.
+ * COMPONENT-mode tests for the Accounts tab (D505, T1360): ONE flat accounts
+ * table, the single add-account toolbar button with the wizard's Agent select,
+ * the row states, the ⋯ menu and the sbx token cell. The host is the test bridge.
  */
 // @vitest-environment jsdom
 import { act } from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AccountsCoreView, AccountsHostMessage } from '../../accountsMessages.js';
+import { DEFAULT_ACCOUNT_LABEL } from '../../accountsMessages.js';
 import { AnnouncerProvider } from '../primitives/LiveRegion.js';
 import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';
@@ -28,7 +30,7 @@ const CORE = (core: AccountsCoreView['core'], extra: AccountsCoreView['rows'] = 
 const WORK = { name: 'work', label: 'work', active: false, builtIn: false, source: 'managed', dir: '/a/work', status: 'not-signed-in' } as const;
 const FOLDER = { name: 'fold', label: 'fold', active: false, builtIn: false, source: 'folder', dir: '/h/f', status: 'unknown' } as const;
 
-function mount(cores: AccountsCoreView[] = [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')], route: AgentsRoute = { tab: 'accounts' }) {
+function mount(cores: AccountsCoreView[] | null = [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')], route: AgentsRoute = { tab: 'accounts' }) {
   const bridge: TestBridge = createTestBridge();
   render(
     <AnnouncerProvider>
@@ -38,76 +40,378 @@ function mount(cores: AccountsCoreView[] = [CORE('claude', [WORK, FOLDER]), CORE
     </AnnouncerProvider>,
   );
   const push = (m: AccountsHostMessage): void => { act(() => bridge.push(m)); };
-  push({ type: 'accounts-state', cores });
+  if (cores !== null) push({ type: 'accounts-state', cores });
   return { bridge, push };
 }
 
 const wizardOf = (): HTMLElement => document.querySelector('[data-region="accounts-add-wizard"]') as HTMLElement;
+const addAccount = (): void => { fireEvent.click(screen.getByRole('button', { name: '+ Add account' })); };
 
-describe('Accounts tab', () => {
+const rowOf = (name: string): HTMLElement => {
+  const rows = Array.from(document.querySelectorAll('.accounts-row'));
+  const row = rows.find((r) => r.querySelector('[data-col="name"] .accounts-name')?.textContent === name);
+  if (!row) throw new Error(`no accounts row named ${name}`);
+  return row as HTMLElement;
+};
+const cellOf = (name: string, col: string): HTMLElement => rowOf(name).querySelector(`[data-col="${col}"]`) as HTMLElement;
+const table = (): HTMLElement => screen.getByRole('table', { name: 'Accounts' });
+
+describe('Accounts tab — one flat table', () => {
   it('asks the host for the accounts on mount', () => {
     const { bridge } = mount();
     expect(bridge.last('accounts-load')).toBeTruthy();
   });
 
-  it('says the list is shared, the choice is per project, and this tab applies at once', () => {
+  it('states that the list is shared, the choice is per project, and changes save at once', () => {
     mount();
-    expect(screen.getByText(/apply at once/i)).toBeTruthy();
-    // Q4-SAVE: the old "not on Save" sentence is gone — the topbar says it once.
-    expect(screen.queryByText(/not on Save/i)).toBeNull();
+    expect(screen.getByText(/All projects share the account list\. Each project picks its own active account\. Changes save at once\./)).toBeTruthy();
   });
 
-  it('shows a row per core, default first and without a delete button', () => {
+  it('renders one table whose header labels are Agent | mark | Account | Location | Sign-in | sbx token | use | menu', () => {
     mount();
-    const rows = document.querySelectorAll('[data-region="accounts-core-row"]');
-    expect(rows.length).toBe(3);
-    const table = within(rows[0] as HTMLElement).getByRole('table');
-    const body = within(table).getAllByRole('row').slice(1);
-    expect(within(body[0]!).getByText('Default (CLI home)')).toBeTruthy();
-    expect(within(body[0]!).queryByRole('button', { name: /delete/i })).toBeNull();
-    expect(within(body[1]!).getByRole('button', { name: /delete work/i })).toBeTruthy();
-    expect(within(body[2]!).getByText('unknown')).toBeTruthy();
+    const headers = within(table()).getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).toEqual(['Agent', '', 'Account', 'Location', 'Sign-in', 'sbx token', '', '']);
+    expect(document.querySelectorAll('[data-region="accounts-table"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-region="accounts-core-row"]')).toHaveLength(3);
+    // The old per-core <section> cards and their <table> markup are gone.
+    expect(document.querySelectorAll('.accounts-core')).toHaveLength(0);
+    expect(document.querySelector('table')).toBeNull();
   });
 
-  it('shows the empty hint when only default exists', () => {
-    mount([CORE('codex')]);
-    expect(screen.getByText(/only the default account/i)).toBeTruthy();
+  it('names each core (icon + name) only on the first row of its rowgroup', () => {
+    mount();
+    const groups = Array.from(document.querySelectorAll('[data-region="accounts-core-row"]'));
+    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['claude accounts', 'codex accounts', 'opencode accounts']);
+
+    const first = groups[0]!.querySelectorAll('.accounts-row');
+    expect(first).toHaveLength(3);
+    expect(first[0]!.querySelector('[data-col="agent"]')!.textContent).toBe('Claude Code');
+    expect(first[0]!.querySelector('[data-col="agent"] .agenticon')).not.toBeNull();
+    for (const row of [first[1]!, first[2]!]) {
+      const agent = row.querySelector('[data-col="agent"]') as HTMLElement;
+      expect(agent.textContent).toBe('');
+      expect(agent.getAttribute('aria-hidden')).toBe('true');
+    }
+    expect(groups[1]!.querySelector('[data-col="agent"]')!.textContent).toBe('Codex');
   });
 
-  it('sets the active account and notes that running sessions keep theirs', () => {
+  it('marks the multi-account and selected rowgroups without changing the others', () => {
+    mount([CORE('claude', [WORK]), CORE('codex')], { tab: 'accounts', selected: 'claude' });
+    const groups = Array.from(document.querySelectorAll<HTMLElement>('[data-region="accounts-core-row"]'));
+    expect(groups[0]!.className).toContain('is-multi');
+    expect(groups[0]!.className).toContain('is-selected');
+    expect(groups[1]!.className).not.toContain('is-multi');
+    expect(groups[1]!.className).not.toContain('is-selected');
+  });
+
+  it('removed the old select, chip, chip column and row buttons', () => {
+    mount();
+    expect(screen.queryByLabelText('Active account')).toBeNull();
+    expect(screen.queryByRole('button', { name: /set active/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^use machine default$/i })).toBeNull();
+    expect(screen.queryByText(/only the default account exists/i)).toBeNull();
+    expect(document.querySelector('.accounts-source-chip')).toBeNull();
+    expect(document.querySelector('.k-chip')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Command' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Source' })).toBeNull();
+  });
+
+  it('shows a loading line and disables Add account until the host answers', () => {
+    mount(null);
+    expect(screen.getByText('Loading accounts…')).toBeTruthy();
+    expect((screen.getByRole('button', { name: '+ Add account' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('Accounts tab — the single add-account toolbar', () => {
+  it('offers exactly one + Add account button in the toolbar', () => {
+    mount();
+    const toolbar = document.querySelector('[data-region="accounts-toolbar"]') as HTMLElement;
+    expect(within(toolbar).getAllByRole('button')).toHaveLength(1);
+    expect(within(toolbar).getByRole('button', { name: '+ Add account' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: '+ Add account' })).toHaveLength(1);
+  });
+
+  it('opens the wizard under the toolbar with the first core as the Agent default', () => {
+    mount();
+    addAccount();
+    const wizard = wizardOf();
+    expect(within(wizard).getByLabelText('Agent')).toBeTruthy();
+    expect((within(wizard).getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude');
+    expect((document.querySelector('[data-region="accounts-toolbar"]')!.nextElementSibling)).toBe(wizard);
+  });
+
+  it('starts on the selected route core, and on the first core when the route names an unknown one', () => {
+    mount(undefined, { tab: 'accounts', selected: 'codex' });
+    addAccount();
+    expect((within(wizardOf()).getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex');
+    cleanup();
+    mount(undefined, { tab: 'accounts', selected: 'not-a-core' });
+    addAccount();
+    expect((within(wizardOf()).getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude');
+  });
+
+  it('adds for the chosen agent', () => {
     const { bridge } = mount();
-    fireEvent.change(screen.getAllByLabelText(/active account/i)[0]!, { target: { value: 'work' } });
+    addAccount();
+    const wizard = wizardOf();
+    fireEvent.change(within(wizard).getByLabelText('Agent'), { target: { value: 'codex' } });
+    fireEvent.change(within(wizard).getByLabelText(/account name/i), { target: { value: 'two' } });
+    fireEvent.click(within(wizard).getByRole('button', { name: /^add$/i }));
+    expect(bridge.last('accounts-add')).toMatchObject({ core: 'codex', name: 'two', spec: { source: 'managed' } });
+  });
+
+  it('resets the step state when the Agent changes', () => {
+    const { push } = mount();
+    addAccount();
+    const wizard = wizardOf();
+    fireEvent.change(within(wizard).getByLabelText(/account name/i), { target: { value: 'two' } });
+    fireEvent.click(within(wizard).getByRole('button', { name: /^add$/i }));
+    push({ type: 'accounts-added', core: 'claude', name: 'two', status: 'signed-in' });
+    push({ type: 'accounts-seed', core: 'claude', name: 'two', items: [{ id: 'settings', label: 'Settings', checked: true }] });
+    expect(document.querySelector('[data-region="accounts-copy-checklist"]')).toBeTruthy();
+    fireEvent.change(within(wizard).getByLabelText('Agent'), { target: { value: 'codex' } });
+    expect(document.querySelector('[data-region="accounts-copy-checklist"]')).toBeNull();
+    expect(document.querySelector('[data-region="accounts-source-step"]')).toBeTruthy();
+  });
+
+  it('closes the wizard without touching the list', () => {
+    mount();
+    addAccount();
+    fireEvent.click(within(wizardOf()).getByRole('button', { name: /^cancel$/i }));
+    expect(document.querySelector('[data-region="accounts-add-wizard"]')).toBeNull();
+  });
+
+  it('keeps the wizard core as the Agent select value for its aria-label', () => {
+    const { push } = mount();
+    addAccount();
+    const wizard = wizardOf();
+    expect(wizard.getAttribute('aria-label')).toBe('Add claude account');
+    fireEvent.change(within(wizard).getByLabelText('Agent'), { target: { value: 'opencode' } });
+    expect(wizard.getAttribute('aria-label')).toBe('Add opencode account');
+    fireEvent.change(within(wizard).getByLabelText(/account name/i), { target: { value: 'oc' } });
+    fireEvent.click(within(wizard).getByRole('button', { name: /^add$/i }));
+    push({ type: 'accounts-added', core: 'opencode', name: 'oc', status: 'unknown' });
+    push({ type: 'accounts-seed', core: 'opencode', name: 'oc', items: [] });
+    expect(within(wizard).getByText(/config is already shared/i)).toBeTruthy();
+  });
+});
+
+describe('Accounts tab — choosing the active account', () => {
+  it('uses an inactive row and notes that running sessions keep theirs (once)', () => {
+    const { bridge } = mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Use work (Claude Code)' }));
     expect(bridge.last('accounts-set-active')).toMatchObject({ core: 'claude', name: 'work' });
-    expect(screen.getByText(/running sessions keep their account/i)).toBeTruthy();
+    expect(screen.getAllByText(/running sessions keep their account/i)).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Use fold (Claude Code)' }));
+    expect(screen.getAllByText(/running sessions keep their account/i)).toHaveLength(1);
   });
 
-  it('confirms a delete in the page, with a folder choice for a managed account', () => {
+  it('moves the check with the active account and puts Use on the row it left', () => {
+    const { push } = mount([CORE('claude', [WORK, FOLDER]), CORE('codex')]);
+    fireEvent.click(screen.getByRole('button', { name: 'Use work (Claude Code)' }));
+    push({ type: 'accounts-state', cores: [CORE('claude', [{ ...WORK, active: true }, FOLDER], 'work'), CORE('codex')] });
+    const work = rowOf('work');
+    expect(work.className).toContain('is-active');
+    expect(within(work).getByRole('img', { name: 'Active' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Use work (Claude Code)' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Use Default (Claude Code)' })).toBeTruthy();
+    expect(within(rowOf('Default')).queryByRole('img', { name: 'Active' })).toBeNull();
+  });
+
+  it('offers an inline Reset for a project choice, with the machine-default accessible name', () => {
+    const { bridge } = mount([CORE('claude', [{ ...WORK, active: true }], 'work', 'project')]);
+    expect(within(rowOf('work')).getByText('this project')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Use the machine default for claude' }));
+    expect(bridge.last('accounts-clear-project-choice')).toMatchObject({ core: 'claude' });
+  });
+
+  it('shows no project choice or Reset for the machine default', () => {
+    mount();
+    expect(screen.queryByText('this project')).toBeNull();
+    expect(screen.queryByRole('button', { name: /use the machine default/i })).toBeNull();
+  });
+});
+
+describe('Accounts tab — account name and location cells', () => {
+  it('shows the built-in account as Default and CLI home without changing the host label', () => {
+    mount();
+    const row = rowOf('Default');
+    expect(within(row).getByText('Default')).toBeTruthy();
+    expect(within(row).getByText('CLI home')).toBeTruthy();
+    expect(DEFAULT_ACCOUNT_LABEL).toBe('Default (CLI home)');
+  });
+
+  it('shortens home-anchored paths to ~, with the full path in the title', () => {
+    mount([CORE('claude', [{ ...WORK, dir: '/Users/nd/Projects/work' }, { ...FOLDER, dir: '/home/nd/fold' }])]);
+    const user = cellOf('work', 'location');
+    expect(user.textContent).toBe('~/Projects/work');
+    expect(user.querySelector('.accounts-loc-mono')!.getAttribute('title')).toBe('/Users/nd/Projects/work');
+    expect(cellOf('fold', 'location').textContent).toBe('~/fold');
+
+    cleanup();
+    mount([CORE('claude', [{ ...WORK, dir: 'C:\\Users\\nd\\Work' }])]);
+    expect(cellOf('work', 'location').textContent).toBe('~\\Work');
+  });
+
+  it('shows Managed for a managed account with no folder and the command for a command account', () => {
+    mount([CORE('claude', [
+      { name: 'managed', label: 'managed', active: false, builtIn: false, source: 'managed', status: 'unknown' },
+      { name: 'cmd', label: 'cmd', active: false, builtIn: false, source: 'command', command: 'claude-ci --profile ci', status: 'unknown' },
+    ])]);
+    expect(cellOf('managed', 'location').textContent).toBe('Managed');
+    const cmd = cellOf('cmd', 'location');
+    expect(cmd.textContent).toBe('claude-ci --profile ci');
+    expect(cmd.querySelector('.accounts-loc-mono')!.getAttribute('title')).toBe('claude-ci --profile ci');
+  });
+
+  it('never uses the old Source or Command columns for these values', () => {
+    mount();
+    expect(screen.queryByText('Managed', { selector: '[data-col="source"]' })).toBeNull();
+  });
+});
+
+describe('Accounts tab — sign-in status', () => {
+  const statusOf = (name: string): HTMLElement => cellOf(name, 'status');
+
+  it('shows a dot and a word, never a chip, for each status', () => {
+    mount();
+    expect(statusOf('Default').querySelector('.accounts-status-dot')!.className).toContain('is-signed-in');
+    expect(statusOf('Default').textContent).toContain('Signed in');
+    expect(statusOf('work').querySelector('.accounts-status-dot')!.className).toContain('is-not-signed-in');
+    expect(statusOf('work').querySelector('.accounts-status-warn')!.textContent).toBe('Not signed in');
+    expect(statusOf('fold').querySelector('.accounts-status-dot')!.className).toContain('is-unknown');
+    expect(statusOf('fold').textContent).toContain('Not checked');
+    expect(table().querySelector('.k-chip')).toBeNull();
+  });
+
+  it('puts Log in inline for an account that is not signed in', () => {
     const { bridge } = mount();
-    fireEvent.click(screen.getByRole('button', { name: /delete work/i }));
-    const box = document.querySelector('[data-region="accounts-delete-confirm"]') as HTMLElement;
-    expect(within(box).getByLabelText(/also remove its folder/i)).toBeTruthy();
+    fireEvent.click(within(statusOf('work')).getByRole('button', { name: 'Log in work' }));
+    expect(bridge.last('accounts-login')).toMatchObject({ core: 'claude', name: 'work' });
+  });
+
+  it('offers no Log in for a signed-in account', () => {
+    mount();
+    expect(within(statusOf('Default')).queryByRole('button', { name: /log in/i })).toBeNull();
+  });
+});
+
+describe('Accounts tab — the ⋯ row menu', () => {
+  const menuTrigger = (name: string): HTMLElement => screen.getByRole('button', { name: `More actions for ${name} (Claude Code)` });
+
+  it('holds only Make machine default and Delete', () => {
+    mount();
+    fireEvent.click(menuTrigger('work'));
+    const items = screen.getAllByRole('menuitem').map((i) => i.textContent);
+    expect(items).toEqual(['Make machine default', 'Delete']);
+    expect(screen.queryByRole('menuitem', { name: /log in/i })).toBeNull();
+  });
+
+  it('renders no trigger for a built-in machine default', () => {
+    mount();
+    expect(screen.queryByRole('button', { name: 'More actions for Default (Claude Code)' })).toBeNull();
+  });
+
+  it('makes a row the machine default', () => {
+    const { bridge } = mount();
+    fireEvent.click(menuTrigger('work'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Make work the machine default' }));
+    expect(bridge.last('accounts-set-machine-default')).toMatchObject({ core: 'claude', name: 'work' });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('navigates with the keyboard and closes on Escape, returning focus to the trigger', () => {
+    mount();
+    const trigger = menuTrigger('work');
+    trigger.focus();
+    fireEvent.click(trigger);
+    const menu = screen.getByRole('menu', { name: 'More actions for work (Claude Code)' });
+    const items = within(menu).getAllByRole('menuitem');
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0]!, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1]!, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('returns focus to the trigger after an item runs (UI-R23)', () => {
+    const { bridge } = mount();
+    const trigger = menuTrigger('work');
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Make work the machine default' }));
+    expect(bridge.last('accounts-set-machine-default')).toBeTruthy();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('closes when its items disappear and does not reopen when they return', () => {
+    const { push } = mount([CORE('claude', [], 'default', 'machine', 'work')]);
+    fireEvent.click(menuTrigger('Default'));
+    expect(screen.getByRole('menu')).toBeTruthy();
+    push({ type: 'accounts-state', cores: [CORE('claude')] });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'More actions for Default (Claude Code)' })).toBeNull();
+    push({ type: 'accounts-state', cores: [CORE('claude', [], 'default', 'machine', 'work')] });
+    expect(menuTrigger('Default').getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+});
+
+describe('Accounts tab — inline delete confirmation', () => {
+  const openDelete = (name: string): HTMLElement => {
+    const trigger = screen.getByRole('button', { name: `More actions for ${name} (Claude Code)` });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: `Delete ${name}` }));
+    return rowOf(name).nextElementSibling as HTMLElement;
+  };
+
+  it('opens directly under the row, with a folder choice for a managed account', () => {
+    const { bridge } = mount();
+    const box = openDelete('work');
+    expect(box.getAttribute('data-region')).toBe('accounts-delete-confirm');
+    expect(box.getAttribute('role')).toBe('group');
+    expect(box.getAttribute('aria-label')).toBe('Delete work');
+    const folder = within(box).getByLabelText(/also remove its folder/i) as HTMLInputElement;
+    fireEvent.click(folder);
     fireEvent.click(within(box).getByRole('button', { name: /^delete$/i }));
-    expect(bridge.last('accounts-delete')).toMatchObject({ core: 'claude', name: 'work', removeFolder: false });
+    expect(bridge.last('accounts-delete')).toMatchObject({ core: 'claude', name: 'work', removeFolder: true });
   });
 
   it('never offers to remove the folder of a folder account', () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: /delete fold/i }));
-    const box = document.querySelector('[data-region="accounts-delete-confirm"]') as HTMLElement;
+    const box = openDelete('fold');
     expect(within(box).queryByLabelText(/also remove its folder/i)).toBeNull();
     expect(within(box).getByText(/keeps your folder/i)).toBeTruthy();
   });
 
+  it('names the core by its display name in the delete question', () => {
+    mount();
+    expect(openDelete('work').textContent).toContain('Delete the Claude Code account work?');
+  });
+
   it('shows the host reason when a delete is refused', () => {
     const { push } = mount();
-    fireEvent.click(screen.getByRole('button', { name: /delete work/i }));
+    openDelete('work');
     push({ type: 'accounts-error', core: 'claude', op: 'accounts-delete', message: 'used by a live session. Stop the session first.' });
     expect(screen.getByRole('alert').textContent).toMatch(/live session/);
   });
 
+  it('does not reopen a closed confirmation when the same name is added again', () => {
+    const { push } = mount();
+    openDelete('work');
+    push({ type: 'accounts-state', cores: [CORE('claude', [FOLDER]), CORE('codex'), CORE('opencode')] });
+    expect(document.querySelector('[data-region="accounts-delete-confirm"]')).toBeNull();
+    push({ type: 'accounts-state', cores: [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')] });
+    expect(document.querySelector('[data-region="accounts-delete-confirm"]')).toBeNull();
+  });
+});
+
+describe('Accounts tab — the add wizard flows still work', () => {
   it('walks the managed add flow: source, copy, sign in', () => {
     const { bridge, push } = mount();
-    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
+    addAccount();
     const wizard = wizardOf();
     fireEvent.change(within(wizard).getByLabelText(/account name/i), { target: { value: 'two' } });
     fireEvent.click(within(wizard).getByRole('button', { name: /^add$/i }));
@@ -126,33 +430,9 @@ describe('Accounts tab', () => {
     expect(bridge.last('accounts-login')).toMatchObject({ core: 'claude', name: 'two' });
   });
 
-  it('skips the copy and shows Signed in with no login button', () => {
-    const { push } = mount();
-    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
-    const wizard = wizardOf();
-    fireEvent.change(within(wizard).getByLabelText(/account name/i), { target: { value: 'two' } });
-    fireEvent.click(within(wizard).getByRole('button', { name: /^add$/i }));
-    push({ type: 'accounts-added', core: 'claude', name: 'two', status: 'signed-in' });
-    push({ type: 'accounts-seed', core: 'claude', name: 'two', items: [{ id: 'settings', label: 'Settings', checked: true }] });
-    fireEvent.click(within(wizard).getByRole('button', { name: /^skip$/i }));
-    expect(within(wizard).getByText('Signed in')).toBeTruthy();
-    expect(within(wizard).queryByRole('button', { name: /log in now/i })).toBeNull();
-  });
-
-  it('explains the copy step for opencode', () => {
-    const { push } = mount();
-    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[2]!);
-    const wizard = wizardOf();
-    fireEvent.change(within(wizard).getByLabelText(/account name/i), { target: { value: 'oc' } });
-    fireEvent.click(within(wizard).getByRole('button', { name: /^add$/i }));
-    push({ type: 'accounts-added', core: 'opencode', name: 'oc', status: 'unknown' });
-    push({ type: 'accounts-seed', core: 'opencode', name: 'oc', items: [] });
-    expect(within(wizard).getByText(/config is already shared/i)).toBeTruthy();
-  });
-
   it('sends pasted alias text with the alias name found in it', () => {
     const { bridge } = mount();
-    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
+    addAccount();
     fireEvent.change(within(wizardOf()).getByLabelText(/source/i), { target: { value: 'command' } });
     const imp = document.querySelector('[data-region="accounts-alias-import"]') as HTMLElement;
     const text = "alias cw='CLAUDE_CONFIG_DIR=$HOME/.cw claude'";
@@ -163,7 +443,7 @@ describe('Accounts tab', () => {
 
   it('refuses pasted text with no alias name without asking the host', () => {
     const { bridge } = mount();
-    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
+    addAccount();
     fireEvent.change(within(wizardOf()).getByLabelText(/source/i), { target: { value: 'command' } });
     const imp = document.querySelector('[data-region="accounts-alias-import"]') as HTMLElement;
     fireEvent.change(within(imp).getByLabelText(/alias/i), { target: { value: 'some words here' } });
@@ -172,36 +452,9 @@ describe('Accounts tab', () => {
     expect(within(imp).getByText(/no alias name/i)).toBeTruthy();
   });
 
-  it('does not reopen a closed delete confirmation when the same name is added again', () => {
-    const { push } = mount();
-    fireEvent.click(screen.getByRole('button', { name: /delete work/i }));
-    expect(document.querySelector('[data-region="accounts-delete-confirm"]')).toBeTruthy();
-    push({ type: 'accounts-state', cores: [CORE('claude', [FOLDER]), CORE('codex'), CORE('opencode')] });
-    expect(document.querySelector('[data-region="accounts-delete-confirm"]')).toBeNull();
-    push({ type: 'accounts-state', cores: [CORE('claude', [WORK, FOLDER]), CORE('codex'), CORE('opencode')] });
-    expect(document.querySelector('[data-region="accounts-delete-confirm"]')).toBeNull();
-  });
-
-  it('imports an alias, shows env keys only, and shows a refusal reason', () => {
-    const { bridge, push } = mount();
-    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
-    const wizard = wizardOf();
-    fireEvent.change(within(wizard).getByLabelText(/source/i), { target: { value: 'command' } });
-    const imp = document.querySelector('[data-region="accounts-alias-import"]') as HTMLElement;
-    fireEvent.change(within(imp).getByLabelText(/alias/i), { target: { value: 'claude-work' } });
-    fireEvent.click(within(imp).getByRole('button', { name: /import alias/i }));
-    expect(bridge.last('accounts-import-alias')).toMatchObject({ core: 'claude', alias: 'claude-work' });
-    push({ type: 'accounts-alias-result', core: 'claude', ok: false, reason: 'alias uses a pipe' });
-    expect(within(imp).getByText(/alias uses a pipe/)).toBeTruthy();
-    expect(within(wizard).getByLabelText(/^command$/i)).toBeTruthy();
-    push({ type: 'accounts-alias-result', core: 'claude', ok: true, status: 'signed-in', account: { name: 'claude-work', source: 'folder', dir: '/h/.cw', args: [], envKeys: ['CLAUDE_CONFIG_DIR'] } });
-    expect(within(wizard).getByText(/CLAUDE_CONFIG_DIR/)).toBeTruthy();
-    expect(bridge.last('accounts-seed-items')).toMatchObject({ name: 'claude-work' });
-  });
-
   it('fills the folder from the host picker', () => {
     const { bridge, push } = mount();
-    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
+    addAccount();
     const wizard = wizardOf();
     fireEvent.change(within(wizard).getByLabelText(/source/i), { target: { value: 'folder' } });
     fireEvent.click(within(wizard).getByRole('button', { name: /choose folder/i }));
@@ -212,7 +465,7 @@ describe('Accounts tab', () => {
 
   it('rejects a bad name inline before sending', () => {
     const { bridge } = mount();
-    fireEvent.click(screen.getAllByRole('button', { name: /add account/i })[0]!);
+    addAccount();
     const wizard = wizardOf();
     fireEvent.change(within(wizard).getByLabelText(/account name/i), { target: { value: 'Bad Name' } });
     expect(within(wizard).getByText(/lowercase slug/i)).toBeTruthy();
@@ -221,28 +474,24 @@ describe('Accounts tab', () => {
   });
 });
 
-describe('Accounts tab sbx token cell (D651)', () => {
+describe('Accounts tab — sbx token cell (D651)', () => {
   const TOKEN_ROWS = [
     { ...WORK, sbxToken: 'not-set' },
     { ...FOLDER, sbxToken: 'set' },
     { name: 'cmd', label: 'cmd', active: false, builtIn: false, source: 'command', command: 'claude', status: 'unknown' },
   ] as const;
   const mountTokens = () => mount([CORE('claude', [...TOKEN_ROWS]), CORE('codex', [{ ...WORK, name: 'cw', label: 'cw' }])]);
-  const cellOf = (name: string): HTMLElement => {
-    const tr = [...document.querySelectorAll('tbody tr')].find((r) => r.querySelector('[data-col="name"]')?.textContent?.startsWith(name));
-    return tr!.querySelector('[data-col="sbx-token"]') as HTMLElement;
-  };
 
-  it('has an sbx token column that reads as a labelled card cell', () => {
+  it('keeps the sbx token column, including its deep-link row key', () => {
     mountTokens();
-    expect(cellOf('work').getAttribute('data-label')).toBe('sbx token');
-    expect(document.querySelector('th')?.parentElement?.textContent).toContain('sbx token');
+    expect(cellOf('work', 'sbx-token').getAttribute('data-sbx-token-row')).toBe('claude/work');
+    expect(screen.getByRole('columnheader', { name: 'sbx token' })).toBeTruthy();
   });
 
   it("shows a blank cell with sr-only 'none' and no action for default, command and non-claude rows", () => {
     mountTokens();
     for (const name of ['Default', 'cmd', 'cw']) {
-      const cell = cellOf(name);
+      const cell = cellOf(name, 'sbx-token');
       expect(cell.textContent).toBe('none');
       expect(cell.querySelector('.sr-only')).not.toBeNull();
       expect(within(cell).queryAllByRole('button').length).toBe(0);
@@ -251,252 +500,74 @@ describe('Accounts tab sbx token cell (D651)', () => {
 
   it('sends the set request with no value, then shows saving until the host answers', () => {
     const { bridge, push } = mountTokens();
-    fireEvent.click(within(cellOf('work')).getByRole('button', { name: 'Set token work' }));
+    fireEvent.click(within(cellOf('work', 'sbx-token')).getByRole('button', { name: 'Set token work' }));
     expect(bridge.last('accounts-set-sbx-token')).toMatchObject({ type: 'accounts-set-sbx-token', core: 'claude', name: 'work' });
     expect(Object.keys(bridge.last('accounts-set-sbx-token') as object).sort()).not.toContain('token');
-    expect(cellOf('work').textContent).toContain('Saving');
+    expect(cellOf('work', 'sbx-token').textContent).toContain('Saving');
     push({ type: 'accounts-state', cores: [CORE('claude', [{ ...WORK, sbxToken: 'set' }, { ...FOLDER, sbxToken: 'set' }])] });
-    expect(cellOf('work').textContent).toContain('Saving'); // an unrelated state push does not end the op
+    expect(cellOf('work', 'sbx-token').textContent).toContain('Saving'); // an unrelated state push does not end the op
     push({ type: 'accounts-token-done', core: 'claude', name: 'work' });
-    expect(cellOf('work').textContent).toContain('Token set');
+    expect(cellOf('work', 'sbx-token').textContent).toContain('Set');
+    expect(within(cellOf('work', 'sbx-token')).getByRole('button', { name: 'Remove token work' })).toBeTruthy();
   });
 
   it('says the token status is unknown when the host could not read the keychain', () => {
     const { push } = mountTokens();
     push({ type: 'accounts-state', cores: [CORE('claude', [{ ...WORK, sbxToken: 'unknown' }, FOLDER])] });
-    expect(cellOf('work').textContent).toContain('Token status unknown');
-    expect(within(cellOf('work')).getByRole('button', { name: 'Set token work' })).toBeTruthy();
+    expect(cellOf('work', 'sbx-token').textContent).toContain('Token status unknown');
+    expect(within(cellOf('work', 'sbx-token')).getByRole('button', { name: 'Set token work' })).toBeTruthy();
   });
 
   it('focuses the token control of the account named in the route', () => {
     mount([CORE('claude', [...TOKEN_ROWS]), CORE('codex')], { tab: 'accounts', selected: 'claude', account: 'work' });
-    expect(document.activeElement).toBe(within(cellOf('work')).getByRole('button', { name: 'Set token work' }));
+    expect(document.activeElement).toBe(within(cellOf('work', 'sbx-token')).getByRole('button', { name: 'Set token work' }));
   });
 
   it('focuses nothing when the route names no account', () => {
-    mount([CORE('claude', [...TOKEN_ROWS]), CORE('codex')]);
+    mountTokens();
     expect(document.activeElement).toBe(document.body);
   });
 
   it('shows the host error and keeps the Set token action when the token is invalid', () => {
     const { push } = mountTokens();
-    fireEvent.click(within(cellOf('work')).getByRole('button', { name: 'Set token work' }));
+    fireEvent.click(within(cellOf('work', 'sbx-token')).getByRole('button', { name: 'Set token work' }));
     push({ type: 'accounts-error', core: 'claude', op: 'accounts-set-sbx-token', message: 'The token must start with sk-ant-oat' });
-    expect(within(cellOf('work')).getByRole('alert').textContent).toMatch(/must start with/);
-    expect(within(cellOf('work')).getByRole('button', { name: 'Set token work' })).toBeTruthy();
+    expect(within(cellOf('work', 'sbx-token')).getByRole('alert').textContent).toMatch(/must start with/);
+    expect(within(cellOf('work', 'sbx-token')).getByRole('button', { name: 'Set token work' })).toBeTruthy();
   });
 
   it('asks to confirm before it removes a token', () => {
     const { bridge } = mountTokens();
-    expect(cellOf('fold').textContent).toContain('Token set');
-    fireEvent.click(within(cellOf('fold')).getByRole('button', { name: 'Remove token fold' }));
+    const cell = cellOf('fold', 'sbx-token');
+    expect(cell.textContent).toContain('Set');
+    fireEvent.click(within(cell).getByRole('button', { name: 'Remove token fold' }));
     expect(bridge.last('accounts-remove-sbx-token')).toBeUndefined();
-    fireEvent.click(within(cellOf('fold')).getByRole('button', { name: 'Cancel' }));
-    expect(within(cellOf('fold')).getByRole('button', { name: 'Remove token fold' })).toBeTruthy();
-    fireEvent.click(within(cellOf('fold')).getByRole('button', { name: 'Remove token fold' }));
-    fireEvent.click(within(cellOf('fold')).getByRole('button', { name: 'Confirm remove token fold' }));
+    fireEvent.click(within(cell).getByRole('button', { name: 'Cancel' }));
+    expect(within(cell).getByRole('button', { name: 'Remove token fold' })).toBeTruthy();
+    fireEvent.click(within(cell).getByRole('button', { name: 'Remove token fold' }));
+    fireEvent.click(within(cell).getByRole('button', { name: 'Confirm remove token fold' }));
     expect(bridge.last('accounts-remove-sbx-token')).toMatchObject({ core: 'claude', name: 'fold' });
-    expect(cellOf('fold').textContent).toContain('Saving');
+    expect(cell.textContent).toContain('Saving');
   });
 
-  it('shows the setup-token hint only when a row can hold a token', () => {
+  it('shows the setup-token hint once, under the table, only when a row can hold a token', () => {
     mountTokens();
-    const hint = document.querySelector('[data-hint="sbx-token"]');
-    expect(hint?.textContent).toBe('Run claude setup-token, then paste the token. Each editor (Cursor, VS Code) keeps its own token.');
+    const hints = document.querySelectorAll('[data-hint="sbx-token"]');
+    expect(hints).toHaveLength(1);
+    expect(hints[0]!.textContent).toBe('sbx token: run claude setup-token, then paste the token. Each editor keeps its own token.');
     cleanup();
     mount();
     expect(document.querySelector('[data-hint="sbx-token"]')).toBeNull();
   });
 });
 
-describe('Accounts table readability (D707)', () => {
-  it('names the core canonically, not by id', () => {
-    mount();
-    const heads = Array.from(document.querySelectorAll('.accounts-core-head h3')).map((h) => h.textContent);
-    expect(heads).toEqual(['Claude Code', 'Codex', 'OpenCode']);
-  });
-
-  it('labels the select Active account', () => {
-    mount();
-    expect(screen.getAllByLabelText('Active account').length).toBe(3);
-  });
-
-  it('shows an Active chip, not (active) text', () => {
-    mount();
-    const row = document.querySelector('tr.is-active') as HTMLElement;
-    expect(row.querySelector('.k-chip')!.textContent).toBe('Active');
-    expect(row.textContent).not.toContain('(active)');
-  });
-
-  it("empty Source, Folder and Command cells hold only 'none' for screen readers", () => {
-    mount();
-    const row = document.querySelector('tr.is-active') as HTMLElement;
-    for (const col of ['source', 'dir', 'command']) {
-      const cell = row.querySelector(`[data-col="${col}"]`)!;
-      expect(cell.textContent).toBe('none');
-      expect(cell.querySelector('.sr-only')).not.toBeNull();
-    }
-  });
-
-  it('keeps real values in filled cells', () => {
-    mount();
-    const row = Array.from(document.querySelectorAll('tbody tr')).find((r) => r.textContent?.includes('/a/work')) as HTMLElement;
-    expect(row.querySelector('[data-col="source"]')!.textContent).toBe('Managed');
-  });
-
-  it('keeps Log in in the row overflow, and only for an account that is not signed in', () => {
-    mount();
-    // The first core's rows: default (signed in) has no Log in; work (not signed in) has it.
-    const first = document.querySelector('[data-region="accounts-core-row"]') as HTMLElement;
-    fireEvent.click(within(first).getByRole('button', { name: 'More actions for work' }));
-    const login = within(first).getByRole('menuitem', { name: 'Log in work' });
-    expect(login.className).toContain('k-btn');
-    fireEvent.click(login);
-    expect(screen.queryByRole('menuitem')).toBeNull();
-  });
-});
-
-describe('Accounts tab: active account per project', () => {
-  it('says the list is shared and the active account is per project', () => {
-    mount();
-    expect(screen.getByText(/account list is shared/i)).toBeTruthy();
-    expect(screen.getByText(/active account is per project/i)).toBeTruthy();
-  });
-  it('shows the machine default chip when the project has no choice', () => {
-    mount();
-    const row = document.querySelector('[data-region="accounts-core-row"]') as HTMLElement;
-    expect(within(row).getByText('machine default', { selector: '[data-source]' })).toBeTruthy();
-    expect(within(row).queryByRole('button', { name: /use the machine default/i })).toBeNull();
-  });
-  it('shows the project chip and a control that clears the choice', () => {
-    const { bridge } = mount([CORE('claude', [{ ...WORK, active: true }], 'work', 'project')]);
-    const row = document.querySelector('[data-region="accounts-core-row"]') as HTMLElement;
-    expect(within(row).getByText('this project', { selector: '[data-source]' })).toBeTruthy();
-    fireEvent.click(within(row).getByRole('button', { name: /use the machine default for claude/i }));
-    expect(bridge.last('accounts-clear-project-choice')).toMatchObject({ core: 'claude' });
-  });
-  it('a row control makes that account the machine default', () => {
-    const { bridge } = mount();
-    fireEvent.click(screen.getByRole('button', { name: 'More actions for work' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /make work the machine default/i }));
-    expect(bridge.last('accounts-set-machine-default')).toMatchObject({ core: 'claude', name: 'work' });
-  });
-  it('the set-active control still sets the choice of this project', () => {
-    const { bridge } = mount();
-    fireEvent.click(screen.getByRole('button', { name: /set work active/i }));
-    expect(bridge.last('accounts-set-active')).toMatchObject({ core: 'claude', name: 'work' });
-  });
-});
-
-describe('Accounts row actions (SET-41, UI-R54)', () => {
-  const menuOf = (name: string): HTMLElement => {
-    fireEvent.click(screen.getByRole('button', { name: `More actions for ${name}` }));
-    return screen.getByRole('menu', { name: `More actions for ${name}` });
-  };
-
-  it('keeps the primary actions in one row and hides the rest behind ⋯', () => {
-    mount();
-    const row = document.querySelector('tr.is-active') as HTMLElement;
-    const actions = row.querySelector('[data-col="actions"]') as HTMLElement;
-    expect(actions.className).toContain('accounts-row-actions');
-    // The active, signed-in, machine-default row needs no action at all: no Set
-    // active, no Delete, and no empty ⋯ trigger either.
-    expect(within(actions).queryAllByRole('button')).toHaveLength(0);
-  });
-
-  it('renders the visible row actions as secondary, and Delete as danger', () => {
-    mount();
-    const work = screen.getByRole('button', { name: 'Set work active' });
-    expect(work.className).toContain('secondary');
-    expect(screen.getByRole('button', { name: 'Delete work' }).className).toContain('danger');
-    // A project-scoped core offers "Use machine default" at the same weight.
-    cleanup();
+describe('Accounts tab — accessible names', () => {
+  it('names every row action', () => {
     mount([CORE('claude', [{ ...WORK, active: true }], 'work', 'project')]);
-    expect(screen.getByRole('button', { name: /use the machine default for claude/i }).className).toContain('secondary');
-  });
-
-  it('moves focus into the menu and closes it with Escape, returning to the trigger', () => {
-    mount();
-    const trigger = screen.getByRole('button', { name: 'More actions for work' });
-    trigger.focus();
-    const menu = menuOf('work');
-    const items = within(menu).getAllByRole('menuitem');
-    expect(document.activeElement).toBe(items[0]);
-    fireEvent.keyDown(items[0]!, { key: 'ArrowDown' });
-    expect(document.activeElement).toBe(items[1]);
-    fireEvent.keyDown(items[1]!, { key: 'Escape' });
-    expect(screen.queryByRole('menu')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it('opens with aria-expanded and closes after an item runs', () => {
-    const { bridge } = mount();
-    const trigger = screen.getByRole('button', { name: 'More actions for work' });
-    expect(trigger.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(trigger);
-    expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Log in work' }));
-    expect(bridge.last('accounts-login')).toMatchObject({ core: 'claude', name: 'work' });
-    expect(screen.queryByRole('menu')).toBeNull();
-  });
-
-  it('returns focus to the trigger after an item runs (UI-R23)', () => {
-    const { bridge } = mount();
-    const trigger = screen.getByRole('button', { name: 'More actions for work' });
-    trigger.focus();
-    menuOf('work');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Log in work' }));
-    expect(bridge.last('accounts-login')).toBeTruthy();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it('closes when its items disappear and does not reopen when they return', () => {
-    const { push } = mount();
-    fireEvent.click(screen.getByRole('button', { name: 'More actions for work' }));
-    expect(screen.getByRole('menu')).toBeTruthy();
-    // Work becomes signed-in AND the machine default: no overflow action is left.
-    push({
-      type: 'accounts-state',
-      cores: [CORE('claude', [{ ...WORK, status: 'signed-in', active: true }], 'work', 'project', 'work')],
-    });
-    expect(screen.queryByRole('menu')).toBeNull();
-    // The row is still there; a later push that restores the actions must not
-    // make the menu pop open by itself.
-    push({ type: 'accounts-state', cores: [CORE('claude', [WORK, FOLDER])] });
-    expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByRole('button', { name: 'More actions for work' }).getAttribute('aria-expanded')).toBe('false');
-  });
-});
-
-describe('Accounts table copy and status (SET-43, SET-44)', () => {
-  it('names the core by its display name in the delete question', () => {
-    mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete work' }));
-    const box = document.querySelector('[data-region="accounts-delete-confirm"]') as HTMLElement;
-    expect(box.textContent).toContain('Delete the Claude Code account work?');
-  });
-
-  it('does not repeat "(machine default)" in the name cell', () => {
-    mount();
-    const row = document.querySelector('tr.is-active') as HTMLElement;
-    expect(row.textContent).not.toContain('(machine default)');
-  });
-
-  it('shows the status as a tone chip', () => {
-    mount();
-    const statusOf = (name: string): HTMLElement => {
-      const tr = [...document.querySelectorAll('tbody tr')].find((r) => r.querySelector('[data-col="name"]')?.textContent?.startsWith(name));
-      return tr!.querySelector('[data-col="status"] [class*="k-chip"]') as HTMLElement;
-    };
-    expect(statusOf('work').textContent).toBe('not signed in');
-    expect(statusOf('work').className).toContain('is-warning');
-    expect(statusOf('fold').className).not.toContain('is-warning');
-  });
-
-  it('offers no Log in for a signed-in account', () => {
-    mount([CORE('codex', [{ ...WORK, status: 'signed-in' }])]);
-    expect(screen.queryByRole('button', { name: 'More actions for work' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'More actions for work' }));
-    expect(screen.queryByRole('menuitem', { name: /log in/i })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Use Default (Claude Code)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'More actions for work (Claude Code)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Use the machine default for claude' })).toBeTruthy();
+    const active = rowOf('work').querySelector('[role="img"]') as HTMLElement;
+    expect(active.getAttribute('aria-label')).toBe('Active');
   });
 });

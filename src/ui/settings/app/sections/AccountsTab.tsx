@@ -1,43 +1,32 @@
 /**
- * The Accounts tab of the Agents page (D505). One row per agent core: the active
- * account, the account table and the add wizard. Accounts are machine-local, so
- * every action applies at once through a host message and none of it joins the
- * manifest Save (@arch:SAVE). The facts (status, seed list, alias parse, delete
- * guard) all come from the host; this file only shows them.
+ * The Accounts tab of the Agents page (D505, T1360). ONE flat accounts table:
+ * every core's accounts in one grid, the core named once in its first row. The
+ * toolbar holds the single "+ Add account" button (the wizard asks which agent),
+ * and a row's seldom-used actions live behind its ⋯ menu.
  *
- * Layout: the table keeps a spare `data-col` slot per cell; the `sbx-token` cell
- * uses it (D651). The token itself never reaches this file: the host asks for it
- * in its own masked input box and sends back only `set` / `not-set` (@arch:AC-51). Below 700px the rows
- * stack into cards (agents.webview.css).
+ * Accounts are machine-local, so every action applies at once through a host
+ * message and none of it joins the manifest Save (@arch:SAVE). The facts
+ * (status, seed list, alias parse, delete guard) all come from the host; this
+ * file only shows them. The token itself never reaches this file: the host asks
+ * for it in its own masked input box and sends back only `set` / `not-set`
+ * (@arch:AC-51). Below a 700px container the rows stack into cards
+ * (agents.webview.css, @ui:RD-TIERS).
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
-import { Chip, type ChipTone } from '../primitives/Chip.js';
 import { Field } from '../primitives/Field.js';
 import { IconButton } from '../primitives/IconButton.js';
 import { TablerIcon } from '../primitives/TablerIcon.js';
 import { useDismiss } from '../primitives/useDismiss.js';
 import { AGENT_PROVIDER_LABELS } from '../../../../model/agentProviders.js';
 import type { AccountCore } from '../../../../agent/accounts/types.js';
-import type { AccountRowView, AccountsCoreView, AccountStatusView } from '../../accountsMessages.js';
+import type { AccountRowView, AccountStatusView } from '../../accountsMessages.js';
 import type { AgentsRoute } from './agentsRoute.js';
 import { AddAccountWizard } from './AddAccountWizard.js';
+import { AgentCoreIcon } from './AgentCoreIcon.js';
 import { QuotaCard } from './QuotaCard.js';
 import { providerLabel } from './presetDraft.js';
-
-const SOURCE_TEXT = { managed: 'Managed', folder: 'Folder', command: 'Command' } as const;
-const STATUS_TEXT: Readonly<Record<AccountStatusView, string>> = {
-  'signed-in': 'signed in',
-  'not-signed-in': 'not signed in',
-  unknown: 'unknown',
-};
-/** SET-44: the status is a tone chip, so colour is never the only carrier. */
-const STATUS_TONE: Readonly<Record<AccountStatusView, ChipTone>> = {
-  'signed-in': 'success',
-  'not-signed-in': 'warning',
-  unknown: 'neutral',
-};
 
 interface DeleteRequest {
   readonly core: AccountCore;
@@ -54,8 +43,21 @@ interface TokenOp {
 }
 
 const ACTIVE_OPS: ReadonlySet<string> = new Set(['accounts-set-active', 'accounts-set-machine-default', 'accounts-clear-project-choice']);
-const SOURCE_CHIP = { project: 'this project', machine: 'machine default' } as const;
 const TOKEN_OPS: ReadonlySet<string> = new Set(['accounts-set-sbx-token', 'accounts-remove-sbx-token']);
+
+/** Shorten a home-anchored path to `~`: `/Users/<u>`, `/home/<u>` or `X:\Users\<u>`. */
+export function formatHomePath(path: string): string {
+  return path.replace(
+    /^(?:\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:[\\/]Users[\\/][^\\/]+)(?=[/\\]|$)/,
+    '~',
+  );
+}
+
+const STATUS_TEXT: Readonly<Record<AccountStatusView, string>> = {
+  'signed-in': 'Signed in',
+  'not-signed-in': 'Not signed in',
+  unknown: 'Not checked',
+};
 
 export interface AccountsTabProps {
   readonly route: AgentsRoute;
@@ -66,12 +68,12 @@ export function AccountsTab({ route }: AccountsTabProps) {
   const { state, send } = useSettingsApp();
   const cores = state.accounts.cores;
   const last = state.accounts.last;
-  const [adding, setAdding] = useState<AccountCore | null>(null);
+  const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<DeleteRequest | null>(null);
   const [removeFolder, setRemoveFolder] = useState(false);
   const [tokenOp, setTokenOp] = useState<TokenOp | null>(null);
   const [removing, setRemoving] = useState<{ readonly core: AccountCore; readonly name: string } | null>(null);
-  const [switched, setSwitched] = useState<ReadonlySet<AccountCore>>(new Set());
+  const [switched, setSwitched] = useState(false);
 
   useEffect(() => {
     send.accounts({ type: 'accounts-load' });
@@ -126,199 +128,208 @@ export function AccountsTab({ route }: AccountsTabProps) {
 
   const setActive = (core: AccountCore, name: string): void => {
     send.accounts({ type: 'accounts-set-active', core, name });
-    setSwitched((cur) => new Set(cur).add(core));
+    setSwitched(true);
   };
+
+  // The wizard starts on the core the page is showing, when that is a real core.
+  const initialCore = cores?.find((c) => c.core === route.selected)?.core ?? cores?.[0]?.core;
+  const showSbxHint = cores?.some((c) => c.rows.some((r) => r.sbxToken !== undefined)) === true;
 
   return (
     <div className="accounts-tab" data-region="accounts-tabs" ref={rootRef}>
-      <p className="accounts-note">
-        The account list is shared. The active account is per project. Changes here apply at once.
-      </p>
+      <div className="accounts-toolbar" data-region="accounts-toolbar">
+        <p className="accounts-note">All projects share the account list. Each project picks its own active account. Changes save at once.</p>
+        <Button variant="secondary" size="sm" disabled={cores === null || cores.length === 0} onClick={() => setAdding(true)}>
+          + Add account
+        </Button>
+      </div>
       {activeError !== null ? <p className="accounts-error" role="alert">{activeError}</p> : null}
-      {cores === null ? <p>Loading accounts…</p> : (
-        <div className="accounts-core-list" data-region="accounts-core-list">
-          {cores.map((view) => (
-            <CoreRow
-              key={view.core}
-              view={view}
-              selected={route.selected === view.core}
-              switched={switched.has(view.core)}
-              adding={adding === view.core}
-              confirm={confirm?.core === view.core ? confirm : null}
-              deleteError={confirm?.core === view.core ? deleteError : null}
-              removeFolder={removeFolder}
-              onRemoveFolder={setRemoveFolder}
-              onAdd={() => setAdding(view.core)}
-              onCloseAdd={() => setAdding(null)}
-              onSetActive={(name) => setActive(view.core, name)}
-              tokenOp={tokenOp?.core === view.core ? tokenOp : null}
-              removing={removing?.core === view.core ? removing.name : null}
-              onSetToken={(name) => sendToken('accounts-set-sbx-token', view.core, name)}
-              onAskRemoveToken={(name) => setRemoving({ core: view.core, name })}
-              onCancelRemoveToken={() => setRemoving(null)}
-              onRemoveToken={(name) => sendToken('accounts-remove-sbx-token', view.core, name)}
-              onAskDelete={(row) => {
-                setRemoveFolder(false);
-                setDeleting({ core: view.core, row, openedSeq: last?.seq ?? 0 });
-              }}
-              onCancelDelete={() => setDeleting(null)}
-            />
-          ))}
-        </div>
-      )}
+      {adding && initialCore !== undefined ? (
+        <AddAccountWizard
+          cores={(cores ?? []).map((c) => c.core)}
+          initialCore={initialCore}
+          onClose={() => setAdding(false)}
+        />
+      ) : null}
+      {switched ? (
+        <p className="accounts-note">Running sessions keep their account. Only new launches use the new one.</p>
+      ) : null}
+      <div data-region="accounts-table">
+        {cores === null ? <p>Loading accounts…</p> : (
+          <div className="accounts-table" role="table" aria-label="Accounts">
+            <div className="accounts-head" role="row">
+              <div role="columnheader">Agent</div>
+              <div role="columnheader" />
+              <div role="columnheader">Account</div>
+              <div role="columnheader">Location</div>
+              <div role="columnheader">Sign-in</div>
+              <div role="columnheader">sbx token</div>
+              <div role="columnheader" />
+              <div role="columnheader" />
+            </div>
+            {cores.map((view) => (
+              <div
+                key={view.core}
+                className={`accounts-core-group${route.selected === view.core ? ' is-selected' : ''}${view.rows.length > 1 ? ' is-multi' : ''}`}
+                role="rowgroup"
+                data-region="accounts-core-row"
+                aria-label={`${view.core} accounts`}
+              >
+                {view.rows.map((row, idx) => {
+                  const coreName = AGENT_PROVIDER_LABELS[view.core] ?? view.core;
+                  const displayName = row.builtIn ? 'Default' : row.label;
+                  const rowConfirm = confirm !== null && confirm.core === view.core && confirm.row.name === row.name ? confirm : null;
+                  return (
+                    <Fragment key={row.name}>
+                      <div className={`accounts-row${idx === 0 ? ' is-first' : ''}${row.active ? ' is-active' : ''}`} role="row">
+                        <div role="cell" data-col="agent" aria-hidden={idx === 0 ? undefined : 'true'}>
+                          {idx === 0 ? (
+                            <span className="accounts-agent"><AgentCoreIcon provider={view.core} /><span>{coreName}</span></span>
+                          ) : null}
+                        </div>
+                        <div role="cell" data-col="mark">
+                          {row.active ? (
+                            <span className="accounts-mark" role="img" aria-label="Active"><TablerIcon name="check" size={14} /></span>
+                          ) : null}
+                        </div>
+                        <div role="cell" data-col="name">
+                          <span className="accounts-name">{displayName}</span>
+                          {row.active && view.source === 'project' ? (
+                            <span className="accounts-project-choice">
+                              <span>this project</span>
+                              <span className="accounts-sep" aria-hidden="true">·</span>
+                              <Button
+                                variant="text"
+                                size="sm"
+                                aria-label={`Use the machine default for ${view.core}`}
+                                onClick={() => send.accounts({ type: 'accounts-clear-project-choice', core: view.core })}
+                              >
+                                Reset
+                              </Button>
+                            </span>
+                          ) : null}
+                        </div>
+                        <div role="cell" data-col="location"><LocationCell row={row} /></div>
+                        <div role="cell" data-col="status">
+                          <span className={`accounts-status-dot${row.status === 'unknown' ? ' is-unknown' : ` is-${row.status}`}`} aria-hidden="true" />
+                          {row.status === 'not-signed-in' ? (
+                            <>
+                              <span className="accounts-status-warn">{STATUS_TEXT[row.status]}</span>
+                              <span className="accounts-sep" aria-hidden="true">·</span>
+                              <Button
+                                variant="text"
+                                size="sm"
+                                aria-label={`Log in ${displayName}`}
+                                onClick={() => send.accounts({ type: 'accounts-login', core: view.core, name: row.name })}
+                              >
+                                Log in
+                              </Button>
+                            </>
+                          ) : (
+                            <span className={row.status === 'unknown' ? 'accounts-muted' : undefined}>{STATUS_TEXT[row.status]}</span>
+                          )}
+                        </div>
+                        <div role="cell" data-col="sbx-token" data-sbx-token-row={`${view.core}/${row.name}`}>
+                          <SbxTokenCell
+                            row={row}
+                            tokenOp={tokenOp?.core === view.core ? tokenOp : null}
+                            removing={removing?.core === view.core && removing.name === row.name}
+                            onSetToken={() => sendToken('accounts-set-sbx-token', view.core, row.name)}
+                            onAskRemoveToken={() => setRemoving({ core: view.core, name: row.name })}
+                            onCancelRemoveToken={() => setRemoving(null)}
+                            onRemoveToken={() => sendToken('accounts-remove-sbx-token', view.core, row.name)}
+                          />
+                        </div>
+                        <div role="cell" data-col="use">
+                          {!row.active ? (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              aria-label={`Use ${displayName} (${coreName})`}
+                              onClick={() => setActive(view.core, row.name)}
+                            >
+                              Use
+                            </Button>
+                          ) : null}
+                        </div>
+                        <div role="cell" data-col="menu">
+                          <RowMenu
+                            label={`More actions for ${displayName} (${coreName})`}
+                            items={[
+                              ...(row.name !== view.machineDefault
+                                ? [{
+                                  key: 'machine-default',
+                                  label: 'Make machine default',
+                                  ariaLabel: `Make ${row.name} the machine default`,
+                                  onClick: () => send.accounts({ type: 'accounts-set-machine-default', core: view.core, name: row.name }),
+                                }]
+                                : []),
+                              ...(!row.builtIn
+                                ? [{
+                                  key: 'delete',
+                                  label: 'Delete',
+                                  ariaLabel: `Delete ${row.name}`,
+                                  onClick: () => {
+                                    setRemoveFolder(false);
+                                    setDeleting({ core: view.core, row, openedSeq: last?.seq ?? 0 });
+                                  },
+                                }]
+                                : []),
+                            ]}
+                          />
+                        </div>
+                      </div>
+                      {rowConfirm !== null ? (
+                        <div className="accounts-delete" data-region="accounts-delete-confirm" role="group" aria-label={`Delete ${rowConfirm.row.name}`}>
+                          <p>Delete the {providerLabel(view.core)} account {rowConfirm.row.name}?</p>
+                          {rowConfirm.row.source === 'managed' ? (
+                            <Field label="Also remove its folder" control={{ kind: 'checkbox', checked: removeFolder, onChange: setRemoveFolder }} />
+                          ) : (
+                            <p>Karst keeps your folder. Only the account entry is removed.</p>
+                          )}
+                          {deleteError !== null ? <p className="accounts-error" role="alert">{deleteError}</p> : null}
+                          <div className="accounts-actions">
+                            <Button variant="danger" size="sm" onClick={() => send.accounts({
+                              type: 'accounts-delete', core: view.core, name: rowConfirm.row.name,
+                              removeFolder: rowConfirm.row.source === 'managed' && removeFolder,
+                            })}>Delete</Button>
+                            <Button variant="ghost" size="sm" onClick={() => setDeleting(null)}>Cancel</Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {showSbxHint ? (
+        <p className="accounts-hint" data-hint="sbx-token">sbx token: run <code>claude setup-token</code>, then paste the token. Each editor keeps its own token.</p>
+      ) : null}
       <QuotaCard />
     </div>
   );
 }
 
-interface CoreRowProps {
-  readonly view: AccountsCoreView;
-  readonly selected: boolean;
-  readonly switched: boolean;
-  readonly adding: boolean;
-  readonly confirm: DeleteRequest | null;
-  readonly deleteError: string | null;
-  readonly removeFolder: boolean;
-  readonly onRemoveFolder: (on: boolean) => void;
-  readonly onAdd: () => void;
-  readonly onCloseAdd: () => void;
-  readonly onSetActive: (name: string) => void;
-  readonly tokenOp: TokenOp | null;
-  readonly removing: string | null;
-  readonly onSetToken: (name: string) => void;
-  readonly onAskRemoveToken: (name: string) => void;
-  readonly onCancelRemoveToken: () => void;
-  readonly onRemoveToken: (name: string) => void;
-  readonly onAskDelete: (row: AccountRowView) => void;
-  readonly onCancelDelete: () => void;
+/** Location column: the CLI home, a managed/folder path (`~`-shortened) or a command. */
+function LocationCell({ row }: { readonly row: AccountRowView }) {
+  if (row.builtIn) return <span className="accounts-loc-text">CLI home</span>;
+  if (row.source === 'command') {
+    return (
+      <span className="accounts-loc-mono" title={row.command ?? row.dir}>
+        {row.command ?? (row.dir ? formatHomePath(row.dir) : 'Command')}
+      </span>
+    );
+  }
+  if (row.dir !== undefined) {
+    return <span className="accounts-loc-mono" title={row.dir}>{formatHomePath(row.dir)}</span>;
+  }
+  return <span className="accounts-loc-text">Managed</span>;
 }
 
-function CoreRow(p: CoreRowProps) {
-  const { send } = useSettingsApp();
-  const { view } = p;
-  const coreName = AGENT_PROVIDER_LABELS[view.core as keyof typeof AGENT_PROVIDER_LABELS] ?? view.core;
-  const options = view.rows.map((r) => ({ value: r.name, label: r.label }));
-  return (
-    <section className={`accounts-core${p.selected ? ' is-selected' : ''}`} data-region="accounts-core-row" aria-label={`${view.core} accounts`}>
-      <div className="accounts-core-head">
-        <h3>{coreName}</h3>
-        <Field
-          label="Active account"
-          control={{ kind: 'select', value: view.active, onChange: p.onSetActive, options }}
-        />
-        <span className="accounts-source-chip" data-source={view.source}>{SOURCE_CHIP[view.source]}</span>
-        {view.source === 'project' ? (
-          <Button variant="secondary" size="sm" aria-label={`Use the machine default for ${view.core}`} onClick={() => send.accounts({ type: 'accounts-clear-project-choice', core: view.core })}>Use machine default</Button>
-        ) : null}
-        <Button variant="secondary" size="sm" onClick={p.onAdd}>Add account</Button>
-      </div>
-      {p.switched ? (
-        <p className="accounts-note">Running sessions keep their account. Only new launches use the new one.</p>
-      ) : null}
-      {view.rows.length === 1 ? (
-        <p className="accounts-hint">Only the default account exists. Add an account to use a second subscription.</p>
-      ) : null}
-      <table className="accounts-table" data-region="accounts-table">
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Source</th>
-            <th scope="col">Folder</th>
-            <th scope="col">Command</th>
-            <th scope="col">Status</th>
-            <th scope="col">sbx token</th>
-            <th scope="col">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {view.rows.map((row) => (
-            <tr key={row.name} className={row.active ? 'is-active' : undefined}>
-              <td data-col="name" data-label="Name"><span>{row.label}</span>{row.active ? <> <Chip tone="success">Active</Chip></> : null}</td>
-              <td data-col="source" data-label="Source"><Cell value={row.source ? SOURCE_TEXT[row.source] : undefined} /></td>
-              <td data-col="dir" data-label="Folder"><Cell value={row.dir} /></td>
-              <td data-col="command" data-label="Command"><Cell value={row.command} /></td>
-              <td data-col="status" data-label="Status"><Chip tone={STATUS_TONE[row.status]}>{STATUS_TEXT[row.status]}</Chip></td>
-              <td data-col="sbx-token" data-label="sbx token" data-sbx-token-row={`${view.core}/${row.name}`}><SbxTokenCell row={row} {...p} /></td>
-              <td data-col="actions" data-label="Actions" className="accounts-row-actions">
-                {/* SET-41 / UI-R54: one row, never a ragged second line. The two
-                    primary actions stay visible; the rest move into ⋯. */}
-                {!row.active ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    data-priority="primary"
-                    aria-label={`Set ${row.name} active`}
-                    onClick={() => p.onSetActive(row.name)}
-                  >
-                    Set active
-                  </Button>
-                ) : null}
-                {!row.builtIn ? (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    data-priority="primary"
-                    aria-label={`Delete ${row.name}`}
-                    onClick={() => p.onAskDelete(row)}
-                  >
-                    Delete
-                  </Button>
-                ) : null}
-                <RowMenu
-                  row={row.name}
-                  items={[
-                    ...(row.status !== 'signed-in'
-                      ? [{
-                        key: 'login',
-                        label: 'Log in',
-                        ariaLabel: `Log in ${row.name}`,
-                        onClick: () => send.accounts({ type: 'accounts-login', core: view.core, name: row.name }),
-                      }]
-                      : []),
-                    ...(row.name !== view.machineDefault
-                      ? [{
-                        key: 'machine-default',
-                        label: 'Make machine default',
-                        ariaLabel: `Make ${row.name} the machine default`,
-                        onClick: () => send.accounts({ type: 'accounts-set-machine-default', core: view.core, name: row.name }),
-                      }]
-                      : []),
-                  ]}
-                />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {view.rows.some((r) => r.sbxToken !== undefined) ? (
-        <p className="accounts-hint" data-hint="sbx-token">
-          Run <code>claude setup-token</code>, then paste the token. Each editor (Cursor, VS Code) keeps its own token.
-        </p>
-      ) : null}
-      {p.confirm !== null ? (
-        <div className="accounts-delete" data-region="accounts-delete-confirm" role="group" aria-label={`Delete ${p.confirm.row.name}`}>
-          <p>Delete the {providerLabel(view.core)} account {p.confirm.row.name}?</p>
-          {p.confirm.row.source === 'managed' ? (
-            <Field label="Also remove its folder" control={{ kind: 'checkbox', checked: p.removeFolder, onChange: p.onRemoveFolder }} />
-          ) : (
-            <p>Karst keeps your folder. Only the account entry is removed.</p>
-          )}
-          {p.deleteError !== null ? <p className="accounts-error" role="alert">{p.deleteError}</p> : null}
-          <div className="accounts-actions">
-            <Button variant="danger" size="sm" onClick={() => send.accounts({
-              type: 'accounts-delete', core: view.core, name: p.confirm!.row.name,
-              removeFolder: p.confirm!.row.source === 'managed' && p.removeFolder,
-            })}>Delete</Button>
-            <Button variant="ghost" size="sm" onClick={p.onCancelDelete}>Cancel</Button>
-          </div>
-        </div>
-      ) : null}
-      {p.adding ? <AddAccountWizard core={view.core} onClose={p.onCloseAdd} /> : null}
-    </section>
-  );
-}
-
-/** One lower-priority row action behind the ⋯ trigger (SET-41, UI-R54). */
+/** One lower-priority row action behind the ⋯ trigger (UI-R54). */
 interface RowMenuItem {
   readonly key: string;
   readonly label: string;
@@ -333,9 +344,9 @@ interface RowMenuItem {
  * It is a real menu — `role="menu"` with `menuitem` children, one roving focus
  * owner (arrow keys / Home / End), Escape closes through the shared `useDismiss`
  * and returns focus to the trigger. An empty menu renders nothing at all, so a
- * row that needs only its visible actions has no dead control.
+ * row that needs no overflow action has no dead control.
  */
-function RowMenu({ row, items }: { readonly row: string; readonly items: readonly RowMenuItem[] }) {
+function RowMenu({ label, items }: { readonly label: string; readonly items: readonly RowMenuItem[] }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -377,7 +388,7 @@ function RowMenu({ row, items }: { readonly row: string; readonly items: readonl
     <span className="accounts-menu">
       <IconButton
         ref={triggerRef}
-        label={`More actions for ${row}`}
+        label={label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -385,7 +396,7 @@ function RowMenu({ row, items }: { readonly row: string; readonly items: readonl
         <TablerIcon name="dots" />
       </IconButton>
       {open ? (
-        <div className="accounts-menu-list" role="menu" aria-label={`More actions for ${row}`} ref={menuRef} onKeyDown={onKeyDown}>
+        <div className="accounts-menu-list" role="menu" aria-label={label} ref={menuRef} onKeyDown={onKeyDown}>
           {items.map((item) => (
             <Button
               key={item.key}
@@ -411,25 +422,26 @@ function RowMenu({ row, items }: { readonly row: string; readonly items: readonl
   );
 }
 
-/** An empty cell shows nothing visible; a screen reader hears 'none'. */
-function Cell({ value }: { readonly value: string | undefined }) {
-  return value === undefined ? <span className="accounts-empty sr-only">none</span> : <>{value}</>;
+interface SbxTokenCellProps {
+  readonly row: AccountRowView;
+  readonly tokenOp: TokenOp | null;
+  readonly removing: boolean;
+  readonly onSetToken: () => void;
+  readonly onAskRemoveToken: () => void;
+  readonly onCancelRemoveToken: () => void;
+  readonly onRemoveToken: () => void;
 }
 
-type SbxTokenCellProps = Pick<CoreRowProps, 'tokenOp' | 'removing' | 'onSetToken' | 'onAskRemoveToken' | 'onCancelRemoveToken' | 'onRemoveToken'> & {
-  readonly row: AccountRowView;
-};
-
-/** The sbx token state of one row: '—' without a token action, else set / not set / saving / invalid. */
+/** The sbx token state of one row: none without a token action, else set / not set / saving / invalid. */
 function SbxTokenCell({ row, tokenOp, removing, onSetToken, onAskRemoveToken, onCancelRemoveToken, onRemoveToken }: SbxTokenCellProps) {
-  if (row.sbxToken === undefined) return <Cell value={undefined} />;
+  if (row.sbxToken === undefined) return <span className="accounts-empty sr-only">none</span>;
   const mine = tokenOp?.name === row.name ? tokenOp : null;
-  if (mine !== null && mine.error === null) return <span role="status">Saving…</span>;
-  if (removing === row.name) {
+  if (mine !== null && mine.error === null) return <span className="accounts-muted" role="status">Saving…</span>;
+  if (removing) {
     return (
       <span className="accounts-token" role="group" aria-label={`Remove the sbx token of ${row.name}`}>
         <span>Remove the token?</span>
-        <Button variant="danger" size="sm" aria-label={`Confirm remove token ${row.name}`} onClick={() => onRemoveToken(row.name)}>Remove</Button>
+        <Button variant="danger" size="sm" aria-label={`Confirm remove token ${row.name}`} onClick={onRemoveToken}>Remove</Button>
         <Button variant="ghost" size="sm" onClick={onCancelRemoveToken}>Cancel</Button>
       </span>
     );
@@ -437,14 +449,18 @@ function SbxTokenCell({ row, tokenOp, removing, onSetToken, onAskRemoveToken, on
   const error = mine?.error ?? null;
   return (
     <span className="accounts-token">
-      {row.sbxToken === 'unknown' ? <span>Token status unknown</span> : null}
       {row.sbxToken === 'set' ? (
         <>
-          <span>Token set</span>
-          <Button variant="ghost" size="sm" aria-label={`Remove token ${row.name}`} onClick={() => onAskRemoveToken(row.name)}>Remove</Button>
+          <span className="accounts-muted">Set</span>
+          <span className="accounts-sep" aria-hidden="true">·</span>
+          <Button variant="text" size="sm" aria-label={`Remove token ${row.name}`} onClick={onAskRemoveToken}>Remove</Button>
         </>
       ) : (
-        <Button variant="ghost" size="sm" aria-label={`Set token ${row.name}`} onClick={() => onSetToken(row.name)}>Set token</Button>
+        <>
+          <span className="accounts-muted">{row.sbxToken === 'unknown' ? 'Token status unknown' : 'Not set'}</span>
+          <span className="accounts-sep" aria-hidden="true">·</span>
+          <Button variant="text" size="sm" aria-label={`Set token ${row.name}`} onClick={onSetToken}>Set</Button>
+        </>
       )}
       {error !== null ? <span className="accounts-error" role="alert">{error}</span> : null}
     </span>
