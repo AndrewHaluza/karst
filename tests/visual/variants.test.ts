@@ -101,10 +101,10 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     const keys = targets.filter((t) => t.variant.layoutRouteId === undefined).map((t) => layoutIdentity(t.view, t.variant));
     expect(new Set(keys).size).toBe(keys.length);
     // A tier variant opens its base case's page: the width only sizes the screenshot.
-    expect(sharedWith.get('dashboard/inside-scope-running-mid')).toBe('dashboard/inside-scope-running');
-    expect(sharedWith.get('dashboard/inside-scope-running-tight')).toBe('dashboard/inside-scope-running');
+    expect(sharedWith.get('dashboard/inside-impl-running-mid')).toBe('dashboard/inside-impl-running');
+    expect(sharedWith.get('dashboard/inside-impl-running-tight')).toBe('dashboard/inside-impl-running');
     // A different page keeps its own run.
-    expect(sharedWith.has('dashboard/inside-scope-running')).toBe(false);
+    expect(sharedWith.has('dashboard/inside-impl-running')).toBe(false);
   });
 
   it('gives the same layout keys at another clock time (Playwright needs one test list in every worker)', () => {
@@ -143,7 +143,7 @@ describe('variant registry coverage (ui:UI-R57)', () => {
 
   it('captures the viewport for the ticket-details drawer variants only', () => {
     const viewport = VARIANTS.dashboard.filter((v) => v.capture === 'viewport');
-    expect(viewport).toHaveLength(24);
+    expect(viewport).toHaveLength(12);
     for (const v of viewport) expect(v.id.startsWith('ticket-details-'), v.id).toBe(true);
     const all = Object.values(VARIANTS).flat();
     for (const v of all.filter((x) => x.id.startsWith('ticket-details-'))) expect(v.capture, v.id).toBe('viewport');
