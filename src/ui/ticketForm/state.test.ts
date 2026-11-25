@@ -778,6 +778,18 @@ describe('applyPrefill — approved-draft base picks', () => {
     expect(applyPrefill(built, { ...prefill, draftId: 88 }).refLabel).toBe('D88');
   });
 
+  it('lists the staged draft files as staged rows while unbound', () => {
+    const built = buildTicketFormState(store, MANIFEST, () => [], () => []);
+    const state = applyPrefill(built, {
+      ...prefill,
+      attachments: [{ name: 'a.html', storedName: '0123456789abcdef.html', kind: 'file', byteSize: 5 }],
+    });
+    expect(state.attachments).toEqual([
+      { id: -1, kind: 'file', name: 'a.html', byteSize: 5, src: '', staged: true, storedName: '0123456789abcdef.html' },
+    ]);
+    expect(applyPrefill(built, prefill).attachments).toEqual(built.attachments);
+  });
+
   it('sets briefSource: draft for a planning prefill, manual otherwise', () => {
     const built = buildTicketFormState(store, MANIFEST, () => [], () => []);
     expect(built.briefSource).toEqual({ kind: 'manual' });

@@ -394,7 +394,7 @@ describe('parseTicketFormMessage', () => {
       setApproach: () => {}, setAgent: () => {}, setModel: () => {}, setEffort: () => {},
       setProvider: () => {}, setPreset: () => {}, setType: () => {}, setBackend: () => {}, analyze: () => {}, attachPick: async () => {},
       usageLimitParkPick: () => {}, usageLimitParkRetry: () => {}, usageLimitParkDismiss: () => {}, usageLimitCarryStop: () => {},
-      attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
+      attachBytes: async () => {}, detachAttachment: async () => {}, unstageAttachment: () => {}, openAttachment: async () => {},
       attachBriefAttachment: async () => {}, openSettings: () => {},
       openTicketLink: () => {}, createProviderTicket: () => {}, requestState: () => {},
       retryRelationWriteback: () => {}, openDependency: () => {},
@@ -465,6 +465,7 @@ describe('routeTicketFormAction', () => {
       attachPick: vi.fn(),
       attachBytes: vi.fn(),
       detachAttachment: vi.fn(),
+      unstageAttachment: vi.fn(),
       openAttachment: vi.fn(),
       attachBriefAttachment: vi.fn(),
       openSettings: vi.fn(),
@@ -643,6 +644,7 @@ describe('attachment messages', () => {
       attachPick: vi.fn(),
       attachBytes: vi.fn(),
       detachAttachment: vi.fn(),
+      unstageAttachment: vi.fn(),
       openAttachment: vi.fn(),
       attachBriefAttachment: vi.fn(),
       openSettings: vi.fn(),
@@ -713,6 +715,15 @@ describe('attachment messages', () => {
     routeTicketFormAction({ type: 'open-attachment', id: 7 }, actions);
     expect(actions.detachAttachment).toHaveBeenCalledWith(7);
     expect(actions.openAttachment).toHaveBeenCalledWith(7);
+  });
+
+  it('routes unstage-attachment only for a well-formed stored name', () => {
+    const actions = spyActions();
+    routeTicketFormAction({ type: 'unstage-attachment', storedName: '0123456789abcdef.html' }, actions);
+    expect(actions.unstageAttachment).toHaveBeenCalledWith('0123456789abcdef.html');
+    for (const storedName of ['../x', 'a/b.txt', '', 7, null, undefined]) {
+      expect(parseTicketFormMessage({ type: 'unstage-attachment', storedName })).toBeNull();
+    }
   });
 
   it('returns each attachment action promise to the panel', () => {

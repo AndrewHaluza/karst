@@ -1,4 +1,6 @@
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { draftAttachmentDir } from '../../planning/draftAttachments.js';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { AgentProvider } from '../../manifest/types.js';
@@ -452,11 +454,12 @@ function resolveDraftKey(
  * Binds a create-mode panel to the new ticket. Does NOT touch startTicket;
  * callers decide whether a run follows.
  */
-function persistDraft(
+async function persistDraft(
   ctx: TicketFormActionsCtx,
   deps: TicketFormActionsDeps,
   input: TicketDraftFields,
-): number {
+  ingestStaged: (ticketId: number) => Promise<void>,
+): Promise<number> {
   // Validate BEFORE any write. `setBaseRef` runs this same assert on every
   // interactive change, but a rejection there leaves the stale text sitting in
   // the webview's input — `collectBaseRefs()` re-sends it on Submit/Save
@@ -515,6 +518,9 @@ function persistDraft(
     ...(input.intent !== undefined ? { intent: input.intent } : {}),
     ...(input.codePointers !== undefined ? { codePointers: input.codePointers } : {}),
   });
+  // The staged draft files must be attached before the draft link commits and before any launch.
+  // A failure throws here, so `commitPrefill` never runs and the caller reports it.
+  await ingestStaged(ticketId);
   // The user's explicit Save/Submit is the ONLY commit of a prefilled page; a
   // fetch/attach that bound an earlier draft must not have accepted it (see
   // `commitPrefill`). Fires the prefill's `onCreated` exactly once.
@@ -608,6 +614,25 @@ export function buildTicketFormActions(
       ctx.bindTicket(draft.id);
       deps.onChange(); // sidebar shows the new draft
       return draft.id;
+    };
+
+    /**
+     * Attach every staged draft file to the ticket, under its original name. Each file leaves the
+     * staged list once it is attached, so a repeat call never attaches it twice. A failure throws.
+     */
+    const ingestStaged = async (ticketId: number): Promise<void> => {
+      const draftId = ctx.stagedDraftId;
+      if (draftId === undefined) return;
+      for (const staged of [...(ctx.stagedAttachments ?? [])]) {
+        const bytes = await readFile(join(draftAttachmentDir(deps.storageDir, draftId), staged.storedName));
+        const ok = await record(
+          ticketId,
+          await ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
+          () => ingestBytes(deps.storageDir, ticketId, staged.name, bytes),
+        );
+        if (!ok) throw new Error(`Could not attach ${staged.name}.`);
+        ctx.unstage?.(staged.storedName);
+      }
     };
 
     /**
@@ -793,6 +818,7 @@ export function buildTicketFormActions(
         const paths = await deps.pickAttachment();
         if (paths.length === 0) return; // cancelled — not an error, say nothing
         const ticketId = ensureTicket(draft);
+        await ingestStaged(ticketId);
         let changed = false;
         for (const path of paths) {
           // Sequential, not Promise.all: each ingest hashes and copies, and a
@@ -830,6 +856,7 @@ export function buildTicketFormActions(
           return;
         }
         const ticketId = ensureTicket(draft);
+        await ingestStaged(ticketId);
         if (await record(
           ticketId,
           await ingestBytes(deps.storageDir, ticketId, name, bytes),
@@ -860,6 +887,7 @@ export function buildTicketFormActions(
           return;
         }
         const ticketId = ensureTicket(draft);
+        await ingestStaged(ticketId);
         if (await record(
           ticketId,
           await ingestBytes(deps.storageDir, ticketId, attachment.name, bytes),
@@ -870,6 +898,13 @@ export function buildTicketFormActions(
       } catch (e) {
         ctx.post({ type: 'error', message: errorMessage(e) });
       }
+    },
+
+    unstageAttachment: (storedName: string): void => {
+      // Only a create page stages files; once the ticket exists they are real attachments.
+      if (ctx.ticketId !== undefined) return;
+      ctx.unstage?.(storedName);
+      ctx.pushState();
     },
 
     detachAttachment: async (id: number): Promise<void> => {
@@ -1342,6 +1377,7 @@ export function buildTicketFormActions(
         // Probe BEFORE minting: a disabled analysis must leave no row behind.
         const enabled = deps.resolveAnalysisProcess(ctx.ticketId, override) !== null;
         const ticketId = enabled ? ensureTicket(draft) : undefined;
+        if (ticketId !== undefined) await ingestStaged(ticketId);
         const process = ticketId === undefined ? null : deps.resolveAnalysisProcess(ticketId, override);
         if (ticketId === undefined || process === null) {
           // Configured absence (`processes.ticketAnalysis.enabled: false`),
@@ -1538,7 +1574,7 @@ export function buildTicketFormActions(
     async submit(input): Promise<void> {
       let ticketId: number;
       try {
-        ticketId = persistDraft(ctx, deps, input);
+        ticketId = await persistDraft(ctx, deps, input, ingestStaged);
       } catch (e) {
         // A rejected base-ref override (or any other validation persistDraft
         // enforces) must not create or half-write a ticket — nothing has been
@@ -1652,7 +1688,7 @@ export function buildTicketFormActions(
     async save(input): Promise<void> {
       ctx.post({ type: 'busy', what: 'save', on: true });
       try {
-        const ticketId = persistDraft(ctx, deps, input);
+        const ticketId = await persistDraft(ctx, deps, input, ingestStaged);
         ctx.post({ type: 'draft-saved' });
         // Spill oversized descriptions to the attachment shelf at ingest.
         if (input.description) {

@@ -134,6 +134,10 @@ export interface AttachmentView {
   name: string;
   byteSize: number;
   src: string;
+  /** A host-held draft file shown before the ticket exists; Save attaches it. */
+  staged?: boolean;
+  /** The file name inside the draft's host directory; what `unstage-attachment` carries. */
+  storedName?: string;
 }
 
 export interface DesignConstraintsView {
@@ -690,7 +694,7 @@ export function buildTicketFormState(
 /** Overlay a proposal prefill on a built create-form state; picked bases stay overrides. */
 export function applyPrefill(
   state: TicketFormState,
-  p: Pick<TicketFormPrefill, 'title' | 'description' | 'summary' | 'repos' | 'baseRefs' | 'draftId'>,
+  p: Pick<TicketFormPrefill, 'title' | 'description' | 'summary' | 'repos' | 'baseRefs' | 'draftId' | 'attachments'>,
 ): TicketFormState {
   const want = new Set(p.repos);
   const baseRefs = p.baseRefs ?? {};
@@ -699,6 +703,19 @@ export function applyPrefill(
     ...(p.draftId !== undefined ? { refLabel: formatId('draft', p.draftId) } : {}),
     title: p.title,
     description: p.description,
+    ...(p.attachments !== undefined
+      ? {
+          attachments: p.attachments.map((a, i) => ({
+            id: -(i + 1),
+            kind: a.kind as AttachmentKind,
+            name: a.name,
+            byteSize: a.byteSize,
+            src: '',
+            staged: true,
+            storedName: a.storedName,
+          })),
+        }
+      : {}),
     brief: p.summary || null,
     briefSource: p.draftId !== undefined ? { kind: 'draft', draftId: p.draftId } : { kind: 'manual' },
     repos: want.size ? state.repos.map((r) => ({ ...r, selected: want.has(r.service) })) : state.repos,

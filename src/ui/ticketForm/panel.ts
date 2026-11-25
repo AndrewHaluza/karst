@@ -5,6 +5,8 @@ import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
 import { applyPrefill, buildTicketFormState, type DesignConstraintsView, type TicketFormState } from './state.js';
+import { join } from 'node:path';
+import { draftAttachmentDir } from '../../planning/draftAttachments.js';
 import { reapAttachments } from '../../attachments/reap.js';
 import { appendConstraintsToBrief } from '../../planning/constraintBrief.js';
 import {
@@ -116,6 +118,12 @@ export interface TicketFormActionsCtx {
    * commit retries it, and the caller must not start the ticket.
    */
   commitPrefill(): void;
+  /** Host-held draft files the review form stages; Save (or the first manual ticket write) attaches them. */
+  readonly stagedAttachments?: readonly StagedAttachment[];
+  /** The draft the staged files belong to; their host directory is named by it. */
+  readonly stagedDraftId?: number | undefined;
+  /** Drop one staged file from the form (after it was attached, or when the user removes it). */
+  unstage?(storedName: string): void;
   /**
    * Close this panel — the ticket-form surface is done with the ticket (submit
    * started it, and the dashboard takes over). Idempotent, and everything after
@@ -450,6 +458,8 @@ export class TicketFormManager {
     // prefill's `onCreated` fires exactly once — and only on that explicit
     // action, never on a fetch/attach that merely bound a draft.
     let prefillCommitted = false;
+    // Draft files the review form lists before the ticket exists. Save ingests them, then each leaves.
+    let staged: StagedAttachment[] = [...(prefill?.attachments ?? [])];
     // The row THIS prefilled panel minted (bind from unbound). Deleted on
     // dispose unless the user's Save/Submit committed it; a pre-existing row
     // (edit panel) is never recorded here.
@@ -483,7 +493,7 @@ export class TicketFormManager {
       );
       // A prefilled create page shows the prefill only until it has a ticket;
       // from then on the stored ticket is the truth.
-      const overlaid = prefill && boundId === undefined ? applyPrefill(built, prefill) : built;
+      const overlaid = prefill && boundId === undefined ? applyPrefill(built, { ...prefill, attachments: staged }) : built;
       const dc = prefill ? designConstraintsView(prefill) : undefined;
       // The webview saves this flag with its identity so a reload can tell a proposal review form apart.
       const flagged = prefill && !prefillCommitted ? { ...overlaid, prefilled: true } : overlaid;
@@ -496,7 +506,9 @@ export class TicketFormManager {
         ...state,
         attachments: state.attachments.map((a) => ({
           ...a,
-          src: panel.toWebviewUri(a.src),
+          src: a.staged === true && a.storedName !== undefined && this.storageDir !== undefined && prefill?.draftId !== undefined
+            ? panel.toWebviewUri(join(draftAttachmentDir(this.storageDir, prefill.draftId), a.storedName))
+            : panel.toWebviewUri(a.src),
         })),
       };
       panel.postMessage({ type: 'state', state: withWebviewUris });
@@ -562,6 +574,15 @@ export class TicketFormManager {
         // created focus-taking and the user never moved away — creation fires
         // no view-state event, so the tracked flag is the only way to know.
         if (panelActive) this.onViewActivated?.(id, true);
+      },
+      get stagedAttachments() {
+        return staged;
+      },
+      get stagedDraftId() {
+        return prefill?.draftId;
+      },
+      unstage: (storedName: string) => {
+        staged = staged.filter((a) => a.storedName !== storedName);
       },
       commitPrefill: () => {
         // The user's own Save/Submit persisted this prefilled page — the ONLY
