@@ -6,6 +6,7 @@ describe('isGitHubServerError', () => {
   it.each([
     'gh pr create failed in /w: GraphQL: Something went wrong while executing your query. Please include `C1A4:2F7E` when reporting this issue.',
     'gh pr create failed in /w: HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)',
+    '502 Bad Gateway',
     '503 Service Unavailable',
     '504 Gateway Time-out',
     '504 Gateway Timeout',

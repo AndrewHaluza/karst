@@ -176,6 +176,20 @@ describe('openPrWithServerErrorRetry', () => {
     expect(count('view')).toBe(0);
   });
 
+  it('retries a server error that the gh runner throws as a string', async () => {
+    let creates = 0;
+    const gh: GhRunner = async (args) => {
+      if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+      if (creates++ === 0) throw BAD_GATEWAY;
+      return { stdout: PR_URL, exitCode: 0 };
+    };
+    const wait = vi.fn(async () => {});
+    const pr = await openPrWithServerErrorRetry(gh, opts, { wait, onRetry: vi.fn() });
+    expect(pr.adopted).toBe(false);
+    expect(creates).toBe(2);
+    expect(wait).toHaveBeenCalledOnce();
+  });
+
   it('retries a server error that the gh runner throws', async () => {
     let creates = 0;
     const gh: GhRunner = async (args) => {
