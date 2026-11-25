@@ -14,6 +14,11 @@ import { SERVERS_VIA_CLI_RULE, MCP_TOOLS_PREFERRED } from '../agent/promptText.j
  */
 
 describe('karst guide — content', () => {
+  it('tells the planner how to attach evidence files to a draft', () => {
+    expect(AGENT_GUIDE).toContain('"attachments":[{"path":"proto/a.html"');
+    expect(AGENT_GUIDE).toContain('Review stages them and Save attaches them');
+  });
+
   it('lists the no-change form of the fix marker', () => {
     expect(AGENT_GUIDE).toContain('stage fix pass --no-change "<reason>"');
   });
