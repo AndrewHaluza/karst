@@ -511,8 +511,7 @@
   padding-block: var(--k-space-4);
   border-top: var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border, var(--k-border)) 45%, transparent);
 }
-#section-agents .accounts-quota .accounts-quota-row > label,
-#section-agents .accounts-quota .accounts-quota-row > .k-check > label {
+#section-agents .accounts-quota .accounts-quota-row > label {
   grid-column: 1;
   grid-row: 1;
   min-height: 0;
@@ -520,10 +519,22 @@
   font-size: var(--k-text-md);
   color: var(--k-text);
 }
-/* The toggle keeps its native checkbox + label pair (SET-18/Q4); the pair joins
-   the row grid, so the label holds the left edge and the box the right one. */
-#section-agents .accounts-quota .accounts-quota-row > .k-check { display: contents; }
-#section-agents .accounts-quota .accounts-quota-row > .k-check > input,
+/* The toggle keeps its native checkbox + label pair (SET-18/Q4) on ONE line. The
+   pair spans the row and puts the label on the left edge and the box on the
+   right one, so the two toggles share the input's and the link's right edge
+   (UI-R41). The pair stays a real flex box of its own: agentsCss.test.ts pins a
+   roles-table lesson against the grid-flattening tricks, so none is used. */
+#section-agents .accounts-quota .accounts-quota-row > .k-check {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  flex-direction: row-reverse;
+  justify-content: space-between;
+}
+#section-agents .accounts-quota .accounts-quota-row > .k-check > label {
+  min-width: 0;
+  font-size: var(--k-text-md);
+  color: var(--k-text);
+}
 #section-agents .accounts-quota .accounts-quota-row > .k-input {
   grid-column: 2;
   grid-row: 1;
@@ -534,16 +545,19 @@
 #section-agents .accounts-quota .accounts-quota-row > .k-field-error { grid-column: 1 / -1; grid-row: 3; }
 #section-agents .accounts-quota-threshold input { width: 10ch; min-width: 0; box-sizing: border-box; } /* 6 digits of text plus the padding and the number spinner */
 @container accounts-tab (max-width: 699px) {
+  /* Narrow: label above control above help, in source order (RD-LADDERS2). The
+     toggle stays one line (SET-18), with its label at the left and box at the right. */
   #section-agents .accounts-quota .k-field.accounts-quota-row { grid-template-columns: minmax(0, 1fr); }
-  #section-agents .accounts-quota .accounts-quota-row > .k-check > input,
-  #section-agents .accounts-quota .accounts-quota-row > .k-input {
+  #section-agents .accounts-quota .accounts-quota-row > label,
+  #section-agents .accounts-quota .accounts-quota-row > .k-input,
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-help,
+  #section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved,
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-error {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: auto;
     justify-self: start;
   }
-  #section-agents .accounts-quota .accounts-quota-row > .k-field-help { grid-row: 3; }
-  #section-agents .accounts-quota .accounts-quota-row > .k-field-error { grid-row: 4; }
-  #section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved { grid-column: 1; grid-row: 5; justify-self: start; }
+  #section-agents .accounts-quota .accounts-quota-row > .k-check { grid-column: 1; grid-row: auto; }
 }
 #section-agents .accounts-actions { display: flex; gap: var(--k-space-3, 8px); }
 
