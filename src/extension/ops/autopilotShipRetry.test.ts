@@ -6,7 +6,7 @@ import { parkGateStage } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
 import {
   beginShipOperationPreparation, closeShipRun, finishShipRepoStep, openShipRepoStep, openShipRun,
-  type ShipStep, type ShipStepStatus,
+  type ShipStep,
 } from '../../store/shipRuns.js';
 import {
   AUTO_SHIP_RETRY_DELAYS_MS, AUTO_SHIP_RETRY_STOP_REASON, shipRetryDecision,
@@ -30,7 +30,7 @@ interface RunOpts {
   readonly status?: 'failed' | 'passed';
   readonly unattended?: boolean;
   readonly endedAt?: string;
-  readonly steps?: ReadonlyArray<readonly [ShipStep, ShipStepStatus, string]>;
+  readonly steps?: ReadonlyArray<readonly [ShipStep, 'passed' | 'failed' | 'note', string]>;
   /** `null`: record no push intent for the run. */
   readonly head?: string | null;
 }
