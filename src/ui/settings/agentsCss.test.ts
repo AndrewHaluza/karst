@@ -114,3 +114,51 @@ describe('agents.webview.css — Accounts table', () => {
     expect(squashed).toContain("grid-template-areas: 'agent agent agent agent agent' 'mark name name use menu' '. stat stat stat stat' '. loc loc loc loc' '. token token token token'");
   });
 });
+
+describe('agents.webview.css — Accounts row surfaces (UI-R29)', () => {
+  /** The declaration block that starts at `start` (which must be unique). */
+  const block = (start: string): string => {
+    const at = css.indexOf(start);
+    expect(at, `missing rule: ${start}`).toBeGreaterThanOrEqual(0);
+    const open = css.indexOf('{', at);
+    return css.slice(open + 1, css.indexOf('}', open));
+  };
+
+  it('pairs every painted row surface with its foreground in the same rule', () => {
+    expect(block('#section-agents .accounts-row:hover,')).toContain('color: var(--k-text)');
+    expect(block('#section-agents .accounts-core-group.is-multi .accounts-row.is-active {'))
+      .toContain('color: var(--vscode-list-inactiveSelectionForeground, var(--k-text))');
+  });
+
+  it('paints no second wash under the active row on hover (only the accent bar grows)', () => {
+    const activeHover = block('#section-agents .accounts-core-group.is-multi .accounts-row.is-active:hover,');
+    expect(activeHover).not.toContain('background:');
+    expect(activeHover).toContain('box-shadow: inset 3px');
+  });
+
+  it('lets the dim ink and the inline text buttons inherit the row pair', () => {
+    for (const painted of [
+      '#section-agents .accounts-row:hover :is(',
+      '#section-agents .accounts-row:focus-within :is(',
+      '#section-agents .accounts-core-group.is-multi .accounts-row.is-active :is(',
+    ]) {
+      const at = css.indexOf(painted);
+      expect(at, `missing rule: ${painted}`).toBeGreaterThanOrEqual(0);
+      const open = css.indexOf('{', at);
+      const selector = css.slice(at, open);
+      expect(css.slice(open + 1, css.indexOf('}', open)), painted).toContain('color: inherit');
+      for (const ink of ['.accounts-muted', '.accounts-loc-mono', '.accounts-project-choice', '.accounts-sep', '.k-btn--link']) {
+        expect(selector, `${painted} ${ink}`).toContain(ink);
+      }
+    }
+  });
+
+  it('paints the warning text and its dot with the readable attention tone, never the chart hue', () => {
+    expect(block('#section-agents .accounts-status-warn {')).toContain('var(--k-attention-fg)');
+    expect(block('#section-agents .accounts-status-dot.is-not-signed-in {')).toContain('var(--k-attention-fg)');
+  });
+
+  it('keeps a text button identifiable when the row pair drops its link tone', () => {
+    expect(block('#section-agents .accounts-row:hover .k-btn--link,')).toContain('text-decoration: underline');
+  });
+});

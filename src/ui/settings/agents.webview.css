@@ -430,16 +430,44 @@
 #section-agents .accounts-core-group + .accounts-core-group { border-top: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border)); }
 #section-agents .accounts-row { min-height: 38px; transition: background-color var(--k-dur-fast) var(--k-ease-standard); }
 #section-agents .accounts-row + .accounts-row { border-top: var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border, var(--k-border)) 45%, transparent); }
+/* Row surfaces (UI-R29): a rule that paints a row also sets that surface's paired
+   foreground in the same rule. The tint uses the INACTIVE selection token on
+   purpose (`--k-surface-selected`), and its pair is the theme's
+   inactiveSelectionForeground, falling back to `--k-text`. Every ink the row can
+   carry (the dim cells, the separator, the "this project" line and the inline
+   text buttons) then inherits that pair, so a grey or a link tone is never
+   measured against the page while the wash is under it; links stay identifiable
+   through the shared `.k-btn--link:hover` underline. */
 #section-agents .accounts-row:hover,
-#section-agents .accounts-row:focus-within { background: var(--vscode-list-hoverBackground, var(--k-surface-hover)); }
+#section-agents .accounts-row:focus-within {
+  background: var(--vscode-list-hoverBackground, var(--k-surface-hover));
+  color: var(--k-text);
+}
 /* Only a core with more than one account needs the "which one runs" tint + accent bar. */
 #section-agents .accounts-core-group.is-multi .accounts-row.is-active {
   background: var(--vscode-list-inactiveSelectionBackground, color-mix(in srgb, var(--vscode-focusBorder, var(--k-link)) 10%, transparent));
+  color: var(--vscode-list-inactiveSelectionForeground, var(--k-text));
   box-shadow: inset 2px 0 0 var(--vscode-focusBorder, var(--k-link));
 }
+#section-agents .accounts-row:hover :is(.accounts-muted, .accounts-loc-text, .accounts-loc-mono, .accounts-project-choice, .accounts-sep, .k-btn--link),
+#section-agents .accounts-row:focus-within :is(.accounts-muted, .accounts-loc-text, .accounts-loc-mono, .accounts-project-choice, .accounts-sep, .k-btn--link),
+#section-agents .accounts-core-group.is-multi .accounts-row.is-active :is(.accounts-muted, .accounts-loc-text, .accounts-loc-mono, .accounts-project-choice, .accounts-sep, .k-btn--link) {
+  color: inherit;
+}
+/* The painted rows give up the link tone for the pair, so the underline is what
+   still marks Reset / Log in / Set as actions there. */
+#section-agents .accounts-row:hover .k-btn--link,
+#section-agents .accounts-row:focus-within .k-btn--link,
+#section-agents .accounts-core-group.is-multi .accounts-row.is-active .k-btn--link {
+  text-decoration: underline;
+}
+/* The active row's hover used to lay a 16% accent mix over the tint: the lowest
+   surface of the three (4.30:1 for the light foreground, 2.85:1 for an hc link).
+   The row is already selected, so hover deepens the accent bar instead of
+   painting a second wash under the same ink. */
 #section-agents .accounts-core-group.is-multi .accounts-row.is-active:hover,
 #section-agents .accounts-core-group.is-multi .accounts-row.is-active:focus-within {
-  background: color-mix(in srgb, var(--vscode-focusBorder, var(--k-link)) 16%, transparent);
+  box-shadow: inset 3px 0 0 var(--vscode-focusBorder, var(--k-link));
 }
 @media (prefers-reduced-motion: reduce) {
   #section-agents .accounts-row { transition: none; }
@@ -479,9 +507,12 @@
   margin-inline-end: var(--k-space-1);
 }
 #section-agents .accounts-status-dot.is-signed-in { background: var(--k-success); }
-#section-agents .accounts-status-dot.is-not-signed-in { background: var(--k-warning); }
+/* UI-R29: a chart hue is a fill colour, not small text. The warning text uses the
+   readable attention tone (palette STATUS_FG.attention: 7.5:1 in light, 10:1 in
+   dark, 12.6:1 in hc) and the dot keeps the same hue so the pair reads together. */
+#section-agents .accounts-status-dot.is-not-signed-in { background: var(--k-attention-fg); }
 #section-agents .accounts-status-dot.is-unknown { width: 7px; height: 7px; background: transparent; border: 1.5px solid var(--k-text-faint); }
-#section-agents .accounts-status-warn { color: var(--k-warning); }
+#section-agents .accounts-status-warn { color: var(--k-attention-fg); }
 #section-agents .accounts-mark { display: inline-flex; color: var(--vscode-focusBorder, var(--k-link)); }
 #section-agents .accounts-hint { color: var(--k-text-dim); font-size: var(--k-text-sm); margin-block: var(--k-space-2); }
 #section-agents .accounts-token { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-2, 4px); }
