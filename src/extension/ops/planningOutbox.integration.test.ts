@@ -1242,6 +1242,66 @@ describe('planning outbox', () => {
       expect(getProposal(store, id)!.attachments).toEqual([]);
     });
 
+    it('does not copy, nor mark checking, without a storage dir or without a listed file', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      put(`${UUID(2)}.json`, { ...good, title: 'plain' });
+      const onWarnings = vi.fn();
+      const ob = make({ onWarnings });
+      ob.scan();
+      expect(ob.checkingIds().size).toBe(0);
+      const withStorage = make({ storageDir: storageDir() });
+      put(`${UUID(3)}.json`, { ...good, title: 'plain 2' });
+      withStorage.scan();
+      expect(withStorage.checkingIds().size).toBe(0);
+      await settle();
+      expect(pending().every((p) => p.attachments.length === 0)).toBe(true);
+      expect(onWarnings).not.toHaveBeenCalled();
+    });
+
+    it('announces the row after a copy, with or without a refusal warning', async () => {
+      withFile('p.html', 'x');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const onWarnings = vi.fn();
+      const ob = make({ storageDir: storageDir(), onWarnings });
+      ob.scan();
+      await drain(ob);
+      expect(onWarnings).toHaveBeenCalledTimes(1);
+      expect(onWarnings.mock.calls[0]![0].attachments).toHaveLength(1);
+      put(`${UUID(2)}.json`, { ...good, id: pending()[0]!.id, attachments: [{ path: 'gone.txt' }] });
+      ob.scan();
+      await drain(ob);
+      expect(onWarnings).toHaveBeenCalledTimes(2);
+      expect(getProposal(store, pending()[0]!.id)!.warnings).toContain('attachment refused: gone.txt (missing)');
+    });
+
+    it('keeps the draft with a refusal when the copy cannot be written', async () => {
+      withFile('p.html', 'x');
+      writeFileSync(join(root, 'blocker'), 'f');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });
+      const ob = make({ storageDir: join(root, 'blocker', 'sub') });
+      ob.scan();
+      await drain(ob);
+      expect(pending()).toHaveLength(1);
+      expect(pending()[0]!.attachments).toEqual([]);
+      expect(pending()[0]!.warnings).toEqual(['attachment refused: p.html (missing)']);
+      expect(ob.checkingIds().size).toBe(0);
+    });
+
+    it('a revise keeps the old list until the new copy ends', async () => {
+      withFile('a.txt', 'aaa');
+      withFile('b.txt', 'bbb');
+      put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'a.txt' }] });
+      const ob = make({ storageDir: storageDir() });
+      ob.scan();
+      await drain(ob);
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, attachments: [{ path: 'b.txt' }] });
+      ob.scan();
+      expect(getProposal(store, id)!.attachments.map((a) => a.name)).toEqual(['a.txt']);
+      await drain(ob);
+    });
+
     it('writes nothing when the draft was discarded before the copy ended', async () => {
       withFile('p.html', 'x');
       put(`${UUID(1)}.json`, { ...good, attachments: [{ path: 'p.html' }] });

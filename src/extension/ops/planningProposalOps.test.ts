@@ -342,6 +342,28 @@ describe('planningProposalOps', () => {
       expect(debugs.some((d) => d.includes('attachment cleanup failed'))).toBe(true);
     });
 
+    it('prefill orders binding rows first, keeps the rest in order and sets binding only when true', async () => {
+      const row = (name: string, binding?: boolean) => ({
+        name,
+        storedName: `${name.length}${name.charCodeAt(0)}`.padEnd(16, '0') + '.txt',
+        kind: 'file' as const,
+        byteSize: 1,
+        ...(binding === undefined ? {} : { binding }),
+      });
+      setProposalHostAttachments(store, proposalId, '', [row('n1'), row('b1', true), row('n2', false), row('b2', true), row('n3')]);
+      await ops().review(proposalId);
+      const got = forms[0]!.attachments!;
+      expect(got.map((a) => a.name)).toEqual(['b1', 'b2', 'n1', 'n2', 'n3']);
+      expect(got.map((a) => 'binding' in a)).toEqual([true, true, false, false, false]);
+      expect(got[0]).toEqual({ name: 'b1', storedName: row('b1').storedName, kind: 'file', byteSize: 1, binding: true });
+    });
+
+    it('does not remove a host copy without a storage dir', async () => {
+      const removeDir = vi.fn().mockResolvedValue(undefined);
+      await ops({ removeDir }).discard(proposalId);
+      expect(removeDir).not.toHaveBeenCalled();
+    });
+
     it('removes the host copy after discard', async () => {
       const removeDir = vi.fn().mockResolvedValue(undefined);
       await ops({ storageDir: '/s', removeDir }).discard(proposalId);
