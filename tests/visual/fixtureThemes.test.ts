@@ -18,16 +18,13 @@ describe('fixture themes for Playwright projects', () => {
     const out = mkdtempSync(join(tmpdir(), 'karst-fixture-themes-'));
     afterAll(() => rmSync(out, { recursive: true, force: true }));
 
-    it('writes a dark page for a variant that only declares dark-reduced-motion', () => {
+    it('writes a dark page for a variant that only declares dark-reduced-motion, and only variant pages', () => {
       writeFixtures(out);
       const attention = VARIANTS.dashboard.find((v) => v.id === 'attention');
       expect(attention?.themes).toEqual(['dark-reduced-motion']);
       expect(existsSync(join(out, 'dark', fixtureFile('dashboard', 'attention')))).toBe(true);
       expect(existsSync(join(out, 'light', fixtureFile('dashboard', 'attention')))).toBe(false);
-    });
-
-    it('writes only registered variant pages, no legacy page', () => {
-      writeFixtures(out);
+      // Only registered variant pages: no legacy `<view>.html` or `<view>-<scenario>.html` page.
       for (const theme of THEME_IDS) {
         const legacy = readdirSync(join(out, theme)).filter((file) => !file.includes('--'));
         expect(legacy, theme).toEqual([]);
