@@ -407,6 +407,22 @@ async function guardedRound(d: AutopilotDeps, round: () => Promise<AutopilotResu
   }
 }
 
+/**
+ * The state the decision was made about, re-read right before the retry runs: the ticket is still at ship and not paused,
+ * autopilot has no stop or pause, the ship stage is still failed and unblocked, and no newer run exists (@arch:AP-11).
+ */
+function stillRetryable(d: Pick<AutopilotDeps, 'store' | 'ticketId'>, runId: number): boolean {
+  const ticket = getTicket(d.store, d.ticketId);
+  if (ticket.stageCurrent !== 'ship') return false;
+  if (ticket.pausedAt !== null) return false;
+  const state = getAutopilotTicket(d.store, d.ticketId);
+  if (state.stopAfter || state.pausedReason !== null || state.stoppedReason !== null) return false;
+  const stage = getStage(d.store, d.ticketId, 'ship');
+  if (stage?.status !== 'failed') return false;
+  if (stageBlock(d.store, d.ticketId, 'ship') !== null) return false;
+  return listShipRuns(d.store, d.ticketId, 1)[0]?.id === runId;
+}
+
 /** Waits and stops already announced for the ship retry: one line per armed state, not one per 2 s tick. */
 const shipRetryNotedByStore = new WeakMap<Store, Set<string>>();
 
@@ -426,6 +442,15 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
   // Rule 1 (@arch:AP-11): a stop reason of ANY kind keeps the retry off; only a person clears it.
   if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== null) return { kind: 'idle' };
   const seen = shipRetryNoted(d.store);
+  // A sandboxed ticket's ship first pulls the sandbox into the worktree (assertInSync), so an unattended retry would
+  // publish commits no person confirmed. Checked BEFORE the decision: a sandboxed ticket reads no git and writes no stop.
+  if (!(await isHostTicket(d.placement))) {
+    if (!seen.has(flightKeyOf(d))) {
+      seen.add(flightKeyOf(d));
+      d.debug(`${LOG} ticket ${d.key}: no ship retry, the ticket does not run on the host`);
+    }
+    return { kind: 'idle' };
+  }
   const decision = await shipRetryDecision(d.store, d.ticketId, (d.now ?? Date.now)(), d.shipRetry);
   switch (decision.kind) {
     case 'none': {
@@ -456,16 +481,12 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
       return { kind: 'idle' };
     }
     case 'retry': {
-      // A sandboxed ticket's ship first pulls the sandbox into the worktree (assertInSync): an unattended retry would
-      // publish commits no person confirmed. The click stays the way to ship it.
-      if (!(await isHostTicket(d.placement))) {
-        if (!seen.has(flightKeyOf(d))) {
-          seen.add(flightKeyOf(d));
-          d.debug(`${LOG} ticket ${d.key}: no ship retry, the ticket does not run on the host`);
-        }
+      // The decision awaited git and the placement: a person may have moved the ticket since its guards ran. Retry only
+      // on the state it decided about, never on a running, blocked, paused or re-run ticket (@arch:AP-11).
+      if (!stillRetryable(d, decision.runId)) {
+        d.debug(`${LOG} ticket ${d.key}: no ship retry, the ticket changed while the decision awaited git`);
         return { kind: 'idle' };
       }
-      const before = listShipRuns(d.store, d.ticketId, 1)[0]!;
       const outcome = await d.retryShip(decision.repos);
       if (outcome.kind === 'busy') {
         d.debug(`${LOG} ticket ${d.key}: no ship retry, the host drains for a reload`);
@@ -473,7 +494,7 @@ async function shipRetryStep(d: AutopilotDeps): Promise<AutopilotResult> {
       }
       // A saga that threw BEFORE opening its run leaves the same failed run, so the run history would never bound the
       // 2 s tick: pause with a visible reason and keep the failed stage's Retry ship (@arch:AP-11).
-      if (outcome.kind === 'failed' && listShipRuns(d.store, d.ticketId, 1)[0]!.id === before.id) {
+      if (outcome.kind === 'failed' && listShipRuns(d.store, d.ticketId, 1)[0]!.id === decision.runId) {
         const reason = `auto-fix stopped: ship retry could not run (${outcome.reason})`;
         setAutopilotStopped(d.store, d.ticketId, reason);
         setAutopilotPaused(d.store, d.ticketId, reason);

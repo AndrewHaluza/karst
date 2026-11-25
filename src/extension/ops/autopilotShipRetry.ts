@@ -46,7 +46,8 @@ export interface ShipRetrySeams {
 }
 
 export type ShipRetryDecision =
-  | { readonly kind: 'retry'; readonly repos: readonly string[]; readonly n: number }
+  /** `runId`: the failed run the decision was made on, so the caller can prove nothing moved while it awaited git. */
+  | { readonly kind: 'retry'; readonly repos: readonly string[]; readonly n: number; readonly runId: number }
   | { readonly kind: 'wait'; readonly until: number }
   /** `runId`: the failed run the stop belongs to, so the engine writes its one event per run. */
   | { readonly kind: 'park'; readonly reason: string; readonly runId: number }
@@ -126,5 +127,5 @@ export async function shipRetryDecision(store: Store, ticketId: number, now: num
     const pushed = newestPushIntentHead(store, ticketId, repo);
     if (head === null || head !== pushed) return none(`the head of ${repo} is not the head the ship pushed`);
   }
-  return { kind: 'retry', repos: plan.repos, n };
+  return { kind: 'retry', repos: plan.repos, n, runId: newest.id };
 }

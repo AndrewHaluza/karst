@@ -1900,6 +1900,50 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     expect(r.debug).toHaveBeenCalledWith(expect.stringMatching(/\(1\/5\) for (r, z|z, r)$/));
   });
 
+  it('reads no worktree and writes no stop for a sandboxed ticket, even at the bound', async () => {
+    failedServerErrorShip(6);
+    const worktreeClean = vi.fn(async () => ({ ok: true as const, clean: true }));
+    const localHead = vi.fn(async () => HEAD);
+    const r = retry({ placement: async () => 'sandbox' as const, shipRetry: { worktreeClean, localHead } });
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect(worktreeClean).not.toHaveBeenCalled();
+    expect(localHead).not.toHaveBeenCalled();
+    expect(r.notes).toEqual([]);
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ticket does not run on the host');
+  });
+
+  const changedWhileDeciding: Array<readonly [string, (ticketId: number) => void]> = [
+    ['the ticket left ship', (tid) => { store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(tid); }],
+    ['the ticket paused', (tid) => { pauseTicket(store, tid); }],
+    ['autopilot stopped after this round', (tid) => { setAutopilotStopAfter(store, tid); }],
+    ['autopilot paused', (tid) => { setAutopilotPaused(store, tid, 'auto-fix paused: sandbox read-only'); }],
+    ['autopilot stopped', (tid) => { setAutopilotStopped(store, tid, 'auto-fix stopped: ci 3/3'); }],
+    ['the ship stage started running', (tid) => { setStage(store, tid, 'ship', { status: 'running' }); }],
+    ['a block landed on the ship stage', (tid) => {
+      parkGateStage(store, { ticketId: tid, stageKey: 'ship', kind: 'push-diverged', reason: 'diverged', runAt: ENDED, gates: [] });
+    }],
+    ['a newer ship run exists', (tid) => {
+      const run = openShipRun(store, { ticketId: tid, attempt: 2, startedAt: '2026-11-25T11:59:30.000Z' });
+      closeShipRun(store, run.id, 'interrupted', '2026-11-25T11:59:45.000Z');
+    }],
+  ];
+  for (const [what, change] of changedWhileDeciding) {
+    it(`keeps the retry off when ${what} while the decision awaits git`, async () => {
+      failedServerErrorShip();
+      const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+      const r = retry({
+        retryShip,
+        shipRetry: {
+          worktreeClean: async () => { change(id); return { ok: true as const, clean: true }; },
+          localHead: async () => HEAD,
+        },
+      });
+      expect((await autopilotTick(r.deps)).kind).toBe('idle');
+      expect(retryShip).not.toHaveBeenCalled();
+      expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ticket changed while the decision awaited git');
+    });
+  }
+
   it('never retries a ticket that does not run on the host: its ship would pull sandbox commits', async () => {
     failedServerErrorShip();
     const sandboxed = retry({ placement: async () => 'sandbox' as const });

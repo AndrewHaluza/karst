@@ -92,7 +92,8 @@ describe('shipRetryDecision', () => {
     expect(await shipRetryDecision(store, id, until - 1, waiting)).toEqual({ kind: 'wait', until });
     expect(waiting.worktreeClean).not.toHaveBeenCalled();
     expect(waiting.localHead).not.toHaveBeenCalled();
-    expect(await shipRetryDecision(store, id, until, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1 });
+    expect(await shipRetryDecision(store, id, until, seams()))
+      .toEqual({ kind: 'retry', repos: ['r'], n: 1, runId: (store.db.prepare('SELECT MAX(id) AS id FROM ship_runs').get() as { id: number }).id });
   });
 
   it('refuses a ticket that is not at ship', async () => {
@@ -214,9 +215,9 @@ describe('shipRetryDecision', () => {
   });
 
   it('reads the repos planRetryShip names and retries each one', async () => {
-    run({ steps: [['push', 'failed', 'HTTP 503 Service Unavailable'], ['pr', 'passed', 'ok']] });
+    const runId = run({ steps: [['push', 'failed', 'HTTP 503 Service Unavailable'], ['pr', 'passed', 'ok']] });
     failedShip();
-    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1 });
+    expect(await shipRetryDecision(store, id, NOW + 10 * MIN, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1, runId });
   });
 
   it('backs off 2/5/10/20/30 minutes and parks on the sixth consecutive server-error run', async () => {
@@ -226,7 +227,8 @@ describe('shipRetryDecision', () => {
       failedShip();
       const until = NOW + delay;
       expect(await shipRetryDecision(store, id, until - 1, seams())).toEqual({ kind: 'wait', until });
-      expect(await shipRetryDecision(store, id, until, seams())).toEqual({ kind: 'retry', repos: ['r'], n: i + 1 });
+      expect(await shipRetryDecision(store, id, until, seams()))
+        .toEqual({ kind: 'retry', repos: ['r'], n: i + 1, runId: (store.db.prepare('SELECT MAX(id) AS id FROM ship_runs').get() as { id: number }).id });
     }
     const sixth = run();
     failedShip();
@@ -239,15 +241,14 @@ describe('shipRetryDecision', () => {
 
   it('resets the count when a passed run or another failure sits in between', async () => {
     run();
-    run();
     run({ status: 'passed', endedAt: '2026-11-25T11:30:00.000Z' });
-    run();
+    const afterReset = run();
     failedShip();
-    expect(await shipRetryDecision(store, id, NOW + AUTO_SHIP_RETRY_DELAYS_MS[0]!, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1 });
+    expect(await shipRetryDecision(store, id, NOW + AUTO_SHIP_RETRY_DELAYS_MS[0]!, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1, runId: afterReset });
     run({ steps: [['pr', 'failed', 'HTTP 401 Bad credentials']] });
-    run();
+    const last = run();
     failedShip();
-    expect(await shipRetryDecision(store, id, NOW + AUTO_SHIP_RETRY_DELAYS_MS[0]!, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1 });
+    expect(await shipRetryDecision(store, id, NOW + AUTO_SHIP_RETRY_DELAYS_MS[0]!, seams())).toEqual({ kind: 'retry', repos: ['r'], n: 1, runId: last });
   });
 
   it('never retries a run with no end time or an unreadable one', async () => {
