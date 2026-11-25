@@ -35,7 +35,7 @@ export function gotoAction(kind: string): void {
     kind === 'graph-panel'
       ? byId('inside')
       : kind === 'usage-limit-pick'
-        ? document.querySelector<HTMLElement>('#blocked [data-act="usage-limit-pick"]')
+        ? (byId('blocked')?.querySelector<HTMLElement>('[data-act="usage-limit-pick"]') ?? null)
         : ((byId('prs')?.getElementsByClassName('mgbtn')[0] as HTMLElement | undefined) ?? null);
   const scrollTo = target ?? (kind === 'graph-panel' ? byId('inside') : kind === 'usage-limit-pick' ? byId('blocked') : byId('prs'));
   if (!scrollTo) return;
