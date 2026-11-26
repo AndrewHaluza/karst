@@ -203,22 +203,37 @@ export function replaceApproach(
   return rest;
 }
 
-/** The three roster groups, in render order, each with its host-supplied label. */
+/** The one-line muted help under each roster group header. */
+export const APPROACH_GROUP_HELP = {
+  Installed: 'Packages on disk. Turn one off to hide it from new tickets.',
+  Available: 'Install a package to use it.',
+  'Built-in': 'Ship with Karst. Nothing to install.',
+} as const;
+
+export type ApproachGroupTitle = keyof typeof APPROACH_GROUP_HELP;
+
+/**
+ * The three roster groups, in render order. The grouping reads
+ * `approach.source` FIRST: a sourceless approach has nothing to install, so it
+ * is always Built-in, even when its id is in `installedIds` (the packaged graph
+ * approach is). Only a sourced approach is Installed or Available.
+ */
 export function approachGroups(
   list: readonly ApproachDef[],
   installedIds: readonly string[],
-): ReadonlyArray<{ readonly title: string; readonly items: readonly ApproachDef[] }> {
-  return [
-    { title: 'Installed', items: list.filter((a) => installedIds.includes(a.id)) },
-    {
-      title: 'Available',
-      items: list.filter((a) => !installedIds.includes(a.id) && a.source),
-    },
-    {
-      title: 'Built-in',
-      items: list.filter((a) => !installedIds.includes(a.id) && !a.source),
-    },
-  ].filter((group) => group.items.length > 0);
+): ReadonlyArray<{
+  readonly title: ApproachGroupTitle;
+  readonly help: string;
+  readonly items: readonly ApproachDef[];
+}> {
+  const groups: ReadonlyArray<{ readonly title: ApproachGroupTitle; readonly items: readonly ApproachDef[] }> = [
+    { title: 'Installed', items: list.filter((a) => a.source && installedIds.includes(a.id)) },
+    { title: 'Available', items: list.filter((a) => a.source && !installedIds.includes(a.id)) },
+    { title: 'Built-in', items: list.filter((a) => !a.source) },
+  ];
+  return groups
+    .filter((group) => group.items.length > 0)
+    .map((group) => ({ ...group, help: APPROACH_GROUP_HELP[group.title] }));
 }
 
 /**

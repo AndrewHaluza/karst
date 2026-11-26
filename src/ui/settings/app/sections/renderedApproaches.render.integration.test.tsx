@@ -16,7 +16,7 @@
  *   Discard rolls it back alone;
  * - a `state` push that removes the edited approach closes the drawer, so its
  *   destructive control cannot outlive the record it deletes;
- * - the graph prompt link posts `open-graph-prompt` through the pending-action
+ * - the graph drawer's Open prompt button posts `open-graph-prompt` through the pending-action
  *   runtime: one request with a correlation id from the click, nothing while
  *   pending, busy cleared by the host's `action-result` receipt (UI-R11/R12/R13).
  *
@@ -69,8 +69,8 @@ const MANIFEST: Manifest = {
 };
 
 /**
- * A graph approach, so the card renders the graph configuration surface — and
- * with it the prompt link the R11 test drives. Mirrors the packaged built-in's
+ * A graph approach, so the Edit drawer renders the graph groups — and with
+ * them the prompt button the R11 test drives. Mirrors the packaged built-in's
  * shape: planner prompt artifact, one profile, a limits block.
  */
 const GRAPH_APPROACH = {
@@ -299,6 +299,8 @@ describe('rendered Approaches tab — a state push closes the drawer', () => {
 describe('rendered Approaches tab — the graph prompt link (UI-R11)', () => {
   it('every graph-config host-posting control goes through the pending action runtime (UI-R11)', async () => {
     const { view } = await mountOnApproaches(GRAPH_MANIFEST);
+    // The prompt button lives in the Edit drawer's Planner group (spec Edit 7).
+    await view.click(buttonNamed(tab(view).querySelector('[data-approach="karst-graph-engineering"]') as Element, 'Edit'));
     const link = tab(view).querySelector('[data-open-graph-prompt="karst-graph-planner"]') as Element;
     expect(link).not.toBeNull();
 

@@ -105,7 +105,11 @@ const REQUIRED_ARTIFACTS = [
 // QualityGates table (one line per gate, OOM column, "npm run" prefix), the Field row primitive
 // and the disabled child rows under Agent findings, merged with the D829 quota card rework;
 // bundle is 438575 bytes (~1.7 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 430 * 1024;
+// Raised 430 → 438 KB for T1374 (Approaches cards): the approach Edit drawer (ApproachDrawer), the
+// Dynamic Graph agents, limits and planner prompt sections in that drawer (GraphDrawerSections,
+// graphDrawerDraft), and the number-plus-unit limit inputs with an exact round trip
+// (graphLimitUnits) — ~9 KB of genuine app code; bundle is 446740 bytes after the T1373 merge (~1.7 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 438 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
