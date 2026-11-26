@@ -710,8 +710,8 @@ describe("uatProcesses", () => {
     expect(evidence.rows[0]!.status).toBe("pass");
   });
 
-  it("bounds gate rows at 8 and names the remainder", () => {
-    const gates = Array.from({ length: 10 }, (_, i) =>
+  it("shows all 9 gate rows uncollapsed and sends no more row", () => {
+    const gates = Array.from({ length: 9 }, (_, i) =>
       run("uat", `test (${i})`, 0, { runAt: NOW }),
     );
     const views = uatProcesses(qualityInput({ gateRuns: gates }));
@@ -721,12 +721,53 @@ describe("uatProcesses", () => {
       passed: number;
     };
     expect(evidence.rows).toHaveLength(9);
+    expect(evidence.passed).toBe(9);
+    expect(evidence.rows.some((r) => r.collapsed)).toBe(false);
+    expect(evidence.rows.some((r) => r.label === "more")).toBe(false);
+  });
+
+  it("shows all 10 gate rows uncollapsed: two hidden rows cost less than a button", () => {
+    const gates = Array.from({ length: 10 }, (_, i) =>
+      run("uat", `test (${i})`, 0, { runAt: NOW }),
+    );
+    const views = uatProcesses(qualityInput({ gateRuns: gates }));
+    const evidence = views[0]!.evidence as {
+      kind: "gates";
+      rows: readonly EvidenceRow[];
+      passed: number;
+    };
+    expect(evidence.rows).toHaveLength(10);
     expect(evidence.passed).toBe(10);
-    expect(evidence.rows.at(-1)).toMatchObject({
-      status: "note",
-      label: "more",
-    });
-    expect(evidence.rows.at(-1)!.detail).toContain("2");
+    expect(evidence.rows.some((r) => r.collapsed)).toBe(false);
+    expect(evidence.rows.some((r) => r.label === "more")).toBe(false);
+  });
+
+  it("sends all 11 gate rows with the last 3 collapsed, and counts all 11", () => {
+    const gates = Array.from({ length: 11 }, (_, i) =>
+      run("uat", `g${i}`, 0, { runAt: NOW }),
+    );
+    const views = uatProcesses(qualityInput({ gateRuns: gates }));
+    const gatesRow = views[0]!;
+    const evidence = gatesRow.evidence as {
+      kind: "gates";
+      rows: readonly EvidenceRow[];
+      passed: number;
+    };
+    expect(evidence.rows).toHaveLength(11);
+    expect(evidence.rows.slice(0, 8).some((r) => r.collapsed)).toBe(false);
+    expect(evidence.rows.slice(8).map((r) => r.collapsed)).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(evidence.rows.map((r) => r.label)).toEqual(
+      gates.map((g) => g.gateName),
+    );
+    expect(evidence.rows.some((r) => r.label === "more")).toBe(false);
+    // The counts are the WHOLE batch, never the collapsed subset.
+    expect(evidence.passed).toBe(11);
+    expect(gatesRow.detail).toBe("11/11 command gates passed");
+    expect(gatesRow.count).toBe("11");
   });
 
   it("renders advisory tester observations as note rows and never a fix", () => {
@@ -1730,7 +1771,7 @@ describe("reviewProcesses", () => {
     );
   });
 
-  it("shows only the latest findings batch and bounds it at 6", () => {
+  it("shows only the latest findings batch, uncollapsed at 8: two hidden rows need no button", () => {
     const stale = finding("high", {
       runAt: "2026-07-20T11:00:00.000Z",
       title: "stale",
@@ -1754,10 +1795,49 @@ describe("reviewProcesses", () => {
     );
     const review = views.find((p) => p.id === "review")!;
     const rows = rowsOf(review);
-    expect(rows).toHaveLength(7);
+    expect(rows).toHaveLength(8);
     expect(rows[0]!.detail).toContain("fresh 0");
-    expect(rows.at(-1)).toMatchObject({ status: "note", label: "more" });
-    expect(rows.at(-1)!.detail).toContain("2");
+    expect(rows.some((r) => r.label === "more")).toBe(false);
+    expect(rows.some((r) => r.collapsed)).toBe(false);
+    expect(rows.some((r) => r.detail?.includes("stale"))).toBe(false);
+  });
+
+  it("sends 10 findings with the last 4 collapsed and still blocks on all 10", () => {
+    const fresh = Array.from({ length: 10 }, (_, i) =>
+      finding("high", { runAt: NOW, title: `fresh ${i}` }),
+    );
+    const views = reviewProcesses(
+      qualityInput({
+        cell: reviewCell,
+        processRuns: [
+          processRun({
+            stageKey: "review",
+            processId: "review",
+            status: "failed",
+            resultKind: "blocking",
+          }),
+        ],
+        findings: fresh,
+      }),
+    );
+    const review = views.find((p) => p.id === "review")!;
+    const evidence = review.evidence as {
+      kind: "findings";
+      rows: readonly EvidenceRow[];
+      blocking: number;
+    };
+    expect(evidence.rows).toHaveLength(10);
+    expect(evidence.rows.slice(0, 6).some((r) => r.collapsed)).toBe(false);
+    expect(evidence.rows.slice(6).map((r) => r.collapsed)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(evidence.rows.some((r) => r.label === "more")).toBe(false);
+    // Blocking counts the unfiltered, unbounded batch.
+    expect(evidence.blocking).toBe(10);
+    expect(review.aggregate).toBe("10 blocking");
   });
 
   it("a running re-review renders none of the round it replaced", () => {
@@ -2091,6 +2171,53 @@ describe("finding rows carry a level key and a linkable location", () => {
       location: "src/auth.ts:19",
     });
   });
+
+  it("shows all 8 Tester observations uncollapsed: two hidden rows need no button", () => {
+    const testerRun = processRun({ id: 900 });
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [testerRun],
+        uatFindings: Array.from({ length: 8 }, (_, i) =>
+          uatFinding("info", { processRunId: 900, title: `obs ${i}` }),
+        ),
+      }),
+    );
+    const tester = views.find((p) => p.id === "tester")!;
+    expect(rowsOf(tester)).toHaveLength(8);
+    expect(rowsOf(tester).some((r) => r.collapsed)).toBe(false);
+    expect(rowsOf(tester).some((r) => r.label === "more")).toBe(false);
+  });
+
+  it("collapses the last 4 of 10 Tester observations and still counts all 10", () => {
+    const testerRun = processRun({ id: 900 });
+    const views = uatProcesses(
+      qualityInput({
+        processRuns: [testerRun],
+        uatFindings: Array.from({ length: 10 }, (_, i) =>
+          uatFinding("high", { processRunId: 900, title: `obs ${i}` }),
+        ),
+        testerBlockingSeverity: "high",
+      }),
+    );
+    const tester = views.find((p) => p.id === "tester")!;
+    const evidence = tester.evidence as {
+      kind: "findings";
+      rows: readonly EvidenceRow[];
+      blocking: number;
+    };
+    expect(evidence.rows).toHaveLength(10);
+    expect(evidence.rows.slice(0, 6).some((r) => r.collapsed)).toBe(false);
+    expect(evidence.rows.slice(6).map((r) => r.collapsed)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(evidence.rows.some((r) => r.label === "more")).toBe(false);
+    // The counts read the whole observation list, never the visible rows.
+    expect(evidence.blocking).toBe(10);
+    expect(tester.detail).toBe("10 blocking observations");
+  });
 });
 
 // ── the gates finish BEFORE the stage does — the AI phase follows ─────────
@@ -2418,10 +2545,12 @@ describe("findings sort and repo scope", () => {
       rows: readonly EvidenceRow[];
     };
     expect(evidence.rows[0]!.severity).toBe("critical");
-    expect(evidence.rows.length).toBeLessThanOrEqual(7); // 6 + possible overflow
+    // 7 findings hide 1 row: under the show-all floor, so no row is collapsed.
+    expect(evidence.rows).toHaveLength(7);
+    expect(evidence.rows.some((r) => r.collapsed)).toBe(false);
   });
 
-  it("overflow row is last and counts correctly after sorting", () => {
+  it("shows all 7 sorted findings with no more row: one hidden row needs no button", () => {
     const findings = Array.from({ length: 7 }, (_, i) =>
       finding("low" as Severity, { runAt: NOW, repo: "/a", title: `f${i}` }),
     );
@@ -2431,9 +2560,59 @@ describe("findings sort and repo scope", () => {
       kind: "findings";
       rows: readonly EvidenceRow[];
     };
-    const last = evidence.rows[evidence.rows.length - 1]!;
-    expect(last.label).toBe("more");
-    expect(last.detail).toBe("+1 more");
+    expect(evidence.rows).toHaveLength(7);
+    expect(evidence.rows.map((r) => r.detail)).toEqual(
+      findings.map((f) => f.title),
+    );
+    expect(evidence.rows.some((r) => r.label === "more")).toBe(false);
+    expect(evidence.rows.some((r) => r.collapsed)).toBe(false);
+  });
+
+  it("collapses the 4 least severe of 10 sorted findings after the cap", () => {
+    const severities: Severity[] = [
+      "info",
+      "low",
+      "medium",
+      "high",
+      "critical",
+      "low",
+      "info",
+      "medium",
+      "high",
+      "low",
+    ];
+    const findings = severities.map((s, i) =>
+      finding(s, { runAt: NOW, repo: "/a", title: `f${i}` }),
+    );
+    const views = reviewProcesses(qualityInput({ cell: reviewCell, findings }));
+    const review = views.find((p) => p.id === "review")!;
+    const evidence = review.evidence as {
+      kind: "findings";
+      rows: readonly EvidenceRow[];
+    };
+    expect(evidence.rows).toHaveLength(10);
+    expect(evidence.rows.slice(0, 6).map((r) => r.severity)).toEqual([
+      "critical",
+      "high",
+      "high",
+      "medium",
+      "medium",
+      "low",
+    ]);
+    expect(evidence.rows.slice(0, 6).some((r) => r.collapsed)).toBe(false);
+    expect(evidence.rows.slice(6).map((r) => r.collapsed)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect(evidence.rows.slice(6).map((r) => r.severity)).toEqual([
+      "low",
+      "low",
+      "info",
+      "info",
+    ]);
+    expect(evidence.rows.some((r) => r.label === "more")).toBe(false);
   });
 
   it("carries repo on finding rows when the store recorded one", () => {
@@ -2894,10 +3073,20 @@ describe("gates process lists resolved gates while the stage runs", () => {
         }),
       )[0]!,
     );
-    expect(rows.some((r) => r.status === "run" && r.label === "g10")).toBe(
-      true,
-    );
-    expect(rows.length).toBeLessThanOrEqual(9);
+    // Every row ships, in its original order: expanding replays the sequence.
+    expect(rows.map((r) => r.label)).toEqual(many.map((g) => g.name));
+    // The running gate is never one of the hidden ones.
+    const running = rows.find((r) => r.status === "run");
+    expect(running?.label).toBe("g10");
+    expect(running?.collapsed).toBeUndefined();
+    // 8 rows stay visible; the LAST of those yields its slot to the running row.
+    expect(rows.filter((r) => !r.collapsed)).toHaveLength(8);
+    expect(rows.find((r) => r.label === "g7")!.collapsed).toBe(true);
+    for (const hidden of ["g8", "g9", "g11"]) {
+      expect(rows.find((r) => r.label === hidden)!.collapsed).toBe(true);
+    }
+    expect(rows.filter((r) => r.collapsed)).toHaveLength(4);
+    expect(rows.some((r) => r.label === "more")).toBe(false);
   });
 
   it("running row shows repo, start time, and elapsed duration when batch is empty (from cell.startedAt)", () => {
