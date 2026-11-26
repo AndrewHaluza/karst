@@ -364,16 +364,17 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
       // A real gate refused the verified merge (T1381): send that failure to the agent as a CI gate fix round in this tick,
       // within the same ci budget, so autoReship re-ships the merge and the fix. A refusal with no non-zero gate, no
       // readable run, or no seam keeps the park for a manual Deliver.
-      const failure = refused.runId !== null && d.sendRefusedMergeFailure !== undefined
-        ? deliverRunFailureState(d.store, d.ticketId, refused.runId, refused.baseRef, refused.baseSha)
-        : null;
+      const sendRefused = d.sendRefusedMergeFailure;
+      let failure: BaseMovedFailureState | null = null;
+      if (refused.runId === null) d.debug(`${LOG} ticket ${d.key}: the refusal named no deliver run; the round is dropped`);
+      else if (sendRefused !== undefined) failure = deliverRunFailureState(d.store, d.ticketId, refused.runId, refused.baseRef, refused.baseSha);
       if (failure !== null && failure.available && failure.failed.length > 0) {
-        const refusedSha = refused.sha ?? failure.run.headSha;
+        const state = failure;
+        const refusedSha = refused.sha ?? state.run.headSha;
         if (refusedSha !== null) refusedMergeOf(d.store).set(d.ticketId, { repo: refused.repo, sha: refusedSha });
-        const names = [...new Set(failure.failed.map((g) => g.gateName))].join(', ');
+        const names = [...new Set(state.failed.map((g) => g.gateName))].join(', ');
         d.debug(`${LOG} ticket ${d.key}: the resolved merge failed gate ${names}; sending a gate fix round`);
-        const result = await guardedRound(d, () => runGateFailureRound(d, cfg, failure, () => d.sendRefusedMergeFailure!(failure)));
-        if (result.kind !== 'nothing') return result;
+        return guardedRound(d, () => runGateFailureRound(d, cfg, state, () => sendRefused!(state)));
       }
       d.debug(`${LOG} ticket ${d.key}: the resolved merge was not delivered (${refused.tail}); the round is dropped`);
       return park(d, 'conflicts', refusedMergeReason(refused.tail), refusedMergeBody(refused), false, refused.sha);

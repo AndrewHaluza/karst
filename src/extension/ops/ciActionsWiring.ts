@@ -97,8 +97,7 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
 
 export function sendGateFailureAction(i: CiActionsInput, state?: BaseMovedFailureState): Promise<void> {
   return sendGateFailureToAgent({
-    store: i.store, ticketId: i.ticketId,
-    ...(state !== undefined ? { state } : {}),
+    store: i.store, ticketId: i.ticketId, state,
     writeLog: (name, text) => {
       mkdirSync(i.artifactDir, { recursive: true });
       const path = join(i.artifactDir, name);

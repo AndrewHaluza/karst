@@ -723,9 +723,13 @@ describe('autoDeliverAction records its gate run (T1018)', () => {
     store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(dir, id);
     store.db.prepare(`UPDATE tickets SET agent_state = 'running' WHERE id = ?`).run(id);
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const runProcess = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: 'ok' }));
+    const status = vi.fn();
     const i = input({ git: vi.fn(async () => ({ stdout: `${SHA}\n`, stderr: '', exitCode: 0 })) });
-    await autoDeliverAction(i, { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates } });
+    await autoDeliverAction(i, { key: 'W-1', status, log: () => {}, gate: { uat: gates, runProcess } });
     expect(i.deliver.runShip).not.toHaveBeenCalled();
+    expect(status).not.toHaveBeenCalled();
+    expect(runProcess).not.toHaveBeenCalled();
     expect(currentDeliverRun(store, id)).toBeNull();
   });
 });
@@ -818,6 +822,21 @@ describe('autoDeliverAction names the deliver run that refused the merge (T1381)
     try {
       await autoDeliverAction(i, { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: undefined } });
       expect(conflictRounds.refusal(id)).toBeNull();
+    } finally {
+      conflictRounds.disarm(id);
+    }
+  });
+
+  it('records a refusal whose base ref is null when the host has no gate env', async () => {
+    arm();
+    try {
+      const runProcess = async () => ({ kind: 'completed' as const, exitCode: 2, output: 'boom: broke' });
+      await autoDeliverAction(input({ git: headGit() }), { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates, runProcess } });
+      const refusal = conflictRounds.refusal(id);
+      expect(refusal).toMatchObject({ baseRef: null, sha: SHA });
+      expect(refusal?.runId).toEqual(expect.any(Number));
+      expect(refusal?.tail).toContain('gate "unit" failed');
+      expect(conflictRounds.armed(id)).not.toBeNull();
     } finally {
       conflictRounds.disarm(id);
     }
