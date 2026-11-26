@@ -24,6 +24,28 @@ function recorder() {
   };
 }
 
+describe('backendSessionOptions ssh remote trust (T1387)', () => {
+  const base = { backends: { claude: 'ssh:devbox' as const }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktreeCount: 1 };
+
+  it('an untrusted remote resolves to the host with the not-confirmed reason', async () => {
+    const out = await resolveLaunchBackend({ ...base, remoteTrust: () => false });
+    expect(out.sandboxed).toBe(false);
+    expect(out.placement).toEqual({ backend: 'host', core: 'claude', sandboxName: null, reason: "ssh: remote 'devbox' not confirmed" });
+  });
+
+  it('a confirmed remote no longer reports the not-confirmed reason', async () => {
+    const out = await resolveLaunchBackend({ ...base, remoteTrust: () => true });
+    expect(out.placement).toEqual({ backend: 'host', core: 'claude', sandboxName: null, reason: 'ssh: backend not available yet' });
+  });
+
+  it('forwards the trust read to the resolver as remoteTrusted', async () => {
+    const resolve = vi.fn(async () => ({ runner: HOST_SESSION_RUNNER, line: 'host (x)' }));
+    const remoteTrust = () => false;
+    await backendSessionOptions({ ...base, remoteTrust, resolve }).resolveRunner!();
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ remoteTrusted: remoteTrust }));
+  });
+});
+
 describe('backendSessionOptions multi-repo guard (F4/F13 v1)', () => {
   it.each([['claude', 'sbx'], ['opencode2', 'docker']] as const)('a multi-repo %s ticket resolves to the host without touching a sandbox', async (core, kind) => {
     const resolve = vi.fn();
@@ -71,7 +93,7 @@ describe('backendSessionOptions', () => {
     const info = vi.fn();
     const opts = backendSessionOptions({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info, resolve });
     await expect(opts.resolveRunner!()).resolves.toBe(resolved);
-    expect(resolve).toHaveBeenCalledWith({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7 });
+    expect(resolve).toHaveBeenCalledWith({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7, remoteTrusted: expect.any(Function) });
     opts.onBackend!(resolved.line);
     expect(info).toHaveBeenCalledWith('[session] ticket K-7 backend: host (sbx not signed in)');
   });
@@ -269,10 +291,10 @@ describe('backendSessionOptions worktree', () => {
     const debug = vi.fn();
     const opts = backendSessionOptions({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: 'b' }, debug, resolve });
     await opts.resolveRunner!();
-    expect(resolve).toHaveBeenCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, log: debug, docker: { debug } });
+    expect(resolve).toHaveBeenCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, log: debug, docker: { debug }, remoteTrusted: expect.any(Function) });
     const bare = backendSessionOptions({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: null }, resolve });
     await bare.resolveRunner!();
-    expect(resolve).toHaveBeenLastCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7 });
+    expect(resolve).toHaveBeenLastCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, remoteTrusted: expect.any(Function) });
   });
 });
 

@@ -3,7 +3,7 @@
  * schema, the resolver and the Settings webview all import it.
  */
 import type { AgentProvider } from '../manifest/types.js';
-import { DOCKER_CORES, SBX_CORES } from './sandboxCores.js';
+import { DOCKER_CORES, SBX_CORES, SSH_CORES } from './sandboxCores.js';
 
 export type CoreBackend = 'host' | 'sbx' | 'docker' | `ssh:${string}`;
 
@@ -46,25 +46,62 @@ export function allowedBackends(core: string): readonly CoreBackend[] {
   return ['host'];
 }
 
+/** The remote name of an `ssh:<name>` backend; `undefined` for every other value (and a bare `ssh:`). */
+export function parseSshBackend(backend: CoreBackend): string | undefined {
+  if (!backend.startsWith('ssh:')) return undefined;
+  const name = backend.slice('ssh:'.length);
+  return name === '' ? undefined : name;
+}
+
+/** Whether a backend value selects an SSH remote (T1387). */
+export function isSshBackend(backend: CoreBackend): backend is `ssh:${string}` {
+  return parseSshBackend(backend) !== undefined;
+}
+
+/**
+ * Whether a core can run over SSH (T1387): claude, codex, opencode and
+ * opencode2. `agy` never can, because karst reads its conversation DB on the
+ * host (@arch:AC-26).
+ */
+export function sshAllowed(core: string): boolean {
+  return (SSH_CORES as readonly string[]).includes(backendCoreKey(core));
+}
+
 /** The backend one core is set to (absent → host). Exact key wins, then mapped key. */
 export function backendForCore(backends: AgentBackends | undefined, core: string): CoreBackend {
   const map = backends as Readonly<Record<string, CoreBackend | undefined>> | undefined;
   return map?.[core] ?? map?.[backendCoreKey(core)] ?? 'host';
 }
 
-/** The sandbox backends some core selects (`host` excluded). */
-export function selectedSandboxBackends(backends: AgentBackends | undefined): readonly ('sbx' | 'docker')[] {
-  const chosen = new Set(Object.values(backends ?? {}));
-  return (['sbx', 'docker'] as const).filter((b) => chosen.has(b));
+/** The sandbox backends some core selects (`host` excluded); every `ssh:*` value is `ssh`. */
+export function selectedSandboxBackends(backends: AgentBackends | undefined): readonly ('sbx' | 'docker' | 'ssh')[] {
+  const chosen = new Set<'sbx' | 'docker' | 'ssh'>();
+  for (const backend of Object.values(backends ?? {})) {
+    if (backend === undefined) continue;
+    if (isSshBackend(backend)) chosen.add('ssh');
+    else if (backend === 'sbx' || backend === 'docker') chosen.add(backend);
+  }
+  return (['sbx', 'docker', 'ssh'] as const).filter((b) => chosen.has(b));
+}
+
+/** The distinct remote names some core selects (`ssh:<name>`); empty when none. */
+export function selectedRemotes(backends: AgentBackends | undefined): readonly string[] {
+  const names: string[] = [];
+  for (const backend of Object.values(backends ?? {})) {
+    const name = backend === undefined ? undefined : parseSshBackend(backend);
+    if (name !== undefined && !names.includes(name)) names.push(name);
+  }
+  return names;
 }
 
 /** Which sandbox backends a probe should preflight; the others are skipped. */
 export interface BackendWant {
   readonly sbx: boolean;
   readonly docker: boolean;
+  readonly ssh: boolean;
 }
 
 export function wantedBackends(backends: AgentBackends | undefined): BackendWant {
   const selected = selectedSandboxBackends(backends);
-  return { sbx: selected.includes('sbx'), docker: selected.includes('docker') };
+  return { sbx: selected.includes('sbx'), docker: selected.includes('docker'), ssh: selected.includes('ssh') };
 }

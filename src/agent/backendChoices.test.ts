@@ -5,6 +5,12 @@ import {
   allowedBackends,
   backendCoreKey,
   backendForCore,
+  isSshBackend,
+  parseSshBackend,
+  selectedRemotes,
+  selectedSandboxBackends,
+  sshAllowed,
+  wantedBackends,
   type AgentBackends,
 } from './backendChoices.js';
 
@@ -46,5 +52,33 @@ describe('backendChoices', () => {
 
     expect(backendForCore(undefined, 'antigravity')).toBe('host');
     expect(backendForCore({}, 'unknown')).toBe('host');
+  });
+
+  it('parses an ssh:<name> backend and recognises the kind', () => {
+    expect(parseSshBackend('ssh:devbox')).toBe('devbox');
+    expect(isSshBackend('ssh:devbox')).toBe(true);
+    expect(parseSshBackend('host')).toBeUndefined();
+    expect(parseSshBackend('sbx')).toBeUndefined();
+    expect(parseSshBackend('docker')).toBeUndefined();
+    expect(parseSshBackend('ssh:')).toBeUndefined();
+    expect(isSshBackend('ssh:')).toBe(false);
+  });
+
+  it('allows ssh only for the SSH cores: agy and antigravity never', () => {
+    expect(sshAllowed('claude')).toBe(true);
+    expect(sshAllowed('codex')).toBe(true);
+    expect(sshAllowed('opencode')).toBe(true);
+    expect(sshAllowed('opencode2')).toBe(true);
+    expect(sshAllowed('agy')).toBe(false);
+    expect(sshAllowed('antigravity')).toBe(false);
+  });
+
+  it('maps every ssh:<name> value to the ssh sandbox kind and keeps selectedRemotes', () => {
+    const backends: AgentBackends = { claude: 'ssh:devbox', codex: 'sbx', opencode: 'ssh:other' };
+    expect(selectedSandboxBackends(backends)).toEqual(['sbx', 'ssh']);
+    expect(selectedRemotes(backends)).toEqual(['devbox', 'other']);
+    expect(wantedBackends(backends)).toEqual({ sbx: true, docker: false, ssh: true });
+    expect(selectedSandboxBackends({ claude: 'host' })).toEqual([]);
+    expect(selectedRemotes(undefined)).toEqual([]);
   });
 });

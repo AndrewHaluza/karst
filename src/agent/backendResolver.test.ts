@@ -10,7 +10,7 @@ import { join } from 'node:path';
 
 const projectRoot = mkdtempSync(join(tmpdir(), 'karst-resolve-'));
 const worktree = { hostWorktreePath: join(projectRoot, '.karst', 'worktrees', 't7'), branch: 'karst/t7' };
-const base = { core: 'claude', projectRoot: '/p', ticketId: 7, proc: fakeSbxProcess() };
+const base = { core: 'claude', projectRoot: '/p', ticketId: 7, proc: fakeSbxProcess(), remoteTrusted: () => false };
 const ok = vi.fn().mockResolvedValue({ ok: true, existing: [] });
 
 describe('resolveBackend account', () => {

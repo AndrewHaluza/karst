@@ -49,6 +49,14 @@ describe('ticket placement', () => {
     expect(getPlacement(store, id)).toBeNull();
   });
 
+  it('round-trips an ssh placement; the name holds <remote>/<sandbox>', () => {
+    const { store, id } = fresh();
+    const p: TicketPlacement = { backend: 'ssh', core: 'claude', sandboxName: 'devbox/karst-ab-1-claude', reason: null };
+    recordPlacement(store, id, p, 'claude');
+    expect(getPlacement(store, id)).toEqual(p);
+    expect(placementLine(p)).toBe('Runs in: ssh sandbox devbox/karst-ab-1-claude — commit only, no push, host syncs');
+  });
+
   it('ignores a garbage backend value as unrecorded', () => {
     const { store, id } = fresh();
     store.db.prepare("UPDATE tickets SET placement_backend = 'weird' WHERE id = ?").run(id);

@@ -294,7 +294,7 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
     case 'check-backends':
       return typeof raw.want === 'object' && raw.want !== null
         && typeof (raw.want as BackendWant).sbx === 'boolean' && typeof (raw.want as BackendWant).docker === 'boolean'
-        ? { type: 'check-backends', want: { sbx: (raw.want as BackendWant).sbx, docker: (raw.want as BackendWant).docker } }
+        ? { type: 'check-backends', want: { sbx: (raw.want as BackendWant).sbx, docker: (raw.want as BackendWant).docker, ssh: (raw.want as BackendWant).ssh === true } }
         : null;
     case 'set-approach-enabled':
       return str('id') && typeof raw.enabled === 'boolean'

@@ -51,6 +51,11 @@ export interface BackendSessionInput {
   readonly resolve?: typeof resolveBackend;
   /** The host OAuth proxy side of an sbx claude launch, read at each resolve so a token added a moment ago counts (@arch:AC-51). */
   readonly oauth?: () => Promise<NonNullable<ResolveBackendInput['oauth']>>;
+  /**
+   * Whether the host trust record allows an ssh remote (T1387). Built from
+   * `readRemoteTrust` + `isRemoteTrusted`; absent fails closed to "not confirmed".
+   */
+  readonly remoteTrust?: (name: string) => boolean;
   /** Attaches the ticket's evidence bridge; `openSession` calls it only for a sandbox runner (arch:AC-34). */
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
@@ -92,6 +97,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
     const oauth = input.oauth ? await input.oauth() : undefined;
     const out = await resolve({
       ...(oauth ? { oauth } : {}),
+      remoteTrusted: input.remoteTrust ?? (() => false),
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...accountFor(input.core, input.resumeSessionId, input.account),
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),

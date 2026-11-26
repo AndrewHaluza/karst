@@ -4,7 +4,8 @@ import type { TicketPlacement } from '../../store/placement.js';
 
 /** The dashboard's Sandbox card (arch:AC-32): where this ticket's session runs and what it may do about it. */
 export interface DashboardSandboxView {
-  readonly backend: AgentBackend;
+  /** `ssh` is a recorded placement kind; `AgentBackend` also covers `ssh:<name>` config values. */
+  readonly backend: AgentBackend | 'ssh';
   readonly core: string;
   /** `clone` for a sandbox (never a direct worktree mount), `worktree` on host. */
   readonly workspace: 'clone' | 'worktree';
@@ -22,7 +23,7 @@ export interface DashboardSandboxView {
 }
 
 export interface SandboxViewInput {
-  readonly project?: AgentBackend | undefined;
+  readonly project?: AgentBackend | 'ssh' | undefined;
   readonly ticketOverride: 'host' | null | undefined;
   readonly core: string;
   /** The last refused sync was a host rewrite (rebase/amend). */
@@ -73,7 +74,7 @@ export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView 
       backend: placement.backend,
       core,
       workspace: 'clone',
-      network: NETWORK[placement.backend],
+      network: placement.backend === 'ssh' ? 'ssh remote (commit only)' : NETWORK[placement.backend],
       actions: true,
       carry: input.rewritten === true,
       shell,
@@ -84,6 +85,8 @@ export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView 
   if (project === undefined || project === 'host') return onHost(false);
   // An opted-out ticket may still hold a sandbox from before, so its actions stay.
   if (input.ticketOverride === 'host') return onHost(true, 'ticket opted out of the sandbox backend');
+  // No ssh runner exists yet (T1387): an ssh placement is always recorded, never a project fallback.
+  if (project === 'ssh') return onHost(false, 'ssh backend has no runner yet');
   const cores: readonly string[] = project === 'sbx' ? SBX_CORES : DOCKER_CORES;
   if (!cores.includes(core)) return onHost(false, `${core}: ${project} backend unsupported`);
   return { backend: project, core, workspace: 'clone', network: NETWORK[project] ?? NETWORK.host, actions: true, carry: input.rewritten === true, shell };
