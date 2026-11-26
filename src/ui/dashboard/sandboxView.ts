@@ -1,4 +1,5 @@
 import type { AgentBackend } from '../../manifest/types.js';
+import { isSshBackend } from '../../agent/backendChoices.js';
 import { DOCKER_CORES, SBX_CORES } from '../../agent/sandboxCores.js';
 import type { TicketPlacement } from '../../store/placement.js';
 
@@ -85,9 +86,9 @@ export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView 
   if (project === undefined || project === 'host') return onHost(false);
   // An opted-out ticket may still hold a sandbox from before, so its actions stay.
   if (input.ticketOverride === 'host') return onHost(true, 'ticket opted out of the sandbox backend');
-  // No ssh runner exists yet (T1387): an ssh placement is always recorded, never a project fallback.
-  if (project === 'ssh') return onHost(false, 'ssh backend has no runner yet');
+  // No ssh runner exists yet (T1387): a config `ssh:<name>` (or a placement kind `ssh`) never falls back to a sandbox.
+  if (project === 'ssh' || isSshBackend(project)) return onHost(false, 'ssh backend has no runner yet');
   const cores: readonly string[] = project === 'sbx' ? SBX_CORES : DOCKER_CORES;
   if (!cores.includes(core)) return onHost(false, `${core}: ${project} backend unsupported`);
-  return { backend: project, core, workspace: 'clone', network: NETWORK[project] ?? NETWORK.host, actions: true, carry: input.rewritten === true, shell };
+  return { backend: project, core, workspace: 'clone', network: NETWORK[project], actions: true, carry: input.rewritten === true, shell };
 }
