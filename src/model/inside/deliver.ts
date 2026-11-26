@@ -21,6 +21,11 @@ export interface DeliverRunningFact {
   readonly gate: string;
   /** The run re-runs the gates a manual Deliver skipped, on the pushed head: no push follows (D540). */
   readonly afterTakeOver?: boolean;
+  /**
+   * The run gates the branch merged with the current base before a push (D541); the push follows only if it passes.
+   * Both a ship push and the auto-deliver record such a run.
+   */
+  readonly baseCheck?: boolean;
   /** The gate waits for a concurrency slot and has not started: live host state, never stored. */
   readonly waiting?: boolean;
 }
@@ -50,6 +55,7 @@ export function deliverProgressLine(f: DeliverFacts): string | null {
   const at = `gate ${f.running.n}/${f.running.m} (${f.running.gate})`;
   const wait = f.running.waiting === true;
   if (f.running.afterTakeOver === true) return `Running the gates skipped by the manual Deliver: ${at}${wait ? ' waits for a slot' : ''}`;
+  if (f.running.baseCheck === true) return `Checking before push: ${at}${wait ? ' waits for a slot' : ' on the merge with the current base; the push follows only if every gate passes'}`;
   return `Delivering resolved merge: ${at}${wait ? ' waits for a slot' : ', push after the gates'}`;
 }
 
@@ -64,12 +70,12 @@ export function deliverFailureLine(x: DeliverFailureFact): string {
 }
 
 /** What the manual Deliver does while the auto-deliver runs its gates (D506, D540). */
-export const DELIVER_NOW_HINT = 'Deliver now pushes at once; the skipped gates run after the push.';
+export const DELIVER_NOW_HINT = 'Deliver stops these gates and pushes; if the base moved since the merge, the gates run on the new merge first.';
 
 /** The hint of the Deliver button; null when the plain button needs no hint. */
 export function deliverHint(f: DeliverFacts): string | null {
   const own = f.failures.find((x) => x.headSha === f.headSha) ?? null;
-  if (own !== null) return `${deliverFailureLine(own)}. Deliver now pushes it anyway.`;
+  if (own !== null) return `${deliverFailureLine(own)}. Push runs the gates again on the merge with the current base and pushes only if they pass.`;
   if (f.running?.afterTakeOver === true) return null;
   if (f.running !== null) return `Auto-deliver runs gate ${f.running.n}/${f.running.m} (${f.running.gate}). ${DELIVER_NOW_HINT}`;
   return null;

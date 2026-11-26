@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deliverFailureLine, deliverHint, deliverProgressLine, deliverTakeOverLine, groupFailuresByHead, mergeStateWording, wordResolvedConflict, shortSha, type DeliverFacts } from './deliver.js';
+import { deliverProcess } from './shipDeliver.js';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -13,8 +14,15 @@ describe('deliver wording', () => {
     expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs', waiting: true } })).toBe('Delivering resolved merge: gate 2/5 (docs) waits for a slot');
     expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs', afterTakeOver: true, waiting: true } })).toBe('Running the gates skipped by the manual Deliver: gate 2/5 (docs) waits for a slot');
   });
+  it('words a base-moved run as a check before the push, not an auto-deliver (D541)', () => {
+    expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs', baseCheck: true } })).toBe('Checking before push: gate 2/5 (docs) on the merge with the current base; the push follows only if every gate passes');
+    expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs', baseCheck: true, waiting: true } })).toBe('Checking before push: gate 2/5 (docs) waits for a slot');
+    expect(deliverProgressLine({ ...base, running: { n: 2, m: 5, gate: 'docs', baseCheck: false } })).toBe('Delivering resolved merge: gate 2/5 (docs), push after the gates');
+  });
   it('a failure on the current head wins over the running hint', () => {
-    expect(deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' }, failures: [fail] })).toBe(`Gate unit failed (exit 2) on ${'a'.repeat(9)}. Deliver now pushes it anyway.`);
+    const hint = deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' }, failures: [fail] });
+    expect(hint).toBe(`Gate unit failed (exit 2) on ${'a'.repeat(9)}. Push runs the gates again on the merge with the current base and pushes only if they pass.`);
+    expect(hint).not.toContain('anyway');
   });
   it('a failure of an older head gives no hint', () => {
     expect(deliverHint({ ...base, headSha: B, failures: [fail] })).toBeNull();
@@ -78,7 +86,34 @@ describe('deliver wording', () => {
     expect(deliverProgressLine(f)).toBe('Running the gates skipped by the manual Deliver: gate 1/2 (integration)');
     expect(deliverHint(f)).toBeNull();
   });
-  it('tells that Deliver pushes at once and the skipped gates run after the push', () => {
-    expect(deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' } })).toBe('Auto-deliver runs gate 2/5 (docs). Deliver now pushes at once; the skipped gates run after the push.');
+  it('tells that Deliver stops the running gates and runs them again on a moved base before pushing', () => {
+    expect(deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' } })).toBe('Auto-deliver runs gate 2/5 (docs). Deliver stops these gates and pushes; if the base moved since the merge, the gates run on the new merge first.');
+  });
+});
+
+describe('deliverProcess wording for a base check (D541)', () => {
+  const A = 'a'.repeat(40);
+  const facts: DeliverFacts = { running: null, failures: [], takenOver: null, roundActive: false, headSha: A };
+  const row = (canDeliver: boolean, running: DeliverFacts['running']) =>
+    deliverProcess({ notOnPr: 2, inSandbox: 0, canDeliver, auto: { ...facts, running } })!;
+
+  it('words a base check as checking before push in the detail and the evidence row', () => {
+    const r = row(true, { n: 2, m: 5, gate: 'visual', baseCheck: true });
+    expect(r.detail).toContain('checking before push: gate 2 of 5');
+    expect(r.detail).not.toMatch(/(?:^| · )gate 2 of 5/);
+    expect(r.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Check before push: gate 2 of 5', detail: 'visual', status: 'run' }]) });
+  });
+  it('keeps the plain gate wording when the run is not a base check', () => {
+    const absent = row(true, { n: 2, m: 5, gate: 'visual' });
+    expect(absent.detail).toContain('gate 2 of 5');
+    expect(absent.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Gate 2 of 5', detail: 'visual', status: 'run' }]) });
+    const off = row(true, { n: 2, m: 5, gate: 'visual', baseCheck: false });
+    expect(off.detail).toContain('gate 2 of 5');
+    expect(off.detail).not.toContain('checking before push');
+    expect(off.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Gate 2 of 5', detail: 'visual', status: 'run' }]) });
+  });
+  it('does not change when the deliver button shows', () => {
+    expect(row(false, { n: 2, m: 5, gate: 'visual', baseCheck: true }).deliver).toBeUndefined();
+    expect(row(true, { n: 2, m: 5, gate: 'visual', baseCheck: true }).deliver).toBeDefined();
   });
 });
