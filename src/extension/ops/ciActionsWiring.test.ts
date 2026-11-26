@@ -16,6 +16,7 @@ import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults, finishDeliverRun } from '../../store/deliverRuns.js';
+import { deliverRunFailureState } from '../../workflow/baseMovedFailure.js';
 import { OPEN_SYNC_DIFF } from './sandboxLifecycleOps.js';
 import { autoDeliverAction, baseMovedFailure, shipBaseCheck, shipBaseRemedy, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
@@ -726,6 +727,114 @@ describe('autoDeliverAction records its gate run (T1018)', () => {
     await autoDeliverAction(i, { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates } });
     expect(i.deliver.runShip).not.toHaveBeenCalled();
     expect(currentDeliverRun(store, id)).toBeNull();
+  });
+});
+
+describe('autoDeliverAction names the deliver run that refused the merge (T1381)', () => {
+  const gates = { gates: [{ name: 'unit', kind: 'command', command: 'u', args: [] }], repositories: {} } as never;
+  const gateEnv = () => ({ prBody: '', baseRef: 'develop' });
+  const headGit = () => vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `${SHA}\n` : '', stderr: '', exitCode: 0 }));
+
+  function arm(): void {
+    seedPr();
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(dir, id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: 'b4se', files: [] });
+  }
+  const maxRunId = (): number => (store.db.prepare('SELECT MAX(id) AS id FROM deliver_runs').get() as { id: number }).id;
+
+  it('records the id and base ref of the failed auto run, and the round base sha', async () => {
+    arm();
+    try {
+      const runProcess = async () => ({ kind: 'completed' as const, exitCode: 2, output: 'boom: broke' });
+      await autoDeliverAction(input({ git: headGit() }), { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates, runProcess, gateEnv } });
+      expect(conflictRounds.refusal(id)).toMatchObject({ runId: maxRunId(), baseRef: 'develop', baseSha: 'b4se' });
+      expect(currentDeliverRun(store, id)?.kind).toBe('auto');
+    } finally {
+      conflictRounds.disarm(id);
+    }
+  });
+
+  it('records the LAST run of an environment re-run, not the first', async () => {
+    arm();
+    try {
+      const runProcess = async () => ({ kind: 'completed' as const, exitCode: 1, output: 'exceeded the test timeout' });
+      await autoDeliverAction(input({ git: headGit() }), { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates, runProcess, gateEnv } });
+      const ids = (store.db.prepare('SELECT id FROM deliver_runs ORDER BY id').all() as Array<{ id: number }>).map((r) => r.id);
+      expect(ids).toHaveLength(2);
+      expect(conflictRounds.refusal(id)).toMatchObject({ runId: ids[1], baseRef: 'develop' });
+    } finally {
+      conflictRounds.disarm(id);
+    }
+  });
+
+  it('records the base-moved run when only the moved base failed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'base-refusal-'));
+    const ticketGit = join(root, 'ticket.git');
+    const mergedGit = join(root, 'merged.git');
+    mkdirSync(join(ticketGit, 'karst-gate-state'), { recursive: true });
+    mkdirSync(mergedGit, { recursive: true });
+    writeFileSync(join(ticketGit, 'karst-gate-state', 'a.json'), JSON.stringify({ version: 1, clean: true, base: 'b'.repeat(40) }));
+    const prCwd = join(root, 'repo');
+    let baseRun = 0;
+    const git = vi.fn(async (args: readonly string[], cwd: string) => {
+      const a = args.filter((x, n, all) => x !== '-c' && all[n - 1] !== '-c');
+      const ok = (stdout: string) => ({ stdout, stderr: '', exitCode: 0 });
+      if (a[0] === 'rev-parse' && a[1] === '--path-format=absolute') return cwd === prCwd ? ok(`${ticketGit}\n`) : ok(`${mergedGit}\n`);
+      if (a[0] === 'fetch') return ok('');
+      if (a[0] === 'rev-parse') return ok(a[1] === 'HEAD' ? SHA : 'b'.repeat(40));
+      if (a[0] === 'merge-base') return ok('f'.repeat(40));
+      if (a[0] === 'merge-tree') return ok('tree\n');
+      if (a[0] === 'commit-tree') return ok('m'.repeat(40));
+      if (a[0] === 'diff') return ok('src/ui/x.tsx');
+      return ok('');
+    }) as CiActionsInput['git'];
+    vi.mocked(shipGates.runShipGates).mockImplementationOnce(async (_prs, deps) => {
+      baseRun = openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['unit'], pid: 1, now: 'T0', kind: 'base-moved' });
+      recordDeliverGate(store, baseRun, { gateName: 'unit', repo: 'r', exitCode: 1, summary: 'FAIL', startedAt: null, endedAt: null });
+      finishDeliverRun(store, baseRun, 'failed', 'T1');
+      deps.onRunOpened?.(baseRun);
+      return 'r: gate "unit" failed (exit 1)';
+    });
+    seedPr();
+    store.db.prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ?').run(prCwd, id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: 'b4se', files: [] });
+    try {
+      const runProcess = async () => ({ kind: 'completed' as const, exitCode: 0, output: 'ok' });
+      await autoDeliverAction(input({ git }), { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: gates, runProcess, gateEnv } });
+      expect(baseRun).toBeGreaterThan(0);
+      expect(conflictRounds.refusal(id)).toMatchObject({ runId: baseRun, baseRef: 'develop', baseSha: 'b4se', tail: 'the base check failed' });
+      expect(currentDeliverRun(store, id)?.kind).toBe('base-moved');
+    } finally {
+      conflictRounds.disarm(id);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('records no run when the gate runner opens none', async () => {
+    arm();
+    const i = input({ git: headGit() });
+    store.db.prepare('DELETE FROM prs').run();
+    seedPr();
+    try {
+      await autoDeliverAction(i, { key: 'W-1', status: () => {}, log: () => {}, gate: { uat: undefined } });
+      expect(conflictRounds.refusal(id)).toBeNull();
+    } finally {
+      conflictRounds.disarm(id);
+    }
+  });
+});
+
+describe('sendGateFailureAction forwards an explicit failure state (T1381)', () => {
+  it('writes the log of the refused run even with no base-moved block', async () => {
+    setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null });
+    const runId = openDeliverRun(store, { ticketId: id, headSha: 'head1', gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+    recordDeliverGate(store, runId, { gateName: 'unit', repo: 'r', exitCode: 1, summary: 'FAIL a.test.ts', startedAt: null, endedAt: null });
+    finishDeliverRun(store, runId, 'failed', 'T1');
+    const state = deliverRunFailureState(store, id, runId, 'develop', '1d1930be8'.padEnd(40, '0'));
+    if (!state.available) throw new Error('the refused run should be readable');
+    await sendGateFailureAction(input(), state);
+    expect(existsSync(join(dir, `base-moved-failure-${runId}.log`))).toBe(true);
+    expect(getTicket(store, id).stageCurrent).toBe('impl');
   });
 });
 

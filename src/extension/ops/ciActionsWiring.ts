@@ -19,6 +19,7 @@ import { checkBaseMoved } from './baseMovedCheck.js';
 import { remedyBaseMoved } from './baseMovedRemedy.js';
 import { latestBaseMovedFailedGates } from '../../workflow/baseMovedFailure.js';
 import type { BaseRemedy } from '../../workflow/stages/ship.js';
+import type { BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { baseCheckParent, readLastGreenBase, seedMergedState } from './baseMovedHost.js';
 import { autoDeliverAfterConflict, beginManualPush, conflictRounds, endConflictRoundOnDeliver, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
 import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
@@ -94,9 +95,10 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
   });
 }
 
-export function sendGateFailureAction(i: CiActionsInput): Promise<void> {
+export function sendGateFailureAction(i: CiActionsInput, state?: BaseMovedFailureState): Promise<void> {
   return sendGateFailureToAgent({
     store: i.store, ticketId: i.ticketId,
+    ...(state !== undefined ? { state } : {}),
     writeLog: (name, text) => {
       mkdirSync(i.artifactDir, { recursive: true });
       const path = join(i.artifactDir, name);
@@ -449,19 +451,34 @@ export function autoDeliverAction(
   extra: Pick<AutoDeliverDeps, 'key' | 'status' | 'log'> & { readonly gate: ShipGatesDeps },
 ): Promise<void> {
   const h = i.deliver;
+  // The deliver run the last `runGates` or `checkBase` call opened (T1381): a refusal names it, so the Autopilot engine
+  // reads the run that actually refused the merge, never the newest run of any kind.
+  let openedRunId: number | null = null;
+  const gateWithRunId: ShipGatesDeps = {
+    ...extra.gate,
+    onRunOpened: (id) => { openedRunId = id; extra.gate.onRunOpened?.(id); },
+  };
   return autoDeliverAfterConflict({
     ticketId: i.ticketId,
     key: extra.key, status: extra.status, log: extra.log,
     rounds: conflictRounds,
-    runGates: (prs, signal, only) => runShipGatesReport(prs, {
-      ...extra.gate, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: (cwd) => headShaOf(i, cwd),
-      onProgress: i.afterServerChange, ...(only ? { only } : {}),
-    }),
+    runGates: (prs, signal, only) => {
+      openedRunId = null;
+      return runShipGatesReport(prs, {
+        ...gateWithRunId, git: i.git, signal, evidence: { store: i.store, ticketId: i.ticketId }, headSha: (cwd) => headShaOf(i, cwd),
+        onProgress: i.afterServerChange, ...(only ? { only } : {}),
+      });
+    },
     mergeSha: (pr) => headShaOf(i, pr.cwd),
+    lastRunId: () => openedRunId,
+    baseRef: (pr) => extra.gate.gateEnv?.(pr).baseRef ?? null,
     targets: () => deliverTargets(i.store, i.ticketId),
     agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
-    checkBase: (pr, signal) => baseMovedFailure(i, extra.gate, pr, signal),
+    checkBase: (pr, signal) => {
+      openedRunId = null;
+      return baseMovedFailure(i, gateWithRunId, pr, signal);
+    },
     verifyMerge: (pr, round) => verifyMergeResolved(gitFor(i), pr.cwd, round),
     blocked: h.blocked,
     runShip: h.runShip,

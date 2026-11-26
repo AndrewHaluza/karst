@@ -6,7 +6,7 @@ import { EVENT_TITLE_MAX } from '../../store/karstEvents.js';
 import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { autopilotTick } from './autopilotOps.js';
 import { sendGateFailureAction } from './ciActionsWiring.js';
-import { autopilotSweep, gateFailureOutcome, postAutopilotNote, type TicketSeams } from './autopilotWiring.js';
+import { autopilotSweep, gateFailureOutcome, postAutopilotNote, refusedMergeOutcome, type TicketSeams } from './autopilotWiring.js';
 
 vi.mock('./autopilotOps.js', () => ({ autopilotTick: vi.fn(async () => ({ kind: 'idle' })) }));
 vi.mock('./ciActionsWiring.js', () => ({ sendCiFailureAction: vi.fn(), sendGateFailureAction: vi.fn() }));
@@ -47,6 +47,34 @@ describe('gateFailureOutcome', () => {
     const debug = vi.fn();
     vi.mocked(sendGateFailureAction).mockImplementation(async (i) => { i.error('gh down'); });
     await expect(gateFailureOutcome(input(openStore(':memory:'), 12, debug))).resolves.toEqual({ kind: 'failed', reason: 'gh down' });
+    expect(debug).toHaveBeenCalledWith('[ship] autopilot ticket T12 ci error: gh down');
+  });
+});
+
+describe('refusedMergeOutcome (T1381)', () => {
+  const input = (store: Store, ticketId: number, debug = vi.fn(), handOff = vi.fn(() => null)) => ({ store, ticketId, debug, handOff }) as never;
+
+  it('is failed, and never runs the action, when the failure state is not available', async () => {
+    await expect(refusedMergeOutcome(input(openStore(':memory:'), 1), { available: false, reason: 'no-failed-run' })).resolves.toEqual({ kind: 'failed', reason: 'no failed gate run to send' });
+    expect(sendGateFailureAction).not.toHaveBeenCalled();
+  });
+
+  it('forwards the pre-read state to the action and reports sent', async () => {
+    const debug = vi.fn();
+    const state = { available: true } as never;
+    vi.mocked(sendGateFailureAction).mockImplementation(async (i, forwarded) => {
+      expect(forwarded).toBe(state);
+      i.info('sent it');
+    });
+    await expect(refusedMergeOutcome(input(openStore(':memory:'), 12, debug), state)).resolves.toEqual({ kind: 'sent' });
+    expect(sendGateFailureAction).toHaveBeenCalledWith(expect.anything(), state);
+    expect(debug).toHaveBeenCalledWith('[ship] autopilot ticket T12 ci: sent it');
+  });
+
+  it('turns an action error into a failed outcome', async () => {
+    const debug = vi.fn();
+    vi.mocked(sendGateFailureAction).mockImplementation(async (i) => { i.error('gh down'); });
+    await expect(refusedMergeOutcome(input(openStore(':memory:'), 12, debug), { available: true } as never)).resolves.toEqual({ kind: 'failed', reason: 'gh down' });
     expect(debug).toHaveBeenCalledWith('[ship] autopilot ticket T12 ci error: gh down');
   });
 });
@@ -113,9 +141,9 @@ describe('autopilotSweep seams and counts', () => {
     const { store, project, ship } = setup();
     ship('A');
     await run(store, project.id, base());
-    for (const key of ['sandboxPreflight', 'sendGateFailure', 'isDraining', 'resumeDeliver', 'localHead', 'transientCi', 'staleRebase']) expect(lastInput()).not.toHaveProperty(key);
+    for (const key of ['sandboxPreflight', 'sendGateFailure', 'sendRefusedMergeFailure', 'isDraining', 'resumeDeliver', 'localHead', 'transientCi', 'staleRebase']) expect(lastInput()).not.toHaveProperty(key);
     const given = {
-      sandboxPreflight: async () => null, sendGateFailure: async () => ({ kind: 'sent' as const }), isDraining: () => false,
+      sandboxPreflight: async () => null, sendGateFailure: async () => ({ kind: 'sent' as const }), sendRefusedMergeFailure: async () => ({ kind: 'sent' as const }), isDraining: () => false,
       resumeDeliver: async () => ({ kind: 'none' }) as never, localHead: async () => null, transientCi: {} as never, staleRebase: {} as never,
     };
     await run(store, project.id, base(given));

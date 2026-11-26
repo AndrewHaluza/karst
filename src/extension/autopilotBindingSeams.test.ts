@@ -3,7 +3,7 @@ import { openStore } from '../store/db.js';
 import { createTicket, setAgentState } from '../store/tickets.js';
 import { claimAutopilotTicket, syncAutopilotSessionOwner } from '../store/autopilot.js';
 import { startAutopilot, makePlacementCheck, registerAutopilotCommands, type AutopilotBindingDeps } from './autopilotBinding.js';
-import { autopilotSweep, ciOutcome, conflictOutcome, gateFailureOutcome, postAutopilotNote } from './ops/autopilotWiring.js';
+import { autopilotSweep, ciOutcome, conflictOutcome, gateFailureOutcome, postAutopilotNote, refusedMergeOutcome } from './ops/autopilotWiring.js';
 import { gitFor, headShaOf, rebaseOnBaseAction } from './ops/ciActionsWiring.js';
 import { resumeFinishedMerge } from './ops/conflictResumeOps.js';
 import { verifyMergeResolved, conflictRoundEnded } from './ops/autoDeliverOps.js';
@@ -13,7 +13,7 @@ import { roundDied } from './ops/autopilotOps.js';
 import { approveCommand, retryCommand, setOverrideCommand, stopCommand } from './ops/autopilotCommandOps.js';
 
 vi.mock('./ops/autopilotWiring.js', () => ({
-  autopilotSweep: vi.fn(async () => {}), ciOutcome: vi.fn(), gateFailureOutcome: vi.fn(), conflictOutcome: vi.fn(), postAutopilotNote: vi.fn(),
+  autopilotSweep: vi.fn(async () => {}), ciOutcome: vi.fn(), gateFailureOutcome: vi.fn(), refusedMergeOutcome: vi.fn(), conflictOutcome: vi.fn(), postAutopilotNote: vi.fn(),
 }));
 vi.mock('./ops/ciActionsWiring.js', () => ({ rebaseOnBaseAction: vi.fn(async () => true), gitFor: vi.fn(() => 'GIT'), headShaOf: vi.fn(async () => 'HEAD') }));
 vi.mock('./ops/conflictResumeOps.js', () => ({ resumeFinishedMerge: vi.fn(async () => 'resumed') }));
@@ -62,6 +62,7 @@ beforeEach(() => {
   vi.mocked(autopilotSweep).mockImplementation(async () => 0);
   vi.mocked(ciOutcome).mockReset();
   vi.mocked(gateFailureOutcome).mockReset();
+  vi.mocked(refusedMergeOutcome).mockReset();
   vi.mocked(conflictOutcome).mockReset();
   vi.mocked(postAutopilotNote).mockReset();
   vi.mocked(resumeFinishedMerge).mockClear();
@@ -90,8 +91,17 @@ describe('the seams of one ticket', () => {
     handle.dispose();
   });
 
-  it('delegate the conflict round state and the drop to the deps', () => {
-    const dropConflictRound = vi.fn();
+  it('send the refused merge gate fix round through refusedMergeOutcome with the pre-read state (T1381)', async () => {
+    vi.mocked(refusedMergeOutcome).mockResolvedValue({ kind: 'sent' } as never);
+    const r = rig();
+    const { handle, seams } = open(r);
+    const state = { available: true, run: { id: 3 } } as never;
+    await expect(seams.sendRefusedMergeFailure!(state)).resolves.toEqual({ kind: 'sent' });
+    expect(refusedMergeOutcome).toHaveBeenCalledWith({ ticketId: r.id, tag: 'ci' }, state);
+    handle.dispose();
+  });
+
+  it('delegate the conflict round state and the drop to the deps', () => {    const dropConflictRound = vi.fn();
     const r = rig({ conflictRoundActive: (t) => t === 1, conflictRoundStalled: (t) => t !== 1, dropConflictRound });
     const { handle, seams } = open(r);
     expect(seams.conflictRoundActive()).toBe(r.id === 1);

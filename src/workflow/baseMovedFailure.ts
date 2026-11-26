@@ -24,6 +24,59 @@ export type BaseMovedFailureState =
   | ({ available: true } & BaseMovedFailureRun)
   | { available: false; reason: BaseMovedFailureUnavailableReason };
 
+const REMOTE = 'origin';
+const SHA_SHOWN = 9;
+
+/** `<repo>: gate "<name>" failed (exit <n>)[ — <first failing line>]`, the failure string of `runShipGates`. */
+const GATE_FAILURE = /^(.+?): gate "([^"]+)" failed \(exit -?\d+\)(?: — (.*))?$/s;
+
+/**
+ * The reason a failed merged run gives for the ship block `base-moved-failed` (@arch:BLOCKED, @arch:SHIP-CI-ACTIONS offers
+ * the action): `<repo>: gate "<name>" fails when merged with origin/<base> <sha> - <first failing test line>`. A failure
+ * that is not a gate verdict (a refused or stopped gate) keeps its own text after the merge note.
+ */
+export function baseMovedReason(baseRef: string, baseSha: string, failure: string): string {
+  const merged = `fails when merged with ${REMOTE}/${baseRef} ${baseSha.slice(0, SHA_SHOWN)}`;
+  const m = GATE_FAILURE.exec(failure);
+  if (m === null) return `${merged}; CI tests this merge - ${failure}`;
+  const [, repo, gate, detail] = m;
+  const line = (detail ?? '').split('\n')[0]?.trim() ?? '';
+  return `${repo}: gate "${gate}" ${merged}${line === '' ? '' : ` - ${line}`}`;
+}
+
+/**
+ * The failure state of the SPECIFIC deliver run an auto-deliver refused on (T1381), not the newest run of any kind. The run
+ * must be this ticket's, still `failed`, and have a readable base ref and base sha; `failed` holds only the gates that exited
+ * non-zero. `reason` is formatted with `baseMovedReason`, so `baseRefOf` reads the base from it.
+ */
+export function deliverRunFailureState(
+  store: Store,
+  ticketId: number,
+  runId: number,
+  baseRef: string | null,
+  baseSha: string | null,
+): BaseMovedFailureState {
+  const sb = sendBackState(store, ticketId);
+  if (!sb.available) return { available: false, reason: sb.reason };
+  if (sb.stage !== 'ship') return { available: false, reason: 'stage' };
+  if (baseRef === null || baseRef.trim() === '' || baseSha === null || baseSha.trim() === '') {
+    return { available: false, reason: 'no-failed-run' };
+  }
+  const run = getDeliverRun(store, runId);
+  if (run === null || run.ticketId !== ticketId || run.state !== 'failed') return { available: false, reason: 'no-failed-run' };
+  const failed = listDeliverResults(store, ticketId).filter((g) => g.runId === run.id && g.exitCode !== null && g.exitCode !== 0);
+  const first = failed[0];
+  let reason: string;
+  if (first === undefined) {
+    reason = baseMovedReason(baseRef, baseSha, 'a ship gate failed');
+  } else {
+    const summary = first.summary?.trim() ?? '';
+    const failure = `${first.repo}: gate "${first.gateName}" failed (exit ${first.exitCode})${summary === '' ? '' : ` — ${summary}`}`;
+    reason = baseMovedReason(baseRef, baseSha, failure);
+  }
+  return { available: true, run, reason, failed };
+}
+
 /** The newest `base-moved` run of the ticket, whatever its state; null when none ran. */
 function latestBaseMovedRun(store: Store, ticketId: number): DeliverRun | null {
   const row = store.db

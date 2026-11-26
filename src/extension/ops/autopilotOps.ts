@@ -17,7 +17,7 @@ import { isHostTicket, MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryO
 import { listShipRuns } from '../../store/shipRuns.js';
 import { hasTicketEvent } from '../../store/karstEvents.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
-import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
+import { baseMovedFailureState, deliverRunFailureState, type BaseMovedFailureRun, type BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { isKnownOptional, parseChecks } from '../../model/prChecks.js';
 import {
@@ -78,6 +78,11 @@ export interface AutopilotDeps {
   readonly sendCiFailure: () => Promise<FixOutcome>;
   /** The send-back of a failed base-moved run (@arch:AP-00). Absent: a `base-moved-failed` block gets no round. */
   readonly sendGateFailure?: () => Promise<FixOutcome>;
+  /**
+   * The gate fix round of a refused resolved merge (T1381, @arch:AP-06). The engine reads the refused run's failure state
+   * and hands it here; absent → the refusal keeps today's park for a manual Deliver.
+   */
+  readonly sendRefusedMergeFailure?: (state: BaseMovedFailureState) => Promise<FixOutcome>;
   /** The Resolve conflicts path for one repo (`resolveConflictRound`). */
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or karst delivers its resolved merge now: no other round starts beside it. */
@@ -192,6 +197,15 @@ function armedNoted(store: Store): Set<string> {
 
 function flightKeyOf(d: Pick<AutopilotDeps, 'store' | 'ticketId'>): string {
   return `${d.store.db.name}:${d.ticketId}`;
+}
+
+/** The refused merge a ticket's gate fix round is repairing (T1381): its repo and the sha the refused round left at HEAD. */
+const refusedMergeByStore = new WeakMap<Store, Map<number, { readonly repo: string; readonly sha: string }>>();
+
+function refusedMergeOf(store: Store): Map<number, { readonly repo: string; readonly sha: string }> {
+  let map = refusedMergeByStore.get(store);
+  if (!map) { map = new Map(); refusedMergeByStore.set(store, map); }
+  return map;
 }
 
 function park(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'key' | 'note' | 'debug'>, kind: AutopilotKind, reason: string, body: string, paused = false, headSha: string | null = null): AutopilotResult {
@@ -346,6 +360,21 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     if (refused !== null) {
       d.dropConflictRound();
       clearConflictRound(d.store, d.ticketId);
+      armedNoted(d.store).delete(flightKeyOf(d));
+      // A real gate refused the verified merge (T1381): send that failure to the agent as a CI gate fix round in this tick,
+      // within the same ci budget, so autoReship re-ships the merge and the fix. A refusal with no non-zero gate, no
+      // readable run, or no seam keeps the park for a manual Deliver.
+      const failure = refused.runId !== null && d.sendRefusedMergeFailure !== undefined
+        ? deliverRunFailureState(d.store, d.ticketId, refused.runId, refused.baseRef, refused.baseSha)
+        : null;
+      if (failure !== null && failure.available && failure.failed.length > 0) {
+        const refusedSha = refused.sha ?? failure.run.headSha;
+        if (refusedSha !== null) refusedMergeOf(d.store).set(d.ticketId, { repo: refused.repo, sha: refusedSha });
+        const names = [...new Set(failure.failed.map((g) => g.gateName))].join(', ');
+        d.debug(`${LOG} ticket ${d.key}: the resolved merge failed gate ${names}; sending a gate fix round`);
+        const result = await guardedRound(d, () => runGateFailureRound(d, cfg, failure, () => d.sendRefusedMergeFailure!(failure)));
+        if (result.kind !== 'nothing') return result;
+      }
       d.debug(`${LOG} ticket ${d.key}: the resolved merge was not delivered (${refused.tail}); the round is dropped`);
       return park(d, 'conflicts', refusedMergeReason(refused.tail), refusedMergeBody(refused), false, refused.sha);
     }
@@ -377,6 +406,16 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
 async function resumeStep(d: AutopilotDeps): Promise<AutopilotResult | null> {
   if (!d.resumeDeliver || d.conflictRoundActive()) return null;
   const fromRound = getConflictRoundAt(d.store, d.ticketId) !== null;
+  // A refused merge's gate fix round left the merge at HEAD (T1381): resuming would deliver the same refused merge again.
+  // Wait until the agent's fix moves the local head, or a new conflict round starts.
+  if (!fromRound) {
+    const refused = refusedMergeOf(d.store).get(d.ticketId);
+    if (refused !== undefined) {
+      const head = d.localHead ? await d.localHead(refused.repo).catch(() => null) : null;
+      if (head === null || head === refused.sha) return null;
+      refusedMergeOf(d.store).delete(d.ticketId);
+    }
+  }
   const outcome = await d.resumeDeliver(fromRound);
   if (outcome === 'started') {
     const what = fromRound ? 'resumed the auto-deliver after a reload' : 'delivers a finished local merge';
@@ -529,6 +568,14 @@ function baseMovedTargets(failed: readonly { readonly repo: string }[], reason: 
 async function runBaseMovedRound(d: AutopilotDeps, cfg: AutopilotConfig): Promise<AutopilotResult> {
   const state = baseMovedFailureState(d.store, d.ticketId);
   if (!state.available || !d.sendGateFailure) return { kind: 'nothing' };
+  return runGateFailureRound(d, cfg, state, d.sendGateFailure);
+}
+
+/**
+ * One CI round for a failed deliver run: the base-moved block (@arch:AP-00) and a refused resolved merge (T1381) share the
+ * budget, the mark and the no-change guard. `send` is the action that reaches the agent with the failure state.
+ */
+async function runGateFailureRound(d: AutopilotDeps, cfg: AutopilotConfig, state: BaseMovedFailureRun, send: () => Promise<FixOutcome>): Promise<AutopilotResult> {
   // No gate exited non-zero (a refused or stopped gate): there is no failure for an agent to fix, so a person decides.
   if (state.failed.length === 0) return { kind: 'nothing' };
   if (cfg.ci.policy === 'ask') return { kind: 'ask', reason: 'ci policy is ask' };
@@ -556,7 +603,7 @@ async function runBaseMovedRound(d: AutopilotDeps, cfg: AutopilotConfig): Promis
   const refundAll = (): void => { for (const t of taken) refundAutopilotAttempt(d.store, d.ticketId, t.repo, 'ci'); };
   const blocked = await sandboxGate(d, placed.placement, 'ci', first.repo, refundAll);
   if (blocked) return blocked;
-  const outcome: FixOutcome = await d.sendGateFailure()
+  const outcome: FixOutcome = await send()
     .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
   const settled = await settleRound(d, { kind: 'ci', repo: first.repo, used: budget.used, max: budget.max, action: 'Send gate failure to agent', refundAll }, outcome);
   if (settled.kind === 'armed' && head !== null) for (const t of targets) setCiRoundHeadSha(d.store, d.ticketId, t.repo, head);
@@ -754,7 +801,7 @@ async function settleRound(d: AutopilotDeps, r: Settle, outcome: FixOutcome): Pr
   if (outcome.kind === 'sent') {
     // The stored CI rollup and merge block belong to the head the resolved merge replaces: forget them, so a stale
     // failure never starts a CI round and a stale conflict never starts a second conflict round.
-    if (r.kind === 'conflicts') { clearOpenPrProbe(d.store, d.ticketId, r.repo); markConflictRound(d.store, d.ticketId, Date.now()); }
+    if (r.kind === 'conflicts') { clearOpenPrProbe(d.store, d.ticketId, r.repo); markConflictRound(d.store, d.ticketId, Date.now()); refusedMergeOf(d.store).delete(d.ticketId); }
     queuedNoted(d.store).clear();
     setAutopilotStopped(d.store, d.ticketId, null);
     // A CI round ends at the ship boundary: the mark lets the driver re-ship to the open PRs without the click (T1095).

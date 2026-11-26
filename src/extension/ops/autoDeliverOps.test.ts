@@ -363,7 +363,7 @@ describe('isConflictRoundStalled (the stall clock starts at the receipt, @arch:A
     rounds.arm(9, ROUND);
     expect(rounds.armedAt(9)).toEqual(expect.any(Number));
     rounds.markDelivered(9);
-    rounds.refuse(9, { repo: ROUND.repo, tail: 'gate "unit" failed', sha: null });
+    rounds.refuse(9, { repo: ROUND.repo, tail: 'gate "unit" failed', sha: null, runId: null, baseRef: null, baseSha: ROUND.baseSha });
     expect(rounds.deliveredAt(9)).not.toBeNull();
     rounds.arm(9, ROUND);
     expect(rounds.deliveredAt(9)).toBeNull();
@@ -374,7 +374,7 @@ describe('isConflictRoundStalled (the stall clock starts at the receipt, @arch:A
     const rounds = createConflictRounds();
     rounds.arm(9, ROUND);
     rounds.markDelivered(9);
-    rounds.refuse(9, { repo: ROUND.repo, tail: 'the base check failed', sha: 'abc' });
+    rounds.refuse(9, { repo: ROUND.repo, tail: 'the base check failed', sha: 'abc', runId: null, baseRef: null, baseSha: ROUND.baseSha });
     rounds.disarm(9);
     expect(rounds.armed(9)).toBeNull();
     expect(rounds.armedAt(9)).toBeNull();
@@ -879,7 +879,7 @@ describe('the refused delivery of a verified merge (T1315)', () => {
       mergeSha: async () => SHA,
     });
     await autoDeliverAfterConflict(deps);
-    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: SHA });
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: SHA, runId: null, baseRef: null, baseSha: ROUND.baseSha });
     // The round stays armed for the manual Deliver and for the park the engine writes: a refusal is not a disarm.
     expect(rounds.armed(1)).not.toBeNull();
   });
@@ -889,7 +889,7 @@ describe('the refused delivery of a verified merge (T1315)', () => {
       runGates: async () => ({ reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: 'x' }] }),
     });
     await autoDeliverAfterConflict(deps);
-    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: null });
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: null, runId: null, baseRef: null, baseSha: ROUND.baseSha });
   });
 
   it('words the tail of a run that named no gate', () => {
@@ -903,7 +903,7 @@ describe('the refused delivery of a verified merge (T1315)', () => {
       mergeSha: async () => SHA,
     });
     await autoDeliverAfterConflict(deps);
-    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'the base check failed', sha: SHA });
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'the base check failed', sha: SHA, runId: null, baseRef: null, baseSha: ROUND.baseSha });
   });
 
   it('records no refusal when the merge is unfinished (the stall path owns that round)', async () => {
@@ -946,7 +946,61 @@ describe('the refused delivery of a verified merge (T1315)', () => {
       mergeSha: async () => { throw new Error('git is gone'); },
     });
     await autoDeliverAfterConflict(deps);
-    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: null });
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: null, runId: null, baseRef: null, baseSha: ROUND.baseSha });
+  });
+});
+
+describe('the refusal carries the deliver run that refused the merge (T1381)', () => {
+  const SHA = '2cc2990' + 'a'.repeat(33);
+
+  it('records the run id, base ref and base sha of a gate refusal', async () => {
+    const { deps, rounds } = rig({
+      runGates: async () => ({ reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: 'x' }] }),
+      mergeSha: async () => SHA,
+      lastRunId: () => 42,
+      baseRef: () => 'develop',
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toEqual({
+      repo: 'karst', tail: 'gate "unit" failed', sha: SHA, runId: 42, baseRef: 'develop', baseSha: ROUND.baseSha,
+    });
+  });
+
+  it('records the run id of the re-run after every gate carries an environment signature', async () => {
+    let opened = 0;
+    const { deps, rounds } = rig({
+      runGates: async () => {
+        opened += 1;
+        return { reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: 'exceeded the test timeout' }] };
+      },
+      mergeSha: async () => SHA,
+      lastRunId: () => opened,
+      baseRef: () => 'develop',
+    });
+    await autoDeliverAfterConflict(deps);
+    // Two gate runs (first + environment re-run): the refusal names the LAST one.
+    expect(rounds.refusal(1)).toMatchObject({ runId: 2, baseRef: 'develop', baseSha: ROUND.baseSha });
+  });
+
+  it('records them for a base check refusal too', async () => {
+    const { deps, rounds } = rig({
+      checkBase: async () => 'fails when merged with origin/develop abc; CI tests this merge',
+      mergeSha: async () => SHA,
+      lastRunId: () => 7,
+      baseRef: () => 'develop',
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toEqual({
+      repo: 'karst', tail: 'the base check failed', sha: SHA, runId: 7, baseRef: 'develop', baseSha: ROUND.baseSha,
+    });
+  });
+
+  it('records nulls when no seam read the run or the base', async () => {
+    const { deps, rounds } = rig({
+      runGates: async () => ({ reason: 'r: gate "unit" failed', failed: [{ name: 'unit', repo: 'karst', output: 'x' }] }),
+    });
+    await autoDeliverAfterConflict(deps);
+    expect(rounds.refusal(1)).toMatchObject({ runId: null, baseRef: null, baseSha: ROUND.baseSha });
   });
 });
 

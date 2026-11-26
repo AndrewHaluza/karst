@@ -8,7 +8,7 @@ import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
-import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
+import { autopilotTick, NO_CHANGE_BASE_MOVED_REASON, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, allChecksAllowed, approveOneMore, clearParkBlock, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
 import { AUTO_SHIP_RETRY_STOP_REASON } from './autopilotShipRetry.js';
 import { recordEvent } from '../../store/karstEvents.js';
 import { upsertProject } from '../../store/projects.js';
@@ -18,6 +18,9 @@ import { UNFINISHED_BODY } from './autopilotRefusal.js';
 import { makePlacementCheck } from '../autopilotBinding.js';
 import { getPlacement, recordPlacementIfAbsent, GRAPH_RUN_PLACEMENT } from '../../store/placement.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
+import { openDeliverRun, recordDeliverGate, finishDeliverRun } from '../../store/deliverRuns.js';
+import { deliverRunFailureState, type BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
+import { baseRefOf } from './baseMovedFailureOps.js';
 
 const NORMAL_BLOCK = 'blocked: the pull request for "r" has changes and is not merged yet.';
 let store: Store;
@@ -1045,7 +1048,7 @@ describe('conflicts', () => {
       return rig({
         conflictRoundActive: () => true,
         conflictRoundStalled: () => false,
-        conflictRoundRefused: () => ({ repo: 'r', tail: 'gate "unit" failed', sha }),
+        conflictRoundRefused: () => ({ repo: 'r', tail: 'gate "unit" failed', sha, runId: null, baseRef: null, baseSha: null }),
         dropConflictRound: vi.fn(),
       });
     }
@@ -1089,7 +1092,7 @@ describe('conflicts', () => {
       conflict();
       markConflictRound(store, id, Date.now());
       conflictRounds.arm(id, { repo: 'r', baseSha: 'base1', files: ['a.ts'] });
-      conflictRounds.refuse(id, { repo: 'r', tail: 'gate "unit" failed', sha: SHA });
+      conflictRounds.refuse(id, { repo: 'r', tail: 'gate "unit" failed', sha: SHA, runId: null, baseRef: null, baseSha: null });
       try {
         expect(await autopilotTick(rig().deps)).toEqual({ kind: 'parked', reason: REFUSED });
       } finally {
@@ -1114,12 +1117,202 @@ describe('conflicts', () => {
       const drop = vi.fn();
       const r = rig({
         conflictRoundActive: () => true,
-        conflictRoundRefused: () => ({ repo: 'r', tail: 'gate "unit" failed', sha: null }),
+        conflictRoundRefused: () => ({ repo: 'r', tail: 'gate "unit" failed', sha: null, runId: null, baseRef: null, baseSha: null }),
         dropConflictRound: drop,
       });
       expect((await autopilotTick(r.deps)).kind).toBe('busy');
       expect(drop).not.toHaveBeenCalled();
       expect(r.notes).toEqual([]);
+    });
+  });
+
+  // T1381: a refusal whose deliver run has a gate that exited non-zero starts a gate fix round in the same tick instead
+  // of parking for a manual Deliver; a refusal with no failed gate keeps the T1315 park.
+  describe('a refused auto-deliver whose run failed a gate (T1381)', () => {
+    const SHA = '2cc2990' + 'a'.repeat(33);
+    const REFUSED = 'auto-fix stopped: resolved merge not delivered: gate "unit" failed';
+
+    function failedRun(kind: 'auto' | 'base-moved' = 'auto', head = 'head1', exit: number | null = 1, repo = 'r', gate = 'unit'): number {
+      const runId = openDeliverRun(store, { ticketId: id, headSha: head, gates: [gate], pid: 1, now: 'T0', kind });
+      recordDeliverGate(store, runId, { gateName: gate, repo, exitCode: exit, summary: 'FAIL a.test.ts', startedAt: null, endedAt: null });
+      finishDeliverRun(store, runId, 'failed', 'T1');
+      return runId;
+    }
+
+    function refusal(runId: number | null, over: Partial<{ sha: string | null; baseRef: string | null; baseSha: string | null; tail: string }> = {}) {
+      return { repo: 'r', tail: 'gate "unit" failed', sha: SHA, runId, baseRef: 'develop', baseSha: 'base1', ...over };
+    }
+
+    function rigRefused(runId: number | null, over: Partial<AutopilotDeps> = {}, send: FixOutcome = { kind: 'sent' }) {
+      const sendRefusedMergeFailure = vi.fn(async (_state: BaseMovedFailureState) => send);
+      return {
+        ...rig({
+          conflictRoundActive: () => true,
+          conflictRoundStalled: () => false,
+          conflictRoundRefused: () => refusal(runId),
+          sendRefusedMergeFailure,
+          dropConflictRound: vi.fn(),
+          ...over,
+        }),
+        sendRefusedMergeFailure,
+      };
+    }
+
+    it('(a) starts one ci gate fix round for a failed auto run with a non-zero gate', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('auto', 'head1');
+      const r = rigRefused(runId);
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'armed', problem: 'ci', used: 1, max: 3 });
+      expect(r.sendRefusedMergeFailure).toHaveBeenCalledOnce();
+      expect(r.sendCi).not.toHaveBeenCalled();
+      expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+      expect(getCiRoundAt(store, id)).not.toBeNull();
+      expect(getCiRoundHeadSha(store, id, 'r')).toBe('head1');
+      expect(r.deps.dropConflictRound).toHaveBeenCalledTimes(1);
+      expect(store.db.prepare('SELECT conflict_round_at AS at FROM autopilot_tickets WHERE ticket_id = ?').get(id)).toEqual({ at: null });
+      expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: the resolved merge failed gate unit; sending a gate fix round');
+      expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+      expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+      expect(r.notes[r.notes.length - 1]![0]).toBe('Autopilot: ci round 1/3');
+    });
+
+    it('(b) starts the round for a failed base-moved run', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('base-moved', 'head1');
+      const r = rigRefused(runId);
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'armed', problem: 'ci', used: 1, max: 3 });
+      expect(r.sendRefusedMergeFailure).toHaveBeenCalledOnce();
+      expect(getCiRoundHeadSha(store, id, 'r')).toBe('head1');
+    });
+
+    it('(c) keeps the refused-merge park when the run has no gate that exited non-zero', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('auto', 'head1', null);
+      const r = rigRefused(runId);
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: REFUSED });
+      expect(r.sendRefusedMergeFailure).not.toHaveBeenCalled();
+      expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+      expect(stageBlock(store, id, 'ship')?.reason).toBe(REFUSED);
+    });
+
+    it('(d) honours the ask policy, spends no budget and writes no park', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('auto', 'head1');
+      const r = rigRefused(runId, { config: () => ({ ...CFG, ci: { ...CFG.ci, policy: 'ask' } }) });
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'ask', reason: 'ci policy is ask' });
+      expect(r.sendRefusedMergeFailure).not.toHaveBeenCalled();
+      expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+      expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+    });
+
+    it('(e) parks with the spent ci budget and refunds an earlier repo attempt of a multi-repo failure', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = openDeliverRun(store, { ticketId: id, headSha: 'head1', gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+      recordDeliverGate(store, runId, { gateName: 'unit', repo: 'a', exitCode: 1, summary: 'FAIL a', startedAt: null, endedAt: null });
+      recordDeliverGate(store, runId, { gateName: 'unit', repo: 'b', exitCode: 1, summary: 'FAIL b', startedAt: null, endedAt: null });
+      finishDeliverRun(store, runId, 'failed', 'T1');
+      const state = deliverRunFailureState(store, id, runId, 'develop', 'base1');
+      if (!state.available) throw new Error('the run should be readable');
+      for (let i = 0; i < 3; i += 1) takeAutopilotAttempt(store, id, 'b', 'ci', state.reason, 3);
+      const r = rigRefused(runId);
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci 3/3' });
+      expect(r.sendRefusedMergeFailure).not.toHaveBeenCalled();
+      // a's attempt was taken first and given back when b's budget was spent.
+      expect(getAutopilotBudget(store, id, 'a', 'ci').attempts).toBe(0);
+      expect(getAutopilotBudget(store, id, 'b', 'ci').attempts).toBe(3);
+    });
+
+    it('(f) parks with the no-change reason on a second refusal at the same head', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      await autopilotTick(rigRefused(failedRun('auto', 'head1')).deps);
+      // The fix round came back: the deliver run refused again on the SAME ticket head.
+      markConflictRound(store, id, Date.now());
+      const second = rigRefused(failedRun('auto', 'head1'));
+      expect(await autopilotTick(second.deps)).toEqual({ kind: 'parked', reason: NO_CHANGE_BASE_MOVED_REASON });
+      expect(second.sendRefusedMergeFailure).not.toHaveBeenCalled();
+      expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(1);
+    });
+
+    it('(g) keeps today\'s refused-merge park when the send seam is absent', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('auto', 'head1');
+      const r = rig({
+        conflictRoundActive: () => true,
+        conflictRoundRefused: () => refusal(runId),
+        dropConflictRound: vi.fn(),
+      });
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: REFUSED });
+      expect(stageBlock(store, id, 'ship')?.reason).toBe(REFUSED);
+    });
+
+    it('(h) skips the resume of the refused merge until the local head moves, then resumes', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const resumeDeliver = vi.fn(async () => 'started' as const);
+      let head = SHA;
+      // The ask policy stops the round without arming: the merge stays at HEAD.
+      const first = rigRefused(failedRun('auto', 'head1'), {
+        config: () => ({ ...CFG, ci: { ...CFG.ci, policy: 'ask' } }),
+        resumeDeliver,
+        localHead: async () => head,
+      });
+      expect((await autopilotTick(first.deps)).kind).toBe('ask');
+      const later = (): ReturnType<typeof rig> => rig({
+        resumeDeliver,
+        localHead: async () => head,
+        conflictRoundActive: () => false,
+        conflictRoundRefused: () => null,
+      });
+      expect((await autopilotTick(later().deps)).kind).not.toBe('busy');
+      expect(resumeDeliver).not.toHaveBeenCalled();
+      // The agent's fix made a new commit: resuming is allowed again.
+      head = 'b'.repeat(40);
+      expect((await autopilotTick(later().deps)).kind).toBe('busy');
+      expect(resumeDeliver).toHaveBeenCalledWith(false);
+    });
+
+    it('(h) also guards the resume after a spent budget', async () => {
+      seedPr(PASSING);
+      conflict();
+      for (let i = 0; i < 3; i += 1) {
+        markConflictRound(store, id, Date.now());
+        await autopilotTick(rigRefused(failedRun('auto', `h${i}`)).deps);
+      }
+      expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(3);
+      const resumeDeliver = vi.fn(async () => 'started' as const);
+      markConflictRound(store, id, Date.now());
+      const stopped = rigRefused(failedRun('auto', 'h4'), { resumeDeliver, localHead: async () => SHA });
+      expect((await autopilotTick(stopped.deps)).kind).toBe('parked');
+      const next = rig({ resumeDeliver, localHead: async () => SHA, conflictRoundActive: () => false, conflictRoundRefused: () => null });
+      await autopilotTick(next.deps);
+      expect(resumeDeliver).not.toHaveBeenCalled();
+    });
+
+    it('(i) passes a failure state whose reason names the ticket base ref', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('auto', 'head1');
+      const r = rigRefused(runId);
+      await autopilotTick(r.deps);
+      const state = r.sendRefusedMergeFailure.mock.calls[0]![0];
+      expect(state.available).toBe(true);
+      expect(baseRefOf(state.reason)).toBe('develop');
     });
   });
 
