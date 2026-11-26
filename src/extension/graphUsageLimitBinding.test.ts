@@ -245,8 +245,8 @@ const ACCOUNTS: AccountsConfig = {
  * shows (`default` first); `picked` is the QuickPick answer (undefined = the
  * user closed it).
  */
-function withAccounts(h: Harness, names: readonly string[], picked?: string): Harness {
-  h.deps.accountsOf = vi.fn(async () => names.map((name, i) => ({ name, active: i === 0 })));
+function withAccounts(h: Harness, names: readonly string[], picked?: string, active = names[0]): Harness {
+  h.deps.accountsOf = vi.fn(async () => names.map((name) => ({ name, active: name === active })));
   h.deps.accountStatus = vi.fn(async () => 'signed-in' as const);
   h.deps.accountsConfig = () => ACCOUNTS;
   h.deps.pickAccount = vi.fn(async () => picked);
@@ -415,6 +415,31 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
       { name: 'default', current: false, status: 'unknown' },
       { name: 'work', current: true, status: 'unknown' },
     ]);
+  });
+
+  it('hides the default row while another account is active, so a pick never names one account and runs another', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work', 'home'], 'home', 'work');
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.deps.pickAccount).toHaveBeenCalledWith('claude', [
+      { name: 'work', current: true, status: 'signed-in' },
+      { name: 'home', current: false, status: 'signed-in' },
+    ]);
+  });
+
+  it('offers no Pick account when default and one other account exist and the other one is active', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [DISMISS_LABEL]), ['default', 'work'], undefined, 'work');
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.ask).toHaveBeenCalledWith(
+      'Graph node of GP-1 hit the claude usage limit',
+      PICK_LABEL,
+      RETRY_LABEL,
+      DISMISS_LABEL,
+    );
+    expect(h.deps.pickAccount).not.toHaveBeenCalled();
   });
 
   it('offers no Pick account when the account list is unavailable', async () => {
