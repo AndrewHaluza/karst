@@ -53,6 +53,8 @@ interface RowProps {
   /** The stage whose log the GATES row's console opens (the host's `view.console` flag), or null. */
   readonly consoleStage: string | null;
   readonly open: boolean;
+  /** The selected round: a different round is a different evidence list, so a local expand state must not carry over. */
+  readonly attemptKey?: string;
 }
 
 function Footer({ footer }: { readonly footer: readonly string[] | undefined }) {
@@ -120,7 +122,7 @@ function DeliverPushButton({ title }: { readonly title: string }) {
 }
 
 const ProcessRow = memo(
-  function ProcessRow({ p, stageKey, consoleStage, open }: RowProps) {
+  function ProcessRow({ p, stageKey, consoleStage, open, attemptKey }: RowProps) {
     const { memory } = useInsideScope();
     const key = `${stageKey}:${p.id}`;
     // The native `toggle` also fires when React sets `open` itself (an auto-open of a running row): that is not a user
@@ -179,7 +181,7 @@ const ProcessRow = memo(
     if (ev && ev.kind === 'receipt') {
       const body = (
         <div className="op-body receipt-body" data-proc-id={key}>
-          <EvidenceBody ev={ev} p={p} stageKey={stageKey} />
+          <EvidenceBody key={`${stageKey}:${attemptKey ?? ''}:${p.id}`} ev={ev} p={p} stageKey={stageKey} />
           {footer}
         </div>
       );
@@ -230,19 +232,19 @@ const ProcessRow = memo(
         </summary>
         <div className="op-body">
           {p.detail ? <p className="op-detail-full">{p.detail}</p> : null}
-          {ev && hasEvidenceBody(ev) ? <EvidenceBody ev={ev} p={p} stageKey={stageKey} /> : null}
+          {ev && hasEvidenceBody(ev) ? <EvidenceBody key={`${stageKey}:${attemptKey ?? ''}:${p.id}`} ev={ev} p={p} stageKey={stageKey} /> : null}
           {footer}
         </div>
       </details>
     );
   },
-  (a, b) => a.stageKey === b.stageKey && a.consoleStage === b.consoleStage && a.open === b.open && sameIgnoringLive(a.p, b.p),
+  (a, b) => a.stageKey === b.stageKey && a.attemptKey === b.attemptKey && a.consoleStage === b.consoleStage && a.open === b.open && sameIgnoringLive(a.p, b.p),
 );
 
 /** Which process kinds render OPEN on the FIRST render: the session's own timeline is the approval screenshot's starting state. */
 const DEFAULT_OPEN_KINDS: ReadonlySet<string> = new Set(['session']);
 
-export function Ledger({ stageKey, processes, consoleStage }: { readonly stageKey: string; readonly processes: readonly InsideProcessView[]; readonly consoleStage: string | null }) {
+export function Ledger({ stageKey, processes, consoleStage, attemptKey }: { readonly stageKey: string; readonly processes: readonly InsideProcessView[]; readonly consoleStage: string | null; readonly attemptKey?: string }) {
   const { memory } = useInsideScope();
   return (
     <div className="ledger">
@@ -252,7 +254,7 @@ export function Ledger({ stageKey, processes, consoleStage }: { readonly stageKe
         // only place the work becomes visible (gate rows land one at a time as each finishes).
         const hasBody = hasEvidenceBody(p.evidence) || !!(p.footer && p.footer.length);
         const open = memory.explicit(key) ?? (hasBody && (DEFAULT_OPEN_KINDS.has(p.kind) || p.status === 'run'));
-        return <ProcessRow key={key} p={p} stageKey={stageKey} consoleStage={consoleStage} open={open} />;
+        return <ProcessRow key={key} p={p} stageKey={stageKey} consoleStage={consoleStage} open={open} attemptKey={attemptKey} />;
       })}
     </div>
   );

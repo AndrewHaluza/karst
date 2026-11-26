@@ -151,6 +151,7 @@
   #inside .graph-node:has(> .ev-tail)>.ev-tail{grid-column:2/-1;grid-row:2;justify-self:start;padding-bottom:var(--p-s1)}
   #inside .op-body{margin-left:var(--k-space-6);padding-left:var(--p-s1)}
   #inside .evidence-row,#inside .gate-row,#inside .finding,#inside .done-line{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
+  #inside .evidence-overflow{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
   #inside .commit-repo-head,#inside .commit-list,#inside .pr-branch,#inside .pr-branch-note,
   #inside .receipt-block{padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
   #inside .pr-path{flex-wrap:wrap}
@@ -164,7 +165,7 @@
 }
 @media (prefers-reduced-motion: reduce){
   #inside .glyph.run:before{animation:none}
-  #inside .chev:before,#inside .done-details .done-chev:before{transition:none}
+  #inside .chev:before,#inside .done-details .done-chev:before,#inside .overflow-btn svg{transition:none}
 }
 /* A live operation in the stage header: one current process, spinner +
    label, host-worded. Never a second process row and never a verdict. */

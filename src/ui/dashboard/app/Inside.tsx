@@ -111,7 +111,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
         ) : null}
         {/* The ship preview sits ABOVE the ledger (D142, UI-R40 reading order): the first thing read before the Confirm click. */}
         {frame.preview ? <ShipPreview preview={frame.preview.data} /> : null}
-        {view.processes.length ? <Ledger stageKey={view.stageKey} processes={view.processes} consoleStage={view.console ? view.stageKey : null} /> : <div className="blurb">{view.blurb}</div>}
+        {view.processes.length ? <Ledger stageKey={view.stageKey} processes={view.processes} consoleStage={view.console ? view.stageKey : null} attemptKey={view.selectedAttempt} /> : <div className="blurb">{view.blurb}</div>}
       </section>
     </InsideScopeContext.Provider>
   );

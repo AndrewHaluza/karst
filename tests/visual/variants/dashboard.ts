@@ -96,6 +96,11 @@ export const INSIDE_CASE_CLICKS: Readonly<Record<string, readonly string[]>> = {
   'impl-graph-dag': ['[data-act="toggle-graph-view"]'],
   // A blocked run maps to `wait`, so its graph <details> starts collapsed (InsideLedger.tsx).
   'impl-graph-failed': ['[data-proc-id="impl:graph"] > summary'],
+  // T1393: the capped gate list's toggle. Collapsed and nine-gates shots only open the Gates disclosure; the expanded
+  // shot then clicks the toggle, so the baseline records all 11 rows and "Show fewer".
+  'uat-gates-capped-collapsed': ['[data-proc-id="uat:gates"] > summary'],
+  'uat-gates-capped-expanded': ['[data-proc-id="uat:gates"] > summary', '[data-act="toggle-evidence-rows"]'],
+  'uat-gates-nine': ['[data-proc-id="uat:gates"] > summary'],
 };
 
 /**
