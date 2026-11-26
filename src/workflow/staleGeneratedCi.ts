@@ -25,7 +25,8 @@ const TOOL_ERROR = /^npm (?:ERR!|error)\b/;
 /** Test-runner failure markers: test output is printed without a step prefix, so these are matched on their own. */
 const TEST_FAILURE = /^(?:FAIL\b|[×✗]\s)|AssertionError|\b(?:Tests?|Test Files)\s+\d+ failed\b/;
 
-function clean(line: string): string {
+/** One log line as plain text: no ANSI, no gh `<job>\t<step>\t` prefix, no timestamp, no `##[error]` annotation. */
+export function clean(line: string): string {
   let s = line.replace(ANSI, '').replace(/\r$/, '');
   s = s.replace(GH_PREFIX, '').replace(TIMESTAMP, '').trim();
   return s.replace(ANNOTATION, '').trim();
