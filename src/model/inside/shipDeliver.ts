@@ -40,7 +40,7 @@ function failureRow(f: DeliverFailureFact, headSha: string | null): EvidenceRow 
 function evidenceRows(d: DeliverRowInput): EvidenceRow[] {
   const rows: EvidenceRow[] = [];
   const auto = d.auto;
-  if (auto?.running) rows.push({ label: `Gate ${auto.running.n} of ${auto.running.m}`, detail: auto.running.gate, status: 'run' });
+  if (auto?.running) rows.push({ label: auto.running.baseCheck === true ? `Check before push: gate ${auto.running.n} of ${auto.running.m}` : `Gate ${auto.running.n} of ${auto.running.m}`, detail: auto.running.gate, status: 'run' });
   if (auto) rows.push(...auto.failures.map((f) => failureRow(f, auto.headSha)));
   if (d.canDeliver) {
     rows.push({ label: 'Sync the sandbox', status: 'pending' });
@@ -60,7 +60,7 @@ export function deliverProcess(d: DeliverRowInput | null | undefined): InsidePro
   const auto = d.auto;
   const parts = [
     ...(d.canDeliver ? [commitsLine(d)] : []),
-    ...(auto?.running ? [`gate ${auto.running.n} of ${auto.running.m}`] : []),
+    ...(auto?.running ? [auto.running.baseCheck === true ? `checking before push: gate ${auto.running.n} of ${auto.running.m}` : `gate ${auto.running.n} of ${auto.running.m}`] : []),
     ...(auto?.takenOver ? [deliverTakeOverLine(auto.takenOver)] : []),
   ];
   const hint = auto ? deliverHint(auto) : null;

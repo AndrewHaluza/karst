@@ -54,6 +54,21 @@ describe('deliverFactsFor', () => {
     expect(deliverFactsFor(store, id).running).toEqual({ n: 1, m: 1, gate: 'unit' });
   });
 
+  it('marks a base-moved run as a check before push (D541)', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit', 'docs'], pid: 1, now: 'T', kind: 'base-moved' });
+    const running = deliverFactsFor(store, id).running;
+    expect(running).toEqual({ n: 1, m: 2, gate: 'unit', baseCheck: true });
+    expect(running?.afterTakeOver).toBeUndefined();
+  });
+  it('does not mark an auto run as a check before push', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit'], pid: 1, now: 'T' });
+    expect(deliverFactsFor(store, id).running?.baseCheck).toBeUndefined();
+  });
+  it('does not mark an after-take-over run as a check before push', () => {
+    openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit'], pid: 1, now: 'T', kind: 'after-take-over' });
+    expect(deliverFactsFor(store, id).running?.baseCheck).toBeUndefined();
+  });
+
   it('an after-take-over run does not arm the round: the head it checks is already on the PR', () => {
     openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['visual'], pid: 1, now: 'T', kind: 'after-take-over' });
     expect(deliverFactsFor(store, id).roundActive).toBe(false);

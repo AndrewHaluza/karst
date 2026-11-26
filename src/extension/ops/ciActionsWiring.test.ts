@@ -16,6 +16,7 @@ import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults, finishDeliverRun } from '../../store/deliverRuns.js';
+import { openShipRun, closeShipRun } from '../../store/shipRuns.js';
 import { OPEN_SYNC_DIFF } from './sandboxLifecycleOps.js';
 import { autoDeliverAction, baseMovedFailure, shipBaseCheck, shipBaseRemedy, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
@@ -44,18 +45,27 @@ function movingGit(): CiActionsInput['git'] {
   return vi.fn(async (args: readonly string[]) => ({ stdout: args[0] === 'rev-parse' ? `head${n++}\n` : '', stderr: '', exitCode: 0 }));
 }
 
+/** The ship run a test's `runShip` stands for: it pushed. */
+const pushedNow = (): { readonly pushed: boolean; readonly reason: string | null } => ({ pushed: true, reason: null });
+
 function input(over: Partial<CiActionsInput> = {}): CiActionsInput {
   return {
     store, ticketId: id, artifactDir: dir,
     gh: vi.fn(async () => ({ stdout: `${SHA}\n`, exitCode: 0 })),
     git: movingGit(),
     sandbox: sandbox(),
-    deliver: { runShip: vi.fn(async () => {}), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() },
+    deliver: { runShip: vi.fn(async () => { recordShipRun('passed'); }), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() },
     reprobe: vi.fn(async () => {}),
     confirm: vi.fn(async () => true),
     info: vi.fn(), error: vi.fn(), logError: vi.fn(), debug: vi.fn(), drive: vi.fn(), handOff: vi.fn(() => null), afterServerChange: vi.fn(),
     ...over,
   };
+}
+
+/** A closed `ship_runs` row of the ticket, as a real ship run leaves behind (the newest run tells the push outcome). */
+function recordShipRun(status: 'passed' | 'failed' = 'passed'): void {
+  const run = openShipRun(store, { ticketId: id, attempt: 1, startedAt: '2026-08-09T10:00:00.000Z', pid: null });
+  closeShipRun(store, run.id, status, '2026-08-09T10:05:00.000Z');
 }
 
 beforeEach(() => {
@@ -326,7 +336,7 @@ describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'r: gate run was stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'r: gate run was stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: autoShip, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: autoShip, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const i = input();
@@ -377,7 +387,7 @@ describe('deliverToPrAction re-runs the skipped gates after a take-over push (D5
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const cwd = mkdtempSync(join(tmpdir(), 'rerun-'));
@@ -414,7 +424,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const cwd = mkdtempSync(join(tmpdir(), 'rerun-'));
@@ -473,7 +483,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
     const { i, auto, ran, settled } = await takeOver();
     const refused = new Promise<void>((r) => { settled.mockImplementation(r); });
     const realDeliver = i.deliver.runShip as ReturnType<typeof vi.fn>;
-    realDeliver.mockImplementation(async () => { store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(id); });
+    realDeliver.mockImplementation(async () => { recordShipRun('passed'); store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(id); });
     await deliverToPrAction(i);
     await auto;
     await refused;
@@ -484,7 +494,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
   it('a re-run whose targets vanish records no failure and writes a stopped note', async () => {
     const { i, auto, ran, settled } = await takeOver();
     const done = new Promise<void>((r) => { settled.mockImplementation(r); });
-    (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(id); });
+    (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { recordShipRun('passed'); store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(id); });
     await deliverToPrAction(i);
     await auto;
     await done;
@@ -564,7 +574,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const base = input();
@@ -612,7 +622,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
   it('tells the user when the re-run is refused', async () => {
     const { i, auto, settled } = await takeOver();
     const refused = new Promise<void>((r) => { settled.mockImplementation(r); });
-    (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(id); });
+    (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { recordShipRun('passed'); store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(id); });
     await deliverToPrAction(i);
     await auto;
     await refused;
@@ -651,7 +661,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: async () => ({ reason: null, failed: [] }), blocked: async () => {}, runShip: () => hold, reprobe: async () => {}, status: () => {}, log: () => {},
+      runGates: async () => ({ reason: null, failed: [] }), blocked: async () => {}, runShip: () => hold, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await vi.waitFor(() => expect(autoDeliverPhase(id)).toBe('pushing'));
@@ -742,7 +752,7 @@ describe('takeover note limits (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: async () => ({ reason: null, failed: [] }),
-      blocked: async () => {}, runShip: async () => { started(); await pushing; }, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => { started(); await pushing; }, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await inPush;
@@ -765,7 +775,7 @@ describe('takeover note limits (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await deliverToPrAction(input());
@@ -785,7 +795,7 @@ describe('takeover note limits (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await deliverToPrAction(input());
@@ -805,7 +815,7 @@ describe('takeover note limits (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await deliverToPrAction(input());
@@ -823,7 +833,7 @@ describe('deliverToPrAction', () => {
     const i = input();
     const order: string[] = [];
     (i.sandbox.ensureSynced as ReturnType<typeof vi.fn>).mockImplementation(async () => { order.push('sync'); return { ok: true }; });
-    (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { order.push('ship'); });
+    (i.deliver.runShip as ReturnType<typeof vi.fn>).mockImplementation(async () => { recordShipRun('passed'); order.push('ship'); });
     (i.reprobe as ReturnType<typeof vi.fn>).mockImplementation(async () => { order.push('probe'); });
     await deliverToPrAction(i);
     expect(order).toEqual(['sync', 'ship', 'probe']);
@@ -838,6 +848,83 @@ describe('deliverToPrAction', () => {
     expect(i.error).toHaveBeenCalledWith(expect.stringMatching(/agent is working/));
     expect(i.sandbox.ensureSynced).not.toHaveBeenCalled();
     expect(i.deliver.runShip).not.toHaveBeenCalled();
+  });
+});
+
+describe('deliverToPrAction reports a refused ship push (T1379)', () => {
+  const DELIVERED = 'Delivered the ticket branch to the open pull request.';
+  const REASON = 'r: gate "visual" fails when merged with origin/develop abc';
+
+  /** `runShip` records a closed ship run and parks the ship stage the way ship does without throwing. */
+  function shipParks(status: 'failed' = 'failed', reason: string | null = REASON): CiActionsInput['deliver']['runShip'] {
+    return vi.fn(async () => {
+      recordShipRun(status);
+      if (reason !== null) setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null, blockedKind: 'base-moved-failed', blockedReason: reason, blockedAt: '2026-11-26T11:56:00.000Z' });
+    });
+  }
+
+  it('shows Push refused with the ship block reason, never the delivered toast, and keeps the round armed', async () => {
+    seedPr();
+    recordShipRun('passed'); // an older push of this ticket did land
+    conflictRounds.disarm(id);
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const i = input({ deliver: { runShip: shipParks(), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() } });
+    await deliverToPrAction(i);
+    expect(i.error).toHaveBeenCalledWith(`Push refused: ${REASON}`);
+    expect(i.info).not.toHaveBeenCalledWith(DELIVERED);
+    expect(conflictRounds.armed(id)).not.toBeNull();
+    expect(i.debug).not.toHaveBeenCalledWith(expect.stringContaining('the conflict round ended'));
+  });
+
+  it('names the failed ship run when the stage carries no block reason', async () => {
+    seedPr();
+    const i = input({ deliver: { runShip: shipParks('failed', null), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() } });
+    await deliverToPrAction(i);
+    expect(i.error).toHaveBeenCalledWith('Push refused: the ship run failed');
+    expect(i.info).not.toHaveBeenCalledWith(DELIVERED);
+  });
+
+  it('does not read an earlier passed run as this click’s delivery when ship opens no new run', async () => {
+    seedPr();
+    recordShipRun('passed'); // an older push of this ticket DID land
+    const i = input({ deliver: { runShip: vi.fn(async () => {}), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() } });
+    await deliverToPrAction(i);
+    expect(i.error).toHaveBeenCalledWith('Push refused: the ship run failed');
+    expect(i.info).not.toHaveBeenCalledWith(DELIVERED);
+  });
+
+  it('a second ship run that starts during the re-probe does not turn a landed push into a refusal', async () => {
+    seedPr();
+    const i = input();
+    // This click's run lands; the re-probe then sees a different ship run open and fail.
+    (i.reprobe as ReturnType<typeof vi.fn>).mockImplementation(async () => { recordShipRun('failed'); });
+    await deliverToPrAction(i);
+    expect(i.info).toHaveBeenCalledWith(DELIVERED);
+    expect(i.error).not.toHaveBeenCalled();
+  });
+
+  it('starts no after-take-over re-run when the push is refused', async () => {
+    seedPr();
+    openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['unit', 'lint'], pid: 1, now: 'T0' });
+    conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
+    const auto = autoDeliverAfterConflict({
+      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
+      agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
+      runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
+    });
+    const shipGates = vi.fn(() => ({ deps: {} as never }));
+    const base = input({ deliver: { runShip: shipParks(), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker(), shipGates: shipGates as never } });
+    await deliverToPrAction(base);
+    // The click really did take the auto-deliver over: only the refused push kept the re-run from starting.
+    expect(currentDeliverRun(store, id)?.state).toBe('taken-over');
+    await auto;
+    await new Promise((r) => { setTimeout(r, 20); });
+    expect(base.error).toHaveBeenCalledWith(`Push refused: ${REASON}`);
+    expect(shipGates).not.toHaveBeenCalled();
+    expect(base.info).not.toHaveBeenCalledWith(DELIVERED);
   });
 });
 

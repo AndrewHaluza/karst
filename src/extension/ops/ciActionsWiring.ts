@@ -6,6 +6,8 @@ import type { Store } from '../../store/db.js';
 import type { GhRunner } from '../../integrations/github.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
+import { listShipRuns } from '../../store/shipRuns.js';
+import { stageBlock } from '../../store/stageBlocks.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { armForcePushLease } from '../../store/worktrees.js';
 import { rebaseState } from '../../workflow/rebaseState.js';
@@ -334,12 +336,35 @@ function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
     blocked: h.blocked,
     runShip: h.runShip,
+    shipRunMark: () => newestShipRunId(i.store, i.ticketId),
+    shipOutcome: (mark) => shipOutcomeFor(i.store, i.ticketId, mark),
     reprobe: async () => {
       await i.reprobe();
       await refreshUndeliveredFor(i, h.tracker);
     },
     info: i.info, error: i.error, logError: i.logError, afterServerChange: i.afterServerChange,
   });
+}
+
+/** The id of a ticket's newest ship run, read before a push (T1379). */
+function newestShipRunId(store: Store, ticketId: number): number | null {
+  return listShipRuns(store, ticketId, 1)[0]?.id ?? null;
+}
+
+/**
+ * Result of the ship run a push just ran: `pushed` is true only when a run NEWER than `mark` ended `passed`. A ship that
+ * parks before its saga opens a run leaves the newest row as an earlier push that DID land, so the mark is what stops that
+ * prior run reading as this click's delivery (T1379).
+ */
+function shipOutcomeFor(
+  store: Store, ticketId: number, mark: number | null,
+): { readonly pushed: boolean; readonly reason: string | null } {
+  const latest = listShipRuns(store, ticketId, 1)[0];
+  if (latest !== undefined && latest.id > (mark ?? 0) && latest.status === 'passed') {
+    return { pushed: true, reason: null };
+  }
+  const reason = stageBlock(store, ticketId, 'ship')?.reason;
+  return { pushed: false, reason: reason || null };
 }
 
 /** True when the ticket has a sandbox clone (or its state cannot be read: then the check is skipped, never wrong). */
@@ -465,6 +490,8 @@ export function autoDeliverAction(
     verifyMerge: (pr, round) => verifyMergeResolved(gitFor(i), pr.cwd, round),
     blocked: h.blocked,
     runShip: h.runShip,
+    shipRunMark: () => newestShipRunId(i.store, i.ticketId),
+    shipOutcome: (mark) => shipOutcomeFor(i.store, i.ticketId, mark),
     reprobe: async () => {
       await i.reprobe();
       await refreshUndeliveredFor(i, h.tracker);

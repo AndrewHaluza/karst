@@ -190,6 +190,8 @@ On a `pull_request` event CI tests the PR head merged with the CURRENT base, a t
 **Stale generated file only (T1169, D633).** A failure that only names a stale generated file gets one host rebase before this path: @arch:GATE-BASE-MOVED-STALE.
 
 **Failure path (T1129).** When a gate fails on the merged tree, `checkBaseMoved` returns `failed` and ship does not throw. `parkShipBaseMovedFailed` (`workflow/stages/ship.ts`) parks the ship stage in the shape of `push-diverged`: status `pending`, verdict null, `endedAt` null, plus the block `base-moved-failed`. The push step and its intent read `failed`, the ship run closes as failed and ship returns no PR. The block reason is `<repo>: gate "<name>" fails when merged with origin/<base> <sha> - <first failing test line>` (`baseMovedReason`). The `awaiting-merge` block is NOT used, because `settleShipGate` reads that block as "waiting to land" and the real cause would stay hidden. `settleShipGate` does not know the new kind, so a ticket with no PR is never marked landed. Resume refuses the block. The user answers with Send gate failure to agent (@arch:SHIP-CI-ACTIONS), and Autopilot answers with one CI round (@arch:AP-06).
+
+A running `base-moved` run is worded as a check before push, and a refused push shows `Push refused: <reason>`, never the delivered toast (T1379).
 END_DOC_BLOCK: [@arch:GATE-BASE-MOVED]
 
 ## [@arch:GATE-BASE-MOVED-STALE] A base-moved failure on a stale generated file gets one host rebase (T1169, D633)
