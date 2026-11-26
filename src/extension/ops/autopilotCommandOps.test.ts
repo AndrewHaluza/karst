@@ -5,7 +5,7 @@ import { createTicket } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { transition } from '../../workflow/machine.js';
-import { getAutopilotBudget, getAutopilotTicket, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, takeAutopilotAttempt } from '../../store/autopilot.js';
+import { getAutopilotBudget, getAutopilotTicket, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, setCiRoundHeadSha, takeAutopilotAttempt } from '../../store/autopilot.js';
 import { approveCommand, retryCommand, setOverrideCommand, stopCommand, type AutopilotCommandDeps } from './autopilotCommandOps.js';
 
 let store: Store;
@@ -204,15 +204,19 @@ describe('stopCommand', () => {
 });
 
 describe('retryCommand', () => {
-  it('clears a pause, the stop reason and the park block, keeps the mode and posts no note', async () => {
+  it('clears a pause, the stop reason, the park block and the recorded round heads, keeps the mode and posts no note', async () => {
     setAutopilotOverride(store, id, 'on');
     setAutopilotPaused(store, id, 'auto-fix paused: sandbox is read-only');
     setAutopilotStopped(store, id, 'auto-fix paused: sandbox is read-only');
+    takeAutopilotAttempt(store, id, 'r', 'ci', 'sig', 3);
+    setCiRoundHeadSha(store, id, 'r', 'head1');
     parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix paused: sandbox is read-only', runAt: 'x', gates: [] });
     const d = deps();
     await retryCommand(d, id);
     expect(getAutopilotTicket(store, id)).toMatchObject({ mode: 'on', pausedReason: null, stoppedReason: null });
     expect(stageBlock(store, id, 'ship')?.reason ?? '').not.toMatch(/^auto-fix/);
+    // The retry must let the round try again, not park the same no-change state immediately.
+    expect(getCiRoundHeadSha(store, id, 'r')).toBeNull();
     expect(notes()).toEqual([]);
     expect(d.said).toEqual([]);
   });

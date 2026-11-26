@@ -1597,6 +1597,74 @@ describe('conflicts', () => {
       expect(await autopilotTick(reload.deps)).toEqual({ kind: 'parked', reason: NO_CHANGE_BASE_MOVED_REASON });
     });
 
+    it('(z16) a parked refusal is not re-entered: no false wait note when the slot is full', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('auto', 'head1');
+      const state = deliverRunFailureState(store, id, runId, 'develop', 'base1');
+      if (!state.available) throw new Error('the run should be readable');
+      for (let i = 0; i < 3; i += 1) takeAutopilotAttempt(store, id, 'r', 'ci', state.reason, 3);
+      const r = rigRefused(runId);
+      expect(await autopilotTick(r.deps)).toEqual({ kind: 'parked', reason: 'auto-fix stopped: ci 3/3' });
+      expect(getAutopilotTicket(store, id).stoppedReason).toBe('auto-fix stopped: ci 3/3');
+      // The next tick must not queue a round that already parked, even with the slot full.
+      const next = rig({ localHead: async () => SHA, conflictRoundRefused: () => null, concurrencyFull: () => true, sendRefusedMergeFailure: vi.fn(async () => ({ kind: 'sent' as const })) });
+      expect((await autopilotTick(next.deps)).kind).toBe('idle');
+      expect(next.notes.some(([title]) => title.includes('waiting'))).toBe(false);
+    });
+
+    it('(z17) a fix that moves the FAILING repo clears the guard before any no-change park', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = openDeliverRun(store, { ticketId: id, headSha: 'head1', gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+      recordDeliverGate(store, runId, { gateName: 'unit', repo: 'b', exitCode: 1, summary: 'FAIL b', startedAt: null, endedAt: null });
+      finishDeliverRun(store, runId, 'failed', 'T1');
+      expect(await autopilotTick(rigRefused(runId).deps)).toMatchObject({ kind: 'armed', problem: 'ci' });
+      expect(getRefusedMerge(store, id)).toMatchObject({ repo: 'r', sha: SHA });
+      // autoReship pushed the fix: 'b' moved past the head the refused run gated, 'r' is still at the refused merge.
+      markCiRound(store, id, Date.now() - ROUND_LAUNCH_DEATH_WINDOW_MS - 1);
+      const reload = rig({ localHead: async (repo) => (repo === 'r' ? SHA : 'fixedhead'), conflictRoundRefused: () => null, sendRefusedMergeFailure: vi.fn(async () => ({ kind: 'sent' as const })) });
+      await autopilotTick(reload.deps);
+      expect(getRefusedMerge(store, id)).toBeNull();
+      expect(reload.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: the fix moved b past the refused run; the guard is cleared');
+      expect(stageBlock(store, id, 'ship')?.reason).not.toBe(NO_CHANGE_BASE_MOVED_REASON);
+    });
+
+    it('(z18) an unreadable failing repo head keeps the guard', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = openDeliverRun(store, { ticketId: id, headSha: 'head1', gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+      recordDeliverGate(store, runId, { gateName: 'unit', repo: 'b', exitCode: 1, summary: 'FAIL b', startedAt: null, endedAt: null });
+      finishDeliverRun(store, runId, 'failed', 'T1');
+      expect(await autopilotTick(rigRefused(runId).deps)).toMatchObject({ kind: 'armed', problem: 'ci' });
+      const reload = rig({
+        localHead: async (repo) => { if (repo === 'r') return SHA; throw new Error('git failed'); },
+        conflictRoundRefused: () => null, sendRefusedMergeFailure: vi.fn(async () => ({ kind: 'sent' as const })),
+      });
+      await autopilotTick(reload.deps);
+      expect(getRefusedMerge(store, id)).toMatchObject({ repo: 'r', sha: SHA });
+    });
+
+    it('(z19) a gate that names no head cannot prove the fix moved the repo', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      // The run and its gate name no head, but the refusal names the merge commit: the guard exists.
+      const runId = openDeliverRun(store, { ticketId: id, headSha: null, gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+      recordDeliverGate(store, runId, { gateName: 'unit', repo: 'b', exitCode: 1, summary: 'FAIL b', startedAt: null, endedAt: null });
+      finishDeliverRun(store, runId, 'failed', 'T1');
+      expect(await autopilotTick(rigRefused(runId).deps)).toMatchObject({ kind: 'armed', problem: 'ci' });
+      const sent = vi.fn(async () => ({ kind: 'sent' as const }));
+      const reload = rig({ localHead: async (repo) => (repo === 'r' ? SHA : 'bhead'), conflictRoundRefused: () => null, sendRefusedMergeFailure: sent });
+      await autopilotTick(reload.deps);
+      expect(getRefusedMerge(store, id)).toMatchObject({ repo: 'r', sha: SHA });
+      // The round is retried: a null head cannot prove that a fix moved it.
+      expect(sent).toHaveBeenCalledOnce();
+    });
+
     it('(aa) an already-delivered refusal does not leave the tick on a stale armed-round busy', async () => {
       seedPr(PASSING);
       conflict();
@@ -1781,7 +1849,7 @@ describe('conflicts', () => {
       setCiRoundHeadSha(store, id, 'b', 'e'.repeat(40));
       markCiRound(store, id, Date.now() - ROUND_LAUNCH_DEATH_WINDOW_MS - 1);
       const sent = vi.fn(async () => ({ kind: 'sent' as const }));
-      const reload = rig({ localHead: async () => SHA, conflictRoundRefused: () => null, sendRefusedMergeFailure: sent });
+      const reload = rig({ localHead: async (repo) => (repo === 'r' ? SHA : RUN_HEAD), conflictRoundRefused: () => null, sendRefusedMergeFailure: sent });
       expect(await autopilotTick(reload.deps)).toEqual({ kind: 'parked', reason: NO_CHANGE_BASE_MOVED_REASON });
       expect(sent).not.toHaveBeenCalled();
       expect(stageBlock(store, id, 'ship')?.reason).toBe(NO_CHANGE_BASE_MOVED_REASON);

@@ -471,6 +471,10 @@ async function startRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, refused
 async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, stored: RefusedMerge): Promise<AutopilotResult | null> {
   // An armed round owns the merge; the guard waits for its delivery or its end.
   if (d.conflictRoundActive()) return { kind: 'busy' };
+  // A park already names the state (a spent budget, a placement stop, a no-change round): re-entering it every tick would
+  // only repeat the placement/budget checks and could announce a wait for a round that already parked. A person's action
+  // (Retry, approve one more, an override change) clears the park and the recorded heads first.
+  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== null) return { kind: 'idle' };
   const refused: RoundRefusal = { repo: stored.repo, tail: stored.tail ?? 'the gate fix round did not finish', sha: stored.sha, runId: stored.runId, baseRef: stored.baseRef, baseSha: stored.baseSha };
   if (refusedMergeDelivered(d.store, d.ticketId, refused.repo, stored.sha)) {
     clearRefusedMerge(d.store, d.ticketId);
@@ -479,7 +483,9 @@ async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, store
   }
   // A slot of a process that died has no owner left to finish its round: free it, the guard keeps the merge undelivered.
   clearConflictRound(d.store, d.ticketId);
-  const head = d.localHead ? await d.localHead(stored.repo).catch(() => null) : null;
+  const localHead = d.localHead;
+  if (localHead === undefined) return { kind: 'busy' };
+  const head = await localHead(stored.repo).catch(() => null);
   if (head === null) return { kind: 'busy' };
   if (head !== stored.sha) {
     clearRefusedMerge(d.store, d.ticketId);
@@ -488,6 +494,18 @@ async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, store
   }
   const failure = refusedFailure(d, stored.runId, stored.baseRef, stored.baseSha);
   if (failure === null || !failure.available || failure.failed.length === 0) return parkRefusedMerge(d, refused);
+  // A fix commits in a FAILED repo, so its head moves past the head the refused run gated even when the conflicted merge
+  // repo did not move. Then the round made a commit (autoReship pushes it) and the old run heads must not read as no change.
+  // The guard repo was checked above against the refused sha; only the OTHER failed repos are compared here.
+  for (const [repo, gateHead] of failedRepoHeads(failure.failed, failure.run.headSha)) {
+    if (repo === stored.repo || gateHead === null) continue;
+    const now = await localHead(repo).catch(() => null);
+    if (now !== null && now !== gateHead) {
+      clearRefusedMerge(d.store, d.ticketId);
+      d.debug(`${LOG} ticket ${d.key}: the fix moved ${repo} past the refused run; the guard is cleared`);
+      return null;
+    }
+  }
   // A round already ran at this state: never a second send. The gate fix round's own no-change guard decides between a
   // retry (a head moved) and the park (nothing moved). The launch-death window is the grace while the session starts; after
   // it, a sent round with no head move is one that made no commit, so park with the no-change reason instead of waiting in
