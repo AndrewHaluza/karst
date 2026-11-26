@@ -1410,6 +1410,12 @@
   "src/workflow/fixParkExit.ts": [
     "arch:AC-66"
   ],
+  "src/workflow/gates/baselinePrecheck.ts": [
+    "arch:BASELINE-PRECHECK"
+  ],
+  "src/workflow/gates/baselinePrecheckPrompt.ts": [
+    "arch:BASELINE-PRECHECK"
+  ],
   "src/workflow/gates/capabilityGap.ts": [
     "arch:GATE-CAPABILITY"
   ],
@@ -1516,6 +1522,12 @@
   ],
   "src/workflow/stages/uat.ts": [
     "arch:UAT-SVC-BUILD"
+  ],
+  "src/workflow/stages/uat.ts#runUat": [
+    "arch:BASELINE-PRECHECK"
+  ],
+  "src/workflow/stages/uatBaselinePrecheck.ts": [
+    "arch:BASELINE-PRECHECK"
   ],
   "src/workflow/staleGeneratedCi.ts": [
     "arch:AP-05"
