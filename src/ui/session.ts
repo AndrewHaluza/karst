@@ -599,20 +599,23 @@ export class SessionManager {
     const resolved = options.resolveRunner ? await options.resolveRunner() : undefined;
     const runner = resolved?.runner ?? this.runner;
     if (resolved) options.onBackend?.(resolved.line);
-    // Inside a runner-enforced sandbox the host-path channels (hook settings,
-    // MCP config) do not exist, and the core's own OS sandbox is redundant.
-    const inSandbox = runner.enforcesSandbox;
+    // A launch that runs OFF the host has no host-path channels (hook settings,
+    // MCP config) and reaches the host only through the bridge; autonomy is a
+    // separate question (`enforcesSandbox`, @arch:AC-31: a direct ssh launch is
+    // prompted and keeps the core's own OS sandbox request).
+    const offHost = runner.kind !== 'host';
+    const enforced = runner.enforcesSandbox;
     const hookChannel = this.hookChannelFor(ticketId);
     // arch:AC-34: a sandbox reaches the host only through its bridge file, and
     // only when the runner says where the bridge dir appears inside it.
-    const bridgePathsFor = inSandbox ? (options.bridge?.paths ?? (await options.bridgeFor?.(ticketId))) : undefined;
+    const bridgePathsFor = offHost ? (options.bridge?.paths ?? (await options.bridgeFor?.(ticketId))) : undefined;
     const bridge = sandboxBridge(runner, bridgePathsFor, hookChannel.launchId);
     if (bridge) await ensureBridgeDir(bridge.paths);
-    const mcpConfigPath = inSandbox ? undefined : this.writeMcpConfig(adapter, ticketId, options, hookChannel);
+    const mcpConfigPath = offHost ? undefined : this.writeMcpConfig(adapter, ticketId, options, hookChannel);
     // AC-31: the core's own sandbox only when it can be enforced; otherwise the
     // launch fails closed to prompted mode and the reason is reported.
-    const sandbox = launchSandbox(adapter.surfaces?.sandboxInteractive, options.sandbox === true && !inSandbox, worktreePath);
-    options.onSandboxMode?.(inSandbox ? `sandboxed (runner: ${runner.kind}${runner.autonomous ? ', autonomous' : ''})` : formatSandboxMode(sandbox));
+    const sandbox = launchSandbox(adapter.surfaces?.sandboxInteractive, options.sandbox === true && !enforced, worktreePath);
+    options.onSandboxMode?.(enforced ? `sandboxed (runner: ${runner.kind}${runner.autonomous ? ', autonomous' : ''})` : formatSandboxMode(sandbox));
     // Trust the ticket worktree before the core starts: a fresh worktree is
     // untrusted, and claude would open on its folder-trust dialog and exit
     // (T661). Done here, at the one launch site, never as a UI action. The hook
@@ -634,7 +637,8 @@ export class SessionManager {
       // A human watches: normal approvals stay, pattern kills and home-config
       // writes are always denied (D170).
       policy: 'attended',
-      ...(inSandbox ? (bridge ? { hookChannel: bridge.channel } : {}) : { hookChannel }),
+      // A direct ssh launch is PROMPTED: the detail channels follow the bridge (off the host), not autonomy.
+      ...(offHost ? (bridge ? { hookChannel: bridge.channel } : {}) : { hookChannel }),
       sessionName: terminalName,
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
@@ -685,7 +689,7 @@ export class SessionManager {
     let terminal: SessionTerminal;
     let launchFailure: (() => void) | undefined;
     try {
-      const interactive = runner.placeInteractive({
+      const spec = {
         ticketId,
         hostWorktreePath: worktreePath,
         ...(bridge ? { bridgeDir: bridge.paths.dir } : {}),
@@ -698,11 +702,18 @@ export class SessionManager {
           ...cliEnv,
           ...(identity?.provider ? { [KARST_PROVIDER_ENV]: identity.provider } : {}),
         },
-      });
+        // Recovery of a direct ssh session ATTACHES to the live tmux session; a new ssh launch kills and recreates it (D555, arch:AC-37).
+        ...(options.recovery === true && runner.kind === 'ssh' ? { reattach: true as const } : {}),
+      };
+      // ssh: the remote env file and the bridge/gate dirs must exist before the terminal opens (D555).
+      // It throws on failure, so the launch fails closed with no host fallback. Only an ssh runner
+      // has it, so a host launch stays fully synchronous (the common case).
+      if (runner.prepareInteractive) await runner.prepareInteractive(spec);
+      const interactive = runner.placeInteractive(spec);
       // arch:AC-32: keep a sandbox launcher's stderr so a launch that dies at
       // once leaves a reason. Host launches are never wrapped.
       const capture =
-        inSandbox && options.launchCaptureDir && process.platform !== 'win32'
+        offHost && options.launchCaptureDir && process.platform !== 'win32'
           ? captureFilesFor(options.launchCaptureDir, ticketId, bridge?.paths.eventsFile)
           : undefined;
       const placed = capture ? wrapWithStderrCapture(interactive, capture) : interactive;

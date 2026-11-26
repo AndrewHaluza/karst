@@ -22,6 +22,8 @@ import type { HeadlessSpawnOptions } from './headlessSpawn.js';
 import type { AgentProvider } from '../manifest/types.js';
 import type { AdapterSurfaces, SurfaceSupport } from './surfaces.js';
 import { INSTRUCTIONS_POINTER_MARKER } from './instructions.js';
+import { autonomousLaunch } from './autonomousLaunch.js';
+import { SSH_CORES } from './sandboxCores.js';
 import { UsageLimitError } from './cliFailure.js';
 import { PROCESS_WIDE_KILL_COMMANDS, claudeProcessKillDeny } from './processKillGuard.js';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -94,6 +96,21 @@ const SANDBOX_BYPASS_FLAGS = [
 function reasonOf(support: SurfaceSupport): string {
   return support.supported ? '' : support.reason;
 }
+
+// A direct ssh launch is PROMPTED on a machine the user owns: the runner does
+// not enforce a sandbox, so no core may get a bypass flag or an allow-all env
+// (D555, @arch:AC-31). Pinned across the SSH cores here because the runner is
+// built from data, not from a per-core adapter rule.
+describe('direct ssh launch keeps prompts (D555)', () => {
+  it.each(SSH_CORES)('%s gets no bypass flag and no relaxed permission env', (core) => {
+    const launch = autonomousLaunch(core, { enforcesSandbox: false });
+    expect(launch.autonomous).toBe(false);
+    expect(launch.args).toEqual([]);
+    for (const flag of SANDBOX_BYPASS_FLAGS) expect(launch.args, `${core} ${flag}`).not.toContain(flag);
+    const env = { OPENCODE_CONFIG_CONTENT: '{"permission":{"edit":"ask"}}', OPENCODE_PERMISSION: '{"edit":"ask"}' };
+    expect(launch.env(env)).toEqual(env);
+  });
+});
 
 describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   it('declares a position on every seam surface, with a reason for each drop', () => {

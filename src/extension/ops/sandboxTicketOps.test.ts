@@ -41,6 +41,16 @@ describe('ticketSandboxRunner (arch:AC-32)', () => {
     expect(ticketSandboxRunner(deps({ coreOf: () => null }), 7)).toBeUndefined();
   });
 
+  it('an ssh placement gets a fail-closed runner: gates refuse, never a host gate (D555)', async () => {
+    const ssh = { backend: 'ssh' as const, core: 'claude', sandboxName: 'devbox/karst-abcd1234-7-claude', reason: null };
+    const found = ticketSandboxRunner(deps({ placementOf: () => ssh }), 7);
+    expect(found).toMatchObject({ runner: { kind: 'ssh' } });
+    expect(await found!.runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: 'ssh runner not wired yet' });
+    const gate = ticketGateProcess(deps({ placementOf: () => ssh }), 7);
+    expect(gate).toBeDefined();
+    expect(await gate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: 'ssh runner not wired yet' });
+  });
+
   it('exports the bridge as the gate evidence dir (sbx: host path, docker: mount path)', async () => {
     const { runProcess } = await import('../../workflow/gates/run.js');
     vi.mocked(runProcess).mockClear();

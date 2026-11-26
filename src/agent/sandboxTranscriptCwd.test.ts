@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { sandboxCwdFor } from './sandboxTranscriptCwd.js';
 
-const p = (backend: 'host' | 'sbx' | 'docker', sandboxName: string | null) => ({ backend, core: 'claude', sandboxName, reason: null });
+const p = (backend: 'host' | 'sbx' | 'docker' | 'ssh', sandboxName: string | null) => ({ backend, core: 'claude', sandboxName, reason: null });
+const remotes = { devbox: { host: 'vm', user: 'karst', mode: 'direct' as const, remoteDir: '/srv/karst/' } };
 
 describe('sandboxCwdFor', () => {
   it('uses the sbx clone dir under the project root', () => {
@@ -12,5 +13,14 @@ describe('sandboxCwdFor', () => {
   });
   it('is empty for an unnamed sbx sandbox', () => {
     expect(sandboxCwdFor(p('sbx', null), '/p')).toEqual({});
+  });
+  it('uses the remote repo dir for an ssh placement', () => {
+    expect(sandboxCwdFor(p('ssh', 'devbox/karst-abcd1234-7-claude'), '/p', remotes)).toEqual({
+      sandboxCwd: '/srv/karst/karst-abcd1234-7-claude/repo',
+    });
+  });
+  it('is empty for an ssh placement whose remote is not in the manifest', () => {
+    expect(sandboxCwdFor(p('ssh', 'devbox/karst-abcd1234-7-claude'), '/p')).toEqual({});
+    expect(sandboxCwdFor(p('ssh', 'devbox/karst-abcd1234-7-claude'), '/p', {})).toEqual({});
   });
 });

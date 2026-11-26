@@ -14,6 +14,8 @@ import type { SbxOauthGrants } from './sbx/sbxOauthGuest.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from './sbx/sbxRunner.js';
 import { resolveDocker, type DockerResolveDeps } from './docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SandboxTicketRef, type SessionRunner } from './sessionRunner.js';
+import { resolveSsh, type SshResolveDeps } from './ssh/resolveSsh.js';
+import type { RemoteDef } from '../manifest/types.js';
 
 
 export interface ResolveBackendInput {
@@ -49,6 +51,12 @@ export interface ResolveBackendInput {
    * the host, so no ssh command can run before the user allowed it.
    */
   readonly remoteTrusted: (name: string) => boolean;
+  /** The manifest's `remotes`: an `ssh:<name>` backend is looked up here (D555). */
+  readonly remotes?: Readonly<Record<string, RemoteDef>>;
+  /** The per-install id (`ssh/install-id`) that salts the remote sandbox name (D555). Absent fails closed. */
+  readonly installId?: string;
+  /** Test seam for `resolveSsh` (the ssh process, preflight, clone and trust steps). */
+  readonly ssh?: SshResolveDeps;
 }
 
 /** Why a launch's account cannot run in the sandbox, as data: callers never parse `line`. */
@@ -59,10 +67,12 @@ export interface AccountBlock {
 
 export interface ResolvedBackend {
   readonly runner: SessionRunner;
-  /** One diagnostics line: `sbx (<name>)`, `docker (<container>)` or `host (<reason>)`. */
+  /** One diagnostics line: `sbx (<name>)`, `docker (<container>)`, `ssh (<remote>/<name>)` or `host (<reason>)`. */
   readonly line: string;
   /** Why a configured sandbox backend refused this launch's account; the launch asks instead of running on the host (@arch:AC-55). */
   readonly blocked?: AccountBlock;
+  /** Non-blocking messages of the step (the ssh no-tmux warning, D555); the launch shows them once. */
+  readonly warnings?: readonly string[];
 }
 
 /**
@@ -86,7 +96,20 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   if (sshRemote !== undefined) {
     // The gate D555 keeps: no ssh command for an unconfirmed remote.
     if (!input.remoteTrusted(sshRemote)) return onHost(`ssh: remote '${sshRemote}' not confirmed`);
-    return onHost('ssh: backend not available yet');
+    // The install id salts the remote sandbox name; without it a fail-closed host run is the only safe answer.
+    if (input.installId === undefined) return onHost('ssh: the karst install id is not available');
+    const out = await resolveSsh({
+      remoteName: sshRemote, remotes: input.remotes, remoteTrusted: input.remoteTrusted, core: input.core,
+      projectRoot: input.projectRoot, installId: input.installId, ticketId: input.ticketId,
+      worktree: input.worktree,
+      ...(input.ssh ? { deps: input.ssh } : {}),
+    });
+    if (!out.ok) return onHost(out.reason);
+    return {
+      runner: out.runner,
+      line: `ssh (${out.names.remote}/${out.names.name})`,
+      ...(out.warnings.length > 0 ? { warnings: out.warnings } : {}),
+    };
   }
   if (backend === 'docker') {
     const docker = await resolveDocker({

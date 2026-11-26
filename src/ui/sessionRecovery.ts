@@ -271,12 +271,19 @@ export class SessionRecoveryLifecycle {
 /**
  * Launch a replacement and wait for its SessionStart hook. Command completion
  * and a terminal map entry are necessary but insufficient readiness signals.
+ *
+ * `readyOnOpen` (D555): for a direct ssh recovery whose live tmux session was
+ * probed before `open`, the attach IS the readiness — no new SessionStart is
+ * produced, so the caller returns `opened` once the terminal is open. A
+ * `closed`/`interrupted`/`adopted` observation still wins, and a fresh launch
+ * (false) waits for SessionStart as before.
  */
 export async function resumeRestoredSession(
   sessions: SessionLiveness,
   lifecycle: SessionRecoveryLifecycle,
   ticketId: number,
   open: (ticketId: number) => PromiseLike<unknown>,
+  readyOnOpen = false,
 ): Promise<RestoredSessionOpenResult> {
   const readiness = lifecycle.begin(ticketId);
   try {
@@ -300,6 +307,7 @@ export async function resumeRestoredSession(
     }
     if (!sessions.isOpen(ticketId)) return { kind: 'not-open' };
     if (observed) return observed;
+    if (readyOnOpen) return { kind: 'opened' };
     return await readiness.promise;
   } finally {
     readiness.cancel();
@@ -319,12 +327,14 @@ export async function recoverSession(
   lifecycle: SessionRecoveryLifecycle,
   ticketId: number,
   open: (ticketId: number) => PromiseLike<unknown>,
+  readyOnOpen = false,
 ): Promise<RestoredSessionOpenResult> {
   const outcome = await resumeRestoredSession(
     sessions,
     lifecycle,
     ticketId,
     open,
+    readyOnOpen,
   );
   if (
     outcome.kind !== 'opened' &&

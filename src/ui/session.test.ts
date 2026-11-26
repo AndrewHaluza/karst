@@ -469,6 +469,109 @@ describe('SessionManager', () => {
     });
   });
 
+  describe('direct ssh runner (D555)', () => {
+    const cli = { cliEntry: '/cli/main.js', dbPath: '/db' };
+    const sshRunner = (order: string[], specs: InteractiveLaunchSpec[], extra: Record<string, unknown> = {}): SessionRunner => ({
+      kind: 'ssh',
+      enforcesSandbox: false,
+      prepareInteractive: async (spec) => { order.push('prepare'); specs.push(spec); },
+      placeInteractive: (spec) => { order.push('place'); specs.push(spec); return { cwd: '/wt/a', shellPath: 'ssh', shellArgs: ['-t'], env: {} }; },
+      ...extra,
+    });
+
+    it('awaits prepareInteractive before placeInteractive', async () => {
+      const { adapter } = fakeAdapter();
+      const { host, terminals } = fakeHost();
+      const order: string[] = [];
+      const specs: InteractiveLaunchSpec[] = [];
+      await new DefaultedSessionManager(host, channelFor).openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        resolveRunner: () => Promise.resolve({ runner: sshRunner(order, specs), line: 'ssh (devbox/x)' }),
+      });
+      expect(order).toEqual(['prepare', 'place']);
+      expect(specs[0]).toBe(specs[1]);
+      expect(terminals).toHaveLength(1);
+    });
+
+    it('a failed prepareInteractive fails the launch closed (no terminal)', async () => {
+      const { adapter } = fakeAdapter();
+      const { host, terminals } = fakeHost();
+      const order: string[] = [];
+      const specs: InteractiveLaunchSpec[] = [];
+      const runner = { ...sshRunner(order, specs), prepareInteractive: async () => { throw new Error('ssh devbox: launch preparation failed (exit 45)'); } } as SessionRunner;
+      const open = new DefaultedSessionManager(host, channelFor).openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        resolveRunner: () => Promise.resolve({ runner, line: 'ssh (devbox/x)' }),
+      });
+      await expect(open).rejects.toThrow(/launch preparation failed/);
+      expect(terminals).toHaveLength(0);
+    });
+
+    it('sets reattach only for a recovery launch of an ssh runner', async () => {
+      const { adapter } = fakeAdapter();
+      const specs = async (recovery: boolean | undefined): Promise<InteractiveLaunchSpec[]> => {
+        const { host } = fakeHost();
+        const list: InteractiveLaunchSpec[] = [];
+        await new DefaultedSessionManager(host, channelFor).openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli, ...(recovery === undefined ? {} : { recovery }),
+          resolveRunner: () => Promise.resolve({ runner: sshRunner([], list), line: 'ssh (devbox/x)' }),
+        });
+        return list;
+      };
+      expect((await specs(true))[0]!.reattach).toBe(true);
+      expect((await specs(false))[0]!.reattach).toBeUndefined();
+      expect((await specs(undefined))[0]!.reattach).toBeUndefined();
+      // A host recovery never reattaches.
+      const { host } = fakeHost();
+      const hostSpecs: InteractiveLaunchSpec[] = [];
+      const hostRunner: SessionRunner = { ...HOST_SESSION_RUNNER, placeInteractive: (s) => { hostSpecs.push(s); return { cwd: '/wt/a', shellPath: 'claude', shellArgs: [], env: {} }; } };
+      await new DefaultedSessionManager(host, channelFor).openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli, recovery: true, resolveRunner: () => Promise.resolve({ runner: hostRunner, line: 'host (x)' }),
+      });
+      expect(hostSpecs[0]!.reattach).toBeUndefined();
+    });
+
+    it('a direct ssh launch keeps the core OS sandbox request and is not labelled "sandboxed (runner: …)"', async () => {
+      const { adapter: fake, calls } = fakeAdapter();
+      const adapter = { ...fake, surfaces: { sandboxInteractive: { supported: true } } as never };
+      const { host, terminals } = fakeHost();
+      const modes: string[] = [];
+      const wt = mkdtempSync(join(tmpdir(), 'karst-ssh-wt-'));
+      try {
+        writeFileSync(join(wt, '.git'), 'gitdir: /repo/.git/worktrees/x\n');
+        await new DefaultedSessionManager(host, channelFor).openSession(adapter, 7, wt, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli, sandbox: true, onSandboxMode: (line) => modes.push(line),
+          resolveRunner: () => Promise.resolve({ runner: sshRunner([], []), line: 'ssh (devbox/x)' }),
+        });
+        expect(calls[0]!.sandbox).toBeDefined();
+        expect(modes).toHaveLength(1);
+        expect(modes[0]).not.toContain('sandboxed (runner:');
+        expect(terminals[0]!.shellPath).toBe('ssh');
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
+    it('a direct ssh launch reaches the host through the bridge: no host MCP config, the file channel', async () => {
+      const { adapter, calls } = fakeAdapter();
+      const { host } = fakeHost();
+      const specs: InteractiveLaunchSpec[] = [];
+      const root = mkdtempSync(join(tmpdir(), 'karst-ssh-bridge-'));
+      try {
+        const paths = bridgePaths(root, 7);
+        await new DefaultedSessionManager(host, channelFor).openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli, bridge: { paths },
+          resolveRunner: () => Promise.resolve({ runner: sshRunner([], specs, { bridgeRunDir: (p: { runDir: string }) => p.runDir }), line: 'ssh (devbox/x)' }),
+        });
+        expect(specs[0]!.bridgeDir).toBe(paths.dir);
+        expect(calls[0]!.mcpConfigPath).toBeUndefined();
+        expect(calls[0]!.hookChannel?.endpointUrl).toBe(`file://${paths.runDir}/events.ndjson`);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('writes a launch-time MCP config in host storage for a supporting core, never a repo file', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-session-mcp-'));
     try {
