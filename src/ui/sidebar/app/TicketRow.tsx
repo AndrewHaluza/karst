@@ -87,8 +87,8 @@ function ArchivedStrip({ row }: { readonly row: Row }) {
 }
 
 /**
- * The hover strip: Session / Pause-Resume only. It appears in the narrow tier and
- * above (SB-8); the More menu is always in flow at the row end.
+ * The hover strip: Session / Pause-Resume only. It shows on hover or focus at
+ * every width (SB-8, D860); the More menu is always in flow at the row end.
  */
 function HoverStrip({ row, sessVerb }: { readonly row: Row; readonly sessVerb: string }) {
   return (
@@ -196,8 +196,8 @@ export function TicketRow({ row, compact = false, time = false, older = false, s
         <SubtreeToggle row={row} />
         {row.cloudSessions?.length ? <CloudLinks sessions={row.cloudSessions} ticketId={row.ticketId} tabIndex={-1} /> : null}
         {/* The always-visible More menu sits in flow at the row end (SB-8); the
-            other quick tools are an overlay that only the narrow tier shows.
-            Expanding moves the same quick actions into the body's tools. */}
+            other quick tools are an overlay that shows on hover or focus at
+            every width. Expanding moves the same quick actions into the body's tools. */}
         {isOpen ? null : row.archived ? (
           <ArchivedStrip row={row} />
         ) : (

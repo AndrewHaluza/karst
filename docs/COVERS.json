@@ -559,6 +559,9 @@
   "src/extension/ops/autoReship.ts": [
     "arch:AP-06"
   ],
+  "src/extension/ops/autopilotBaseRed.ts": [
+    "arch:AP-12"
+  ],
   "src/extension/ops/autopilotCommandOps.ts": [
     "arch:AP-00"
   ],
@@ -571,7 +574,8 @@
     "arch:AP-01",
     "arch:AP-04",
     "arch:AP-07",
-    "arch:AP-11"
+    "arch:AP-11",
+    "arch:AP-12"
   ],
   "src/extension/ops/autopilotOps.ts#runBaseMovedRound": [
     "arch:AP-06"
@@ -743,6 +747,9 @@
   ],
   "src/integrations/ciRerun.ts": [
     "arch:AP-03"
+  ],
+  "src/integrations/ciRerun.ts#makeBaseRedSeams": [
+    "arch:AP-12"
   ],
   "src/integrations/git.ts": [
     "arch:GH-00"
@@ -1067,6 +1074,12 @@
     "arch:AP-03",
     "arch:AP-06"
   ],
+  "src/store/autopilot.ts#baseRedRuns": [
+    "arch:AP-12"
+  ],
+  "src/store/autopilot.ts#markBaseRedWait": [
+    "arch:AP-12"
+  ],
   "src/store/autostart.ts": [
     "arch:AP-01"
   ],
@@ -1378,6 +1391,9 @@
   ],
   "src/workflow/baseMovedStale.ts": [
     "arch:GATE-BASE-MOVED"
+  ],
+  "src/workflow/baseRedCi.ts": [
+    "arch:AP-12"
   ],
   "src/workflow/baseRef.ts#resolveTicketBaseRef": [
     "arch:BASE-PER"

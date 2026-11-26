@@ -38,6 +38,15 @@ describe('ciFailureState', () => {
     expect(s).toMatchObject({ available: true });
     if (s.available) expect(s.prs[0]).toMatchObject({ repo: 'r', number: 5, cwd: '/w/r', failing: failing.failing });
   });
+  it('carries the PR base branch, or null when it is not known (T1383)', () => {
+    seedPr({ checks: failing });
+    const before = ciFailureState(store, id);
+    expect(before.available && before.prs[0]!.base).toBeNull();
+    store.db.prepare("UPDATE prs SET base_ref = 'develop' WHERE ticket_id = ?").run(id);
+    const after = ciFailureState(store, id);
+    expect(after.available && after.prs[0]!.base).toBe('develop');
+  });
+
   it('is not-failing when passing or never probed', () => {
     seedPr({ checks: { ...failing, state: 'passing', failing: [] } });
     expect(ciFailureState(store, id)).toEqual({ available: false, reason: 'not-failing' });

@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getAutopilotRerun, markAutopilotRerun } from '../../store/autopilot.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { STALE_PATTERN_PREFIX } from '../../workflow/staleGeneratedCi.js';
+import { isBaseRedPattern } from '../../workflow/baseRedCi.js';
 import { classifyTransientLog, parseCheckUrl, type CheckUrl } from '../../workflow/transientCi.js';
 
 /**
@@ -22,8 +23,8 @@ export const NO_CHANGE_PATTERN = 'no-change';
 /** After a re-run starts, a rollup that still shows the old failure is not read for this long (gh may lag). */
 export const RERUN_SETTLE_MS = 90_000;
 
-/** One failing check of an open PR: where gh runs and which job failed. */
-export interface FailedCheck { readonly repo: string; readonly cwd: string; readonly name: string; readonly url: string | null }
+/** One failing check of an open PR: where gh runs, which job failed, and the PR base branch (null when it is not known). */
+export interface FailedCheck { readonly repo: string; readonly cwd: string; readonly name: string; readonly url: string | null; readonly base?: string | null }
 
 export interface RerunContext {
   readonly store: Store;
@@ -57,6 +58,8 @@ export async function transientRerunStep(c: RerunContext, fails: readonly Failed
     const done = getAutopilotRerun(c.store, c.ticketId, target.repo, url.runId, target.name);
     // A rebase round for a stale generated file (T1081) is not a network re-run: it neither settles nor counts as one.
     if (done?.pattern.startsWith(STALE_PATTERN_PREFIX)) continue;
+    // A base-red rebase or wait (T1383, @arch:AP-12) is not a network re-run either.
+    if (done && isBaseRedPattern(done.pattern)) continue;
     // The re-run after a round with no commit (D564) belongs to the no-change step: after Approve 1 more it must not hold this one.
     if (done?.pattern === NO_CHANGE_PATTERN) continue;
     if (done) {

@@ -11,6 +11,8 @@ import type { ResumeOutcome } from './conflictResumeOps.js';
 import { conflictRoundRefusal, type RoundRefusal } from './autoDeliverOps.js';
 import { holdsPark, refusedMergeBody, refusedMergeReason, STALLED_REASON, UNFINISHED_BODY } from './autopilotRefusal.js';
 import { staleRebaseStep, type StaleRebaseSeams } from './autopilotStaleRebase.js';
+import { baseRedStep } from './autopilotBaseRed.js';
+import type { BaseRedSeams } from '../../integrations/ciRerun.js';
 import { transientRerunStep, type FailedCheck, type RerunContext, type TransientCiSeams } from './autopilotRerun.js';
 import { noChangeStep, recordCiRoundHeads } from './autopilotNoChange.js';
 import { isHostTicket, MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryOutcome, type ShipRetrySeams } from './autopilotShipRetry.js';
@@ -109,6 +111,8 @@ export interface AutopilotDeps {
   readonly transientCi?: TransientCiSeams;
   /** Host seams of the one rebase for a stale generated file (T1081, @arch:AP-05). Absent: today's rules apply. */
   readonly staleRebase?: StaleRebaseSeams;
+  /** gh and host seams of the base-red step (T1383, @arch:AP-12). Absent: today's rules apply. */
+  readonly baseRed?: BaseRedSeams;
   /**
    * Re-runs a confirmed ship for the repos Retry ship would name, after a failure that was only a GitHub server error
    * (@arch:AP-11). Absent: no retry.
@@ -249,7 +253,7 @@ function findProblem(d: AutopilotDeps): Problem | 'wait' | null {
   // Failing checks that are not known optional: only these can park the ticket (a known optional one never does).
   const gating = [...new Set(ci.prs.flatMap((p) => p.failing.filter((f) => !(p.optional ?? []).includes(f.name)).map((f) => f.name)))].sort();
   const targets = ci.prs.map((p) => ({ repo: p.repo, signature: [...new Set(p.failing.map((f) => f.name))].sort().join('\n') }));
-  const fails = ci.prs.flatMap((p) => p.failing.map((f) => ({ repo: p.repo, cwd: p.cwd, name: f.name, url: f.url })));
+  const fails = ci.prs.flatMap((p) => p.failing.map((f) => ({ repo: p.repo, cwd: p.cwd, name: f.name, url: f.url, base: p.base ?? null })));
   return { kind: 'ci', repo: first.repo, signature: own.join('\n'), targets, failing: all, gating, cutShort, fails };
 }
 
@@ -603,6 +607,9 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
     return parked ? { kind: 'cleared' } : { kind: 'nothing' };
   }
   // A network fault is re-run once before any park or CI round (T1019). An active graph run and an unreadable placement keep today's rules.
+  // A failure that the base branch shares (T1383) goes first: one rebase on a green base, or a wait with no park.
+  const baseRed = await baseRedStepOf(d, problem);
+  if ('result' in baseRed) return baseRed.result;
   // A stale generated file is fixed by one host rebase first (T1081); a host ticket only.
   const stale = await staleStep(d, problem);
   if ('result' in stale) return stale.result;
@@ -613,7 +620,8 @@ async function runRound(d: AutopilotDeps, cfg: AutopilotConfig, state: ReturnTyp
   const gated = problem.gating ?? problem.failing ?? [];
   if (gated.length > 0 && !allChecksAllowed(gated, cfg.ci.checks)) {
     const name = gated.find((n) => !cfg.ci.checks.includes(n)) ?? '(none)';
-    const again = stale.earlier.has(name) ? ' (rebased once for a stale generated file and it failed again)' : rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : '';
+    const redBase = baseRed.earlier.get(name);
+    const again = redBase !== undefined ? ` (rebased once because ${redBase} was red and it failed again)` : stale.earlier.has(name) ? ' (rebased once for a stale generated file and it failed again)' : rerun.earlier.has(name) ? ' (re-run once after a network error and it failed again)' : '';
     const reason = `auto-fix not run: ci check ${name} is not on the allowlist${again}`;
     return park(d, 'ci', reason, 'a failing check is not on the autopilot allowlist; send the failure to the agent by hand.');
   }
@@ -680,6 +688,22 @@ async function staleStep(d: AutopilotDeps, problem: Problem): Promise<{ result: 
     problem.fails,
   );
   return step.kind === 'rebased' ? { result: { kind: 'rebased' } } : { earlier: step.earlier };
+}
+
+/** The base-red step (T1383, @arch:AP-12): a result to return, or the checks rebased before (for the park reason). A wait is `nothing`: it clears no park. */
+async function baseRedStepOf(d: AutopilotDeps, problem: Problem): Promise<{ result: AutopilotResult } | { earlier: ReadonlyMap<string, string> }> {
+  const none = { earlier: new Map<string, string>() };
+  if (!d.baseRed || !problem.fails) return none;
+  // Same eligibility as the stale step: a host ticket only (@arch:AP-04).
+  const placed = await d.placement().catch(() => null);
+  if (d.isGraphTicket() || placed === null || placed === 'sandbox') return none;
+  const step = await baseRedStep(
+    { store: d.store, ticketId: d.ticketId, key: d.key, seams: d.baseRed, now: d.now ?? Date.now, note: d.note, debug: d.debug },
+    problem.fails,
+  );
+  if (step.kind === 'rebased') return { result: { kind: 'rebased' } };
+  if (step.kind === 'waiting') return { result: { kind: 'nothing' } };
+  return { earlier: step.earlier };
 }
 
 /** The transient re-run step: a result to return, or the checks that were re-run before (for the park reason). */
