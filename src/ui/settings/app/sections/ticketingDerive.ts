@@ -95,10 +95,14 @@ export function deriveLists(
   }
   const lists = fetch.lists;
   const known = savedId !== undefined && lists.some((list) => list.id === savedId);
+  // The saved id gets its own option only when the provider no longer offers
+  // it. A list it offers is already one option, with its name as the label.
   const options: Array<{ value: string; label: string }> =
     savedId === undefined
       ? [{ value: '', label: HINT.placeholderList }]
-      : savedOption(savedId);
+      : known
+        ? []
+        : savedOption(savedId);
   for (const list of lists) {
     options.push({ value: list.id, label: `${list.space} / ${list.name}` });
   }

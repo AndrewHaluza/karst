@@ -365,6 +365,24 @@ describe('TicketingSection — the list fetch lifecycle', () => {
     );
   });
 
+  it('shows a saved list that the provider offers once, by its name', () => {
+    const { bridge } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001', listId: 'L2' }));
+    act(() =>
+      bridge.push({
+        type: 'ticket-lists',
+        lists: [
+          { id: 'L1', name: 'Backlog', space: 'Core' },
+          { id: 'L2', name: 'Sprint', space: 'Core' },
+        ],
+      }),
+    );
+    const select = byLabel('List') as unknown as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['L1', 'L2']);
+    expect(select.value).toBe('L2');
+    expect(select.selectedOptions[0]?.label).toBe('Core / Sprint');
+    expect(Array.from(select.options).map((o) => o.label)).not.toContain('L2');
+  });
+
   it('keeps a saved list visible and selected when the provider no longer offers it', () => {
     const { bridge } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001', listId: 'L9' }));
     act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'L1', name: 'Backlog', space: 'Core' }] }));
