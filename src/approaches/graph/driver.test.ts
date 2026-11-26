@@ -1935,7 +1935,7 @@ describe('driveReadyNodeRuns', () => {
         h.db.prepare("UPDATE approach_node_runs SET status = 'blocked', reason = 'other' WHERE id = ?").run(request.nodeRunId);
         return {
           ticketId: h.ticketId, nodeRunId: request.nodeRunId, graphRunId: request.graphRunId,
-          cwd: request.cwd, pid: 4242, startedAt: NOW, processRunId: null, providerSessionId: null,
+          cwd: request.cwd, pid: 4242, startedAt: NOW, processRunId: null, provider: null, providerSessionId: null,
           terminal: { dispose },
         } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
       };
@@ -1958,7 +1958,7 @@ describe('driveReadyNodeRuns', () => {
         h.db.prepare("UPDATE approach_node_runs SET status = 'blocked' WHERE id = ?").run(request.nodeRunId);
         return {
           ticketId: h.ticketId, nodeRunId: request.nodeRunId, graphRunId: request.graphRunId,
-          cwd: request.cwd, pid: 4243, startedAt: NOW, processRunId: null, providerSessionId: null,
+          cwd: request.cwd, pid: 4243, startedAt: NOW, processRunId: null, provider: null, providerSessionId: null,
         } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
       };
       const result = await driveReadyNodeRuns(h.deps, graphRunId);

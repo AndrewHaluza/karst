@@ -168,6 +168,19 @@ export function rejectsMinimalContextFlag(stdout: string, stderr: string): boole
   );
 }
 
+/**
+ * A UUID as claude accepts it for `--session-id`. A strict shape on purpose:
+ * the CLI refuses anything else and exits, which would turn a karst mistake
+ * into a launch failure — so an invalid id is DROPPED (a fresh default-id
+ * session), never forwarded.
+ */
+const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** True when `value` is a UUID claude's `--session-id` accepts. */
+export function isSessionIdUuid(value: string | undefined): value is string {
+  return typeof value === 'string' && SESSION_ID_PATTERN.test(value);
+}
+
 export class ClaudeAdapter implements AgentAdapter {
   // Interactive usage for claude is measured by reading Claude Code's session
   // transcript (claudeTranscriptWatch.ts) — the hooks remain lifecycle-only
@@ -285,6 +298,13 @@ export class ClaudeAdapter implements AgentAdapter {
     if (opts.resume && opts.resume.length > 0) {
       // Continue a previously-captured session instead of a cold start (§5.3).
       args.push('--resume', opts.resume);
+    } else if (isSessionIdUuid(opts.sessionId)) {
+      // T1370: pin a NEW session to the id karst chose, so its transcript is
+      // locatable while it runs (the graph planner/node usage sweep). Only
+      // alongside no `--resume` and only for a valid UUID: the CLI refuses an
+      // id already in use or malformed, and that refusal would be a launch
+      // failure rather than a lost measurement.
+      args.push('--session-id', opts.sessionId);
     }
     // The terminal's rendered display name, threaded as claude's `-n/--name` so
     // the session shows the ticket in the `/resume` picker instead of a summary

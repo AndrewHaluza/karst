@@ -119,6 +119,29 @@ describe('ClaudeAdapter.buildInteractiveCommand', () => {
     expect(args).not.toContain('-p');
   });
 
+  it('pins a fresh interactive session to the karst-chosen id with --session-id', () => {
+    const id = '0b9d1d0e-3f6c-4c0f-9d55-2b1f2a7c4e11';
+    const { args } = adapter.buildInteractiveCommand({ cwd: '/wt/a', sessionId: id });
+    expect(args[args.indexOf('--session-id') + 1]).toBe(id);
+  });
+
+  it('ignores sessionId on a resume — the resumed session keeps its own id', () => {
+    const { args } = adapter.buildInteractiveCommand({
+      cwd: '/wt/a',
+      resume: 'existing-session',
+      sessionId: '0b9d1d0e-3f6c-4c0f-9d55-2b1f2a7c4e11',
+    });
+    expect(args).not.toContain('--session-id');
+    expect(args[args.indexOf('--resume') + 1]).toBe('existing-session');
+  });
+
+  it('ignores a sessionId that is not a UUID (the CLI would refuse the launch)', () => {
+    for (const bad of ['not-a-uuid', '', '0b9d1d0e3f6c4c0f9d552b1f2a7c4e11', 'graph-7-node-12']) {
+      const { args } = adapter.buildInteractiveCommand({ cwd: '/wt/a', sessionId: bad });
+      expect(args).not.toContain('--session-id');
+    }
+  });
+
   it('materializes --settings from a provider-neutral hook channel', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-claude-hooks-'));
     try {

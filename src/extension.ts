@@ -260,6 +260,7 @@ import {
 import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
 import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinator/replan.js';
 import { createSupervisedCliTransport, type SupervisedCliTransport, type SupervisedAgentSession } from './approaches/graph/transport/supervisedCliTransport.js';
+import { graphLaunchIdForLaunch } from './approaches/graph/graphLaunchId.js';
 import {
   activeGraphRunFor,
   graphTicketSurface,
@@ -4481,6 +4482,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ownerNonce: identity.ownerNonce,
         startedAt: identity.startedAt,
         processRunId: identity.processRunId,
+        // A re-attached session knows neither its provider nor its provider
+        // session id (a reload rebuilt the registry from the terminal), so it
+        // records null rather than guessing from the binary name — that
+        // session's usage reading simply does not resume.
+        provider: null,
         providerSessionId: null,
         terminal: wrapRevivedGraphTerminal(terminal),
       };
@@ -4830,6 +4836,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const gs = graphCoordinatorStore;
       if (!gs) return undefined;
       return resolveGraphDiagnosticIdentity(gs.db, graphRunId);
+    },
+    // Token accounting (T1370): a graph session gets a hook channel only on the
+    // cores whose usage ARRIVES as a hook — opencode2's generated bridge plugin
+    // posts `UsageUpdate`. claude is excluded on purpose: its usage comes from
+    // the transcript sweep, and a claude hook channel would carry lifecycle
+    // events for a ticket that has no session of its own.
+    //
+    // The channel carries a GRAPH launch id (`graph-<run>-<role>-<id>`), never a
+    // ticket generation: dispatch keys on the prefix to route a graph event down
+    // its usage-only path instead of the ticket lifecycle. It must NOT call
+    // `recoveryLifecycle.startLaunch` — a graph launch is not a ticket launch,
+    // and marking one would make the ticket's own session read as stale.
+    hookChannelFor: (request) => {
+      if (request.identity?.provider !== 'opencode2') return undefined;
+      if (!endpoint) {
+        logger.debug('[graph] hook endpoint is not bound — the launch records no usage');
+        return undefined;
+      }
+      const launchId = graphLaunchIdForLaunch(request);
+      const hookEndpoint = new URL(endpoint.url);
+      hookEndpoint.searchParams.set('karstLaunch', launchId);
+      return {
+        endpointUrl: hookEndpoint.toString(),
+        configDir: settingsDir,
+        launchId,
+        projectKey: projectEndpointKey(currentProject()?.slug),
+      };
     },
   });
 

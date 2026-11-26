@@ -142,7 +142,19 @@ export interface SupervisedAgentSession {
    * fabricated row, and never a fabricated zero.
    */
   processRunId: number | null;
-  /** Provider session id — recorded via the lifecycle channel, later. */
+  /**
+   * The provider this launch resolved to (from `request.identity.provider`).
+   * Absent/NULL when the host supplied no identity — the provider is then
+   * unknown and is never guessed from the adapter binary. A consumer that
+   * selects sessions by provider (the claude usage sweep) reads it directly.
+   */
+  provider?: string | null;
+  /**
+   * The provider session id. A claude launch gets a karst-chosen `randomUUID()`
+   * at spawn (T1370, passed as `--session-id`), so its transcript is locatable
+   * while it runs; every other core records `null` until a lifecycle channel
+   * reports one.
+   */
   providerSessionId: string | null;
   /**
    * The host terminal surface (CLI transport). Absent for a transport with no
