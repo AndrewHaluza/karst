@@ -95,7 +95,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   //   (dark) (+1 screenshot); skipLayout, because accounts-several already runs the route.
   // T1368 accounts-quota-narrow (the compact quota list at 400 px: label, help, control under them), @ui:UI-R57:
   //   1 theme (dark) (+1 screenshot); skipLayout, because the wide accounts-quota shot already covers the route.
-  settings: { screenshots: 119, layout: 156 },
+  // T1374 (D834, @ui:UI-R57): the graph card's agents, limits and planner prompt moved into its Edit drawer, so the three
+  //   approaches-graph shots now open that drawer, and the roster gets its own wide and narrow shots; the git-sourced
+  //   drawer adds one more. All four families are skipLayout, so the layout count is unchanged (+3 screenshots).
+  settings: { screenshots: 122, layout: 156 },
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
   // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
