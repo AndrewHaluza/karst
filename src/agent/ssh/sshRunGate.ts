@@ -18,7 +18,8 @@ import { rewriteEmbeddedHostPaths, rewriteHostPaths } from './sshEnv.js';
  * `runGate` of the ssh runner (D555, edit 6; `@arch:STAGEMACH`). The gate runs
  * through the host gate boundary (`runProcess` by default) as a local `ssh`
  * process, so the timeout, the abort, the bounded output and the live stream
- * stay the host's. The verdict never comes from that local exit code: see
+ * stay the host's. The verdict never comes from that local exit code alone,
+ * and never from a record that the local code does not confirm: see
  * `sshGateScript.ts` for the rule.
  */
 
@@ -105,18 +106,39 @@ function mapCwd(ctx: SshGateContext, cwd: string): MappedCwd {
   return { ok: true, cwd: mapped };
 }
 
-/** The verdict after a completed local run: the exit file first, the stderr marker only when it is missing. */
-async function verdict(ctx: SshGateContext, runId: string, localCode: number, stderr: string): Promise<{ ok: true; code: number } | { ok: false; reason: string }> {
+/** The ssh client's own failure code; a gate can also really exit 255. */
+const SSH_TRANSPORT_EXIT = 255;
+
+type Verdict = { ok: true; code: number } | { ok: false; reason: string };
+
+/**
+ * Check a record (exit file or stderr marker) against the local ssh exit code.
+ * A process that the gate leaves behind runs as the same remote user, so it
+ * can rewrite the exit file or print a late marker. It cannot change the exit
+ * status that sshd sends back for the wrapper's `exit $rc`. So a record counts
+ * only when the local code agrees with it. A local 255 is either a transport
+ * failure or a real 255: only a record of 255 confirms it.
+ */
+export function confirmRecord(remoteName: string, record: number, localCode: number): Verdict {
+  if (record === localCode) return { ok: true, code: record };
+  if (localCode === SSH_TRANSPORT_EXIT) {
+    return { ok: false, reason: `ssh ${remoteName}: the gate record says ${String(record)}, but ssh exited 255 (a transport failure cannot confirm it)` };
+  }
+  return { ok: false, reason: `ssh ${remoteName}: the gate record says ${String(record)}, but the gate wrapper exited ${String(localCode)}; no verdict` };
+}
+
+/** The verdict after a completed local run: the exit file first, the stderr marker only when it is missing; each checked against the local code. */
+async function verdict(ctx: SshGateContext, runId: string, localCode: number, stderr: string): Promise<Verdict> {
   const read = await remoteRun(ctx, readExitScript(ctx.workspace, runId));
   if (read.code === 0) {
     const fromFile = verdictFromExitFile(read.stdout, runId);
-    if (fromFile !== undefined) return { ok: true, code: fromFile };
+    if (fromFile !== undefined) return confirmRecord(ctx.remoteName, fromFile, localCode);
     ctx.debug?.(`[ssh ${ctx.remoteName}] gate ${runId}: exit file unreadable, using the stderr marker`);
   }
   const fromStderr = verdictFromStderr(stderr, runId);
-  if (fromStderr !== undefined) return { ok: true, code: fromStderr };
+  if (fromStderr !== undefined) return confirmRecord(ctx.remoteName, fromStderr, localCode);
   const tail = lastLine(stderr);
-  if (localCode === 255) return { ok: false, reason: `ssh transport failed: ${tail}` };
+  if (localCode === SSH_TRANSPORT_EXIT) return { ok: false, reason: `ssh transport failed: ${tail}` };
   return { ok: false, reason: `ssh ${ctx.remoteName}: the gate left no exit record (ssh exit ${String(localCode)})${tail === '' ? '' : `: ${tail}`}` };
 }
 

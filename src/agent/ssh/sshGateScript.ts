@@ -12,10 +12,15 @@ import { sshQuote } from './sshQuote.js';
  *    content of exactly `<its runId>:<digits>` (`verdictFromExitFile`).
  * 3. Only when the exit file is missing or unreadable, the LAST stderr line
  *    `KARST_GATE_EXIT=<its runId>:<digits>` is the fallback
- *    (`verdictFromStderr`). A line with another run id is ignored, so a gate
- *    that prints a false marker cannot pass.
+ *    (`verdictFromStderr`). A line with another run id is ignored. A marker
+ *    with the own run id is checked by rule 5.
  * 4. Neither source: no verdict. The local ssh exit code is never a verdict
- *    (255 is a transport failure OR a real gate exit).
+ *    by itself (255 is a transport failure OR a real gate exit).
+ * 5. A record counts only when the local ssh exit code agrees with it
+ *    (`confirmRecord` in `sshRunGate.ts`). A process that the gate leaves
+ *    behind runs as the same user: it can rewrite the exit file or print a
+ *    late marker with the right run id. It cannot change the exit status that
+ *    sshd sends for the wrapper's `exit $rc`. A disagreement is no verdict.
  *
  * The run id is host-made (hex); the pgid that a kill uses is read from the
  * pgid file, and the remote script accepts it only when it is all digits and

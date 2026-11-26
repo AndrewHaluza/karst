@@ -162,10 +162,37 @@ describe('runGate', () => {
     expect(g.seen).toHaveLength(0);
   });
 
-  it('takes the verdict from the exit file, not the local ssh code', async () => {
+  it('takes the verdict from the exit file when the local ssh code agrees', async () => {
+    const ssh = fakeSshProcess(exitAnswer({ stdout: `${RUN_ID}:3\n` }));
+    const out = await run(runner(ssh, { gateProcess: gate(completed(3)) }));
+    expect(out).toMatchObject({ kind: 'completed', exitCode: 3 });
+  });
+
+  it('a forged passing exit file of a left-behind process never passes a failed gate', async () => {
+    const ssh = fakeSshProcess(exitAnswer({ stdout: `${RUN_ID}:0\n` }));
+    const out = await run(runner(ssh, { gateProcess: gate(completed(1), [`KARST_GATE_EXIT=${RUN_ID}:1\n`]) }));
+    expect(out).toMatchObject({ kind: 'spawnFailed', message: 'ssh devbox: the gate record says 0, but the gate wrapper exited 1; no verdict' });
+  });
+
+  it('a forged late marker with no exit file never passes a failed gate', async () => {
+    const ssh = fakeSshProcess(exitAnswer({ code: 3 }));
+    const out = await run(runner(ssh, { gateProcess: gate(completed(1), [`KARST_GATE_EXIT=${RUN_ID}:1\n`, `KARST_GATE_EXIT=${RUN_ID}:0\n`]) }));
+    expect(out).toMatchObject({ kind: 'spawnFailed', message: 'ssh devbox: the gate record says 0, but the gate wrapper exited 1; no verdict' });
+  });
+
+  it('a record that disagrees with a local 0 is no verdict, not a pass', async () => {
     const ssh = fakeSshProcess(exitAnswer({ stdout: `${RUN_ID}:3\n` }));
     const out = await run(runner(ssh, { gateProcess: gate(completed(0)) }));
-    expect(out).toMatchObject({ kind: 'completed', exitCode: 3 });
+    expect(out.kind).toBe('spawnFailed');
+  });
+
+  it('a local 255 with a passing record is no verdict (a real 255 or a dropped transport cannot confirm 0)', async () => {
+    const ssh = fakeSshProcess(exitAnswer({ stdout: `${RUN_ID}:0` }));
+    const out = await run(runner(ssh, { gateProcess: gate(completed(255)) }));
+    expect(out).toMatchObject({ kind: 'spawnFailed', message: 'ssh devbox: the gate record says 0, but ssh exited 255 (a transport failure cannot confirm it)' });
+    const marker = fakeSshProcess(exitAnswer({ code: 3 }));
+    const viaMarker = await run(runner(marker, { gateProcess: gate(completed(255), [`KARST_GATE_EXIT=${RUN_ID}:0\n`]) }));
+    expect(viaMarker).toMatchObject({ kind: 'spawnFailed', message: 'ssh devbox: the gate record says 0, but ssh exited 255 (a transport failure cannot confirm it)' });
   });
 
   it('rejects an exit file of another run id and falls back to the own stderr marker', async () => {
@@ -345,7 +372,8 @@ describe('SPEC coverage: args, env keys, services, two instances', () => {
     const ids = ['1111111111111111', '2222222222222222'];
     let next = 0;
     const ssh = fakeSshProcess({ [`${WS}/gates/${ids[0]!}.exit`]: { stdout: `${ids[0]!}:0` }, [`${WS}/gates/${ids[1]!}.exit`]: { stdout: `${ids[1]!}:1` } });
-    const r = runner(ssh, { gateProcess: gate(completed(0)), newRunId: () => ids[next++]! });
+    const byCommand: GateProcessRunner = async (_bin, args) => completed(args.join(' ').includes('false') ? 1 : 0);
+    const r = runner(ssh, { gateProcess: byCommand, newRunId: () => ids[next++]! });
     const [a, b] = await Promise.all([r.runGate!('true', [], WT), r.runGate!('false', [], WT)]);
     expect(a).toMatchObject({ exitCode: 0 });
     expect(b).toMatchObject({ exitCode: 1 });
