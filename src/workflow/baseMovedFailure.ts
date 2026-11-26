@@ -47,12 +47,13 @@ export function baseMovedReason(baseRef: string, baseSha: string, failure: strin
 /**
  * The failure state of the SPECIFIC deliver run an auto-deliver refused on (T1381), not the newest run of any kind. The run
  * must be this ticket's, still `failed`, and have a readable base ref and base sha; `failed` holds only the gates that exited
- * non-zero. `reason` is formatted with `baseMovedReason`, so `baseRefOf` reads the base from it.
+ * non-zero. `reason` is formatted with `baseMovedReason`, so `baseRefOf` reads the base from it. A null run id (a refusal
+ * that named no run) is `no-failed-run`, never another run.
  */
 export function deliverRunFailureState(
   store: Store,
   ticketId: number,
-  runId: number,
+  runId: number | null,
   baseRef: string | null,
   baseSha: string | null,
 ): BaseMovedFailureState {

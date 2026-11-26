@@ -1665,6 +1665,86 @@ describe('conflicts', () => {
       expect(sent).toHaveBeenCalledOnce();
     });
 
+    it('(z20) a parked refusal still clears the guard when the merge was delivered', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      expect((await autopilotTick(rigRefused(failedRun('auto', 'head1')).deps)).kind).toBe('armed');
+      setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+      parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix stopped: ci 3/3', runAt: 'x', gates: [] });
+      store.db.prepare('UPDATE prs SET head_oid = ? WHERE ticket_id = ?').run(SHA, id);
+      const reload = rig({ localHead: async () => SHA, conflictRoundRefused: () => null });
+      await autopilotTick(reload.deps);
+      expect(getRefusedMerge(store, id)).toBeNull();
+    });
+
+    it('(z21) a parked refusal still clears the guard when the failing repo moved', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = openDeliverRun(store, { ticketId: id, headSha: 'head1', gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+      recordDeliverGate(store, runId, { gateName: 'unit', repo: 'b', exitCode: 1, summary: 'FAIL b', startedAt: null, endedAt: null });
+      finishDeliverRun(store, runId, 'failed', 'T1');
+      expect(await autopilotTick(rigRefused(runId).deps)).toMatchObject({ kind: 'armed', problem: 'ci' });
+      setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+      parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix stopped: ci 3/3', runAt: 'x', gates: [] });
+      const reload = rig({ localHead: async (repo) => (repo === 'r' ? SHA : 'fixedhead'), conflictRoundRefused: () => null });
+      await autopilotTick(reload.deps);
+      expect(getRefusedMerge(store, id)).toBeNull();
+    });
+
+    it('(z22) a ship that started after the refusal keeps the merge from a no-change park', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      expect((await autopilotTick(rigRefused(failedRun('auto', 'head1')).deps)).kind).toBe('armed');
+      // autoReship ran after the refusal: its push may hold the merge while prs.head_oid still lags.
+      openShipRun(store, { ticketId: id, attempt: 1, startedAt: 'T2' });
+      markCiRound(store, id, Date.now() - ROUND_LAUNCH_DEATH_WINDOW_MS - 1);
+      const resumeDeliver = vi.fn(async () => 'started' as const);
+      const reload = rig({ resumeDeliver, localHead: async () => SHA, conflictRoundRefused: () => null, sendRefusedMergeFailure: vi.fn(async () => ({ kind: 'sent' as const })) });
+      expect((await autopilotTick(reload.deps)).kind).toBe('busy');
+      expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+      expect(getRefusedMerge(store, id)).toMatchObject({ repo: 'r', sha: SHA });
+    });
+
+    it('(z23) a ship from before the refusal does not block the no-change park', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      openShipRun(store, { ticketId: id, attempt: 1, startedAt: 'T0' });
+      expect((await autopilotTick(rigRefused(failedRun('auto', 'head1')).deps)).kind).toBe('armed');
+      markCiRound(store, id, Date.now() - ROUND_LAUNCH_DEATH_WINDOW_MS - 1);
+      const reload = rig({ localHead: async () => SHA, conflictRoundRefused: () => null, sendRefusedMergeFailure: vi.fn(async () => ({ kind: 'sent' as const })) });
+      expect(await autopilotTick(reload.deps)).toEqual({ kind: 'parked', reason: NO_CHANGE_BASE_MOVED_REASON });
+    });
+
+    it('(z24) a stored guard with no send seam parks the fallback instead of a silent wait', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('auto', 'head1');
+      const queued = rigRefused(runId, { concurrencyFull: () => true });
+      expect(await autopilotTick(queued.deps)).toEqual({ kind: 'queued' });
+      const reload = rig({ localHead: async () => SHA, conflictRoundRefused: () => null });
+      expect(await autopilotTick(reload.deps)).toEqual({ kind: 'parked', reason: REFUSED });
+      expect(getRefusedMerge(store, id)).toMatchObject({ repo: 'r', sha: SHA });
+    });
+
+    it('(z25) a failed run with no end time still sees a ship that started after it', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = failedRun('auto', 'head1');
+      expect((await autopilotTick(rigRefused(runId).deps)).kind).toBe('armed');
+      // A malformed row: no end time. The deliver run started at T0; a ship started at T2 may be the reship.
+      store.db.prepare('UPDATE deliver_runs SET ended_at = NULL WHERE id = ?').run(runId);
+      openShipRun(store, { ticketId: id, attempt: 1, startedAt: 'T2' });
+      markCiRound(store, id, Date.now() - ROUND_LAUNCH_DEATH_WINDOW_MS - 1);
+      const reload = rig({ localHead: async () => SHA, conflictRoundRefused: () => null, sendRefusedMergeFailure: vi.fn(async () => ({ kind: 'sent' as const })) });
+      expect((await autopilotTick(reload.deps)).kind).toBe('busy');
+    });
+
     it('(aa) an already-delivered refusal does not leave the tick on a stale armed-round busy', async () => {
       seedPr(PASSING);
       conflict();

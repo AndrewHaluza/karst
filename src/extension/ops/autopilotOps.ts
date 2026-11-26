@@ -471,11 +471,9 @@ async function startRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, refused
 async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, stored: RefusedMerge): Promise<AutopilotResult | null> {
   // An armed round owns the merge; the guard waits for its delivery or its end.
   if (d.conflictRoundActive()) return { kind: 'busy' };
-  // A park already names the state (a spent budget, a placement stop, a no-change round): re-entering it every tick would
-  // only repeat the placement/budget checks and could announce a wait for a round that already parked. A person's action
-  // (Retry, approve one more, an override change) clears the park and the recorded heads first.
-  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== null) return { kind: 'idle' };
   const refused: RoundRefusal = { repo: stored.repo, tail: stored.tail ?? 'the gate fix round did not finish', sha: stored.sha, runId: stored.runId, baseRef: stored.baseRef, baseSha: stored.baseSha };
+  // The guard clears from observed state BEFORE any park short-circuit: a delivery or a fix that landed while the ticket
+  // was parked must still retire the guard (a later person action then starts clean).
   if (refusedMergeDelivered(d.store, d.ticketId, refused.repo, stored.sha)) {
     clearRefusedMerge(d.store, d.ticketId);
     d.debug(`${LOG} ticket ${d.key}: the refused merge ${stored.sha.slice(0, 9)} was delivered; the guard is cleared`);
@@ -492,20 +490,28 @@ async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, store
     d.debug(`${LOG} ticket ${d.key}: the fix moved the local head; the refused-merge guard is cleared`);
     return null;
   }
-  const failure = refusedFailure(d, stored.runId, stored.baseRef, stored.baseSha);
-  if (failure === null || !failure.available || failure.failed.length === 0) return parkRefusedMerge(d, refused);
-  // A fix commits in a FAILED repo, so its head moves past the head the refused run gated even when the conflicted merge
-  // repo did not move. Then the round made a commit (autoReship pushes it) and the old run heads must not read as no change.
-  // The guard repo was checked above against the refused sha; only the OTHER failed repos are compared here.
-  for (const [repo, gateHead] of failedRepoHeads(failure.failed, failure.run.headSha)) {
-    if (repo === stored.repo || gateHead === null) continue;
-    const now = await localHead(repo).catch(() => null);
-    if (now !== null && now !== gateHead) {
-      clearRefusedMerge(d.store, d.ticketId);
-      d.debug(`${LOG} ticket ${d.key}: the fix moved ${repo} past the refused run; the guard is cleared`);
-      return null;
+  const failure = deliverRunFailureState(d.store, d.ticketId, stored.runId, stored.baseRef, stored.baseSha);
+  if (failure.available) {
+    // A fix commits in a FAILED repo, so its head moves past the head the refused run gated even when the conflicted merge
+    // repo did not move. Then the round made a commit (autoReship pushes it) and the old run heads must not read as no
+    // change. The guard repo was checked above against the refused sha; only the OTHER failed repos are compared here.
+    for (const [repo, gateHead] of failedRepoHeads(failure.failed, failure.run.headSha)) {
+      if (repo === stored.repo || gateHead === null) continue;
+      const now = await localHead(repo).catch(() => null);
+      if (now !== null && now !== gateHead) {
+        clearRefusedMerge(d.store, d.ticketId);
+        d.debug(`${LOG} ticket ${d.key}: the fix moved ${repo} past the refused run; the guard is cleared`);
+        return null;
+      }
     }
   }
+  // A park already names the state (a spent budget, a placement stop, a no-change round): re-entering it every tick would
+  // only repeat the placement/budget checks and could announce a wait for a round that already parked. A person's action
+  // (Retry, approve one more, an override change) clears the park and the recorded heads first.
+  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== null) return { kind: 'idle' };
+  // No readable run, no failed gate or no seam: the T1315 fallback park names the merge for a manual Deliver. The guard
+  // stays, so no automatic resume delivers it.
+  if (!failure.available || failure.failed.length === 0 || d.sendRefusedMergeFailure === undefined) return parkRefusedMerge(d, refused);
   // A round already ran at this state: never a second send. The gate fix round's own no-change guard decides between a
   // retry (a head moved) and the park (nothing moved). The launch-death window is the grace while the session starts; after
   // it, a sent round with no head move is one that made no commit, so park with the no-change reason instead of waiting in
@@ -516,6 +522,11 @@ async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, store
     const at = getCiRoundAt(d.store, d.ticketId);
     // Stryker disable next-line EqualityOperator: equivalent at the exact millisecond boundary (one more busy tick or the same park)
     if (Date.now() - (at ?? 0) < ROUND_LAUNCH_DEATH_WINDOW_MS) return { kind: 'busy' };
+    // A ship that started after the refusal may already have pushed the merge; prs.head_oid can lag its own push, so the
+    // no-change park would be false. Wait for the probe, which either ends the round or clears the guard. A run with no end
+    // time (a malformed row) falls back to its own start: never park on evidence that cannot name when the refusal happened.
+    // Stryker disable next-line EqualityOperator: equivalent at the exact equality of a ship start and the refusal end
+    if (listShipRuns(d.store, d.ticketId).some((r) => r.startedAt > (failure.run.endedAt ?? failure.run.startedAt))) return { kind: 'busy' };
     return park(d, 'ci', NO_CHANGE_BASE_MOVED_REASON, 'the gate fix round made no commit and the failed repo is still at the same head; fix it by hand or approve one more attempt.', false, sent[1]);
   }
   return sendRefusedRound(d, cfg, failure, () => d.sendRefusedMergeFailure!(failure));
