@@ -164,9 +164,14 @@ const FOCUS_CAP = 12;
  * count grows because the page now renders the rows the seed left empty: among them the
  * repository rows, the base-branch override, the approach options, the agent presets,
  * the provider ticket search and the attachment.
+ *
+ * Updated a nineteenth time by the dashboard ticket menu Archive item (T1391):
+ * `dashboard` 49 → 50 — `#archiveTicket`, a net-new control. No dashboard control
+ * archived a ticket before (the sidebar menu had the only one), so it folds into
+ * nothing. It is host-gated (`hidden` unless `canArchive`), but the sweep counts it.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
-  dashboard: 49, // fourteenth note: #closeTicket / #reopenTicket
+  dashboard: 50, // fourteenth note: #closeTicket / #reopenTicket; nineteenth: #archiveTicket
   usage: 37, // sixteenth note: page header, tabs, sort headers, ticket links and the state actions
   resources: 19, // thirteenth note: the Servers / Resources tab buttons
   serverLogs: 14, // seventeenth note: Follow, Wrap and Copy
