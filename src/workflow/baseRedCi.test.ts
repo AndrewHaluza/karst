@@ -70,6 +70,7 @@ describe('isBaseRed', () => {
     expect(isBaseRed(['a'], ['a', 'b'])).toBe(true);
     expect(isBaseRed(['a', 'b'], ['a', 'b'])).toBe(true);
     expect(isBaseRed(['a', 'c'], ['a', 'b'])).toBe(false);
+    expect(isBaseRed(['a'], null)).toBe(false);
   });
 
   it('is false for an empty PR set', () => {

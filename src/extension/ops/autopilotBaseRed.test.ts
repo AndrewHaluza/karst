@@ -186,3 +186,87 @@ describe('baseRedStep', () => {
     expect(hit.seams.baseRunIds).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('baseRedStep mutation pins (T1383 review)', () => {
+  const RED = { runs: [run('3', 'failure'), run('1', 'failure')], ids: { '3': [ID], '1': [ID] } };
+
+  it('writes the exact wait note and debug line', async () => {
+    const x = ctx(RED);
+    await baseRedStep(x.c, [check()]);
+    expect(x.notes).toEqual([[
+      'Autopilot: waiting for a green develop: Visual fails there too',
+      'AP-1: Visual failed in r on the same tests as develop at 5d7aef5a5. No round starts and no attempt is used until develop is green.',
+    ]]);
+    expect(x.c.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 ci: waiting for a green develop: Visual fails there too');
+  });
+
+  it('writes the exact debug line of a gh error, and of a rebase', async () => {
+    const err = ctx({ prLog: new Error('gh down') });
+    await baseRedStep(err.c, [check()]);
+    expect(err.c.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 ci: base-red check of Visual not read (gh down)');
+    const ok = ctx();
+    await baseRedStep(ok.c, [check()]);
+    expect(ok.c.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1 ci: rebased on base: Visual failed on develop too (5d7aef5a5) and develop is green at ccccccccc');
+    expect(baseRedRuns(store, id, 'r', 'Visual')).toEqual([{ runId: '100', base: 'develop', stopped: false, rerunAt: 5_000 }]);
+  });
+
+  it('writes the exact stopped note when the rebase pushed nothing or threw', async () => {
+    const x = ctx({ rebase: false });
+    await baseRedStep(x.c, [check()]);
+    const line = 'rebase on base stopped: Visual failed on develop too (5d7aef5a5) and develop is green at ccccccccc';
+    expect(x.notes).toEqual([[`Autopilot: ${line}`, `AP-1: ${line} in r. It used no attempt. Today's rules apply.`]]);
+    expect(x.c.debug).toHaveBeenCalledWith(`[ship] autopilot ticket AP-1 ci: ${line}`);
+    store = openStore(':memory:');
+    id = createTicket(store, { key: 'AP-1', title: 't' }).id;
+    const thrown = ctx();
+    thrown.seams.rebase.mockRejectedValue(new Error('git'));
+    expect(await baseRedStep(thrown.c, [check()])).toEqual({ kind: 'none', earlier: new Map([['Visual', 'develop']]) });
+  });
+
+  it('gives none when one red check passed its 24 hours through the develop run and another did not', async () => {
+    expect(await baseRedStep(ctx({ ...RED, now: 1_000 }).c, [check()])).toEqual({ kind: 'waiting' });
+    const late = ctx({ ...RED, now: 1_000 + BASE_RED_WAIT_MS });
+    expect(await baseRedStep(late.c, [check('Visual', 'r', '102'), check('Other', 'r', '103')])).toEqual({ kind: 'none', earlier: new Map() });
+    expect(late.notes).toEqual([]);
+  });
+
+  it('reads a marker for a check whose url is not a job url', async () => {
+    markAutopilotRerun(store, id, { repo: 'r', runId: '99', checkName: 'Visual', headSha: PR_HEAD, pattern: 'base-red:develop', rerunAt: 1 });
+    expect(await baseRedStep(ctx().c, [{ ...check(), url: 'not a url' }])).toEqual({ kind: 'none', earlier: new Map([['Visual', 'develop']]) });
+  });
+
+  it('waits when a marker of the current run is fresh, even with a marker on an earlier run', async () => {
+    markAutopilotRerun(store, id, { repo: 'r', runId: '99', checkName: 'Visual', headSha: PR_HEAD, pattern: 'base-red:develop', rerunAt: 1 });
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'Visual', headSha: PR_HEAD, pattern: 'base-red:develop', rerunAt: 4_000 });
+    expect(await baseRedStep(ctx().c, [check()])).toEqual({ kind: 'rebased' });
+  });
+
+  it('reads no develop run when the PR log has no failing test id', async () => {
+    const x = ctx({ prLog: 'npm error\n' });
+    await baseRedStep(x.c, [check()]);
+    expect(x.seams.readRunWorkflowId).not.toHaveBeenCalled();
+  });
+
+  it('names the failed develop run whose ids hold the PR ids, not the newest failed one', async () => {
+    const x = ctx({ runs: [run('9', 'success', GREEN_SHA), run('8', 'failure', 'f'.repeat(40)), run('1', 'failure')], ids: { '8': ['other'], '1': [ID] } });
+    await baseRedStep(x.c, [check()]);
+    expect(x.notes[0]![0]).toBe('Autopilot: rebased on base: Visual failed on develop too (5d7aef5a5) and develop is green at ccccccccc');
+  });
+
+  it('gives none when the newest develop run was cancelled, even when its log holds the PR ids', async () => {
+    expect((await baseRedStep(ctx({ runs: [run('3', 'cancelled'), run('1', 'failure')], ids: { '3': [ID], '1': [ID] } }).c, [check()])).kind).toBe('none');
+  });
+
+  it('reads the ids of the red run once when it is also the newest run', async () => {
+    const x = ctx({ runs: [run('1', 'failure')], ids: { '1': [ID] } });
+    expect(await baseRedStep(x.c, [check()])).toEqual({ kind: 'waiting' });
+    expect(x.seams.baseRunIds).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not rebase when another step already holds the marker key of the current run', async () => {
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'Visual', headSha: PR_HEAD, pattern: 'transient:x', rerunAt: 1 });
+    const x = ctx();
+    expect(await baseRedStep(x.c, [check()])).toEqual({ kind: 'none', earlier: new Map() });
+    expect(x.seams.rebase).not.toHaveBeenCalled();
+  });
+});

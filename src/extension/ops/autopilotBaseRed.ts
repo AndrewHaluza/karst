@@ -53,7 +53,6 @@ const messageOf = (err: unknown): string => (err instanceof Error ? err.message 
 export async function baseRedStep(c: BaseRedContext, fails: readonly FailedCheck[]): Promise<BaseRedStep> {
   const marked = markerState(c, fails);
   if (marked !== null) return marked;
-  if (fails.length === 0) return NONE;
   const proofs: Proof[] = [];
   for (const target of fails) {
     const url = parseCheckUrl(target.url);
@@ -87,7 +86,7 @@ function markerState(c: BaseRedContext, fails: readonly FailedCheck[]): BaseRedS
   for (const f of fails) {
     const runs = baseRedRuns(c.store, c.ticketId, f.repo, f.name);
     if (runs.length === 0) continue;
-    const runId = parseCheckUrl(f.url)?.runId ?? '';
+    const runId = parseCheckUrl(f.url)?.runId;
     if (runs.some((r) => r.runId === runId && !r.stopped && c.now() - r.rerunAt < STALE_WAIT_MS)) waiting = true;
     else earlier.set(f.name, runs[0]!.base);
   }
@@ -101,22 +100,23 @@ async function prove(c: BaseRedContext, target: FailedCheck, url: CheckUrl, base
   if (prIds.length === 0) return null;
   const workflowId = await c.seams.readRunWorkflowId(target.cwd, url);
   const runs = await c.seams.listBaseRuns(target.cwd, url, workflowId, base);
-  const newest = runs[0];
-  if (newest === undefined) return null;
   let red: BaseRun | null = null;
   for (const r of runs.filter((x) => x.conclusion === 'failure').slice(0, MAX_BASE_RED_LOGS)) {
     const ids = await c.seams.baseRunIds(target.cwd, url, r.runId, target.name);
-    if (ids !== null && isBaseRed(prIds, ids)) { red = r; break; }
+    if (isBaseRed(prIds, ids)) { red = r; break; }
   }
   if (red === null) return null;
+  // A proof needs a failed run, so the list is not empty.
+  const newest = runs[0]!;
   const prHead = await c.seams.readRunHeadSha(target.cwd, url);
   if (newest.conclusion === 'success') {
+    // Stryker disable next-line StringLiteral: 'green' is only "not green-in-head and not red"; any other text acts the same.
     const inHead = await c.seams.commitInHead(target.cwd, url, newest.headSha, prHead);
     return { target, url, base, prHead, red, newest, state: inHead ? 'green-in-head' : 'green' };
   }
   if (newest.conclusion !== 'failure') return null;
   const ids = newest.runId === red.runId ? prIds : await c.seams.baseRunIds(target.cwd, url, newest.runId, target.name);
-  return ids !== null && isBaseRed(prIds, ids) ? { target, url, base, prHead, red, newest, state: 'red' } : null;
+  return isBaseRed(prIds, ids) ? { target, url, base, prHead, red, newest, state: 'red' } : null;
 }
 
 function waitExpired(c: BaseRedContext, p: Proof): boolean {
@@ -146,6 +146,7 @@ async function rebaseRepos(c: BaseRedContext, proofs: readonly Proof[]): Promise
       repo, runId: p.url.runId, checkName: p.target.name, headSha: p.prHead, pattern: `${BASE_RED_PREFIX}${p.base}`, rerunAt: c.now(),
     }));
     if (marked.length === 0) continue;
+    // Stryker disable next-line ArrowFunction: undefined and false are both "not pushed".
     const pushed = await c.seams.rebase(repo).catch(() => false);
     if (pushed) done += marked.length;
     for (const p of marked) {

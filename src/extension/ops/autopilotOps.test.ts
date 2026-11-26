@@ -2195,7 +2195,7 @@ describe('autopilotTick base red (T1383)', () => {
     expect(r.notes.map((n) => n[0])).toEqual(['Autopilot: waiting for a green develop: Visual fails there too']);
   });
 
-  it('skips the step for a graph ticket and a sandboxed ticket', async () => {
+  it('skips the step for a graph ticket, a sandboxed ticket and an unread placement', async () => {
     seedBase(withUrl('build'));
     const graph = baseRig(GREEN, { isGraphTicket: () => true });
     await autopilotTick(graph.deps);
@@ -2203,6 +2203,9 @@ describe('autopilotTick base red (T1383)', () => {
     const sandbox = baseRig(GREEN, { placement: async () => 'sandbox' });
     await autopilotTick(sandbox.deps);
     expect(sandbox.rebase).not.toHaveBeenCalled();
+    const unread = baseRig(GREEN, { placement: async () => { throw new Error('no placement'); } });
+    await autopilotTick(unread.deps);
+    expect(unread.rebase).not.toHaveBeenCalled();
   });
 
   it('ends the park reason with the base-red suffix for a check rebased on an earlier run', async () => {

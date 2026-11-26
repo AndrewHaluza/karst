@@ -51,8 +51,8 @@ export function extractFailingTestIds(log: string): string[] {
   return [...ids].sort();
 }
 
-/** True when the PR set is not empty and every PR id is in the base set. */
-export function isBaseRed(prIds: readonly string[], baseIds: readonly string[]): boolean {
+/** True when the PR set is not empty and every PR id is in the base set. A null base set (no log) is empty. */
+export function isBaseRed(prIds: readonly string[], baseIds: readonly string[] | null): boolean {
   if (prIds.length === 0) return false;
   const base = new Set(baseIds);
   return prIds.every((id) => base.has(id));
