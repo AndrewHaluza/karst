@@ -84,9 +84,16 @@ describe('pinned account', () => {
     expect(parseRunIdentities(serializeRunIdentities(ids))).toEqual(ids);
   });
 
+  it('keeps a pinned built-in default account (the default folder, not the active account)', () => {
+    const debug = vi.fn();
+    const parsed = parseRunIdentities(withAccount('default'), debug);
+    expect(parsed?.roles.worker).toEqual({ ...base.roles.worker, account: 'default' });
+    expect(debug).not.toHaveBeenCalled();
+  });
+
   it('drops an unsafe account name, keeps the role, and logs one debug line', () => {
     const debug = vi.fn();
-    for (const unsafe of ['../escape', 'Work Account', 'default']) {
+    for (const unsafe of ['../escape', 'Work Account', '']) {
       debug.mockClear();
       const parsed = parseRunIdentities(withAccount(unsafe), debug);
       expect(parsed?.roles.worker).toEqual(base.roles.worker);
