@@ -485,6 +485,7 @@ describe('replan precondition (Decision 27)', () => {
     expect(run).toMatchObject({ status: 'blocked', outcome: 'blocked' });
     expect(run.reason).toContain('replan requested without an observable precondition');
     expect(run.reason).toContain('the host checks the workspace of the node against its declared write claims');
+    expect(run.reason).toContain('make and commit the change in the workspace, then report replan');
     expect(run.reason).toContain('redo');
   });
 });
