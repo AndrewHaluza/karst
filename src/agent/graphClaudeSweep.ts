@@ -40,6 +40,12 @@ export interface GraphClaudeSweepDeps extends ClaudeSweepDeps {
   /** The claude `projects/` dir that holds this session's transcript (the
    *  account of the session can move it with `CLAUDE_CONFIG_DIR`). */
   projectsDirFor(sessionId: string): string;
+  /**
+   * T1380: the usage-limit read of the same transcript text, tagged with the
+   * session and its graph launch id, so the host can park the run. Absent →
+   * only `onTranscript` runs (backward compatible).
+   */
+  onGraphTranscript?: (session: GraphClaudeSession, launchId: string, text: string) => void;
 }
 
 /** The session's graph launch id, or null when its generation is not a UUID. */
@@ -93,7 +99,14 @@ export async function sweepGraphClaudeSessions(
     }
     const state = states.get(launchId) ?? { transcriptPath: null, eventId: null, fingerprint: null };
     states.set(launchId, state);
-    const outcome = await sweepClaudeTranscript(deps, {
+    const onGraphTranscript = deps.onGraphTranscript;
+    const sweepDeps = onGraphTranscript === undefined ? deps : {
+      ...deps,
+      onTranscript: (_ticketId: number, _sessionId: string, text: string): void => {
+        onGraphTranscript(session, launchId, text);
+      },
+    };
+    const outcome = await sweepClaudeTranscript(sweepDeps, {
       ticketId: session.ticketId,
       sessionId,
       transcriptPath: transcriptPathFor(deps.projectsDirFor(sessionId), session.cwd, sessionId),

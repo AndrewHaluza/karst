@@ -45,8 +45,11 @@ export const GRAPH_RUN_TRANSITIONS: Readonly<Record<string, readonly string[]>> 
   // the run at `planning`, and the typed recovery re-opens the run to
   // `planning` to launch a fresh bootstrap planner on the SAME graph run.
   // `blocked → running` also restores an already-accepted plan whose finished
-  // planner is gone (typed recovery).
-  blocked: ['running', 'planning', 'cancelled', 'stale'],
+  // planner is gone (typed recovery). `blocked → draining` is the recovery exit
+  // for resuming a `usage-limit`-blocked REPLAN planner back into its draining
+  // revision — the replacement planner compiles the same target revision, so
+  // the drain it belongs to must be re-opened, never re-elected.
+  blocked: ['running', 'planning', 'draining', 'cancelled', 'stale'],
   'completed-awaiting-impl-marker': ['closed', 'cancelled', 'stale'],
   closed: [],
   stale: [],

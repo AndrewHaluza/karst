@@ -143,6 +143,25 @@ describe('sweepGraphClaudeSessions (T1370)', () => {
     expect(h.posted).toEqual([]);
   });
 
+  it('hands the transcript to onGraphTranscript with the session and its launch id (T1380)', async () => {
+    writeTranscript(PLANNER_CWD, SESSION, `${LINE}\n`);
+    const h = harness();
+    const seen: Array<{ role: string; runId: number; launchId: string; text: string }> = [];
+    await sweepGraphClaudeSessions(
+      {
+        ...h.deps,
+        onGraphTranscript: (session, launchId, text) => {
+          seen.push({ role: session.role, runId: session.runId, launchId, text });
+        },
+      },
+      [planner()],
+      new Map(),
+    );
+    expect(seen).toEqual([
+      { role: 'planner', runId: 121, launchId: `graph-81-planner-121-${GEN}`, text: `${LINE}\n` },
+    ]);
+  });
+
   it('removes the state of a session that is no longer live', async () => {
     writeTranscript(PLANNER_CWD, SESSION, `${LINE}\n`);
     const h = harness();

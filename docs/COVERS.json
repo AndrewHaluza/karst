@@ -284,6 +284,9 @@
     "arch:GRAPH-AUTORECOVERY",
     "arch:GRAPH-REPLAN-DRAIN"
   ],
+  "src/approaches/graph/coordinator/usageLimitPark.ts": [
+    "arch:GRAPH-AUTORECOVERY"
+  ],
   "src/approaches/graph/integration/changeSetCapture.ts": [
     "arch:GRAPH-PRESERVE"
   ],

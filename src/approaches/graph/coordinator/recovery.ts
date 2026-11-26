@@ -43,6 +43,11 @@
  *                       faulted and retries the reserved visit only when the
  *                       correction is real, else refuses explicit-resolution
  *                       (`artifactRecheck.ts`). Never automatic.
+ *   usage-limit         a provider quota stop (T1380). Manual only: a node
+ *                       relaunches its reserved visit, a bootstrap planner
+ *                       relaunches on the run, and a replan planner re-opens its
+ *                       draining revision for a replacement planner. The launch
+ *                       reads the run's current identity snapshot.
  *   explicit-resolution integration conflict, topology deadlock,
  *                       unrecognized reasons —
  *                       corrected claims or replan/expert
@@ -110,6 +115,7 @@ import { recoveryGuidance } from './recoveryGuidance.js';
 import { ARTIFACT_FAULT_STATUSES, recheckArtifactFaults } from './artifactRecheck.js';
 import { DEFAULT_GRAPH_LIMITS, GRAPH_HARD_CEILINGS } from '../../../manifest/graphConfig.js';
 import { activeRevision } from '../../../store/graph/revisions.js';
+import { inReplanDrain } from './replanDrain.js';
 import { parseGraphDocument } from '../parse.js';
 
 /** The one graph blocker kind (defined here, on the graph side; the stage
@@ -127,6 +133,7 @@ export type RecoveryCategory =
   | 'discard-required'
   | 'config-then-resume'
   | 'artifact-recheck'
+  | 'usage-limit'
   | 'explicit-resolution';
 
 /** The closed refusal reasons a `refused` recovery returns. */
@@ -250,6 +257,10 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   // T1323: the superseded clone holds work that could not be written to a
   // patch. The clone is kept, so a retry would repeat the same failure.
   if (reason.startsWith('graph-preserve-failed')) return 'config-then-resume';
+  // T1380: the provider's usage limit is a MANUAL stop — checked before
+  // `node-blocked` so the block never reads as an automatic launch retry (the
+  // same core is exhausted; three relaunches would repeat the failure).
+  if (reason.startsWith('usage-limit')) return 'usage-limit';
   if (reason.startsWith('node-blocked')) return 'launch-retry';
   if (reason.startsWith('failed-to-launch')) return 'launch-retry';
   // A live process still serves the node workspace: it ends, then a retry works.
@@ -767,6 +778,77 @@ function plannerRelaunchRecovery(
 }
 
 /**
+ * The `usage-limit` resume of a REPLAN planner. The park blocked the run while
+ * its revision was `draining`, so the durable exit is NOT a fresh election
+ * (that would spend another replan and re-open a different drain): the run is
+ * re-opened `blocked → draining`, the block/`blocked_reason` clears, and a
+ * replacement replan planner is allocated for the SAME target revision — the
+ * same `beginReplanPlannerRun` path the election's launch step uses, without
+ * `electReplan` and without a second `replan_count` increment.
+ */
+function replanPlannerRelaunchRecovery(
+  deps: RecoveryDeps,
+  input: { ticketId: number; graphRunId: number },
+): RecoveryResult {
+  const db = deps.store.db;
+  const reopened = deps.transaction(() => {
+    if (
+      !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, input.graphRunId, 'blocked', 'draining')
+    ) {
+      return false; // a racing window already moved the run
+    }
+    clearGraphRunBlocked(db, input.graphRunId, deps.now());
+    const block = stageBlock(deps.store, input.ticketId, 'impl');
+    if (block && block.kind === GRAPH_FAILED_BLOCKER) {
+      clearStageBlock(deps.store, input.ticketId, 'impl');
+    }
+    return true;
+  });
+  if (!reopened) return { kind: 'no-op' };
+
+  if (deps.readPrompt && deps.writeSnapshot && deps.plannerPromptPath && deps.ticketContext !== undefined) {
+    const launchDeps: ReplanLaunchDeps = {
+      db,
+      transaction: deps.transaction,
+      now: deps.now,
+      debug: deps.debug,
+      writeSnapshot: deps.writeSnapshot,
+      readPrompt: deps.readPrompt,
+      promptPath: deps.plannerPromptPath,
+      ticketContext: deps.ticketContext,
+      preservedWorkOf: deps.preservedWorkOf,
+    };
+    const begun = beginReplanPlannerRun(launchDeps, { graphRunId: input.graphRunId });
+    if (begun.ok) {
+      emitGraphDiagnostic({ db, debug: deps.debug }, {
+        category: 'replan',
+        graphRunId: input.graphRunId,
+        plannerRunId: begun.plannerRunId,
+        detail: `resumed — planner run ${begun.plannerRunId} (#${begun.plannerRunNumber}), run re-opened to draining`,
+      });
+      return {
+        kind: 'replanned',
+        plannerRunId: begun.plannerRunId,
+        plannerRunNumber: begun.plannerRunNumber,
+        launch: begun.launch,
+      };
+    }
+    emitGraphDiagnostic({ db, debug: deps.debug }, {
+      category: 'replan',
+      graphRunId: input.graphRunId,
+      detail: `resumed; planner deferred (${begun.reason})`,
+    });
+    return { kind: 'replanned', plannerRunId: null, plannerRunNumber: null, launch: null };
+  }
+  emitGraphDiagnostic({ db, debug: deps.debug }, {
+    category: 'replan',
+    graphRunId: input.graphRunId,
+    detail: 'resumed; planner launch seams unwired',
+  });
+  return { kind: 'replanned', plannerRunId: null, plannerRunNumber: null, launch: null };
+}
+
+/**
  * Claim and run graph recovery for one blocked run. Returns what happened;
  * `refused` names the category that must not retry itself.
  */
@@ -811,6 +893,21 @@ export function recoverGraphRun(
   deps.debug?.(
     `[graph] recovery: run ${input.graphRunId} blocked_reason "${run.blocked_reason ?? 'none'}" → category ${category}`,
   );
+
+  // T1380: a usage-limit park is MANUAL (never in `AUTOMATIC_CATEGORIES`). Its
+  // Resume dispatches by the ROLE named in the block reason: a node relaunches
+  // its reserved visit; a bootstrap planner relaunches on the same run; a
+  // replan planner re-opens its draining revision and allocates a replacement.
+  // The launch reads the run's identity snapshot, so a model switch made before
+  // Resume applies without a second question.
+  if (category === 'usage-limit') {
+    const namesPlanner = run.blocked_reason?.startsWith('usage-limit: planner run') === true;
+    if (!namesPlanner) return retryReservedVisits(deps, input, category);
+    if (inReplanDrain(store.db, input.graphRunId)) {
+      return replanPlannerRelaunchRecovery(deps, input);
+    }
+    return plannerRelaunchRecovery(deps, input);
+  }
 
   // The launch-loop guard. A plain Resume of a launch-retry category retries
   // the reserved visits in place (`retryReservedVisits`); when a node it WOULD

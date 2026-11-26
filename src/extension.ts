@@ -262,6 +262,7 @@ import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js
 import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinator/replan.js';
 import { createSupervisedCliTransport, type SupervisedCliTransport, type SupervisedAgentSession } from './approaches/graph/transport/supervisedCliTransport.js';
 import { createGraphUsageBinding } from './extension/graphUsageBinding.js';
+import { createGraphUsageLimitBinding } from './extension/graphUsageLimitBinding.js';
 import {
   activeGraphRunFor,
   graphTicketSurface,
@@ -4163,6 +4164,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket);
   };
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
+  const graphUsageLimit = createGraphUsageLimitBinding({ store: () => graphCoordinatorStore, transaction: <T>(fn: () => T): T => runImmediateTransaction(graphCoordinatorStore!.db, fn), now: () => new Date().toISOString(), // T1380
+    transport: () => graphTransport, recovery: () => graphRecoverySeams, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), manifest: () => currentManifest(), graphConfigOf: (id) => graphApproachConfigFor(id),
+    ticketLaunchFieldsOf: (id) => ticketLaunchFields(getTicket(graphCoordinatorStore!, id)), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, debug: (m) => logger.debug(m), logError });
   const interactiveUsageLimit = createInteractiveUsageLimitBinding({ store: localStore, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), sessionProviderFor, // D160 AC-42
     switchSession: (id, sel) => switchAgentSession(id, sel.provider, sel.model, null), disposeSession: (id) => sessions.disposeSession(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); } });
   endpoint = await startHookEndpoint(
@@ -4177,6 +4181,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       debug: (message) => logger.debug(message),
       tracker: turnTracker,
       onSessionError: interactiveUsageLimit.onSessionError,
+      onGraphUsageLimit: graphUsageLimit.onGraphHookUsageLimit, // T1380
       // The mail reply channel: a turn end with unread mail gets a fixed pointer.
       hookReply: mailbox.hookReply, refreshUnread: mailbox.refreshUnread, onReplyDelivered: mailbox.onReplyDelivered,
       ticketApi: {
@@ -4202,7 +4207,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-45 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? ask.error(m, OPEN_SYNC_DIFF).then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? ask.error(m, RETRY_NOW).then((c) => { if (c) void bridges?.retryNow(id); }) : ask.warn(m)); },
-    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError },
+    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError, onGraphUsageLimit: graphUsageLimit.onGraphHookUsageLimit },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
   try { stopStaleDeliverRuns(localStore, pidAlive, nowIso()); } catch (e) { logError('stale deliver runs sweep failed', e); }
   await sandboxLife.backfillPlacements(); await sandboxLife.backfillGraphPlacements(); await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, liveSandboxTicketIds: () => sandboxLife.liveSandboxTicketIds(), sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
@@ -4477,6 +4482,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         nodeRunId: identity.nodeRunId,
         ticketId: named.ticketId,
         graphRunId: identity.graphRunId,
+        // The launch id names a run row, not its role: carry the kind the
+        // re-attach read, or a revived planner is later swept/killed as a node
+        // (T1380 usage-limit park, T1370 transcript read).
+        runKind: identity.kind,
         pid: identity.pid,
         cwd: graphTerminalCwd(terminal),
         generation: identity.generation,
@@ -4759,7 +4768,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
   };
   const graphClaimEvidence = createGraphClaimEvidence(graphCompletionPipelineDeps, logError);
-  const graphUsage = createGraphUsageBinding({ endpointUrl: () => endpoint?.url, configDir: settingsDir, projectKey: () => projectEndpointKey(currentProject()?.slug), sessions: () => graphTransport?.sessions() ?? [], dispatch: (payload) => { dispatchHook(localStore, payload, notifyHook, shouldApplyHookState, sessionProviderFor, hookChannelRecorder, logger.debug); }, projectsDirFor: (sessionId) => resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)), debug: (m) => logger.debug(m), onError: logError }); // T1370
+  const graphUsage = createGraphUsageBinding({ endpointUrl: () => endpoint?.url, configDir: settingsDir, projectKey: () => projectEndpointKey(currentProject()?.slug), sessions: () => graphTransport?.sessions() ?? [], dispatch: (payload) => { dispatchHook(localStore, payload, notifyHook, shouldApplyHookState, sessionProviderFor, hookChannelRecorder, logger.debug, undefined, undefined, graphUsageLimit.onGraphHookUsageLimit); }, projectsDirFor: (sessionId) => resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)), debug: (m) => logger.debug(m), onError: logError, onGraphUsageLimit: graphUsageLimit.onGraphUsageLimit }); // T1370/T1380
 
   // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are
   // REAL vscode terminals, remembered in the identity registry so a reload

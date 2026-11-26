@@ -644,7 +644,7 @@ covers: src/workflow/stages/shipResume.ts, src/workflow/stages/ship.ts, src/exte
 END_DOC_BLOCK: [@arch:SHIP-RESUME]
 
 ## [@arch:GRAPH-AUTORECOVERY] The graph coordinator recovers a blocked run for the safe reasons, three times at most
-covers: src/approaches/graph/coordinator/autoRecovery.ts, src/approaches/graph/coordinator/recovery.ts, src/approaches/graph/coordinator/recoveryGuidance.ts, src/approaches/graph/coordinator/replan.ts, src/approaches/graph/coordinator/replanDrain.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts, src/extension/ops/graphReplanDrain.ts
+covers: src/approaches/graph/coordinator/autoRecovery.ts, src/approaches/graph/coordinator/recovery.ts, src/approaches/graph/coordinator/recoveryGuidance.ts, src/approaches/graph/coordinator/replan.ts, src/approaches/graph/coordinator/replanDrain.ts, src/approaches/graph/coordinator/usageLimitPark.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts, src/extension/ops/graphReplanDrain.ts
 
 The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` run when `recoveryCategoryFor(blocked_reason)` is an automatic category. The sweep uses the same entry and the same seams as the Resume and Replan buttons (`dispatchGraphRecovery`). The run claim (`blocked → running`) is a CAS, so two windows cannot both recover one block. The sweep shows no dialog. It writes one graph diagnostic and one bulletin note for each automatic recovery.
 
@@ -659,6 +659,7 @@ The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` r
 | `explicit-resolution` | `integration-conflict`, `graph-topology-deadlock` | no |
 | `config-then-resume` | `graph-budget-exhausted`, `graph-workspace-deps`, `graph-preserve-failed` | no |
 | `prompt-resnapshot` | `prompt-config-changed` | no |
+| `usage-limit` | `usage-limit` | no |
 | unknown reason | any other text | no |
 
 For `explicit-resolution` and `config-then-resume`, the blocked banner shows Replan as its only action because Resume refuses; the same holds for a `replan` or `compile-new-revision` block whose `replan_count` reached `budgets.maxReplans`. The guidance text comes from `recoveryGuidance.ts` for both the refusal notice and the diagnostic. A refusal names the control the click can actually use. `explicit-resolution` is a shared refusal reason: the true category is Replan-only, but the artifact re-check, the prompt re-snapshot and the bootstrap planner relaunch return the same reason while Resume is the offered action, so the guidance names Resume and the correction it re-probes. For `config-then-resume`, a reached project `limits.maxReplans` is stated before any reparable prefix, because Replan is that category's only exit and the cap refuses it before a repair could be followed.
@@ -668,6 +669,8 @@ A `graph-deferral-timeout` block outlived its ceiling, and the ceiling is two-ti
 A `graph-workspace-deps` block means a node clone could not get the dependencies of its ticket worktree (`@arch:GRAPHDEPS`). A retry would repeat the same install, so a human installs the dependencies or sets `graphWorkspace`, then runs Replan.
 
 A `graph-preserve-failed` block means the host could not write the work of a superseded clone to a patch. The clone stays on disk. A retry would repeat the same failure, so a human repairs the cause first.
+
+A `usage-limit` park blocks the role row and the graph run in one transaction, then terminates the session through the graph transport. A PARALLEL node that hits the same provider stop still parks and is terminated, but the run keeps the first node's reason and only the first park offers the prompt. The park retries a lock-contended transaction with bounded asynchronous backoff: the coordinator connection runs with no busy timeout, and a hook or transcript signal arrives once. The post-commit stage write retries the same way and is best-effort, so it never turns the committed park into a reported failure; a refused Resume in the prompt shows the same guidance as the blocked banner's Resume.
 
 An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. When that budget is spent, the recovery refuses with `config-then-resume` before the run claim and changes no row. The run keeps its block reason and the node keeps its failure evidence. A human Replan bypasses the document budget. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file.
 
@@ -689,6 +692,8 @@ A node run holds a replan drain open in every `ACTIVE_NODE_STATUSES` status, exc
 
 - A `blocked` node run with the failure category `resource-claim-violated`, `integration-conflict` or `graph-budget-exhausted`. Each writer proves termination first: the pipeline, and `recordClaimEvidence` for `resource-claim-violated`. The category is the evidence a replan needs.
 - A node run with the status `output-artifact-missing` or `artifact-unsafe`. The pipeline writes both only after it proves termination, and the replan submit cancels these rows.
+
+A `blocked` node run with the failure category `usage-limit` is a third shape: the park writes the block BEFORE the attributable kill, so the row is dead for the drain only once its `process_runs` row is no longer `running`. A live session, or a denied/unknown kill, keeps the drain waiting; the replan submit then cancels the row with the superseded revision's work.
 
 A held lease does not hold the drain. It is the deferral source for revision N+1.
 

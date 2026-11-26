@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../db.js';
 import { createTicket } from '../tickets.js';
 import { openProcessRun, finishProcessRun } from '../processRuns.js';
-import { graphLaunchOwner, graphWorkspaceForCwd } from './sessionOwners.js';
+import { graphLaunchOwner, graphRunProcessIdentity, graphWorkspaceForCwd } from './sessionOwners.js';
 
 const T0 = '2026-11-26T10:00:00.000Z';
 const WS = '/data/graph/7/workspaces/31/app';
@@ -173,6 +173,79 @@ describe('graphLaunchOwner', () => {
       ticketId,
       provider: null,
     });
+  });
+});
+
+describe('graphRunProcessIdentity', () => {
+  it('reads the running process run identity of a node launch', () => {
+    seedRun();
+    const runId = openProcessRun(store, {
+      ticketId,
+      stageKey: 'impl',
+      processId: 'graph-node',
+      attempt: 1,
+      provider: 'opencode2',
+      model: 'big-pickle',
+      agentName: 'worker',
+      startedAt: T0,
+    }).id;
+    seedNode(runId);
+    // The run row records a different model: the live process run wins.
+    store.db.prepare("UPDATE approach_node_runs SET model = 'old-model' WHERE id = 31").run();
+    expect(graphRunProcessIdentity(store.db, 'node', 31)).toEqual({
+      provider: 'opencode2',
+      model: 'big-pickle',
+      agentName: 'worker',
+    });
+  });
+
+  it('reads a planner launch identity from its process run', () => {
+    seedRun();
+    const runId = openProcessRun(store, {
+      ticketId,
+      stageKey: 'impl',
+      processId: 'graph-planner',
+      attempt: 1,
+      provider: 'claude',
+      model: 'claude-opus-5-5',
+      agentName: 'expert',
+      startedAt: T0,
+    }).id;
+    seedPlanner(runId);
+    expect(graphRunProcessIdentity(store.db, 'planner', 4)).toEqual({
+      provider: 'claude',
+      model: 'claude-opus-5-5',
+      agentName: 'expert',
+    });
+  });
+
+  it('falls back to the run row identity when the process run is closed', () => {
+    seedRun();
+    const runId = processRun('claude', 'graph-node', true);
+    seedNode(runId);
+    store.db
+      .prepare("UPDATE approach_node_runs SET model = 'claude-sonnet-5', profile = 'fast' WHERE id = 31")
+      .run();
+    expect(graphRunProcessIdentity(store.db, 'node', 31)).toEqual({
+      provider: 'opencode2',
+      model: 'claude-sonnet-5',
+      agentName: 'fast',
+    });
+  });
+
+  it('falls back to the run row identity when the run has no process run', () => {
+    seedRun();
+    seedNode(null);
+    expect(graphRunProcessIdentity(store.db, 'node', 31)).toEqual({
+      provider: 'opencode2',
+      model: 'm',
+      agentName: 'worker',
+    });
+  });
+
+  it('is null for an unknown run id', () => {
+    seedRun();
+    expect(graphRunProcessIdentity(store.db, 'node', 999)).toBeNull();
   });
 });
 
