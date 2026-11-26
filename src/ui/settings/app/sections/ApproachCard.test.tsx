@@ -141,6 +141,14 @@ describe('ApproachCard — the roster card', () => {
     expect(install.className).toContain('k-btn--primary');
   });
 
+  it('fills the Install spinner slot with a download glyph, not an empty gap (UAT T1374)', () => {
+    mount();
+    const install = rtlWithin(card('remote')).getByRole('button', { name: 'Install' });
+    expect(install.className).toContain('k-btn--icon');
+    expect(install.className).not.toContain('k-btn--slot');
+    expect(install.querySelector('.k-btn-icon')).not.toBeNull();
+  });
+
   it('shows the source as one chip: repo@ref for git, npm <pkg> for npm', () => {
     const npm = {
       id: 'pkg',

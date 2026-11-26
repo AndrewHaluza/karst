@@ -89,6 +89,8 @@ export function ApproachInstallActions({ id, installed }: ApproachInstallActions
           variant="primary"
           size="sm"
           className="approach-install"
+          // The glyph fills the spinner slot; without it the slot shows as an empty gap.
+          icon="download"
           busy={install.busy}
           spinning={install.spinning}
           disabled={install.disabled}
