@@ -11,7 +11,7 @@ import { roundDied, type FixOutcome, type Placement } from './ops/autopilotOps.j
 import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
 import type { GhRunner } from '../integrations/github.js';
-import { makeBaseRedSeams, makeTransientCiSeams } from '../integrations/ciRerun.js';
+import { createBaseRedMemo, makeBaseRedSeams, makeTransientCiSeams } from '../integrations/ciRerun.js';
 import { rebaseOnBaseAction, gitFor, headShaOf } from './ops/ciActionsWiring.js';
 import { resumeFinishedMerge, type ResumeDeps } from './ops/conflictResumeOps.js';
 import { conflictRoundEnded, conflictRounds, verifyMergeResolved } from './ops/autoDeliverOps.js';
@@ -287,6 +287,8 @@ export function startAutopilot(d: AutopilotBindingDeps): {
     }
   };
   const cooling = (id: number): boolean => (cooldown.get(id) ?? 0) > now() && !running(id);
+  // One develop-job memo for the life of the binding: a red develop is not read again on each sweep (T1383).
+  const baseRedMemo = createBaseRedMemo();
   // One sweep at a time: overlapping sweeps must not spend the budget twice.
   let sweeping = false;
   const sweep = (): void => {
@@ -317,7 +319,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         },
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
         ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), heldRebase(id)) } : {}),
-        ...(d.gh ? { baseRed: makeBaseRedSeams(d.gh, heldRebase(id)) } : {}),
+        ...(d.gh ? { baseRed: makeBaseRedSeams(d.gh, heldRebase(id), baseRedMemo) } : {}),
         ...(ready() && d.shipRetry ? { shipRetry: d.shipRetry(id) } : {}),
         ...(ready() && d.retryShip ? { retryShip: (repos: readonly string[]) => shipRetryHeld(id, repos) } : {}),
       }),

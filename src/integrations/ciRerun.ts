@@ -130,8 +130,14 @@ export interface BaseRedSeams {
   readonly rebase: (repo: string) => Promise<boolean>;
 }
 
-export function makeBaseRedSeams(gh: GhRunner, rebase: (repo: string) => Promise<boolean>): BaseRedSeams {
-  const memo = new Map<string, readonly string[] | null>();
+/** The develop job ids read so far. The binding keeps ONE memo for its life: a memo per sweep reads every develop log again on each probe. */
+export type BaseRedMemo = Map<string, readonly string[] | null>;
+
+export function createBaseRedMemo(): BaseRedMemo {
+  return new Map();
+}
+
+export function makeBaseRedSeams(gh: GhRunner, rebase: (repo: string) => Promise<boolean>, memo: BaseRedMemo = createBaseRedMemo()): BaseRedSeams {
   const baseRunIds = async (cwd: string, c: CheckUrl, runId: string, jobName: string): Promise<readonly string[] | null> => {
     const key = `${c.owner}/${c.repo}\0${runId}\0${jobName}`;
     if (memo.has(key)) return memo.get(key)!;

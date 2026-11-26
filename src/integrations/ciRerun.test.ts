@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GhResult, GhRunner } from './github.js';
 import {
-  BASE_RUN_LIMIT, commitInHead, listBaseRuns, makeBaseRedSeams, makeTransientCiSeams, readJobLog, readRunHeadSha, readRunJobByName, readRunWorkflowId, rerunFailedJobs,
+  BASE_RUN_LIMIT, commitInHead, createBaseRedMemo, listBaseRuns, makeBaseRedSeams, makeTransientCiSeams, readJobLog, readRunHeadSha, readRunJobByName, readRunWorkflowId, rerunFailedJobs,
 } from './ciRerun.js';
 
 const c = { owner: 'acme', repo: 'app', runId: '7', jobId: '9' };
@@ -132,6 +132,14 @@ describe('makeBaseRedSeams', () => {
     await expect(s.baseRunIds('/w', C, '7', 'V')).resolves.toEqual(['vitest src/a.test.ts > b']);
     await expect(s.baseRunIds('/w', C, '7', 'V')).resolves.toEqual(['vitest src/a.test.ts > b']);
     expect(gh).toHaveBeenCalledTimes(3);
+  });
+  it('keeps the memo across seam sets that share it, so a later sweep reads no develop log again', async () => {
+    const jobs = JSON.stringify({ jobs: [{ name: 'V', url: 'https://github.com/o/r/actions/runs/7/job/9' }] });
+    const gh = ghOf(ok(jobs), ok(' FAIL  src/a.test.ts > b\n'));
+    const memo = createBaseRedMemo();
+    await expect(makeBaseRedSeams(gh, async () => true, memo).baseRunIds('/w', C, '7', 'V')).resolves.toEqual(['vitest src/a.test.ts > b']);
+    await expect(makeBaseRedSeams(gh, async () => true, memo).baseRunIds('/w', C, '7', 'V')).resolves.toEqual(['vitest src/a.test.ts > b']);
+    expect(gh).toHaveBeenCalledTimes(2);
   });
   it('gives null for a run without that job', async () => {
     const s = makeBaseRedSeams(ghOf(ok(JSON.stringify({ jobs: [] }))), async () => true);

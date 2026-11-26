@@ -8,7 +8,7 @@ import { gitFor, headShaOf, rebaseOnBaseAction } from './ops/ciActionsWiring.js'
 import { resumeFinishedMerge } from './ops/conflictResumeOps.js';
 import { verifyMergeResolved, conflictRoundEnded } from './ops/autoDeliverOps.js';
 import { deliverTargets } from '../workflow/deliverState.js';
-import { makeTransientCiSeams } from '../integrations/ciRerun.js';
+import { makeBaseRedSeams, makeTransientCiSeams } from '../integrations/ciRerun.js';
 import { roundDied } from './ops/autopilotOps.js';
 import { approveCommand, retryCommand, setOverrideCommand, stopCommand } from './ops/autopilotCommandOps.js';
 
@@ -22,6 +22,7 @@ vi.mock('../workflow/deliverState.js', () => ({ deliverTargets: vi.fn() }));
 vi.mock('../integrations/ciRerun.js', () => ({
   makeTransientCiSeams: vi.fn(() => ({ readJobLog: 'RJL', readRunHeadSha: 'RRS' })),
   makeBaseRedSeams: vi.fn((_gh: unknown, rebase: unknown) => ({ kind: 'BASE_RED', rebase })),
+  createBaseRedMemo: vi.fn(() => new Map()),
 }));
 vi.mock('./ops/autopilotOps.js', () => ({ roundDied: vi.fn(() => null) }));
 vi.mock('./ops/autopilotCommandOps.js', () => ({
@@ -272,6 +273,19 @@ describe('the seams of one ticket', () => {
     await expect((seams.baseRed as unknown as { rebase: (repo: string) => Promise<boolean> }).rebase('repo-a')).resolves.toBe(true);
     expect(rebaseOnBaseAction).toHaveBeenCalledWith(expect.anything(), expect.any(Function), { repos: new Set(['repo-a']) });
     expect(lease(r)).toBe(NOW + INTERVAL * 3);
+    handle.dispose();
+  });
+
+  it('gives the base-red seams of every sweep the same develop-job memo (T1383 review)', () => {
+    const r = rig({ gh: vi.fn() as never });
+    const handle = startAutopilot(r.deps);
+    vi.advanceTimersByTime(INTERVAL);
+    vi.mocked(autopilotSweep).mock.calls.at(-1)![0].seamsFor(r.id);
+    vi.advanceTimersByTime(INTERVAL);
+    vi.mocked(autopilotSweep).mock.calls.at(-1)![0].seamsFor(r.id);
+    const memos = vi.mocked(makeBaseRedSeams).mock.calls.slice(-2).map((c) => c[2]);
+    expect(memos[0]).toBeInstanceOf(Map);
+    expect(memos[1]).toBe(memos[0]);
     handle.dispose();
   });
 
