@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { sep } from 'node:path';
-import { KARST_EXCLUDE_RULES } from './karstExcludes.js';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
+import { ensureCloneKarstExcluded, KARST_EXCLUDE_RULES } from './karstExcludes.js';
 import { OWNED_PREFIXES } from '../agent/materializedCleanup.js';
 
 /**
@@ -67,6 +69,35 @@ describe('karst exclude rules', () => {
     for (const file of generatedFiles) {
       const covered = KARST_EXCLUDE_RULES.some((rule) => file.startsWith(prefixOf(rule)));
       expect(covered, `no exclude rule covers the generated file ${file}`).toBe(true);
+    }
+  });
+});
+
+describe('ensureCloneKarstExcluded (T1370)', () => {
+  it('creates the missing .git/info dir of a clone and writes every rule', async () => {
+    const clone = mkdtempSync(join(tmpdir(), 'karst-clone-excludes-'));
+    try {
+      await ensureCloneKarstExcluded(clone);
+      const lines = readFileSync(join(clone, '.git', 'info', 'exclude'), 'utf8').split('\n');
+      expect(lines).toEqual(expect.arrayContaining([...KARST_EXCLUDE_RULES]));
+      expect(lines).toContain('/.opencode/plugins/karst-*');
+    } finally {
+      rmSync(clone, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the rules a clone already has and adds only the missing ones', async () => {
+    const clone = mkdtempSync(join(tmpdir(), 'karst-clone-excludes-'));
+    try {
+      mkdirSync(join(clone, '.git', 'info'), { recursive: true });
+      writeFileSync(join(clone, '.git', 'info', 'exclude'), '/node_modules/\n');
+      await ensureCloneKarstExcluded(clone);
+      await ensureCloneKarstExcluded(clone);
+      const text = readFileSync(join(clone, '.git', 'info', 'exclude'), 'utf8');
+      expect(text.startsWith('/node_modules/\n')).toBe(true);
+      expect(text.split('\n').filter((l) => l === '/.opencode/plugins/karst-*')).toHaveLength(1);
+    } finally {
+      rmSync(clone, { recursive: true, force: true });
     }
   });
 });

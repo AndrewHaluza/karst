@@ -24,8 +24,8 @@ import {
   currentImplementationRun,
   interruptImplementationRun,
 } from '../store/implementationRuns.js';
-import { appendInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
-import { normalizeInteractiveUsage } from '../agent/interactiveUsage.js';
+import { recordUsageSample } from './usageIngest.js';
+import { dispatchGraphHook } from './graphDispatch.js';
 import { isKnownProvider } from '../agent/provider.js';
 import type {
   HookChannelRecorder,
@@ -612,27 +612,24 @@ function nextAgentState(
 }
 
 /**
- * Ingest a closed UsageUpdate event (Task 5): resolve the worktree → ticket,
- * narrow the usage payload, and append the measured cumulative sample to the
- * provider session's ledger, attributed to the ticket's currently bound
- * process. A malformed payload or an unattributable session changes nothing.
- * Usage is not a liveness signal — no agent_state is written. Returns true only
- * when displayed spend changed, so the host can refresh usage surfaces without
- * treating baselines, duplicates, or rejected samples as lifecycle activity.
+ * Ingest a closed UsageUpdate event (Task 5) of the ticket's OWN session:
+ * resolve the provider of that session and append the measured cumulative
+ * sample through the shared step (`recordUsageSample`). A malformed payload or
+ * an unattributable session changes nothing. Usage is not a liveness signal —
+ * no agent_state is written. Returns true only when displayed spend changed, so
+ * the host can refresh usage surfaces without treating baselines, duplicates,
+ * or rejected samples as lifecycle activity. A graph session's usage takes the
+ * graph branch instead (`dispatchGraphHook`, T1370).
  */
 function ingestUsageUpdate(
   store: Store,
+  ticketId: number,
   payload: HookPayload,
   sessionProviderFor?: SessionProviderFor,
   debug?: (msg: string) => void,
 ): boolean {
   if (!payload.session_id) {
     debug?.(`[usage] skipped: no session_id`);
-    return false;
-  }
-  const ticketId = ticketIdForWorktreePath(store, payload.cwd!);
-  if (ticketId === null) {
-    debug?.(`[usage] skipped: unknown worktree ${payload.cwd}`);
     return false;
   }
 
@@ -653,23 +650,11 @@ function ingestUsageUpdate(
     debug?.(`[usage] ticket ${ticketId}: no provider (durable=${durableProvider}, fallback=${sessionProviderFor?.(ticketId)})`);
     return false;
   }
-  const normalized = normalizeInteractiveUsage(payload.usage);
-  if (normalized === null) {
-    debug?.(`[usage] ticket ${ticketId}: malformed usage payload`);
-    return false;
-  }
-  debug?.(`[usage] ticket ${ticketId}: provider=${provider}, session=${payload.session_id}, input=${normalized.input}, output=${normalized.output}`);
-  const result = appendInteractiveUsageSample(store, {
-    ticketId,
-    sample: {
-      ...normalized,
-      provider,
-      providerSessionId: payload.session_id,
-      observedAt: nowIso(),
-    },
-  });
-  debug?.(`[usage] ticket ${ticketId}: append result=${result.kind}`);
-  return result.kind === 'recorded';
+  return recordUsageSample(
+    store,
+    { ticketId, provider, providerSessionId: payload.session_id, usage: payload.usage },
+    debug,
+  );
 }
 
 /** Hook events that do not prove the agent session works (T1111). */
@@ -713,12 +698,26 @@ export function dispatchHook(
       // Diagnostics are best-effort.
     }
   };
+  // T1370: a graph planner or node session admits only UsageUpdate. Its branch
+  // runs before the generation check (a graph launch id is no ticket
+  // generation). The launch-id match runs first, because a planner's cwd is the
+  // ticket worktree; the node-workspace match runs only when the worktree lookup
+  // found no ticket (a node workspace is no worktree).
+  const graphDeps = {
+    notify: notify ? (id: number): void => notify(id, payload) : undefined,
+    observe,
+    debug,
+  };
+  const byLaunch = dispatchGraphHook(store, payload, graphDeps, 'launch');
+  if (byLaunch !== null) return byLaunch;
   if (!payload.cwd) {
     observe('unknown-worktree');
     return { admitted: false };
   }
   const ticketId = ticketIdForWorktreePath(store, payload.cwd);
   if (ticketId === null) {
+    const byWorkspace = dispatchGraphHook(store, payload, graphDeps, 'workspace');
+    if (byWorkspace !== null) return byWorkspace;
     observe('unknown-worktree');
     return { admitted: false };
   }
@@ -777,7 +776,7 @@ export function dispatchHook(
   // the ledger; baselines, duplicates and rejected samples changed no displayed
   // spend and therefore notify nothing.
   if (payload.hook_event_name === 'UsageUpdate') {
-    if (ingestUsageUpdate(store, payload, sessionProviderFor, debug)) {
+    if (ingestUsageUpdate(store, ticketId, payload, sessionProviderFor, debug)) {
       notify?.(ticketId, payload);
     }
     return { admitted: true, ticketId };

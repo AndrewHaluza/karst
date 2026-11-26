@@ -18,6 +18,7 @@ import type {
 } from '../diagnostics/hookChannel.js';
 import { serveCreateTicketRequest, type TicketApiOptions } from './ticketApi.js';
 import { isBrowserRequest } from './requestGuard.js';
+import { isGraphLaunchId } from '../approaches/graph/graphLaunchId.js';
 
 /**
  * Cap the accepted hook body. A tool result rides the hook payload
@@ -50,8 +51,10 @@ export function parseHookRequestTarget(raw: string | undefined): HookRequestTarg
   if (launchIds.length > 1) return { kind: 'bad-request' };
   const launchId = launchIds[0];
   // The per-launch id is the endpoint's shared secret: a request without a
-  // well-formed one is refused before dispatch.
-  if (launchId === undefined || !LAUNCH_ID_RE.test(launchId)) {
+  // well-formed one is refused before dispatch. A graph session's id (T1370)
+  // carries its run's launch generation (a UUID) as the secret part; dispatch
+  // checks it against the run row.
+  if (launchId === undefined || !(LAUNCH_ID_RE.test(launchId) || isGraphLaunchId(launchId))) {
     return { kind: 'bad-request' };
   }
   return { kind: 'ok', launchId };
