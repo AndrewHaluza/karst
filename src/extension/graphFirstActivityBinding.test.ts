@@ -60,13 +60,16 @@ function fixture(input: {
       )
       .run(graphRunId, NOW).lastInsertRowid,
   );
+  // The launch (its process run) started 10 minutes ago: the watchdog window
+  // starts at the current launch, not at the node's first claim.
+  const launchedAt = new Date(Date.parse(NOW) - 10 * MINUTE).toISOString();
   const processRunId = Number(
     store.db
       .prepare(
         `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, status, started_at)
          VALUES (?, 'impl', 'graph-node', 0, 'running', ?)`,
       )
-      .run(ticketId, NOW).lastInsertRowid,
+      .run(ticketId, launchedAt).lastInsertRowid,
   );
   const nodeRunId = Number(
     store.db
@@ -76,7 +79,7 @@ function fixture(input: {
             process_run_id, started_at)
          VALUES (?, ?, 'impl', 'agent', 1, 'running', 'opencode2', ?, ?)`,
       )
-      .run(graphRunId, revisionId, processRunId, new Date(Date.parse(NOW) - 10 * MINUTE).toISOString())
+      .run(graphRunId, revisionId, processRunId, launchedAt)
       .lastInsertRowid,
   );
 

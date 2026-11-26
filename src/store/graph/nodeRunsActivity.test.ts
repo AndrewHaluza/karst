@@ -41,14 +41,14 @@ function harness(placement: string | null = null) {
       .run(graphRunId, NOW).lastInsertRowid,
   );
 
-  const processRun = (): number =>
+  const processRun = (startedAt: string = NOW): number =>
     Number(
       db
         .prepare(
           `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, status, started_at)
            VALUES (?, 'impl', 'graph-node', 0, 'running', ?)`,
         )
-        .run(ticketId, NOW).lastInsertRowid,
+        .run(ticketId, startedAt).lastInsertRowid,
     );
 
   const nodeRun = (input: {
@@ -90,7 +90,7 @@ describe('runningNodeRunsForFirstActivity', () => {
         id,
         process_run_id: processRunId,
         provider: 'opencode2',
-        started_at: NOW,
+        launched_at: NOW,
         placement: null,
         hasUsageSample: false,
       },
@@ -126,5 +126,22 @@ describe('runningNodeRunsForFirstActivity', () => {
     expect(runningNodeRunsForFirstActivity(db, graphRunId)).toMatchObject([
       { id, process_run_id: null, hasUsageSample: false },
     ]);
+  });
+
+  it('reads the start of the CURRENT launch from the process run, not the first claim', () => {
+    // A relaunch keeps the node's `started_at` (the first claim) and opens a
+    // new process run: the watchdog window must start at the new launch.
+    const { db, graphRunId, processRun, nodeRun } = harness();
+    const relaunchedAt = '2026-11-26T10:30:00.000Z';
+    nodeRun({ nodeId: 'impl', processRunId: processRun(relaunchedAt), startedAt: NOW });
+    expect(runningNodeRunsForFirstActivity(db, graphRunId)).toMatchObject([
+      { launched_at: relaunchedAt },
+    ]);
+  });
+
+  it('falls back to the node start when the process run has no start', () => {
+    const { db, graphRunId, nodeRun } = harness();
+    nodeRun({ nodeId: 'impl', processRunId: null, startedAt: NOW });
+    expect(runningNodeRunsForFirstActivity(db, graphRunId)).toMatchObject([{ launched_at: NOW }]);
   });
 });

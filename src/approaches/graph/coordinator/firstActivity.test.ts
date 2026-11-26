@@ -42,6 +42,8 @@ function fixture(input: {
   placement?: string | null;
   status?: string;
   startedAt?: string;
+  /** The start of the CURRENT launch (`process_runs.started_at`); defaults to `startedAt`. */
+  launchedAt?: string;
   awakeElapsedMs?: (sinceMs: number, nowMs: number) => number;
   proof?: TerminationProof | undefined;
 } = {}): Fixture {
@@ -63,14 +65,8 @@ function fixture(input: {
       )
       .run(graphRunId, NOW).lastInsertRowid,
   );
-  const processRunId = Number(
-    store.db
-      .prepare(
-        `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, status, started_at)
-         VALUES (?, 'impl', 'graph-node', 0, 'running', ?)`,
-      )
-      .run(ticketId, NOW).lastInsertRowid,
-  );
+  const startedAt = input.startedAt ?? new Date(Date.parse(NOW) - 10 * MINUTE).toISOString();
+  const processRunId = openLaunch(input.launchedAt ?? startedAt);
   const nodeRunId = Number(
     store.db
       .prepare(
@@ -85,7 +81,7 @@ function fixture(input: {
         input.status ?? 'running',
         input.provider ?? 'opencode2',
         processRunId,
-        input.startedAt ?? new Date(Date.parse(NOW) - 10 * MINUTE).toISOString(),
+        startedAt,
       ).lastInsertRowid,
   );
   if (input.placement !== undefined) {
@@ -127,6 +123,18 @@ function fixture(input: {
   };
 }
 
+/** Open the `process_runs` row of one launch, as the transport seam does. */
+function openLaunch(startedAt: string): number {
+  return Number(
+    store.db
+      .prepare(
+        `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, status, started_at)
+         VALUES (?, 'impl', 'graph-node', 0, 'running', ?)`,
+      )
+      .run(ticketId, startedAt).lastInsertRowid,
+  );
+}
+
 function nodeRow(id: number): {
   status: string;
   reason: string | null;
@@ -161,6 +169,10 @@ beforeEach(() => {
   ticketId = createTicket(store, { key: 'GP-1', title: 'thing', projectId }).id;
 });
 afterEach(() => store.close());
+
+function minutesAgo(minutes: number): string {
+  return new Date(Date.parse(NOW) - minutes * MINUTE).toISOString();
+}
 
 describe('runFirstActivityWatchdog', () => {
   it('terminates and parks an opencode2 node with no sample after 10 awake minutes', async () => {
@@ -279,6 +291,35 @@ describe('runFirstActivityWatchdog', () => {
     store.db.prepare('UPDATE approach_node_runs SET started_at = NULL WHERE id = ?').run(h.nodeRunId);
     expect(await runFirstActivityWatchdog(h.deps, h.graphRunId)).toEqual({ checked: 1, stopped: 0 });
     expect(h.terminations).toEqual([]);
+  });
+
+  it('measures the window from the CURRENT launch, so a relaunch of an old node is not stopped', async () => {
+    // The node was first claimed 40 minutes ago (`started_at` keeps that
+    // claim); the relaunch opened a new process run 1 minute ago.
+    const h = fixture({ startedAt: minutesAgo(40), launchedAt: minutesAgo(1) });
+    expect(await runFirstActivityWatchdog(h.deps, h.graphRunId)).toEqual({ checked: 1, stopped: 0 });
+    expect(h.terminations).toEqual([]);
+    expect(nodeRow(h.nodeRunId).status).toBe('running');
+  });
+
+  it('stops a relaunch only after 10 awake minutes of its own launch', async () => {
+    const h = fixture({ startedAt: minutesAgo(40), launchedAt: minutesAgo(10) });
+    expect(await runFirstActivityWatchdog(h.deps, h.graphRunId)).toEqual({ checked: 1, stopped: 1 });
+    expect(nodeRow(h.nodeRunId).reason).toBe('no session activity 10 min after launch');
+  });
+
+  it('gives a relaunch after a watchdog park a new full window', async () => {
+    const h = fixture({ startedAt: minutesAgo(10) });
+    expect(await runFirstActivityWatchdog(h.deps, h.graphRunId)).toEqual({ checked: 1, stopped: 1 });
+    // Autorecovery relaunches the SAME row: blocked -> running with a new process run.
+    const relaunch = openLaunch(NOW);
+    store.db
+      .prepare("UPDATE approach_node_runs SET status = 'running', process_run_id = ? WHERE id = ?")
+      .run(relaunch, h.nodeRunId);
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'running' WHERE id = ?").run(h.graphRunId);
+    expect(await runFirstActivityWatchdog(h.deps, h.graphRunId)).toEqual({ checked: 1, stopped: 0 });
+    expect(h.terminations).toHaveLength(1);
+    expect(nodeRow(h.nodeRunId).status).toBe('running');
   });
 
   it('exposes the ten-minute awake limit next to the deferral ceiling', () => {

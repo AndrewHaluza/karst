@@ -290,11 +290,15 @@ export function runnableNodeRunsForGraphRun(
  * exists for the node's `process_run_id`. A sample at any age exempts the node,
  * so the read answers existence, not recency. `placement` is the ticket's
  * `tickets.placement_backend`; NULL means host placement.
+ *
+ * `launched_at` is the start of the CURRENT launch: the `started_at` of the
+ * node's current `process_runs` row. The node's own `started_at` keeps the
+ * FIRST claim across relaunches (`markNodeRunStarted`), so a window measured
+ * from it would stop each relaunch on its first tick. It is the fallback only
+ * when the process run has no start.
  */
-export type RunningNodeRunActivity = Pick<
-  NodeRunRow,
-  'id' | 'process_run_id' | 'provider' | 'started_at'
-> & {
+export type RunningNodeRunActivity = Pick<NodeRunRow, 'id' | 'process_run_id' | 'provider'> & {
+  launched_at: string | null;
   placement: string | null;
   hasUsageSample: boolean;
 };
@@ -305,7 +309,8 @@ export function runningNodeRunsForFirstActivity(
 ): RunningNodeRunActivity[] {
   const rows = db
     .prepare(
-      `SELECT n.id, n.process_run_id, n.provider, n.started_at,
+      `SELECT n.id, n.process_run_id, n.provider,
+              COALESCE(p.started_at, n.started_at) AS launched_at,
               t.placement_backend AS placement,
               EXISTS (
                 SELECT 1 FROM interactive_usage_samples s
@@ -313,12 +318,14 @@ export function runningNodeRunsForFirstActivity(
               ) AS has_usage_sample
          FROM approach_node_runs n
          JOIN approach_graph_runs r ON r.id = n.graph_run_id
+         LEFT JOIN process_runs p ON p.id = n.process_run_id
          LEFT JOIN tickets t ON t.id = r.ticket_id
         WHERE n.graph_run_id = ? AND n.status = 'running'
         ORDER BY n.id`,
     )
     .all(graphRunId) as Array<
-    Pick<NodeRunRow, 'id' | 'process_run_id' | 'provider' | 'started_at'> & {
+    Pick<NodeRunRow, 'id' | 'process_run_id' | 'provider'> & {
+      launched_at: string | null;
       placement: string | null;
       has_usage_sample: number;
     }
@@ -327,7 +334,7 @@ export function runningNodeRunsForFirstActivity(
     id: row.id,
     process_run_id: row.process_run_id,
     provider: row.provider,
-    started_at: row.started_at,
+    launched_at: row.launched_at,
     placement: row.placement,
     hasUsageSample: Number(row.has_usage_sample) === 1,
   }));

@@ -727,7 +727,7 @@ END_DOC_BLOCK: [@arch:GRAPH-REPLAN-DRAIN]
 ## [@arch:GRAPH-FIRST-ACTIVITY] The graph host stops a node that shows no session activity 10 minutes after launch
 covers: src/approaches/graph/coordinator/firstActivity.ts, src/extension/graphFirstActivityBinding.ts
 
-Split out of `arch:GRAPH-AUTORECOVERY`. The first-activity watchdog (`firstActivity.ts`) stops a node whose prompt never reached a session (T1371, T1372). It checks only a `running` node with provider `opencode2`, or `claude` on host placement; other providers have no graph progress signal. The trigger is no `interactive_usage_samples` row for the `process_run_id` of the node after `FIRST_ACTIVITY_WAIT_MS` (10 minutes) of awake time. The time comes from the sleep ledger, so host sleep does not count. A sample at any age exempts the node.
+Split out of `arch:GRAPH-AUTORECOVERY`. The first-activity watchdog (`firstActivity.ts`) stops a node whose prompt never reached a session (T1371, T1372). It checks only a `running` node with provider `opencode2`, or `claude` on host placement; other providers have no graph progress signal. The trigger is no `interactive_usage_samples` row for the `process_run_id` of the node after `FIRST_ACTIVITY_WAIT_MS` (10 minutes) of awake time. The window starts at the current launch (`started_at` of the current `process_runs` row), not at the first claim: a relaunch keeps the node `started_at` but opens a new process run. The time comes from the sleep ledger, so host sleep does not count. A sample at any age exempts the node.
 
 Nodes run in parallel, so the graph hook path binds each sample to the run that owns the session (`graphRun` from the launch id or the node workspace), never to the latest running node. A sample with no graph owner binds to no graph run.
 

@@ -99,8 +99,10 @@ export async function runFirstActivityWatchdog(
   for (const row of rows) {
     if (!isCheckedNode(row)) continue;
     if (row.hasUsageSample) continue;
-    if (row.process_run_id === null || row.started_at === null) continue;
-    const startedMs = Date.parse(row.started_at);
+    // The window starts at the CURRENT launch, never the first claim: a
+    // relaunch keeps `started_at` but opens a new process run.
+    if (row.process_run_id === null || row.launched_at === null) continue;
+    const startedMs = Date.parse(row.launched_at);
     if (!Number.isFinite(startedMs) || !Number.isFinite(nowMs)) continue;
     const awakeMs = deps.awakeElapsedMs(startedMs, nowMs);
     if (!Number.isFinite(awakeMs) || awakeMs < FIRST_ACTIVITY_WAIT_MS) continue;
