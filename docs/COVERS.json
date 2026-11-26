@@ -564,8 +564,23 @@
     "arch:AP-07",
     "arch:AP-11"
   ],
+  "src/extension/ops/autopilotOps.ts#recoverRefusedMerge": [
+    "arch:AP-12"
+  ],
+  "src/extension/ops/autopilotOps.ts#refusedMergeDelivered": [
+    "arch:AP-12"
+  ],
+  "src/extension/ops/autopilotOps.ts#refusedMergeStep": [
+    "arch:AP-12"
+  ],
   "src/extension/ops/autopilotOps.ts#runBaseMovedRound": [
     "arch:AP-06"
+  ],
+  "src/extension/ops/autopilotOps.ts#sendRefusedRound": [
+    "arch:AP-12"
+  ],
+  "src/extension/ops/autopilotOps.ts#startRefusedMerge": [
+    "arch:AP-12"
   ],
   "src/extension/ops/autopilotRefusal.ts": [
     "arch:AP-01"
@@ -586,7 +601,8 @@
     "arch:AP-00"
   ],
   "src/extension/ops/autopilotWiring.ts#refusedMergeOutcome": [
-    "arch:AP-06"
+    "arch:AP-06",
+    "arch:AP-12"
   ],
   "src/extension/ops/baseMovedCheck.ts": [
     "arch:GATE-BASE-MOVED"
@@ -1061,6 +1077,15 @@
     "arch:AP-03",
     "arch:AP-06"
   ],
+  "src/store/autopilot.ts#clearRefusedMerge": [
+    "arch:AP-12"
+  ],
+  "src/store/autopilot.ts#getRefusedMerge": [
+    "arch:AP-12"
+  ],
+  "src/store/autopilot.ts#setRefusedMerge": [
+    "arch:AP-12"
+  ],
   "src/store/autostart.ts": [
     "arch:AP-01"
   ],
@@ -1179,6 +1204,9 @@
   ],
   "src/store/prs.ts#dismissPr": [
     "arch:GH-06"
+  ],
+  "src/store/prs.ts#listCurrentPrsByTicket": [
+    "arch:AP-12"
   ],
   "src/store/prs.ts#updatePrDetail": [
     "arch:GH-03"
@@ -1371,7 +1399,8 @@
     "arch:APP-12"
   ],
   "src/workflow/baseMovedFailure.ts#deliverRunFailureState": [
-    "arch:AP-06"
+    "arch:AP-06",
+    "arch:AP-12"
   ],
   "src/workflow/baseMovedStale.ts": [
     "arch:GATE-BASE-MOVED"
