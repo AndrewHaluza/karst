@@ -390,11 +390,17 @@ export function markBaseRedWait(store: Store, ticketId: number, w: BaseRedWait):
   });
 }
 
-/** When the first wait for this check on this PR run started, or null. */
-export function baseRedWaitStart(store: Store, ticketId: number, repo: string, checkName: string, prRunId: string): number | null {
+/**
+ * When the first wait for this check started, or null: the earliest wait row of this PR run, or of the develop run `baseRunId`.
+ * A new PR run on a develop run that is still red writes no new row (one row per develop run), so it keeps that run's start.
+ */
+export function baseRedWaitStart(store: Store, ticketId: number, repo: string, checkName: string, prRunId: string, baseRunId?: string): number | null {
   const row = store.db
-    .prepare('SELECT MIN(rerun_at) AS at FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ? AND pattern = ?')
-    .get(ticketId, repo, checkName, `base-red-wait:${prRunId}`) as { at: number | null };
+    .prepare(
+      `SELECT MIN(rerun_at) AS at FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ?
+          AND (pattern = ? OR (run_id = ? AND pattern LIKE 'base-red-wait:%'))`,
+    )
+    .get(ticketId, repo, checkName, `base-red-wait:${prRunId}`, baseRunId ?? null) as { at: number | null };
   return row.at;
 }
 

@@ -161,6 +161,15 @@ describe('baseRedStep', () => {
     expect(late.seams.listBaseRuns).not.toHaveBeenCalled();
   });
 
+  it('keeps the 24-hour limit when a new PR run fails while the same develop run is still red', async () => {
+    const red = { runs: [run('3', 'failure'), run('1', 'failure')], ids: { '3': [ID], '1': [ID] } };
+    expect(await baseRedStep(ctx({ ...red, now: 1_000 }).c, [check()])).toEqual({ kind: 'waiting' });
+    expect(await baseRedStep(ctx({ ...red, now: 2_000 }).c, [check('Visual', 'r', '101')])).toEqual({ kind: 'waiting' });
+    const late = ctx({ ...red, now: 1_000 + BASE_RED_WAIT_MS });
+    expect(await baseRedStep(late.c, [check('Visual', 'r', '101')])).toEqual({ kind: 'none', earlier: new Map() });
+    expect(late.notes).toEqual([]);
+  });
+
   it('gives none for a check without a job url or without a base, and for no failing check', async () => {
     expect((await baseRedStep(ctx().c, [{ ...check(), url: null }])).kind).toBe('none');
     expect((await baseRedStep(ctx().c, [check('Visual', 'r', '100', null)])).kind).toBe('none');

@@ -70,8 +70,11 @@ export async function baseRedStep(c: BaseRedContext, fails: readonly FailedCheck
     proofs.push(proof);
   }
   if (proofs.some((p) => p.state === 'green-in-head')) return NONE;
-  if (proofs.some((p) => p.state === 'red')) {
-    for (const p of proofs) if (p.state === 'red') noteWait(c, p);
+  const red = proofs.filter((p) => p.state === 'red');
+  if (red.length > 0) {
+    // The 24-hour limit also holds for a new PR run on a develop run that is still red (it writes no new wait row).
+    if (red.some((p) => waitExpired(c, p))) return NONE;
+    for (const p of red) noteWait(c, p);
     return { kind: 'waiting' };
   }
   return rebaseRepos(c, proofs);
@@ -114,6 +117,11 @@ async function prove(c: BaseRedContext, target: FailedCheck, url: CheckUrl, base
   if (newest.conclusion !== 'failure') return null;
   const ids = newest.runId === red.runId ? prIds : await c.seams.baseRunIds(target.cwd, url, newest.runId, target.name);
   return ids !== null && isBaseRed(prIds, ids) ? { target, url, base, prHead, red, newest, state: 'red' } : null;
+}
+
+function waitExpired(c: BaseRedContext, p: Proof): boolean {
+  const since = baseRedWaitStart(c.store, c.ticketId, p.target.repo, p.target.name, p.url.runId, p.newest.runId);
+  return since !== null && c.now() - since >= BASE_RED_WAIT_MS;
 }
 
 /** One event per (ticket, check, develop run): the wait row of that develop run is the dedup. */

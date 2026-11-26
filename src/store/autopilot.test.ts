@@ -271,6 +271,10 @@ describe('base-red markers (T1383)', () => {
     expect(baseRedWaitStart(store, id, 'r', 'V', '100')).toBe(10);
     expect(baseRedWaitStart(store, id, 'r', 'V', '555')).toBeNull();
     expect(baseRedWaitStart(store, id, 'r', 'other', '100')).toBeNull();
+    // A new PR run on the same red develop run keeps the start of that develop run's wait (T1383 alignment).
+    expect(baseRedWaitStart(store, id, 'r', 'V', '555', '900')).toBe(10);
+    expect(baseRedWaitStart(store, id, 'r', 'V', '555', '777')).toBeNull();
+    expect(baseRedWaitStart(store, id, 'r', 'other', '555', '900')).toBeNull();
     expect(getAutopilotRerun(store, id, 'r', '900', 'V')?.pattern).toBe('base-red-wait:100');
   });
 
