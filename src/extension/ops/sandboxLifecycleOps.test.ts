@@ -264,6 +264,12 @@ describe('reconcileSandboxes', () => {
     const r = reconcileSandboxes({ sandboxes: [], errors: [] }, [{ id: 7, sessionId: 's7', sessionProvider: 'claude', placementBackend: null }], () => true, clear);
     expect(r.missing).toEqual([7]);
   });
+  it('a recorded ssh placement with no sandbox keeps its session (no ssh inventory yet, T1387)', () => {
+    const clear = vi.fn();
+    const r = reconcileSandboxes({ sandboxes: [], errors: [] }, [{ id: 7, sessionId: 's7', sessionProvider: 'claude', placementBackend: 'ssh' }], () => true, clear);
+    expect(clear).not.toHaveBeenCalled();
+    expect(r.missing).toEqual([]);
+  });
   it('no session id → nothing to drop', () => {
     const clear = vi.fn();
     reconcileSandboxes({ sandboxes: [], errors: [] }, [{ id: 7, sessionId: null, sessionProvider: 'claude' }], () => true, clear);

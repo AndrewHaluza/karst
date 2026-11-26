@@ -41,10 +41,9 @@ describe('sidebar webview.html', () => {
     const blocks = styleBlocks();
     for (const block of blocks) {
       const local = block.slice(block.indexOf('/*KARST_DS_CSS*/') + '/*KARST_DS_CSS*/'.length);
-      // The one allowed px literal is a tier boundary in a container query: the
-      // tiers are px-only and a container query cannot read a token (RD-TIERS).
-      const withoutTier = local.replace(/@container \(min-width: 400px\)/g, '@container');
-      const offenders = withoutTier.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
+      // No px literal is allowed here at all: the old hover-tools container tier
+      // (400px) is gone, so every dimension reads a token (UI-R04, D860).
+      const offenders = local.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|\b[0-9]+(\.[0-9]+)?(px|rem)\b/g);
       expect(offenders, JSON.stringify(offenders)).toBeNull();
     }
   });
@@ -130,11 +129,15 @@ describe('sidebar webview.html', () => {
     expect(base).toBeLessThan(tier);
   });
 
-  it('keeps one always-visible row control and shows the rest only at the narrow tier (SB-8)', () => {
+  it('shows the row quick tools on hover or focus at every width (SB-8)', () => {
     // The stage pill is never hidden for a hover-only control.
     expect(HTML).not.toMatch(/\.row:hover \.stage\{opacity:0\}/);
     expect(HTML).toMatch(/\.rowmore\{[^}]*flex:0 0 auto/);
-    expect(HTML).toMatch(/@container \(min-width: 400px\)\{\s*\.row:hover \.rowacts/);
+    // The quick tools show on hover or focus at every width. The normal sidebar
+    // is ~300 px, so the old `@container (min-width: 400px)` gate left them
+    // unreachable there (D860); the solid-backed overlay is unconditional now.
+    expect(HTML).toContain('.row:hover .rowacts,.row:focus-within .rowacts{display:flex');
+    expect(HTML).not.toContain('@container (min-width: 400px)');
     // The Queue row menu is visible at rest, at the shared dim ink.
     expect(HTML).toMatch(/\.q-menu\{[^}]*opacity:1;color:var\(--k-text-dim\)/);
   });

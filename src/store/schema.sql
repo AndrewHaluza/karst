@@ -1448,7 +1448,8 @@ CREATE TABLE IF NOT EXISTS baseline_decisions (
   sha256     TEXT NOT NULL,
   decision   TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
   reason     TEXT,
-  decided_at TEXT NOT NULL
+  decided_at TEXT NOT NULL,
+  decided_by TEXT NOT NULL DEFAULT 'user' CHECK (decided_by IN ('user', 'precheck'))
 );
 CREATE INDEX IF NOT EXISTS idx_baseline_decisions_ticket
   ON baseline_decisions(ticket_id, repo, path, id);

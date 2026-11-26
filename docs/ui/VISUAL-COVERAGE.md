@@ -148,22 +148,41 @@ names the default page of each view (dashboard `pending`, settings `minimal`, ev
 - **Capture mode**: a variant is a full-page shot by default. A fixed overlay sets `capture: 'viewport'` (`fullPage: false`, `screenshotFullPage`); a full-page shot would also record the page height below it (T1060). Only the ticket-details drawer uses it; if it scrolls inside itself, the viewport shows its top. Tolerance: `ui:VISUAL-TOLERANCE`.
 - **Element capture (T1364)**: a component variant records only its target element (`captureTarget`, `screenshotTarget`; `pages.visual.ts` shoots `page.locator(target)`). `CAPTURE_TARGET_FAMILIES` maps `panel-srv-*` -> `[data-region="servers"]`, `panel-wt-*` -> `[data-region="worktrees"]`, `panel-pr-*` -> `[data-region="prs"]`, `runtime-*` -> `[data-region="runtime"]`, `inside-*` -> `#inside` (no new `data-region`, which would shift the layout ledger keys). KEEP the page for fixed popovers/menus (`runtime-*-open-*`, `runtime-shell-off-*`, `panel-wt-base-*`, `panel-pr-ready-info-*`, `inside-*-menu-open-*`, `inside-review-menu-retry-only`) and header/runtime changes (`inside-impl-interrupted`, `inside-done-closed`, `inside-scope-needs-you`); when in doubt keep the page.
 - **Width tiers**: the multi-width keep rule (dark-only, representative states) and the pruned families are in `ui:VISUAL-VARIANTS-TIERS`.
-- **Adding a variant**: add it to the registry, run `npm run -s test:visual:docker:update`, review the new PNGs, run `npm run -s test:layout:docker` and ledger new failures with the owner's approval. `variants.test.ts` names the missing piece; `sweepBudget.test.ts` names the budget (`@ui:SWEEP-BUDGET`).
+- **Adding a variant**: see `ui:VISUAL-VARIANTS-FILES`.
 - **Sidebar variants**: the sidebar width, tier and chip variants are in `ui:VISUAL-VARIANTS-SIDEBAR`.
 - **Dynamic Graph variants**: the dashboard graph ledger, DAG and failed-park variants are in `ui:VISUAL-VARIANTS-GRAPH`.
 END_DOC_BLOCK: [@ui:VISUAL-VARIANTS]
 
+## [@ui:VISUAL-VARIANTS-FILES] Where a variant lives and which views its change runs
+covers: tests/visual/variants.ts, tests/visual/variantCore.ts
+
+`tests/visual/variants.ts` is the registry. The builder of each view lives in
+`tests/visual/variants/<view>.ts`. Types, constants and helpers that more than one
+view uses live in `tests/visual/variantCore.ts`. A view file imports only
+`variantCore.ts`, `src/**` and its own view-specific modules; it never imports
+another view file.
+
+- **Adding a variant**: add it to the view file `tests/visual/variants/<view>.ts` and,
+  when needed, its registry entry, run `npm run -s test:visual:docker:update`, review
+  the new PNGs, run `npm run -s test:layout:docker` and ledger new failures with the
+  owner's approval. `variants.test.ts` names the missing piece; `sweepBudget.test.ts`
+  names the budget (`@ui:SWEEP-BUDGET`).
+- **Gate scope**: a change to `tests/visual/variants/<view>.ts` runs only that view in
+  the visual gate (`@arch:GATE-REPEAT`). A change to a shared module (`variants.ts`,
+  `variantCore.ts`) runs every view.
+END_DOC_BLOCK: [@ui:VISUAL-VARIANTS-FILES]
+
 ## [@ui:VISUAL-VARIANTS-TIERS] Width-tier rule and the T1352 prune
 
 - **Rule (@ui:VISUAL-VARIANTS, @ui:UI-R43, @ui:UI-R57)**: every dashboard state records its default/`wide` baseline. Extra full-page width-tier shots (`mid`, `narrow`, `tight`) are recorded **dark-only** — wrapping is theme-independent — and **only for representative responsive, long-text, popover or overflow-prone states** of each family; every other state keeps its single shot. A tier is a screenshot field, never a page: it shares the base state's layout run.
-- **Kept tier states** (`tests/visual/variants.ts`, `tests/visual/panelVariants.ts`): `inside-*` `mid`/`narrow`/`tight` for the 16 `INSIDE_TIER_CASES` (impl-running, impl-graph-long-reason, impl-bounded-timeline, uat-running, uat-fix-parked-gate, uat-gates-wait-and-run, review-rounds-12, review-long-attempt-note, review-long-gate-detail, review-long-finding-title, review-multi-repo-filter, ship-long-repo-names, ship-autofix-header, ship-deliver-auto-failed, ship-auto-budget-spent, done-long-text); `panel-*` `mid`/`narrow` for the seven `multiWidth` states (srv-mixed, wt-ext, wt-base, pr-mixed, pr-ready-info, pr-blocked-2-open, pr-autofix-parked); `runtime-*` `mid`/`narrow` for docker and host-note plus both open popovers; `ticket-details-rich` and `-rich-raw` at all three tiers; `drill-index` and `drill-long-identity` at all four.
+- **Kept tier states** (`tests/visual/variants/dashboard.ts`, `tests/visual/panelVariants.ts`): `inside-*` `mid`/`narrow`/`tight` for the 16 `INSIDE_TIER_CASES` (impl-running, impl-graph-long-reason, impl-bounded-timeline, uat-running, uat-fix-parked-gate, uat-gates-wait-and-run, review-rounds-12, review-long-attempt-note, review-long-gate-detail, review-long-finding-title, review-multi-repo-filter, ship-long-repo-names, ship-autofix-header, ship-deliver-auto-failed, ship-auto-budget-spent, done-long-text); `panel-*` `mid`/`narrow` for the seven `multiWidth` states (srv-mixed, wt-ext, wt-base, pr-mixed, pr-ready-info, pr-blocked-2-open, pr-autofix-parked); `runtime-*` `mid`/`narrow` for docker and host-note plus both open popovers; `ticket-details-rich` and `-rich-raw` at all three tiers; `drill-index` and `drill-long-identity` at all four.
 - **Responsive coverage does not shrink**: `layout.layout.ts` still opens every distinct page at every `LAYOUT_WIDTHS` width (and `INSIDE_EXTRA_WIDTHS` for all `inside-*` pages), so a state without a tier shot is still measured at every width; `dashboard.layout` stays 785.
 - **The prune (T1352)**: 321 redundant PNGs removed — `inside-*` 240, `panel-*` 46, `runtime-*` 14, `ticket-details-*` 12, `drill-*` 9 — taking the five families from 565 to 244 PNGs and `SWEEP_BUDGET.dashboard.screenshots` from 655 to 334 (`@ui:SWEEP-BUDGET`). A surviving single-width state keeps its `-wide` name and `width: 1100`, so every removal under `__baselines__/` was a pure deletion with no re-record.
 END_DOC_BLOCK: [@ui:VISUAL-VARIANTS-TIERS]
 
 ## [@ui:VISUAL-VARIANTS-SIDEBAR] Sidebar variants (T1099, T1103, T1104, T1318)
 
-- **Sidebar real width (T1318, SB-3)**: every sidebar variant records the ~300 px host width, not the 1280 px page. `populated-300` carries the 15 real titles and the Activity rows of the probe (the page the geometry checks open); `host-error` pins the thrown host build (error line over the pane skeleton, SB-2); `long-content` carries a 100-character title; `filtered-300` and `row-hover-300` pin the filter state and a hovered row (SB-8, SB-9); `peek-blocked-300` and `peek-pr-closed-300` pin the two stage-block words and a closed pull request (RD-3, RD-4, RD-5); `peek-states-300` records every state shape in `dark`, `dark-grayscale` and `dark-reduced-motion` (@ui:UI-R28). The mandatory `populated`, `empty` and `long-content` keep their ids and their legacy `sidebar.png` baseline.
+- **Sidebar real width (T1318, SB-3)**: every sidebar variant records the ~300 px host width, not the 1280 px page. `populated-300` carries the 15 real titles and the Activity rows of the probe (the page the geometry checks open); `host-error` pins the thrown host build (error line over the pane skeleton, SB-2); `long-content` carries a 100-character title; `filtered-300` pins the filter state and `row-hover-300` a hovered row at 300 px whose solid overlay shows Session and Pause/Resume left of More (SB-8, SB-9, D860); `peek-blocked-300` and `peek-pr-closed-300` pin the two stage-block words and a closed pull request (RD-3, RD-4, RD-5); `peek-states-300` records every state shape in `dark`, `dark-grayscale` and `dark-reduced-motion` (@ui:UI-R28). The mandatory `populated`, `empty` and `long-content` keep their ids and their legacy `sidebar.png` baseline.
 - **Sidebar tiers**: the tier families `sidebar/queue-chips-*`, `sidebar/activity-*`, `sidebar/stage-chip-*`, `sidebar/waits-on-*`, `sidebar/planning-artifacts-*` and `sidebar/peek-states-*` record 300, 320 and 460 px in `dark`, `light` and `hc` (@ui:RD-TIERS, @ui:UI-R57). `tests/visual/sidebar.visual.ts` adds the geometry the shots cannot state: no pane scrolls sideways at 300 and 320 px (RD-1 included), the stage `::before` is `impl` at 300 px and `Implementation` at 460 px (SB-5), the Activity body is three rows high at 700 px (SB-7), loading differs from empty (SB-2).
 - **Stage chip tiers (T1099)**: `sidebar/stage-chip-{300,320,460}` and `dashboard/stage-chip-{460,300}` record the one stage chip (@ui:11.21) at a full-word host and a short-word host; the sidebar set runs dark, light and hc.
 - **Queue relation (T1104)**: `sidebar/queue-chips-{300,320,460}` record the open Queue pane with the verb and chip of each reason (`Waits on` with `+N`, `Unblocks` with the raised arrow, `Cycle with`): one line at 460px, a second line at 300px, dark, light and hc (@ui:UI-R57).

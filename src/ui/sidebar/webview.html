@@ -278,22 +278,23 @@
      two independent disclosures are two buttons). */
   .subchev{margin-left:auto;flex:0 0 auto}
   /* The row's always-visible More menu sits in flow at the row end (SB-8); the
-     other quick tools (Session, Pause/Resume) are an absolute overlay that only
-     the narrow tier shows. The overlay backs itself with the SOLID --k-surface
-     (not the translucent --k-surface-hover wash the row uses): the row's own text
-     passes underneath, and a translucent backdrop would let it show through the
-     icon buttons and read as a UI defect (UI-R05). The row's overflow:hidden
-     clips the name text at the row boundary so it never bleeds past it. */
+     other quick tools (Session, Pause/Resume) are an absolute overlay that shows
+     on hover or focus at every width (D860): the normal sidebar is ~300 px, so
+     a width gate left them unreachable there. It never shows at rest. The
+     overlay backs itself with the SOLID --k-surface (not the translucent
+     --k-surface-hover wash the row uses): the row's own text passes underneath,
+     and a translucent backdrop would let it show through the icon buttons and
+     read as a UI defect (UI-R05). The row's overflow:hidden clips the name text
+     at the row boundary so it never bleeds past it. */
   .rowmore{display:inline-flex;flex:0 0 auto}
   .rowacts{display:none;gap:var(--k-space-1);position:absolute;right:calc(var(--k-space-3) + var(--k-hit-min));top:50%;
     transform:translateY(-50%);background:var(--k-surface);border-radius:var(--k-radius-sm);
     padding-left:var(--k-space-2);opacity:0;pointer-events:none}
-  /* The quick tools need room: below the narrow tier's 400 px the row keeps only
-     More (SB-8); from 400 px up they appear on hover or focus. focus-within keeps
-     them keyboard-reachable, and the resting layout never carries them. */
-  @container (min-width: 400px){
-    .row:hover .rowacts,.row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
-  }
+  /* The quick tools cover the stage chip and the end of the title only while the
+     row is hovered or focused; the resting layout never carries them and the
+     chip shows again when the pointer leaves. focus-within keeps them
+     keyboard-reachable at 300 px and at every wider width. */
+  .row:hover .rowacts,.row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
   /* Archived rows have no More menu, so restore/delete stay in flow at every
      width: they must never be reachable only by hover. */
   .rowacts--static{display:flex;position:static;transform:none;opacity:1;pointer-events:auto;
@@ -307,11 +308,9 @@
   .cloudlinks{display:flex;flex:0 0 auto}
   .row:has(.cloudlinks) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 1))}
   .row:has(.cloudlinks):has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min) * (var(--cloud-n,1) + 2))}
-  /* A session with no ticket has no More menu (so no always-visible control), so
-     its strip keeps showing on hover/focus at every width: it is the row's action. */
-  .cloudrow .row:hover .rowacts,.cloudrow .row:focus-within .rowacts{display:flex;opacity:1;pointer-events:auto}
   /* An expanded row's actions live in the mini-dashboard toolbar below, so the
-     collapsed strip is suppressed — never two copies of the same quick actions. */
+     collapsed strip is suppressed — never two copies of the same quick actions.
+     This must stay AFTER the hover/focus rule so it wins for an open row. */
   .ticket.open .rowacts{display:none}
 
   /* An open ticket is ONE card: sunken surface, hairline border, a gap under it,

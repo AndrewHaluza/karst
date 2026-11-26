@@ -271,6 +271,9 @@
   "src/approaches/graph/coordinator/autoRecovery.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
+  "src/approaches/graph/coordinator/firstActivity.ts": [
+    "arch:GRAPH-FIRST-ACTIVITY"
+  ],
   "src/approaches/graph/coordinator/recovery.ts": [
     "arch:GRAPH-AUTORECOVERY"
   ],
@@ -283,6 +286,9 @@
   "src/approaches/graph/coordinator/replanDrain.ts": [
     "arch:GRAPH-AUTORECOVERY",
     "arch:GRAPH-REPLAN-DRAIN"
+  ],
+  "src/approaches/graph/coordinator/usageLimitPark.ts": [
+    "arch:GRAPH-AUTORECOVERY"
   ],
   "src/approaches/graph/integration/changeSetCapture.ts": [
     "arch:GRAPH-PRESERVE"
@@ -538,6 +544,9 @@
   "src/extension/graphClaimEvidenceBinding.ts": [
     "arch:GRAPH-PRESERVE"
   ],
+  "src/extension/graphFirstActivityBinding.ts": [
+    "arch:GRAPH-FIRST-ACTIVITY"
+  ],
   "src/extension/graphPreserveBinding.ts": [
     "arch:GRAPH-PRESERVE"
   ],
@@ -553,6 +562,9 @@
   "src/extension/ops/autoReship.ts": [
     "arch:AP-06"
   ],
+  "src/extension/ops/autopilotBaseRed.ts": [
+    "arch:AP-12"
+  ],
   "src/extension/ops/autopilotCommandOps.ts": [
     "arch:AP-00"
   ],
@@ -565,7 +577,8 @@
     "arch:AP-01",
     "arch:AP-04",
     "arch:AP-07",
-    "arch:AP-11"
+    "arch:AP-11",
+    "arch:AP-12"
   ],
   "src/extension/ops/autopilotOps.ts#autopilotTick": [
     "arch:AP-12"
@@ -744,6 +757,9 @@
   ],
   "src/integrations/ciRerun.ts": [
     "arch:AP-03"
+  ],
+  "src/integrations/ciRerun.ts#makeBaseRedSeams": [
+    "arch:AP-12"
   ],
   "src/integrations/git.ts": [
     "arch:GH-00"
@@ -1067,6 +1083,12 @@
     "arch:AP-00",
     "arch:AP-03",
     "arch:AP-06"
+  ],
+  "src/store/autopilot.ts#baseRedRuns": [
+    "arch:AP-12"
+  ],
+  "src/store/autopilot.ts#markBaseRedWait": [
+    "arch:AP-12"
   ],
   "src/store/autostart.ts": [
     "arch:AP-01"
@@ -1393,6 +1415,9 @@
   "src/workflow/baseMovedStale.ts": [
     "arch:GATE-BASE-MOVED"
   ],
+  "src/workflow/baseRedCi.ts": [
+    "arch:AP-12"
+  ],
   "src/workflow/baseRef.ts#resolveTicketBaseRef": [
     "arch:BASE-PER"
   ],
@@ -1432,6 +1457,12 @@
   ],
   "src/workflow/fixParkExit.ts": [
     "arch:AC-66"
+  ],
+  "src/workflow/gates/baselinePrecheck.ts": [
+    "arch:BASELINE-PRECHECK"
+  ],
+  "src/workflow/gates/baselinePrecheckPrompt.ts": [
+    "arch:BASELINE-PRECHECK"
   ],
   "src/workflow/gates/capabilityGap.ts": [
     "arch:GATE-CAPABILITY"
@@ -1540,6 +1571,12 @@
   "src/workflow/stages/uat.ts": [
     "arch:UAT-SVC-BUILD"
   ],
+  "src/workflow/stages/uat.ts#runUat": [
+    "arch:BASELINE-PRECHECK"
+  ],
+  "src/workflow/stages/uatBaselinePrecheck.ts": [
+    "arch:BASELINE-PRECHECK"
+  ],
   "src/workflow/staleGeneratedCi.ts": [
     "arch:AP-05"
   ],
@@ -1551,5 +1588,11 @@
   ],
   "src/workflow/uat/tester.ts": [
     "arch:PM-00"
+  ],
+  "tests/visual/variantCore.ts": [
+    "ui:VISUAL-VARIANTS-FILES"
+  ],
+  "tests/visual/variants.ts": [
+    "ui:VISUAL-VARIANTS-FILES"
   ]
 }

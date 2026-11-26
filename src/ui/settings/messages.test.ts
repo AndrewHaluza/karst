@@ -259,7 +259,7 @@ describe('routeSettingsAction', () => {
     expect(a.calls.setToken).toEqual([true]);
     expect(a.calls.clearToken).toEqual([true]);
     routeSettingsAction({ type: 'check-backends', want: { sbx: true, docker: false } }, a);
-    expect(a.calls.checkBackends).toEqual([{ sbx: true, docker: false }]);
+    expect(a.calls.checkBackends).toEqual([{ sbx: true, docker: false, ssh: false }]);
     expect(a.calls.setApproachEnabled).toEqual([{ id: 'a', enabled: false }]);
     expect(a.calls.setAgentEnabled).toEqual([{ name: 'reviewer', enabled: false }]);
     expect(a.calls.saveAgentFile).toEqual([{ name: 'r', body: '# body' }]);

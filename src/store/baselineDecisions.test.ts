@@ -26,11 +26,27 @@ describe('baselineDecisions', () => {
     ], '2026-01-02T00:00:00Z');
     const latest = latestBaselineDecisions(store, ticketId);
     expect(latest.get('r\0a.png')).toEqual({
-      sha256: 's2', decision: 'approved', reason: null, decidedAt: '2026-01-02T00:00:00Z',
+      sha256: 's2', decision: 'approved', reason: null, decidedAt: '2026-01-02T00:00:00Z', decidedBy: 'user',
     });
     expect(latest.get('r\0b.png')?.sha256).toBe('s3');
     const rows = store.db.prepare('SELECT COUNT(*) AS n FROM baseline_decisions').get() as { n: number };
     expect(rows.n).toBe(3);
+  });
+
+  it("defaults decidedBy to 'user'", () => {
+    recordBaselineDecisions(store, ticketId, [
+      { repo: 'r', path: 'a.png', sha256: 's', decision: 'approved', reason: null },
+    ], '2026-01-01T00:00:00Z');
+    expect(latestBaselineDecisions(store, ticketId).get('r\0a.png')?.decidedBy).toBe('user');
+  });
+
+  it("round-trips decidedBy = 'precheck'", () => {
+    recordBaselineDecisions(store, ticketId, [
+      { repo: 'r', path: 'a.png', sha256: 's', decision: 'approved', reason: 'matches', decidedBy: 'precheck' },
+    ], '2026-01-01T00:00:00Z');
+    expect(latestBaselineDecisions(store, ticketId).get('r\0a.png')).toEqual({
+      sha256: 's', decision: 'approved', reason: 'matches', decidedAt: '2026-01-01T00:00:00Z', decidedBy: 'precheck',
+    });
   });
 
   it('scopes decisions to the ticket', () => {

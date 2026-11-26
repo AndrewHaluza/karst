@@ -651,6 +651,46 @@ describe('blockGraphStage', () => {
     expect(block?.reason).toContain('resource-claim-violated: b.ts');
   });
 
+  it('keeps a usage-limit block reason intact instead of re-wrapping the node as node-blocked', () => {
+    // T1380: the emptied role row is `blocked`/`usage-limit`, so the earliest
+    // fault would read `node-blocked: node 142 (...)` and hide the provider and
+    // model the banner must show. The run-level `usage-limit:` reason IS the
+    // attribution; preserve it.
+    const ticketId = createTicket(store, { key: 'BG-UL', title: 'thing' }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
+    const reason = "usage-limit: node run 142 on claude/claude-opus-5-5: You've hit your 5-hour limit";
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, created_at)
+           VALUES (?, 'impl', 0, 'x', 'blocked', ?, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ticketId, reason)
+        .lastInsertRowid,
+    );
+    const revisionId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions
+             (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(graphRunId)
+        .lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, failure_category, reason)
+         VALUES (142, ?, ?, 'n', 'agent', 1, 'blocked', 'usage-limit', 'hit the limit')`,
+      )
+      .run(graphRunId, revisionId);
+    blockGraphStage(store, ticketId, graphRunId, () => '2026-08-12T00:00:00.000Z');
+    const block = stageBlock(store, ticketId, 'impl');
+    expect(block?.reason).toContain('usage-limit: node run 142 on claude/claude-opus-5-5');
+    expect(block?.reason).not.toContain('node-blocked:');
+  });
+
   it('names the per-ticket run ordinal, the same number the panel shows, never the global row id', () => {
     // The reported confusion: the impl banner read "(graph run 5)" beside an
     // Inside strip reading "run 1" — the banner was printing the registry row

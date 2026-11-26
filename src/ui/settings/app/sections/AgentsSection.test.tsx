@@ -715,10 +715,10 @@ describe('Agents page — sandbox backend', () => {
     const { bridge } = mount();
     const checks = () => bridge.posted.filter((m) => (m as { type: string }).type === 'check-backends').length;
     expect(checks()).toBe(1);
-    expect(lastWant(bridge)).toEqual({ sbx: false, docker: false });
+    expect(lastWant(bridge)).toEqual({ sbx: false, docker: false, ssh: false });
     fireEvent.click(radio('opencode2', 'Docker'));
     expect(checks()).toBe(2);
-    expect(lastWant(bridge)).toEqual({ sbx: false, docker: true });
+    expect(lastWant(bridge)).toEqual({ sbx: false, docker: true, ssh: false });
     fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
     expect(checks()).toBe(3);
   });

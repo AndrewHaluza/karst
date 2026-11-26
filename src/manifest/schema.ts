@@ -1,7 +1,8 @@
 import { CHAIN_EDGES, DEFAULT_STOP_SERVERS_ON_DONE, OUTPUT_KINDS } from './types.js';
 import { DOCKER_MEMORY_PATTERN, type SandboxMemoryConfig } from '../agent/docker/dockerMemory.js';
 import type { SandboxLimitsConfig } from '../agent/sbx/sbxLimits.js';
-import { allowedBackends, BACKEND_CORES, type AgentBackends, type BackendCore, type CoreBackend } from '../agent/backendChoices.js';
+import { allowedBackends, BACKEND_CORES, backendCoreKey, type AgentBackends, type BackendCore, type CoreBackend } from '../agent/backendChoices.js';
+import { SSH_CORES } from '../agent/sandboxCores.js';
 import type {
   Manifest,
   ChainEdge,
@@ -18,7 +19,9 @@ import type {
   ArtifactConventions,
   ResilienceConfig,
   SubtaskLimits,
+  RemoteDef,
 } from './types.js';
+import { homedir } from 'node:os';
 import { ManifestError } from './error.js';
 import { validateAutopilot } from './autopilot.js';
 import { validateOutputs } from '../approaches/outputs.js';
@@ -498,13 +501,109 @@ function validateDebug(raw: unknown): boolean | undefined {
 
 const AGENT_BACKENDS: readonly CoreBackend[] = ['host', 'sbx', 'docker'];
 
+const REMOTE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,30}$/;
+const REMOTE_HOST_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/;
+const BRACKETED_IPV6_PATTERN = /^\[[0-9A-Fa-f:.]+\]$/;
+const REMOTE_USER_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/;
+const REMOTE_DIR_PATTERN = /^\/[A-Za-z0-9._/-]+$/;
+const REMOTE_KEY_PATH_CHARS = /^[A-Za-z0-9._/-]+$/;
+const TILDE_SSH_DIR = '~/.ssh/';
+const REMOTE_DEF_KEYS = ['host', 'user', 'port', 'keyPath', 'mode', 'remoteDir', 'allowHostServices'] as const;
+
+/** An absolute POSIX path with at least two segments and no empty, `.` or `..` segment. */
+function assertRemoteDir(value: unknown, where: string): string {
+  if (typeof value !== 'string' || !REMOTE_DIR_PATTERN.test(value)) {
+    throw new ManifestError(`${where} must be an absolute POSIX path like /srv/karst`);
+  }
+  const segments = value.split('/').slice(1);
+  if (segments.length < 2 || segments.some((s) => s === '' || s === '.' || s === '..')) {
+    throw new ManifestError(`${where} must be an absolute POSIX path with at least two segments and no . or .. segment`);
+  }
+  return value;
+}
+
+/**
+ * A key file under `~/.ssh/` or its absolute form (the user's own `<home>/.ssh/`,
+ * never another dir that only has a `.ssh` segment); no `..` segment and no shell
+ * metacharacter.
+ */
+function assertRemoteKeyPath(value: unknown, where: string): string {
+  if (typeof value !== 'string') throw new ManifestError(`${where} must be a path under ~/.ssh/`);
+  const absSshDir = `${homedir()}/.ssh/`;
+  const rest = value.startsWith(TILDE_SSH_DIR)
+    ? value.slice(TILDE_SSH_DIR.length)
+    : value.startsWith(absSshDir)
+      ? value.slice(absSshDir.length)
+      : undefined;
+  if (rest === undefined || !REMOTE_KEY_PATH_CHARS.test(rest) || value.split('/').includes('..')) {
+    throw new ManifestError(`${where} must be a key path under ~/.ssh/ with no .. segment`);
+  }
+  return value;
+}
+
+/**
+ * Parse `remotes` (T1387): named SSH targets. These patterns are a security
+ * boundary — a later draft puts the values into ssh argv and remote shell text,
+ * so every rejected form must fail here, naming its field.
+ */
+function validateRemotes(raw: unknown): Readonly<Record<string, RemoteDef>> | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) throw new ManifestError('remotes must be a mapping of name to remote');
+  const out: Record<string, RemoteDef> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    const where = `remotes.${name}`;
+    if (!REMOTE_NAME_PATTERN.test(name)) {
+      throw new ManifestError(`remotes: invalid remote name '${name}' (expected ${REMOTE_NAME_PATTERN.source})`);
+    }
+    if (!isObject(value)) throw new ManifestError(`${where} must be a mapping`);
+    for (const key of Object.keys(value)) {
+      if (!(REMOTE_DEF_KEYS as readonly string[]).includes(key)) {
+        throw new ManifestError(`${where}.${key} is not a known field`);
+      }
+    }
+    if (typeof value.host !== 'string' || !(REMOTE_HOST_PATTERN.test(value.host) || BRACKETED_IPV6_PATTERN.test(value.host))) {
+      throw new ManifestError(`${where}.host must be a hostname or an address, and must not start with -`);
+    }
+    if (typeof value.user !== 'string' || !REMOTE_USER_PATTERN.test(value.user)) {
+      throw new ManifestError(`${where}.user must be a POSIX user name`);
+    }
+    if (value.port !== undefined && (typeof value.port !== 'number' || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535)) {
+      throw new ManifestError(`${where}.port must be a whole number from 1 to 65535`);
+    }
+    if (value.mode !== 'direct' && value.mode !== 'docker') {
+      throw new ManifestError(`${where}.mode must be 'direct' or 'docker'`);
+    }
+    const remoteDir = assertRemoteDir(value.remoteDir, `${where}.remoteDir`);
+    const keyPath = value.keyPath === undefined ? undefined : assertRemoteKeyPath(value.keyPath, `${where}.keyPath`);
+    if (value.allowHostServices !== undefined && typeof value.allowHostServices !== 'boolean') {
+      throw new ManifestError(`${where}.allowHostServices must be a boolean`);
+    }
+    out[name] = {
+      host: value.host,
+      user: value.user,
+      ...(value.port !== undefined ? { port: value.port } : {}),
+      ...(keyPath !== undefined ? { keyPath } : {}),
+      mode: value.mode,
+      remoteDir,
+      ...(value.allowHostServices !== undefined ? { allowHostServices: value.allowHostServices } : {}),
+    };
+  }
+  return Object.keys(out).length === 0 ? undefined : out;
+}
+
+const SSH_DOCKER_CORES = ['opencode', 'opencode2'] as const;
+
 /**
  * Parse `agentBackends` (core → backend; absent key = host). A backend the core
- * cannot use is rejected: a typo must never pick a backend. The legacy scalar
- * `agentBackend` fills in only the cores that support it and never overrides a
- * map entry.
+ * cannot use is rejected: a typo must never pick a backend. `ssh:<name>` must
+ * name a declared remote and an SSH core. The legacy scalar `agentBackend` fills
+ * in only the cores that support it and never overrides a map entry.
  */
-function validateAgentBackends(raw: unknown, legacy: unknown): AgentBackends | undefined {
+function validateAgentBackends(
+  raw: unknown,
+  legacy: unknown,
+  remotes: Readonly<Record<string, RemoteDef>> | undefined,
+): AgentBackends | undefined {
   const out: Partial<Record<BackendCore, CoreBackend>> = {};
   if (raw !== undefined) {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -514,9 +613,31 @@ function validateAgentBackends(raw: unknown, legacy: unknown): AgentBackends | u
       if (!(BACKEND_CORES as readonly string[]).includes(core)) {
         throw new ManifestError(`agentBackends: unknown core '${core}' (expected ${BACKEND_CORES.join(', ')})`);
       }
+      const key = backendCoreKey(core);
+      if (typeof value === 'string' && value.startsWith('ssh:')) {
+        const name = value.slice('ssh:'.length);
+        if (!(SSH_CORES as readonly string[]).includes(key)) {
+          throw new ManifestError(`agentBackends.${core}: ssh backend unsupported for ${core}`);
+        }
+        const def = remotes?.[name];
+        if (def === undefined) {
+          const declared = Object.keys(remotes ?? {});
+          throw new ManifestError(
+            `agentBackends.${core}: unknown remote '${name}' (declared: ${declared.length > 0 ? declared.join(', ') : 'none'})`,
+          );
+        }
+        if (def.mode === 'docker' && !(SSH_DOCKER_CORES as readonly string[]).includes(key)) {
+          throw new ManifestError(`agentBackends.${core}: ssh docker mode supports only opencode, opencode2`);
+        }
+        out[core as BackendCore] = value as CoreBackend;
+        continue;
+      }
       const allowed = allowedBackends(core);
       if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
-        throw new ManifestError(`agentBackends.${core} must be one of ${allowed.join(', ')}`);
+        const expected = (SSH_CORES as readonly string[]).includes(key)
+          ? `${allowed.join(', ')}, ssh:<name>`
+          : allowed.join(', ');
+        throw new ManifestError(`agentBackends.${core} must be one of ${expected}`);
       }
       out[core as BackendCore] = value as CoreBackend;
     }
@@ -821,6 +942,10 @@ export function validateManifest(raw: unknown): Manifest {
   assertActiveAgentPresetReference(agentPresets, activeAgentPreset);
   assertAgentPresetReferences(agentPresets, defaultAgentPreset, processes);
 
+  // `remotes` is parsed before `agentBackends`: an `ssh:<name>` value may only
+  // name a declared remote (T1387).
+  const remotes = validateRemotes(raw.remotes);
+
   return {
     id: validateProjectId(raw.id),
     host,
@@ -848,7 +973,8 @@ export function validateManifest(raw: unknown): Manifest {
     subtasks: validateSubtasks(raw.subtasks),
     debug: validateDebug(raw.debug),
     agentSandbox: validateAgentSandbox(raw.agentSandbox),
-    agentBackends: validateAgentBackends(raw.agentBackends, raw.agentBackend),
+    agentBackends: validateAgentBackends(raw.agentBackends, raw.agentBackend, remotes),
+    remotes,
     sandboxMemory: validateSandboxMemory(raw.sandboxMemory),
     sandboxLimits: validateSandboxLimits(raw.sandboxLimits),
     autopilot: validateAutopilot(raw.autopilot),

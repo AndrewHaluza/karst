@@ -77,6 +77,8 @@ function deliverRig(over: Partial<DeliverDeps> = {}) {
     ensureSynced: async () => { calls.push('sync'); return { ok: true }; },
     blocked: async (reason, rewritten, cliUnknown) => { calls.push(`blocked:${reason}:${rewritten}${cliUnknown ? ':cli' : ''}`); },
     runShip: async () => { calls.push('ship'); },
+    shipRunMark: () => null,
+    shipOutcome: () => ({ pushed: true, reason: null }),
     reprobe: async () => { calls.push('reprobe'); },
     info: (m) => infos.push(m),
     error: (m) => errors.push(m),
@@ -144,6 +146,44 @@ describe('deliverToPr', () => {
   });
 });
 
+describe('deliverToPr: a ship run that pushed nothing (T1379)', () => {
+  const DELIVERED = 'Delivered the ticket branch to the open pull request.';
+
+  it('reports the ship refusal with its reason and never claims a delivery', async () => {
+    const reason = 'r: gate "visual" fails when merged';
+    const r = deliverRig({ shipOutcome: () => ({ pushed: false, reason }) });
+    expect(await deliverToPr(r.deps)).toEqual({ kind: 'refused', reason });
+    expect(r.errors).toEqual([`Push refused: ${reason}`]);
+    expect(r.infos).not.toContain(DELIVERED);
+  });
+
+  it('a refusal with no reason names the failed ship run', async () => {
+    const r = deliverRig({ shipOutcome: () => ({ pushed: false, reason: null }) });
+    expect(await deliverToPr(r.deps)).toEqual({ kind: 'refused', reason: 'the ship run failed' });
+    expect(r.errors).toEqual(['Push refused: the ship run failed']);
+    expect(r.infos).not.toContain(DELIVERED);
+  });
+
+  it('a pushed ship run keeps the delivered toast and the outcome', async () => {
+    const r = deliverRig({ shipOutcome: () => ({ pushed: true, reason: null }) });
+    expect(await deliverToPr(r.deps)).toEqual({ kind: 'delivered' });
+    expect(r.infos).toEqual([DELIVERED]);
+    expect(r.errors).toEqual([]);
+  });
+
+  it('reads the run this click started before the re-probe, and only a run newer than the mark', async () => {
+    const seen: Array<string | number> = [];
+    const r = deliverRig({
+      shipRunMark: () => { seen.push('mark'); return 7; },
+      runShip: async () => { seen.push('ship'); },
+      shipOutcome: (mark) => { seen.push(`outcome:${mark}`); return { pushed: true, reason: null }; },
+      reprobe: async () => { seen.push('reprobe'); },
+    });
+    expect(await deliverToPr(r.deps)).toEqual({ kind: 'delivered' });
+    expect(seen).toEqual(['mark', 'ship', 'outcome:7', 'reprobe']);
+  });
+});
+
 describe('deliverToPr verify step', () => {
   const base = (over: Partial<DeliverDeps>): DeliverDeps => ({
     targets: () => OPEN,
@@ -151,6 +191,8 @@ describe('deliverToPr verify step', () => {
     ensureSynced: async () => ({ ok: true }),
     blocked: async () => undefined,
     runShip: async () => undefined,
+    shipRunMark: () => null,
+    shipOutcome: () => ({ pushed: true, reason: null }),
     reprobe: async () => undefined,
     info: () => undefined,
     error: () => undefined,

@@ -261,6 +261,9 @@ export function renderManifestText(text: string, manifest: Manifest): string {
     // "sessions run on the host" (AC-32). The legacy scalar `agentBackend` is
     // never written back (it is folded into this map on load).
     agentBackends: manifest.agentBackends,
+    // Optional: named SSH targets (T1387), written when set and dropped when
+    // cleared. An empty map is the same as absent.
+    remotes: manifest.remotes !== undefined && Object.keys(manifest.remotes).length > 0 ? manifest.remotes : undefined,
     // Optional: written when set, dropped when cleared (VM-scaled defaults).
     sandboxMemory: manifest.sandboxMemory,
     sandboxLimits: manifest.sandboxLimits,

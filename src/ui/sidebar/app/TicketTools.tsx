@@ -43,7 +43,7 @@ export function PauseToggle({ row, tabIndex }: { readonly row: TicketRow; readon
 }
 
 /**
- * The tools that appear on hover/focus in the narrow tier only (SB-8): Session and
+ * The tools that appear on hover/focus at every width (SB-8, D860): Session and
  * Pause/Resume. The More menu is always visible in the row, in flow. In the tree
  * the row owns the only tab stop, so the tools are `tabIndex={-1}` (SB-6).
  */

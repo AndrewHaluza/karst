@@ -19,6 +19,7 @@ import type {
 import { serveCreateTicketRequest, type TicketApiOptions } from './ticketApi.js';
 import { isBrowserRequest } from './requestGuard.js';
 import { isGraphLaunchId } from '../approaches/graph/graphLaunchId.js';
+import type { GraphLaunchOwner } from '../store/graph/sessionOwners.js';
 
 /**
  * Cap the accepted hook body. A tool result rides the hook payload
@@ -138,6 +139,8 @@ export interface HookEndpointOptions {
   tracker?: TurnTracker;
   /** D160: a provider `session.error` for an admitted ticket (observation only). */
   onSessionError?: (ticketId: number, payload: HookPayload) => void;
+  /** T1380: an owned graph session's `session.error` carried a quota verdict. */
+  onGraphUsageLimit?: (owner: GraphLaunchOwner, text: string) => void;
   /**
    * The mail reply channel (MAILBOX-DELIVERY-PER-CORE-PUSH): when supplied, a
    * hook that was ADMITTED (known worktree + current generation) and asks for a
@@ -419,6 +422,7 @@ export function startHookEndpoint(
               options.debug,
               options.tracker,
               options.onSessionError,
+              options.onGraphUsageLimit,
             );
           } catch (err) {
             observe('dispatch-failed', payload.hook_event_name);

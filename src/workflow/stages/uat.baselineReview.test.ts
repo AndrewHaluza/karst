@@ -1,16 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { getTicket } from '../../store/tickets.js';
+import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { transition } from '../machine.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { recordBaselineDecisions } from '../../store/baselineDecisions.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
 import { runUat, type UatDeps } from './uat.js';
 import type { BaselineEntry } from '../gates/baselineReview.js';
+import type { AgentAdapter } from '../../agent/adapter.js';
+import type { precheckBaselines } from '../gates/baselinePrecheck.js';
 
 const now = () => '2026-07-30T10:00:00.000Z';
 
@@ -198,6 +201,281 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
       let called = false;
       await run(deps({ fingerprint: async () => ((called = true), 'fp') }), manifest({}));
       expect(called).toBe(false);
+    });
+  });
+
+  describe('model pre-check (@arch:BASELINE-PRECHECK)', () => {
+    const COVERAGE_ANSWER = JSON.stringify([
+      { severity: 'info', title: 'COVERAGE (reported): PASS — checked the change', detail: '' },
+    ]);
+
+    const withPrecheck = (over: { paths?: string[]; precheck?: boolean } = {}) =>
+      manifest(
+        {},
+        {
+          uat: uatConfig({
+            baselineReview: {
+              paths: over.paths ?? ['tests/visual/__baselines__/**'],
+              ...(over.precheck === undefined ? { precheck: true } : { precheck: over.precheck }),
+            },
+          }),
+        },
+      );
+
+    const testerAgent = (): { assignment: { agentName: string; provider: 'claude' }; adapter: AgentAdapter; runHeadless: ReturnType<typeof vi.fn> } => {
+      const runHeadless = vi.fn(async () => ({ sessionId: '', verdict: null, raw: COVERAGE_ANSWER }));
+      return {
+        assignment: { agentName: 'UAT Agent', provider: 'claude' },
+        adapter: {
+          requiredBinary: 'fake',
+          capabilities: { lifecycleEvents: false, resume: false },
+          buildInteractiveCommand: () => {
+            throw new Error('not used by the Tester');
+          },
+          runHeadless,
+        } as AgentAdapter,
+        runHeadless,
+      };
+    };
+
+    type PrecheckSeam = NonNullable<UatDeps['precheckBaselines']>;
+    const seam = (impl: PrecheckSeam) => vi.fn(impl);
+
+    const approving = (reason = 'clearly the intended settings change'): PrecheckSeam =>
+      async (input) => ({
+        approved: input.entries.map((entry) => ({
+          repo: entry.repo,
+          path: entry.path,
+          sha256: entry.newSha256,
+          reason,
+        })),
+      });
+    const approvingOnly = (path: string, reason = 'clearly the intended settings change'): PrecheckSeam =>
+      async (input) => ({
+        approved: input.entries
+          .filter((entry) => entry.path === path)
+          .map((entry) => ({ repo: entry.repo, path: entry.path, sha256: entry.newSha256, reason })),
+      });
+    const approvingNothing = (): PrecheckSeam => async () => ({ approved: [] });
+
+    const runWith = (d: UatDeps, m = withPrecheck()) =>
+      runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir, manifest: m }, d);
+
+    const report = () =>
+      readdirSync(artifactDir)
+        .map((file) => readFileSync(join(artifactDir, file), 'utf8'))
+        .join('\n');
+
+    it('approves every entry, records the pre-check as the decider, and runs the Tester in the same run', async () => {
+      const tester = testerAgent();
+      const res = await runWith(
+        deps({
+          detectBaselines: async () => [ENTRY],
+          precheckBaselines: seam(approving()),
+          tester: { assignment: tester.assignment, adapter: tester.adapter },
+        }),
+      );
+      expect(res).toEqual({ kind: 'advanced', next: 'review' });
+      expect(tester.runHeadless).toHaveBeenCalled();
+      expect(
+        store.db
+          .prepare('SELECT decision, decided_by, reason FROM baseline_decisions WHERE ticket_id = ?')
+          .get(id),
+      ).toEqual({
+        decision: 'approved',
+        decided_by: 'precheck',
+        reason: 'pre-check: clearly the intended settings change',
+      });
+      expect(report()).toContain('# baseline pre-check');
+      expect(report()).toContain(
+        `${ENTRY.repo}:${ENTRY.path} — pre-check: clearly the intended settings change`,
+      );
+      expect(report()).toContain('1 approved by the pre-check, 0 left for you');
+    });
+
+    it('blocks only on the leftovers, names the approved count, and reports both halves', async () => {
+      const other: BaselineEntry = {
+        ...ENTRY,
+        path: 'tests/visual/__baselines__/dashboard.png',
+        newSha256: 'sha-2',
+      };
+      const res = await runWith(
+        deps({
+          detectBaselines: async () => [ENTRY, other],
+          precheckBaselines: seam(approvingOnly(ENTRY.path)),
+        }),
+      );
+      expect(res).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason:
+          '1 visual baseline(s) changed — review in the UAT report (1 approved by the pre-check)',
+      });
+      expect(report()).toContain('# baseline pre-check');
+      expect(report()).toContain(`${ENTRY.repo}:${ENTRY.path} — pre-check: clearly the intended settings change`);
+      expect(report()).toContain('1 approved by the pre-check, 1 left for you');
+      expect(report()).toContain(`# baseline review\nmodified ${other.repo}:${other.path}`);
+    });
+
+    it('a throwing pre-check approves nothing and blocks exactly as today', async () => {
+      const debug = vi.fn();
+      const res = await runUat(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: withPrecheck(), debug },
+        deps({
+          detectBaselines: async () => [ENTRY],
+          precheckBaselines: seam(async () => {
+            throw new Error('model exploded');
+          }),
+        }),
+      );
+      expect(res).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason: '1 visual baseline(s) changed — review in the UAT report',
+      });
+      expect(
+        store.db.prepare('SELECT COUNT(*) AS n FROM baseline_decisions WHERE ticket_id = ?').get(id),
+      ).toEqual({ n: 0 });
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('failed (model exploded)'));
+    });
+
+    it('never runs with the knob off', async () => {
+      const precheck = seam(approving());
+      const res = await runWith(
+        deps({ detectBaselines: async () => [ENTRY], precheckBaselines: precheck }),
+        withPrecheck({ precheck: false }),
+      );
+      expect(precheck).not.toHaveBeenCalled();
+      expect(res).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason: '1 visual baseline(s) changed — review in the UAT report',
+      });
+    });
+
+    it('states in one debug line that the knob off skipped the pre-check', async () => {
+      const debug = vi.fn();
+      await runUat(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: withPrecheck({ precheck: false }), debug },
+        deps({ detectBaselines: async () => [ENTRY], precheckBaselines: seam(approving()) }),
+      );
+      const lines = debug.mock.calls.map(([line]) => String(line)).filter((line) => line.includes('pre-check'));
+      expect(lines.filter((line) => line.includes('skipped — pre-check disabled'))).toHaveLength(1);
+    });
+
+    it('never runs when a gate fails: the gate failure keeps precedence', async () => {
+      const precheck = seam(approving());
+      const res = await runWith(
+        deps({
+          detectBaselines: async () => [ENTRY],
+          precheckBaselines: precheck,
+          runGates: async (gates) => ({
+            kind: 'ran',
+            results: gates.map((g) => ({
+              name: g.name, exitCode: 1, output: 'boom', startedAt: now(), endedAt: now(),
+            })),
+          }),
+        }),
+      );
+      expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+      expect(precheck).not.toHaveBeenCalled();
+    });
+
+    it('never runs on the user-approval re-entry (skipGates)', async () => {
+      const tester = testerAgent();
+      const precheck = seam(approvingNothing());
+      const d = deps({
+        detectBaselines: async () => [ENTRY],
+        precheckBaselines: precheck,
+        fingerprint: async () => 'fp-1',
+        tester: { assignment: tester.assignment, adapter: tester.adapter },
+      });
+      expect(await runWith(d)).toMatchObject({ kind: 'blocked', blocker: 'baseline-review' });
+      expect(precheck).toHaveBeenCalledTimes(1);
+      // Same tree in the same attempt: the gate list is skipped, and so is the pre-check.
+      expect(await runWith(d)).toMatchObject({ kind: 'blocked', blocker: 'baseline-review' });
+      expect(precheck).toHaveBeenCalledTimes(1);
+    });
+
+    it('never runs on a usage-limit rerun', async () => {
+      store.db
+        .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+        .run(id, 'web', '/wt/web', 'karst/web', 'develop');
+      recordGateRun(store, {
+        ticketId: id,
+        stageKey: 'uat',
+        attempt: 0,
+        runAt: now(),
+        stageRunId: null,
+        gates: [
+          { gateName: 'test (web)', exitCode: 0, startedAt: now(), endedAt: now(), repo: 'web', command: 'npm', args: ['test'] },
+        ],
+      });
+      const tester = testerAgent();
+      const precheck = seam(approving());
+      const res = await runUat(
+        store,
+        {
+          ticketId: id,
+          cwd: '/wt/web',
+          artifactDir,
+          manifest: withPrecheck(),
+          rerun: {
+            targets: ['web'],
+            previousGateRuns: listGateRuns(store, id),
+            siblingObservations: [],
+            siblingTargets: [],
+            tester: { assignment: tester.assignment, adapter: tester.adapter },
+          },
+        },
+        deps({ detectBaselines: async () => [ENTRY], precheckBaselines: precheck }),
+      );
+      expect(res).toMatchObject({ kind: 'blocked', blocker: 'baseline-review' });
+      expect(precheck).not.toHaveBeenCalled();
+    });
+
+    it('never runs when there is no pending entry', async () => {
+      const precheck = seam(approving());
+      const res = await runWith(
+        deps({ detectBaselines: async () => [], precheckBaselines: precheck }),
+      );
+      expect(res).toEqual({ kind: 'advanced', next: 'review' });
+      expect(precheck).not.toHaveBeenCalled();
+    });
+
+    it('passes the branch src/ui paths to the pre-check, and an unreadable diff is an empty list', async () => {
+      const seen: string[][] = [];
+      const precheck = seam(async (input) => {
+        seen.push([...input.uiPaths]);
+        return { approved: [] };
+      });
+      const git = vi.fn(async (args: readonly string[]) =>
+        args[0] === 'diff'
+          ? { exitCode: 0, stdout: 'src/ui/settings/app/main.tsx\nsrc/ui/dashboard/app/main.tsx\n', stderr: '' }
+          : { exitCode: 1, stdout: '', stderr: 'no' },
+      ) as unknown as UatDeps['git'];
+      await runWith(
+        deps({ detectBaselines: async () => [ENTRY], precheckBaselines: precheck, git }),
+      );
+      expect(seen[0]).toEqual(['src/ui/settings/app/main.tsx', 'src/ui/dashboard/app/main.tsx']);
+      expect(git).toHaveBeenCalledWith(
+        ['diff', '--name-only', ENTRY.mergeBase, 'HEAD', '--', 'src/ui'],
+        ENTRY.cwd,
+      );
+
+      seen.length = 0;
+      await runWith(
+        deps({
+          detectBaselines: async () => [ENTRY],
+          precheckBaselines: precheck,
+          git: async () => {
+            throw new Error('no git');
+          },
+        }),
+      );
+      expect(seen[0]).toEqual([]);
     });
   });
 });

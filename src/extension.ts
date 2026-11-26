@@ -262,6 +262,8 @@ import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js
 import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinator/replan.js';
 import { createSupervisedCliTransport, type SupervisedCliTransport, type SupervisedAgentSession } from './approaches/graph/transport/supervisedCliTransport.js';
 import { createGraphUsageBinding } from './extension/graphUsageBinding.js';
+import { createGraphUsageLimitBinding } from './extension/graphUsageLimitBinding.js';
+import { createGraphFirstActivityBinding } from './extension/graphFirstActivityBinding.js';
 import {
   activeGraphRunFor,
   graphTicketSurface,
@@ -352,6 +354,8 @@ import { interruptImplementationRun } from './store/implementationRuns.js'; impo
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { readSetupFailure } from './agent/sandboxSetup.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
+import { isRemoteTrusted, readRemoteTrust } from './agent/ssh/remoteTrust.js';
+import { confirmRemoteTrust, sshRemoteFor } from './extension/ops/sshTrustOps.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, wantsSbxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
@@ -4163,6 +4167,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return resolveTicketProvider(currentManifest() ?? emptyManifest(), ticket);
   };
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
+  const graphUsageLimit = createGraphUsageLimitBinding({ store: () => graphCoordinatorStore, transaction: <T>(fn: () => T): T => runImmediateTransaction(graphCoordinatorStore!.db, fn), now: () => new Date().toISOString(), // T1380
+    transport: () => graphTransport, recovery: () => graphRecoverySeams, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), manifest: () => currentManifest(), graphConfigOf: (id) => graphApproachConfigFor(id),
+    ticketLaunchFieldsOf: (id) => ticketLaunchFields(getTicket(graphCoordinatorStore!, id)), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, debug: (m) => logger.debug(m), logError });
+  const graphFirstActivity = createGraphFirstActivityBinding({ db: () => graphCoordinatorStore?.db, transaction: <T>(fn: () => T): T => runImmediateTransaction(graphCoordinatorStore!.db, fn), now: () => new Date().toISOString(), awakeElapsedMs: defaultSleepLedger.awakeElapsedMs, transport: () => graphTransport, debug: (m) => logger.debug(m), logError });
   const interactiveUsageLimit = createInteractiveUsageLimitBinding({ store: localStore, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), sessionProviderFor, // D160 AC-42
     switchSession: (id, sel) => switchAgentSession(id, sel.provider, sel.model, null), disposeSession: (id) => sessions.disposeSession(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); } });
   endpoint = await startHookEndpoint(
@@ -4177,6 +4185,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       debug: (message) => logger.debug(message),
       tracker: turnTracker,
       onSessionError: interactiveUsageLimit.onSessionError,
+      onGraphUsageLimit: graphUsageLimit.onGraphHookUsageLimit, // T1380
       // The mail reply channel: a turn end with unread mail gets a fixed pointer.
       hookReply: mailbox.hookReply, refreshUnread: mailbox.refreshUnread, onReplyDelivered: mailbox.onReplyDelivered,
       ticketApi: {
@@ -4202,7 +4211,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (m) => logger.debug(m),
     warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-45 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? ask.error(m, OPEN_SYNC_DIFF).then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? ask.error(m, RETRY_NOW).then((c) => { if (c) void bridges?.retryNow(id); }) : ask.warn(m)); },
-    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError },
+    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker, onSessionError: interactiveUsageLimit.onSessionError, onGraphUsageLimit: graphUsageLimit.onGraphHookUsageLimit },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
   try { stopStaleDeliverRuns(localStore, pidAlive, nowIso()); } catch (e) { logError('stale deliver runs sweep failed', e); }
   await sandboxLife.backfillPlacements(); await sandboxLife.backfillGraphPlacements(); await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, liveSandboxTicketIds: () => sandboxLife.liveSandboxTicketIds(), sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
@@ -4289,6 +4298,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Bookkeeping over state that is already stored: the next tick retries.
       logError(`karst: graph coordinator tick failed for run ${graphRunId}`, err);
     }
+    // T1385: a node that launched but never produced a usage sample is stopped
+    // and parked (awake time only). A failure only delays the next tick.
+    await graphFirstActivity.run(graphRunId);
     // Completing nodes are integrated by THIS window, in node-run order (the
     // pipeline's integrating-slot CAS serializes the write phases across
     // windows). A deferred node is retried on the next tick. The continuation
@@ -4477,6 +4489,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         nodeRunId: identity.nodeRunId,
         ticketId: named.ticketId,
         graphRunId: identity.graphRunId,
+        // The launch id names a run row, not its role: carry the kind the
+        // re-attach read, or a revived planner is later swept/killed as a node
+        // (T1380 usage-limit park, T1370 transcript read).
+        runKind: identity.kind,
         pid: identity.pid,
         cwd: graphTerminalCwd(terminal),
         generation: identity.generation,
@@ -4759,7 +4775,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
   };
   const graphClaimEvidence = createGraphClaimEvidence(graphCompletionPipelineDeps, logError);
-  const graphUsage = createGraphUsageBinding({ endpointUrl: () => endpoint?.url, configDir: settingsDir, projectKey: () => projectEndpointKey(currentProject()?.slug), sessions: () => graphTransport?.sessions() ?? [], dispatch: (payload) => { dispatchHook(localStore, payload, notifyHook, shouldApplyHookState, sessionProviderFor, hookChannelRecorder, logger.debug); }, projectsDirFor: (sessionId) => resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)), debug: (m) => logger.debug(m), onError: logError }); // T1370
+  const graphUsage = createGraphUsageBinding({ endpointUrl: () => endpoint?.url, configDir: settingsDir, projectKey: () => projectEndpointKey(currentProject()?.slug), sessions: () => graphTransport?.sessions() ?? [], dispatch: (payload) => { dispatchHook(localStore, payload, notifyHook, shouldApplyHookState, sessionProviderFor, hookChannelRecorder, logger.debug, undefined, undefined, graphUsageLimit.onGraphHookUsageLimit); }, projectsDirFor: (sessionId) => resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)), debug: (m) => logger.debug(m), onError: logError, onGraphUsageLimit: graphUsageLimit.onGraphUsageLimit }); // T1370/T1380
 
   // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are
   // REAL vscode terminals, remembered in the identity registry so a reload
@@ -6792,7 +6808,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider; if (!options.recovery && !options.memoryAdmitted && !sessions.isOpen(ticketId) && wantsSbxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend) && listWorktreesByTicket(localStore, ticketId).length <= 1 && memoryGuard && !(await memoryGuard.admitLaunch(ticketId, options))) return { kind: 'not-applicable', reason: 'cancelled' }; // queued: 'Waiting for memory'; a recovery relaunch is never queued (recoverSession would count it as failed)
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, failClosed: options.failClosed === true, reuseLive: () => sbxOauth !== undefined && getPlacement(localStore, ticketId)?.backend === 'sbx' && sessions.isLive(ticketId), refuseOnBlock: options.recovery === true, tokenAccount: () => { if (launchProvider !== 'claude') return undefined; const n = launchAccountName('claude', options.account); return sbxTokenEligibility('claude', n, accountsConfig().claude?.list[n]) === null ? n : undefined; }, launch: () => startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ...(shouldResumeSession({ sessionId: t.sessionId, sessionProvider: t.sessionProvider, stageCurrent: t.stageCurrent as StageKey, provider: launchProvider, allowResume: options.allowResume }) && t.sessionId ? { resumeSessionId: t.sessionId } : {}), ticketOverride: t.agentBackend, ...(options.account !== undefined ? { account: options.account } : {}), warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true), ...(sbxOauth ? { oauth: sbxOauth.oauthInput } : {}) }, (core) => sandboxB?.remember(ticketId, core)), (late) => late.abortLaunch?.() ?? Promise.resolve()), ...hostFallbackPrompts({ showWarningMessage: ask.warn }), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; if (fallback.kind === 'reused') { if (options.reveal !== false) sessions.revealSession(ticketId); ownedSessionTickets.add(ticketId); await persistOwnedSessionTickets(); sandboxB?.reattach(ticketId); showStatusFor(ticketId); return { kind: 'launched' }; } /* a live (or revived) session gets the ownership and re-verify steps of a normal launch, with no new key */ if (fallback.kind === 'restart-default') return vscode.commands.executeCommand<SessionOutcome>('karst.openSession', ticketId, { ...options, account: 'default', allowResume: false, memoryAdmitted: true }); /* a NEW session under explicit 'default'; the active account is untouched (@arch:AC-55) */ if (fallback.kind === 'add-token') { await settings.openAt(`#agents/accounts/claude/${encodeURIComponent(fallback.account)}`); return { kind: 'not-applicable', reason: 'cancelled' }; } /* D651: Settings opens on that account's token control; nothing launches */ if (fallback.kind === 'refused') return startGuards.failedLaunch(ticketId, fallback.reason); const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); try { /* a key issued by the backend is given back when anything below throws before the session opens */ await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
+      const sshRemote = sshRemoteFor(currentManifest()?.agentBackends, currentManifest()?.remotes, launchProvider, t.agentBackend);
+      /** The host trust record, re-read at each resolve so a confirm in this launch counts (T1387). */
+      const remoteTrust = (name: string): boolean => {
+        const def = currentManifest()?.remotes?.[name];
+        return def !== undefined && isRemoteTrusted(readRemoteTrust(storageDir, (m) => logger.warn(m)), name, def);
+      };
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, failClosed: options.failClosed === true, reuseLive: () => sbxOauth !== undefined && getPlacement(localStore, ticketId)?.backend === 'sbx' && sessions.isLive(ticketId), refuseOnBlock: options.recovery === true, tokenAccount: () => { if (launchProvider !== 'claude') return undefined; const n = launchAccountName('claude', options.account); return sbxTokenEligibility('claude', n, accountsConfig().claude?.list[n]) === null ? n : undefined; }, launch: async () => { if (sshRemote) await confirmRemoteTrust({ storageDir, confirm: async (message, detail) => (await ask.warn(message, { modal: true, detail }, 'Allow')) === 'Allow', warn: (m) => logger.warn(m) }, sshRemote); return startGuards.boundedBackendStep(ticketId, t.key ?? String(ticketId), () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ...(shouldResumeSession({ sessionId: t.sessionId, sessionProvider: t.sessionProvider, stageCurrent: t.stageCurrent as StageKey, provider: launchProvider, allowResume: options.allowResume }) && t.sessionId ? { resumeSessionId: t.sessionId } : {}), ticketOverride: t.agentBackend, ...(options.account !== undefined ? { account: options.account } : {}), warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), remoteTrust, info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], ...(currentManifest()?.sandboxMemory ? { sandboxMemory: currentManifest()!.sandboxMemory! } : {}), ...(currentManifest()?.sandboxLimits ? { sandboxLimits: currentManifest()!.sandboxLimits! } : {}), syncExisting: () => sandboxLife.ensureInSync(ticketId, true, true), ...(sbxOauth ? { oauth: sbxOauth.oauthInput } : {}) }, (core) => sandboxB?.remember(ticketId, core)), (late) => late.abortLaunch?.() ?? Promise.resolve()); }, ...hostFallbackPrompts({ showWarningMessage: ask.warn }), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return { kind: 'not-applicable', reason: 'cancelled' }; if (fallback.kind === 'reused') { if (options.reveal !== false) sessions.revealSession(ticketId); ownedSessionTickets.add(ticketId); await persistOwnedSessionTickets(); sandboxB?.reattach(ticketId); showStatusFor(ticketId); return { kind: 'launched' }; } /* a live (or revived) session gets the ownership and re-verify steps of a normal launch, with no new key */ if (fallback.kind === 'restart-default') return vscode.commands.executeCommand<SessionOutcome>('karst.openSession', ticketId, { ...options, account: 'default', allowResume: false, memoryAdmitted: true }); /* a NEW session under explicit 'default'; the active account is untouched (@arch:AC-55) */ if (fallback.kind === 'add-token') { await settings.openAt(`#agents/accounts/claude/${encodeURIComponent(fallback.account)}`); return { kind: 'not-applicable', reason: 'cancelled' }; } /* D651: Settings opens on that account's token control; nothing launches */ if (fallback.kind === 'refused') return startGuards.failedLaunch(ticketId, fallback.reason); const launchBackend = fallback.backend; sandboxLife.recordLaunchPlacement(ticketId, launchBackend.placement, launchProvider); try { /* a key issued by the backend is given back when anything below throws before the session opens */ await launchBackend.linkTranscripts?.(); // after the bounded step: a slow `sbx create` must not stop the launch (AC-34) // D245: one recorded placement, written with sessionProvider
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session

@@ -158,6 +158,19 @@ describe('applyManifestProposal', () => {
     const applied = applyManifestProposal(current, proposed);
     expect(applied.debug).toBeUndefined();
   });
+
+  it('refuses a proposal that changes remotes (T1387)', () => {
+    const current = manifest({
+      repositories: {},
+      remotes: { devbox: { host: 'devbox.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' } },
+    });
+    const proposed = manifest({
+      repositories: { web: repo('/w/web') },
+      remotes: { evil: { host: 'evil.example.com', user: 'root', mode: 'direct', remoteDir: '/srv/evil' } },
+    });
+    const applied = applyManifestProposal(current, proposed);
+    expect(applied.remotes).toEqual(current.remotes);
+  });
 });
 
 describe('diffManifest', () => {

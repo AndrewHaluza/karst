@@ -25,6 +25,7 @@ describe('matchesUiPath', () => {
     'package.json',
     'docs/arch/stages-and-gates.md',
     'scripts/dockerGate.mjs',
+    'tests/visual/sweepBudget.ts',
   ])('does not match %s', (path) => expect(matchesUiPath(path)).toBe(false));
 
   it('keeps the set in one constant', () => {
@@ -39,6 +40,9 @@ describe('hasUiChange', () => {
   });
   it('is true when any path is UI', () => {
     expect(hasUiChange(['src/store/gateRuns.ts', 'src/ui/x.ts'])).toBe(true);
+  });
+  it('is false for the visual sweep budget, which renders nothing', () => {
+    expect(hasUiChange(['tests/visual/sweepBudget.ts'])).toBe(false);
   });
 });
 

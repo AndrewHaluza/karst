@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
 import { ManifestError } from './error.js';
@@ -2545,6 +2545,215 @@ describe('agentBackends (AC-32: per-core, default host)', () => {
       expect(() => loadManifest(path)).toThrow(/agentBackend must be one of host, sbx, docker/);
     } finally {
       cleanup();
+    }
+  });
+});
+
+describe('remotes (T1387: named SSH targets)', () => {
+  const load = (extra: string) => {
+    const { path, cleanup } = fixture(`${VALID}\n${extra}\n`);
+    try {
+      return loadManifest(path);
+    } finally {
+      cleanup();
+    }
+  };
+
+  const REMOTE = (over: string) => `remotes:
+  devbox:
+${over}`;
+
+  const VALID_REMOTE = `    host: devbox.example.com
+    user: karst
+    port: 2222
+    keyPath: "~/.ssh/id_ed25519"
+    mode: direct
+    remoteDir: /srv/karst
+    allowHostServices: true`;
+
+  it('is undefined when omitted', () => {
+    expect(load('').remotes).toBeUndefined();
+  });
+
+  it('parses a valid remote and keeps every field', () => {
+    expect(load(REMOTE(VALID_REMOTE)).remotes).toEqual({
+      devbox: {
+        host: 'devbox.example.com',
+        user: 'karst',
+        port: 2222,
+        keyPath: '~/.ssh/id_ed25519',
+        mode: 'direct',
+        remoteDir: '/srv/karst',
+        allowHostServices: true,
+      },
+    });
+  });
+
+  it('defaults allowHostServices to absent', () => {
+    const remote = load(REMOTE(`    host: devbox.example.com
+    user: karst
+    mode: docker
+    remoteDir: /srv/karst`)).remotes!.devbox!;
+    expect(remote.allowHostServices).toBeUndefined();
+  });
+
+  it('accepts a bracketed IPv6 host and an absolute-form key path', () => {
+    const remote = load(REMOTE(`    host: "[::1]"
+    user: karst
+    keyPath: ${homedir()}/.ssh/id_ed25519
+    mode: direct
+    remoteDir: /srv/karst`)).remotes!.devbox!;
+    expect(remote.host).toBe('[::1]');
+    expect(remote.keyPath).toBe(`${homedir()}/.ssh/id_ed25519`);
+  });
+
+  it.each([
+    ['host: -oProxyCommand=evil', /remotes\.devbox\.host/],
+    ['host: "bad host"', /remotes\.devbox\.host/],
+    ['host: ""', /remotes\.devbox\.host/],
+    ['user: Root', /remotes\.devbox\.user/],
+    ['user: "a b"', /remotes\.devbox\.user/],
+    ['port: 0', /remotes\.devbox\.port/],
+    ['port: 70000', /remotes\.devbox\.port/],
+    ['port: "22"', /remotes\.devbox\.port/],
+    ['mode: tunnel', /remotes\.devbox\.mode/],
+  ])('rejects %s', (line, message) => {
+    const block = VALID_REMOTE.split('\n')
+      .filter((l) => !l.trimStart().startsWith(line.split(':')[0]! + ':'))
+      .join('\n');
+    const { path, cleanup } = fixture(`${VALID}\n${REMOTE(`${block}\n    ${line}`)}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(ManifestError);
+      expect(() => loadManifest(path)).toThrow(message);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['/', '//', '/.', '/home'])('rejects remoteDir %s', (remoteDir) => {
+    const { path, cleanup } = fixture(`${VALID}\n${REMOTE(`    host: devbox.example.com
+    user: karst
+    mode: direct
+    remoteDir: "${remoteDir}"`)}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/remotes\.devbox\.remoteDir/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['/srv/karst', '/home/u/karst', '/srv/karst.v1'])('accepts remoteDir %s', (remoteDir) => {
+    const { path, cleanup } = fixture(`${VALID}\n${REMOTE(`    host: devbox.example.com
+    user: karst
+    mode: direct
+    remoteDir: ${remoteDir}`)}\n`);
+    try {
+      expect(loadManifest(path).remotes!.devbox!.remoteDir).toBe(remoteDir);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    ['/srv/../etc', /remotes\.devbox\.remoteDir/],
+    ['/srv/karst dir', /remotes\.devbox\.remoteDir/],
+    ['/srv/karst;rm -rf /', /remotes\.devbox\.remoteDir/],
+    ['/srv/./karst', /remotes\.devbox\.remoteDir/],
+  ])('rejects a remoteDir of %s', (remoteDir, message) => {
+    const { path, cleanup } = fixture(`${VALID}\n${REMOTE(`    host: devbox.example.com
+    user: karst
+    mode: direct
+    remoteDir: "${remoteDir}"`)}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(message);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    ['/etc/passwd', /remotes\.devbox\.keyPath/],
+    ['~/.ssh/../id_ed25519', /remotes\.devbox\.keyPath/],
+    ['~/.ssh/id ed25519', /remotes\.devbox\.keyPath/],
+    ['~/.ssh/', /remotes\.devbox\.keyPath/],
+    // The absolute form is only the user's own ~/.ssh/, not any dir with a .ssh segment.
+    ['/etc/keys/.ssh/id_ed25519', /remotes\.devbox\.keyPath/],
+    ['/tmp/.ssh/id_ed25519', /remotes\.devbox\.keyPath/],
+    [`${homedir()}-other/.ssh/id_ed25519`, /remotes\.devbox\.keyPath/],
+    [`${homedir()}/x/.ssh/id_ed25519`, /remotes\.devbox\.keyPath/],
+  ])('rejects a keyPath of %s', (keyPath, message) => {
+    const { path, cleanup } = fixture(`${VALID}\n${REMOTE(`    host: devbox.example.com
+    user: karst
+    mode: direct
+    remoteDir: /srv/karst
+    keyPath: "${keyPath}"`)}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(message);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an unknown remote field', () => {
+    const { path, cleanup } = fixture(`${VALID}\n${REMOTE(`${VALID_REMOTE}\n    proxyCommand: evil`)}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/remotes\.devbox\.proxyCommand is not a known field/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an invalid remote name', () => {
+    const { path, cleanup } = fixture(`${VALID}\nremotes:\n  Dev_Box:\n    host: devbox.example.com\n    user: karst\n    mode: direct\n    remoteDir: /srv/karst\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/invalid remote name 'Dev_Box'/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-mapping remotes block', () => {
+    const { path, cleanup } = fixture(`${VALID}\nremotes: devbox\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/remotes must be a mapping/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  const SSH = (core: string, name: string) => `${REMOTE(VALID_REMOTE)}\nagentBackends:\n  ${core}: ssh:${name}`;
+
+  it('parses ssh:<name> for an SSH core when the remote is declared', () => {
+    expect(load(SSH('claude', 'devbox')).agentBackends).toEqual({ claude: 'ssh:devbox' });
+    expect(load(SSH('codex', 'devbox')).agentBackends).toEqual({ codex: 'ssh:devbox' });
+  });
+
+  it('rejects ssh:<name> on agy (no SSH core)', () => {
+    expect(() => load(SSH('agy', 'devbox'))).toThrow(/agentBackends\.agy: ssh backend unsupported for agy/);
+  });
+
+  it('rejects an unknown remote and lists the declared ones', () => {
+    expect(() => load(SSH('claude', 'missing'))).toThrow(
+      /agentBackends\.claude: unknown remote 'missing' \(declared: devbox\)/,
+    );
+  });
+
+  it('rejects ssh docker mode for claude and codex, and allows it for opencode', () => {
+    const dockerRemote = REMOTE(`    host: devbox.example.com
+    user: karst
+    mode: docker
+    remoteDir: /srv/karst`);
+    const claude = fixture(`${VALID}\n${dockerRemote}\nagentBackends:\n  claude: ssh:devbox\n`);
+    const codex = fixture(`${VALID}\n${dockerRemote}\nagentBackends:\n  codex: ssh:devbox\n`);
+    const opencode = fixture(`${VALID}\n${dockerRemote}\nagentBackends:\n  opencode2: ssh:devbox\n`);
+    try {
+      expect(() => loadManifest(claude.path)).toThrow(/agentBackends\.claude: ssh docker mode supports only opencode, opencode2/);
+      expect(() => loadManifest(codex.path)).toThrow(/agentBackends\.codex: ssh docker mode supports only opencode, opencode2/);
+      expect(loadManifest(opencode.path).agentBackends).toEqual({ opencode2: 'ssh:devbox' });
+    } finally {
+      claude.cleanup();
+      codex.cleanup();
+      opencode.cleanup();
     }
   });
 });

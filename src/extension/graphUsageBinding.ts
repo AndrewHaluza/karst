@@ -11,11 +11,23 @@ import type { ClaudeWatchState } from '../agent/claudeTranscriptWatch.js';
 import { makeTranscriptReader } from '../agent/claudeTranscriptRead.js';
 import { sweepGraphClaudeSessions, type GraphClaudeSession } from '../agent/graphClaudeSweep.js';
 import { graphLaunchIdForLaunch } from '../approaches/graph/graphLaunchId.js';
+import { claudeTrailingQuota, isInteractiveQuota } from '../agent/interactiveQuota.js';
+import { makeOncePerError } from './ops/interactiveUsageLimitOps.js';
 // Types come through the transport module: it is the sole AgentAdapter/AgentTransport bridge.
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from '../approaches/graph/transport/supervisedCliTransport.js';
 
-/** The only core whose graph usage arrives as a hook (the opencode2 bridge plugin). */
-const HOOK_USAGE_PROVIDER = 'opencode2';
+/** The cores whose graph usage arrives as a hook (the opencode/opencode2 bridge plugins). */
+const HOOK_USAGE_PROVIDERS: ReadonlySet<string> = new Set(['opencode2', 'opencode']);
+
+/** T1380: a Claude graph transcript carried the provider's quota verdict. */
+export interface GraphClaudeUsageLimitSignal {
+  ticketId: number;
+  graphRunId: number;
+  runId: number;
+  role: 'node' | 'planner';
+  provider: 'claude';
+  text: string;
+}
 
 export interface GraphUsageBindingDeps {
   /** The bound hook endpoint URL; undefined while the endpoint is not bound. */
@@ -29,12 +41,15 @@ export interface GraphUsageBindingDeps {
   projectsDirFor(sessionId: string): string;
   debug(message: string): void;
   onError(message: string, error: unknown): void;
+  /** T1380: a graph claude transcript ended on a quota error; park the run. */
+  onGraphUsageLimit?: (signal: GraphClaudeUsageLimitSignal) => void;
 }
 
 export interface GraphUsageBinding {
   /**
-   * The hook channel of a graph launch. Only opencode2 gets one: claude usage
-   * comes from the transcript sweep, and a claude hook channel would carry
+   * The hook channel of a graph launch. Only opencode and opencode2 get one
+   * (T1380 adds opencode): claude usage comes from the transcript sweep, and a
+   * claude hook channel would carry
    * lifecycle events for a ticket that has no session of its own. The channel
    * carries a GRAPH launch id (`graph-<run>-<role>-<id>`), never a ticket
    * generation, so dispatch routes the event down its usage-only path. It does
@@ -64,9 +79,14 @@ export function createGraphUsageBinding(deps: GraphUsageBindingDeps): GraphUsage
   // Keyed by graph launch id, never by ticket, so a graph session never
   // shares the ticket session's state.
   const states = new Map<string, ClaudeWatchState>();
+  // Keyed by `(graph run, graph launch id)` — never the ticket's own session
+  // key — so repeated sweeps of one error line report it once (T1380).
+  const oncePerError = makeOncePerError();
   return {
     hookChannelFor: (request) => {
-      if (request.identity?.provider !== HOOK_USAGE_PROVIDER) return undefined;
+      if (request.identity?.provider === undefined || !HOOK_USAGE_PROVIDERS.has(request.identity.provider)) {
+        return undefined;
+      }
       const endpointUrl = deps.endpointUrl();
       if (endpointUrl === undefined) {
         deps.debug('[graph] hook endpoint is not bound — the launch records no usage');
@@ -91,6 +111,23 @@ export function createGraphUsageBinding(deps: GraphUsageBindingDeps): GraphUsage
           debug: deps.debug,
           onError: deps.onError,
           onTranscript: () => undefined,
+          onGraphTranscript: (session, launchId, text) => {
+            const quota = claudeTrailingQuota(text);
+            // Stryker disable next-line StringLiteral: equivalent — analyze() never reads `tool` for the quota verdict, only the provider's error text.
+            if (!quota || !isInteractiveQuota('claude', quota.text)) return;
+            // The graph launch id isolates this read from the ticket session's
+            // transcript watch: the same error reported on several ticks offers
+            // once, and a later human entry reads as no quota at all.
+            if (!oncePerError(session.graphRunId, launchId, quota.key)) return;
+            deps.onGraphUsageLimit?.({
+              ticketId: session.ticketId,
+              graphRunId: session.graphRunId,
+              runId: session.runId,
+              role: session.role,
+              provider: 'claude',
+              text: quota.text,
+            });
+          },
           dispatch: deps.dispatch,
           projectsDirFor: deps.projectsDirFor,
         },

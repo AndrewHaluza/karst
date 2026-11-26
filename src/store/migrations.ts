@@ -3155,5 +3155,13 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 140) {
+    // v140: `baseline_decisions.decided_by` — who decided (the user or the UAT model pre-check). Additive; every older row is a user row, no backfill.
+    const decisionCols140 = tableColumns(db, 'baseline_decisions');
+    if (decisionCols140.size > 0 && !decisionCols140.has('decided_by')) {
+      db.exec("ALTER TABLE baseline_decisions ADD COLUMN decided_by TEXT NOT NULL DEFAULT 'user' CHECK (decided_by IN ('user', 'precheck'))");
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

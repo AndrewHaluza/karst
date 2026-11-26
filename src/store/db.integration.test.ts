@@ -567,6 +567,48 @@ describe('openStore', () => {
     expect(col).toMatchObject({ notnull: 1, dflt_value: "'agent'" });
   });
 
+  it('migrates a pre-v140 database by adding baseline_decisions.decided_by as user, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`CREATE TABLE baseline_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, repo TEXT NOT NULL,
+      path TEXT NOT NULL, sha256 TEXT NOT NULL,
+      decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
+      reason TEXT, decided_at TEXT NOT NULL
+    )`);
+    legacy.exec(
+      "INSERT INTO baseline_decisions (id, ticket_id, repo, path, sha256, decision, reason, decided_at) VALUES (1, 7, 'web', 'a.png', 's1', 'approved', NULL, '2026-01-01T00:00:00.000Z')",
+    );
+    legacy.pragma('user_version = 139');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('baseline_decisions')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toContain('decided_by');
+    expect(migrated.db.prepare('SELECT decided_by AS d FROM baseline_decisions WHERE id = 1').get()).toEqual({ d: 'user' });
+    expect(
+      migrated.db.prepare('SELECT decided_by, COUNT(*) AS n FROM baseline_decisions GROUP BY 1').all(),
+    ).toEqual([{ decided_by: 'user', n: 1 }]);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'decided_by')).toHaveLength(1);
+  });
+
+  it('a fresh database defaults baseline_decisions.decided_by to user', () => {
+    const fresh = openStore(':memory:');
+    cleanups.push(() => fresh.close());
+    const col = (fresh.db.prepare("PRAGMA table_info('baseline_decisions')").all() as { name: string; notnull: number; dflt_value: string | null }[])
+      .find((c) => c.name === 'decided_by');
+    expect(col).toMatchObject({ notnull: 1, dflt_value: "'user'" });
+  });
+
   it('a fresh database has a nullable servers.last_error', () => {
     const fresh = openStore(':memory:');
     cleanups.push(() => fresh.close());

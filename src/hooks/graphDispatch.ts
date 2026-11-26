@@ -8,6 +8,7 @@ import {
 } from '../store/graph/sessionOwners.js';
 import { canonicalPath } from '../runtime/pathScope.js';
 import { isKnownProvider } from '../agent/provider.js';
+import { isInteractiveQuota, quotaTextFromHook } from '../agent/interactiveQuota.js';
 import { recordUsageSample } from './usageIngest.js';
 
 /** The fields of a hook payload the graph branch reads. */
@@ -17,12 +18,21 @@ export interface GraphHookPayload {
   session_id?: string;
   usage?: unknown;
   launchId?: string;
+  /** The provider's own error text of a `session.error` (opencode/opencode2). */
+  message?: unknown;
 }
 
 export interface GraphHookDeps {
   notify?: (ticketId: number) => void;
   observe: (outcome: HookDispatchOutcome) => void;
   debug?: (msg: string) => void;
+  /**
+   * T1380: an owned graph session reported a provider quota error. Observation
+   * only — the callback parks the graph run; dispatch still writes no ticket
+   * state (no agent_state, session id, launch intent, turn tracker or liveness
+   * stamp) for a graph session.
+   */
+  onGraphUsageLimit?: (owner: GraphLaunchOwner, text: string) => void;
 }
 
 /** What the graph branch decided. `null` from `dispatchGraphHook` = not a graph session. */
@@ -94,6 +104,8 @@ function ingestGraphUsage(
       provider: owner.provider,
       providerSessionId: payload.session_id,
       usage: payload.usage,
+      // T1385: the session's OWN run, so parallel nodes never share a binding.
+      graphRun: { role: owner.role, runId: owner.runId },
     },
     deps.debug,
   );
@@ -104,10 +116,13 @@ function ingestGraphUsage(
  * when its launch id has the graph shape (`match: 'launch'`), or its cwd is a
  * node workspace of an open graph run (`match: 'workspace'`). Such a session admits ONLY `UsageUpdate`: the sample is
  * appended under the graph session's ticket and provider, and the store binds
- * it to the running graph process run. Every other event returns
- * `admitted: false` with no write at all — no agent_state, no session id, no
- * launch intent, no turn tracker, no liveness stamp, no notify — because a
- * graph session's lifecycle is not the ticket's.
+ * it to the running graph process run. T1380 adds one read-only exception: a
+ * `session.error` whose text is the provider's own quota verdict reports
+ * `onGraphUsageLimit(owner, text)` so the host can park the run. Every other
+ * event (and a non-quota `session.error`) returns `admitted: false` with no
+ * write at all — no agent_state, no session id, no launch intent, no turn
+ * tracker, no liveness stamp, no notify — because a graph session's lifecycle
+ * is not the ticket's.
  *
  * Returns null for a payload that is not a graph session; the caller then runs
  * the ticket path. Both matches run BEFORE the generation check: a graph launch
@@ -130,6 +145,25 @@ export function dispatchGraphHook(
     return { admitted: false };
   }
   const { owner } = session;
+  if (event === 'session.error') {
+    const text = quotaTextFromHook(payload);
+    if (text !== null && owner.provider !== null && isInteractiveQuota(owner.provider, text)) {
+      // The park is the host's business; a defect in its callback must never
+      // break the hook path. Still a declined event: no ticket state is written.
+      try {
+        deps.onGraphUsageLimit?.(owner, text);
+      } catch (error) {
+        deps.debug?.(
+          `[hook] graph ${owner.graphRunId} ${owner.role} ${owner.runId}: onGraphUsageLimit failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      deps.debug?.(
+        `[hook] graph ${owner.graphRunId} ${owner.role} ${owner.runId}: session.error carries a ${owner.provider} usage limit`,
+      );
+      deps.observe('graph-ignored');
+      return { admitted: false };
+    }
+  }
   if (event !== 'UsageUpdate') {
     deps.debug?.(`[hook] graph ${owner.graphRunId} ${owner.role} ${owner.runId}: ${event} ignored (a graph session admits only UsageUpdate)`);
     deps.observe('graph-ignored');

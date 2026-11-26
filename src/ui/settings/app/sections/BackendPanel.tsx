@@ -85,7 +85,7 @@ export function BackendPanel() {
   // Probe on mount and whenever the selection changes; the host answers with
   // `backend-status` and preflights only the backends some core selects.
   useEffect(() => {
-    send.checkBackends({ sbx: want.sbx, docker: want.docker });
+    send.checkBackends({ sbx: want.sbx, docker: want.docker, ssh: want.ssh });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the two flags
   }, [want.sbx, want.docker]);
   return (
@@ -135,7 +135,7 @@ export function BackendPanel() {
         className="backend-recheck"
         variant="secondary"
         size="sm"
-        onClick={() => send.checkBackends({ sbx: want.sbx, docker: want.docker })}
+        onClick={() => send.checkBackends({ sbx: want.sbx, docker: want.docker, ssh: want.ssh })}
       >
         Re-check
       </Button>

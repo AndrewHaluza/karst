@@ -28,6 +28,7 @@ import type {
   QuotaConfig,
   RepoConventions,
   RepositoryDef,
+  RemoteDef,
   ResilienceConfig,
   ReviewConfig,
   ReviewFindingsConfig,
@@ -65,7 +66,7 @@ const MANIFEST: Keys<Manifest> = {
   conventions: true, ticketing: true, agentProvider: true, defaultModel: true, resilience: true,
   defaultEffort: true, agentPresets: true, activeAgentPreset: true, defaultAgentPreset: true,
   archiveDoneAfterDays: true, archivePlanningAfterDays: true, artifacts: true, subtasks: true,
-  debug: true, agentSandbox: true, agentBackends: true, sandboxMemory: true, sandboxLimits: true,
+  debug: true, agentSandbox: true, agentBackends: true, remotes: true, sandboxMemory: true, sandboxLimits: true,
   autopilot: true, closeDoneTerminalsWithTicket: true, diffsInSourceControl: true,
   stopServersOnDone: true, uat: true, analysis: true, quota: true, review: true, processes: true,
 };
@@ -104,6 +105,9 @@ const GRAPH_LIMITS: Keys<GraphLimits> = {
   maxLogBytes: true, maxAggregateArtifactBytes: true, maxAggregateWorkspaceBytes: true,
 };
 const AGENT: Keys<AgentDef> = { role: true, command: true, promptPath: true, enabled: true };
+const REMOTE: Keys<RemoteDef> = {
+  host: true, user: true, port: true, keyPath: true, mode: true, remoteDir: true, allowHostServices: true,
+};
 const TICKETING: Keys<TicketingConfig> = {
   provider: true, teamId: true, listId: true, advanceOnShip: true, shipStatus: true, advanceOnStart: true,
   startStatus: true, searchEnabled: true, syncSubtasks: true,
@@ -125,7 +129,7 @@ const TESTER: Keys<UatTesterConfig> = { tokenBudget: true };
 const HARNESS: Keys<UatHarnessDef> = {
   name: true, whenChanged: true, start: true, stop: true, evidence: true, startTimeoutSeconds: true, description: true,
 };
-const BASELINE_REVIEW: Keys<UatBaselineReviewConfig> = { paths: true };
+const BASELINE_REVIEW: Keys<UatBaselineReviewConfig> = { paths: true, precheck: true };
 const AUTH_BOOTSTRAP: Keys<UatAuthBootstrap> = { path: true, secrets: true };
 const AUTHOR: Keys<UatAuthor> = { agent: true, enabled: true };
 const UAT_REPOSITORY: Keys<UatRepositoryOverride> = { env: true, secrets: true, gates: true, testDir: true };
@@ -183,6 +187,7 @@ const NODES: readonly Node[] = [
   { name: 'GraphCommandConfig', section: 'approaches', path: 'approaches.*.graph.commands.*', keys: Object.keys(GRAPH_COMMAND) },
   { name: 'GraphLimits', section: 'approaches', path: 'approaches.*.graph.limits', keys: Object.keys(GRAPH_LIMITS) },
   { name: 'AgentDef', section: 'agents', path: 'agents.*', keys: Object.keys(AGENT) },
+  { name: 'RemoteDef', section: 'agents', path: 'remotes.*', keys: Object.keys(REMOTE) },
   { name: 'ProcessAssignmentConfig', section: 'agents', path: 'processes.uatTester', keys: Object.keys(PROCESS) },
   { name: 'AgentPreset', section: 'agents', path: 'agentPresets.*', keys: Object.keys(PRESET) },
   { name: 'PresetSlot', section: 'agents', path: `agentPresets.*.slots.${PRESET_CAPABILITIES[0]}`, keys: Object.keys(SLOT) },

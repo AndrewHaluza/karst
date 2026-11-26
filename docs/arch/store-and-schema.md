@@ -399,7 +399,7 @@ END_DOC_BLOCK: [@arch:V121]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
-
+**v140:** `baseline_decisions.decided_by` (TEXT NOT NULL DEFAULT `'user'` CHECK `'user'|'precheck'` — who recorded the verdict: the user through the overlay, or the UAT model pre-check; `@arch:BASELINE-REVIEW`). Additive, every existing row is a user row, no backfill. `recordBaselineDecisions` writes it (`decidedBy`, default `'user'`) and `latestBaselineDecisions` reads it.
 
 **v139:** `phase_marks.source` (TEXT NOT NULL DEFAULT `'agent'` CHECK `'agent'|'host'` — WHO wrote the mark: the agent's `karst phase` or the host's evidence; `@arch:RESULTS`, `@arch:APP-09`). Additive, every existing row is an `'agent'` row (the only writer before this version), no backfill. Reads: `listPhaseMarks` (model, stepper) and diagnostics' `readPhaseMarks`, which reports `source`.
 

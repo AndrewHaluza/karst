@@ -37,6 +37,18 @@ describe('validateUat', () => {
     ).toEqual({ paths: ['tests/visual/__baselines__/**'] });
   });
 
+  it('parses uat.baselineReview.precheck and refuses a non-boolean', () => {
+    expect(
+      validateUat({ baselineReview: { paths: ['tests/visual/__baselines__/**'], precheck: true } })?.baselineReview,
+    ).toEqual({ paths: ['tests/visual/__baselines__/**'], precheck: true });
+    expect(
+      validateUat({ baselineReview: { paths: ['tests/visual/__baselines__/**'] } })?.baselineReview,
+    ).toEqual({ paths: ['tests/visual/__baselines__/**'] });
+    expect(() =>
+      validateUat({ baselineReview: { paths: ['tests/visual/__baselines__/**'], precheck: 'yes' } }),
+    ).toThrow(/uat\.baselineReview\.precheck must be a boolean/);
+  });
+
   it('refuses a malformed uat.baselineReview', () => {
     expect(() => validateUat({ baselineReview: 'x' })).toThrow(/uat.baselineReview/);
     expect(() => validateUat({ baselineReview: { paths: 'x' } })).toThrow(/uat.baselineReview.paths/);
