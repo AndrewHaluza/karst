@@ -65,6 +65,8 @@ import { raiseDevelopRedAlert } from '../../store/developRed.js';
 import { latestBaselineDecisions } from '../../store/baselineDecisions.js';
 import { unapprovedBaselines } from '../gates/baselineReview.js';
 import { detectTicketBaselines, fingerprintTicket } from '../gates/baselineReviewTicket.js';
+import { precheckBaselines } from '../gates/baselinePrecheck.js';
+import { runUatBaselinePrecheck } from './uatBaselinePrecheck.js';
 import { hasUatGatePass, recordUatGatePass } from '../../store/uatGatePasses.js';
 import { stageAttempt } from '../../store/stages.js';
 import {
@@ -267,6 +269,8 @@ export interface UatDeps {
   warn?: WarnFn;
   /** Seam over the baseline-review change detection (@arch:BASELINE-REVIEW). */
   detectBaselines?: typeof detectTicketBaselines;
+  /** Seam over the model pre-check of changed baselines (@arch:BASELINE-PRECHECK). */
+  precheckBaselines?: typeof precheckBaselines;
   /** Seam over the working-tree fingerprint the gate-skip is keyed on. */
   fingerprint?: typeof fingerprintTicket;
 }
@@ -891,13 +895,50 @@ export async function runUat(
       opts.debug?.(`[gate] uat ticket ${opts.ticketId}: baseline review could not ask (${reason})`);
       return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
     }
-    const pending = unapprovedBaselines(changed, latestBaselineDecisions(store, opts.ticketId));
+    let pending = unapprovedBaselines(changed, latestBaselineDecisions(store, opts.ticketId));
+    let precheckApproved = 0;
+    // The model pre-check (@arch:BASELINE-PRECHECK) runs only on the FIRST pass
+    // of this review, after the gates passed and with the knob on. A `skipGates`
+    // run is the user's own approval re-entering UAT for the SAME tree: the gate
+    // list already passed for it in this attempt and the pre-check already saw
+    // it, so running it again would only record duplicate decisions. The
+    // gate-failure returns above stay first, so a failing gate never gets here.
+    const precheckOn = opts.manifest?.uat?.baselineReview?.precheck === true;
+    if (pending.length > 0 && precheckOn && rerun === undefined && !skipGates) {
+      const precheck = await runUatBaselinePrecheck({
+        store,
+        ticketId: opts.ticketId,
+        pending,
+        decisions: latestBaselineDecisions(store, opts.ticketId),
+        ticket: getTicket(store, opts.ticketId),
+        ...(tester === undefined ? {} : { tester }),
+        git,
+        ...(opts.debug === undefined ? {} : { debug: opts.debug }),
+        ...(opts.onTesterOutput === undefined ? {} : { onLiveOutput: opts.onTesterOutput }),
+        stageRunId: evidence.runId,
+        attempt: uatAttempt,
+        ...(opts.signal === undefined ? {} : { signal: opts.signal }),
+        ...(deps.precheckBaselines === undefined ? {} : { precheck: deps.precheckBaselines }),
+      });
+      precheckApproved = precheck.approved.length;
+      if (precheck.section !== undefined) sections.push(precheck.section);
+      // Recompute from the store, so an entry whose working-tree sha moved
+      // between detection and the decision is still pending (the approval lapses).
+      if (precheckApproved > 0) {
+        pending = unapprovedBaselines(changed, latestBaselineDecisions(store, opts.ticketId));
+      }
+    }
     opts.debug?.(
       `[gate] uat ticket ${opts.ticketId}: baseline review — ${changed.length} changed, ` +
-        `${pending.length} unapproved → ${pending.length > 0 ? 'blocked (baseline-review)' : 'proceed'}`,
+        `${pending.length} unapproved (${precheckApproved} approved by the pre-check) → ` +
+        `${pending.length > 0 ? 'blocked (baseline-review)' : 'proceed'}`,
     );
     if (pending.length > 0) {
-      const reason = `${pending.length} visual baseline(s) changed — review in the UAT report`;
+      const reason =
+        precheckApproved > 0
+          ? `${pending.length} visual baseline(s) changed — review in the UAT report ` +
+            `(${precheckApproved} approved by the pre-check)`
+          : `${pending.length} visual baseline(s) changed — review in the UAT report`;
       sections.push(
         `# baseline review\n${pending.map((e) => `${e.status} ${e.repo}:${e.path}`).join('\n')}`,
       );
