@@ -78,10 +78,13 @@ export function deliverRunFailureState(
   return { available: true, run, reason, failed };
 }
 
-/** The newest `base-moved` run of the ticket, whatever its state; null when none ran. */
+/**
+ * The newest deliver run of the ticket that the base-moved block can name: a ship base check (`base-moved`) or the gate run
+ * of an auto-deliver that refused a resolved merge (`auto`, T1381), whatever its state; null when none ran.
+ */
 function latestBaseMovedRun(store: Store, ticketId: number): DeliverRun | null {
   const row = store.db
-    .prepare("SELECT id FROM deliver_runs WHERE ticket_id = ? AND kind = 'base-moved' ORDER BY id DESC LIMIT 1")
+    .prepare("SELECT id FROM deliver_runs WHERE ticket_id = ? AND kind IN ('auto', 'base-moved') ORDER BY id DESC LIMIT 1")
     .get(ticketId) as { id: number } | undefined;
   return row ? getDeliverRun(store, row.id) : null;
 }
@@ -99,8 +102,9 @@ export function baseMovedFailureState(store: Store, ticketId: number): BaseMoved
 }
 
 /**
- * The failed gates of the repo in the newest `base-moved` run of the ticket, in run order; empty when the run did not fail or
- * none ran. Ship reads it right after the check failed, before it parks the ship stage (T1169, D633).
+ * The failed gates of the repo in the newest `base-moved` run (or the auto-deliver run that refused a resolved merge) of the
+ * ticket, in run order; empty when the run did not fail or none ran. Ship reads it right after the check failed, before it
+ * parks the ship stage (T1169, D633).
  */
 export function latestBaseMovedFailedGates(store: Store, ticketId: number, repo: string): readonly DeliverGateResult[] {
   const run = latestBaseMovedRun(store, ticketId);

@@ -317,8 +317,6 @@ export interface CurrentPr {
   number: number | null;
   url: string;
   status: string | null;
-  /** The PR head sha GitHub held at the last probe (v124), or null when never stated. */
-  headOid: string | null;
   /**
    * When a human declared this PR will never land (v56), else null. The merge
    * gate stops waiting on a dismissed PR — see `dismissPr`.
@@ -345,7 +343,7 @@ export interface CurrentPr {
 export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentPr[] {
   const rows = store.db
     .prepare(
-      `SELECT pr.repo, pr.number, pr.url, pr.status, pr.head_oid, pr.dismissed_at
+      `SELECT pr.repo, pr.number, pr.url, pr.status, pr.dismissed_at
          FROM prs pr
         WHERE pr.ticket_id = ?
           AND pr.url IS NOT NULL
@@ -363,7 +361,6 @@ export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentP
       number: number | null;
       url: string;
       status: string | null;
-      head_oid: string | null;
       dismissed_at: string | null;
     }>;
   return rows.map((r) => ({
@@ -371,7 +368,6 @@ export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentP
     number: r.number,
     url: r.url,
     status: r.status,
-    headOid: r.head_oid,
     dismissedAt: r.dismissed_at,
   }));
 }
@@ -386,7 +382,7 @@ export function listCurrentPrsByTicket(store: Store, ticketId: number): CurrentP
 export function getPrById(store: Store, id: number): (CurrentPr & { ticketId: number }) | undefined {
   const row = store.db
     .prepare(
-      `SELECT ticket_id, repo, number, url, status, head_oid, dismissed_at FROM prs WHERE rowid = ? AND url IS NOT NULL`,
+      `SELECT ticket_id, repo, number, url, status, dismissed_at FROM prs WHERE rowid = ? AND url IS NOT NULL`,
     )
     .get(id) as
     | {
@@ -395,7 +391,6 @@ export function getPrById(store: Store, id: number): (CurrentPr & { ticketId: nu
         number: number | null;
         url: string;
         status: string | null;
-        head_oid: string | null;
         dismissed_at: string | null;
       }
     | undefined;
@@ -406,7 +401,6 @@ export function getPrById(store: Store, id: number): (CurrentPr & { ticketId: nu
     number: row.number,
     url: row.url,
     status: row.status,
-    headOid: row.head_oid,
     dismissedAt: row.dismissed_at,
   };
 }

@@ -4,7 +4,7 @@ import { getTicket } from '../../store/tickets.js';
 import { getStage } from '../../store/stages.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
-import { clearOpenPrProbe, listCurrentPrsByTicket } from '../../store/prs.js';
+import { clearOpenPrProbe } from '../../store/prs.js';
 import { mergeHeadFactsByRepo } from '../../store/mergeHeads.js';
 import { isLocalHeadUnpushed } from '../../model/inside/deliver.js';
 import type { ResumeOutcome } from './conflictResumeOps.js';
@@ -17,13 +17,13 @@ import { isHostTicket, MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryO
 import { listShipRuns } from '../../store/shipRuns.js';
 import { hasTicketEvent } from '../../store/karstEvents.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
-import { baseMovedFailureState, deliverRunFailureState, type BaseMovedFailureRun, type BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
+import { baseMovedFailureState, deliverRunFailureState, type BaseMovedFailureRun } from '../../workflow/baseMovedFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { isKnownOptional, parseChecks } from '../../model/prChecks.js';
 import {
-  clearConflictRound, clearRefusedMerge, effectiveAutopilot, getRefusedMerge, markCiRound, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
-  getCiRoundAt, getCiRoundHeadSha, setCiRoundHeadSha, setRefusedMerge, markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
-  type AutopilotKind, type RefusedMerge,
+  clearConflictRound, effectiveAutopilot, markCiRound, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
+  getCiRoundHeadSha, setCiRoundHeadSha, markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
+  type AutopilotKind,
 } from '../../store/autopilot.js';
 
 /**
@@ -78,11 +78,6 @@ export interface AutopilotDeps {
   readonly sendCiFailure: () => Promise<FixOutcome>;
   /** The send-back of a failed base-moved run (@arch:AP-00). Absent: a `base-moved-failed` block gets no round. */
   readonly sendGateFailure?: () => Promise<FixOutcome>;
-  /**
-   * The gate fix round of a refused resolved merge (T1381, @arch:AP-06). The engine reads the refused run's failure state
-   * and hands it here; absent → the refusal keeps today's park for a manual Deliver.
-   */
-  readonly sendRefusedMergeFailure?: (state: BaseMovedFailureState) => Promise<FixOutcome>;
   /** The Resolve conflicts path for one repo (`resolveConflictRound`). */
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or karst delivers its resolved merge now: no other round starts beside it. */
@@ -335,14 +330,28 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
   const roundEnded = roundActive && d.conflictRoundEnded !== undefined && (await d.conflictRoundEnded());
   if (roundEnded) {
     d.dropConflictRound();
-    // The PR moved past the conflict: a refused merge of this round is history too (T1381).
-    clearRefusedMerge(d.store, d.ticketId);
+    clearConflictRound(d.store, d.ticketId);
     d.debug(`${LOG} ticket ${d.key}: the conflict round ended, the PR is no longer conflicted`);
   }
-  // A refused resolved merge's gate fix round is repaired from the store (T1381): the same step starts the fresh refusal
-  // and finishes it after a reload or a lease loss, so a queued round is retried and a stored guard is never bypassed.
-  const repaired = await refusedMergeStep(d, cfg);
-  if (repaired !== null) return repaired;
+  // A refusal of a verified resolved merge whose deliver run failed a gate parks the ticket on the SAME base-moved block the
+  // base check uses and delegates to its round (@arch:AP-12): the block runs before resumeStep and runRound, survives a
+  // reload or a lease loss, and every existing clear path (send-back, fix round, landing) ends it. Only a refusal with
+  // nothing to fix parks (T1315).
+  const refused = getConflictRoundAt(d.store, d.ticketId) !== null
+    ? (d.conflictRoundRefused ?? (() => conflictRoundRefusal(d.ticketId)))()
+    : null;
+  if (refused !== null) {
+    d.dropConflictRound();
+    clearConflictRound(d.store, d.ticketId);
+    armedNoted(d.store).delete(flightKeyOf(d));
+    const failure = deliverRunFailureState(d.store, d.ticketId, refused.runId, refused.baseRef, refused.baseSha);
+    if (failure.available && failure.failed.length > 0 && d.sendGateFailure !== undefined) {
+      parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'base-moved-failed', reason: failure.reason, runAt: new Date().toISOString(), gates: [] });
+      d.debug(`${LOG} ticket ${d.key}: the resolved merge failed gate ${[...new Set(failure.failed.map((g) => g.gateName))].join(', ')}; the base-moved round fixes it`);
+      return guardedRound(d, () => runBaseMovedRound(d, cfg));
+    }
+    return parkRefusedMerge(d, refused);
+  }
   // A reload kills the round in memory but not its slot in the store: a finished local merge is delivered with no new round.
   const resumed = await resumeStep(d);
   if (resumed !== null) return resumed;
@@ -358,7 +367,6 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
       // start on that. Park, so a person sees it; approve one more attempt or resolve it by hand.
       return park(d, 'conflicts', STALLED_REASON, UNFINISHED_BODY);
     } else if (d.conflictRoundActive()) {
-      // Read again: refusedMergeStep may have ended the round of a refusal that was already delivered (T1381).
       if (!armedNoted(d.store).has(flightKeyOf(d))) {
         armedNoted(d.store).add(flightKeyOf(d));
         d.debug(`${LOG} ticket ${d.key}: no round, a conflict round is armed or its resolved merge is being delivered`);
@@ -396,147 +404,10 @@ async function resumeStep(d: AutopilotDeps): Promise<AutopilotResult | null> {
   return null;
 }
 
-/** A refused merge its CURRENT PR already holds, or that PR merged or closed: nothing is left to repair (T1381). */
-function refusedMergeDelivered(store: Store, ticketId: number, repo: string, sha: string): boolean {
-  // One row per repo: an older closed PR must not answer for the branch still shipping (CURRENT_PR_ORDER).
-  const pr = listCurrentPrsByTicket(store, ticketId).find((p) => p.repo === repo);
-  if (pr === undefined) return false;
-  if (pr.status === 'merged' || pr.status === 'closed') return true;
-  return pr.headOid === sha;
-}
-
-/**
- * The gate fix round of a refused resolved merge (@arch:AP-01, T1381). The refusal is store state: a fresh refusal ends its
- * conflict round at once and records the repair state (repo, merge sha, deliver run, base ref/sha, park tail), and the same
- * step finishes it after a reload or a lease loss. That is also why a queued round or a lost lease is not lost: the next
- * tick reads the store, not the process. Null when no refusal is pending, or when its merge was delivered or the local
- * head moved (the guard is cleared and the normal path runs).
- */
-async function refusedMergeStep(d: AutopilotDeps, cfg: AutopilotConfig): Promise<AutopilotResult | null> {
-  const fresh = getConflictRoundAt(d.store, d.ticketId) !== null
-    ? (d.conflictRoundRefused ?? (() => conflictRoundRefusal(d.ticketId)))()
-    : null;
-  if (fresh !== null) {
-    // The fresh refusal supersedes any older repair state; its own round ends here. The retry then lives in the store, so a
-    // queued send or a lost lease does not drop it.
-    dropRefusedRound(d);
-    clearRefusedMerge(d.store, d.ticketId);
-    return startRefusedMerge(d, cfg, fresh);
-  }
-  const stored = getRefusedMerge(d.store, d.ticketId);
-  if (stored === null) return null;
-  return recoverRefusedMerge(d, cfg, stored);
-}
-
-/** One refusal's failure state, read from the SPECIFIC run it names. Null when the run is unreadable or no seam exists. */
-function refusedFailure(d: AutopilotDeps, runId: number | null, baseRef: string | null, baseSha: string | null): BaseMovedFailureState | null {
-  if (runId === null) {
-    d.debug(`${LOG} ticket ${d.key}: the refusal named no deliver run; the round is dropped`);
-    return null;
-  }
-  if (d.sendRefusedMergeFailure === undefined) return null;
-  return deliverRunFailureState(d.store, d.ticketId, runId, baseRef, baseSha);
-}
-
 /** The T1315 fallback: the merge is ready in the worktree and the manual Deliver pushes it; the round is dropped. */
 function parkRefusedMerge(d: AutopilotDeps, refused: RoundRefusal): AutopilotResult {
   d.debug(`${LOG} ticket ${d.key}: the resolved merge was not delivered (${refused.tail}); the round is dropped`);
   return park(d, 'conflicts', refusedMergeReason(refused.tail), refusedMergeBody(refused), false, refused.sha);
-}
-
-/** One gate fix round through the ci budget and mark. Its debug line is only for a round that reached an agent. */
-async function sendRefusedRound(d: AutopilotDeps, cfg: AutopilotConfig, failure: BaseMovedFailureRun, send: () => Promise<FixOutcome>): Promise<AutopilotResult> {
-  const names = [...new Set(failure.failed.map((g) => g.gateName))].join(', ');
-  const result = await guardedRound(d, () => runGateFailureRound(d, cfg, failure, send));
-  if (result.kind === 'armed') d.debug(`${LOG} ticket ${d.key}: the resolved merge failed gate ${names}; the gate fix round is armed`);
-  return result;
-}
-
-/** The fresh refusal: record its repair state and start its gate fix round in this tick. */
-async function startRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, refused: RoundRefusal): Promise<AutopilotResult | null> {
-  const failure = refusedFailure(d, refused.runId, refused.baseRef, refused.baseSha);
-  const runHead = failure !== null && failure.available ? failure.run.headSha : null;
-  const refusedSha = refused.sha ?? runHead;
-  if (refusedSha !== null && refusedMergeDelivered(d.store, d.ticketId, refused.repo, refusedSha)) {
-    d.debug(`${LOG} ticket ${d.key}: the refused merge ${refusedSha.slice(0, 9)} was delivered; the guard is cleared`);
-    return null;
-  }
-  if (failure === null || !failure.available || failure.failed.length === 0) return parkRefusedMerge(d, { ...refused, sha: refusedSha });
-  // The guard goes first: a crash or a reload then leaves the exact run and head to retry.
-  if (refusedSha !== null) setRefusedMerge(d.store, d.ticketId, { repo: refused.repo, sha: refusedSha, runId: refused.runId, baseRef: refused.baseRef, baseSha: refused.baseSha, tail: refused.tail });
-  return sendRefusedRound(d, cfg, failure, () => d.sendRefusedMergeFailure!(failure));
-}
-
-/** The recovery after a reload or a lease loss: follow the stored guard; nothing is written while it waits. */
-async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, stored: RefusedMerge): Promise<AutopilotResult | null> {
-  // An armed round owns the merge; the guard waits for its delivery or its end.
-  if (d.conflictRoundActive()) return { kind: 'busy' };
-  const refused: RoundRefusal = { repo: stored.repo, tail: stored.tail ?? 'the gate fix round did not finish', sha: stored.sha, runId: stored.runId, baseRef: stored.baseRef, baseSha: stored.baseSha };
-  // The guard clears from observed state BEFORE any park short-circuit: a delivery or a fix that landed while the ticket
-  // was parked must still retire the guard (a later person action then starts clean).
-  if (refusedMergeDelivered(d.store, d.ticketId, refused.repo, stored.sha)) {
-    clearRefusedMerge(d.store, d.ticketId);
-    d.debug(`${LOG} ticket ${d.key}: the refused merge ${stored.sha.slice(0, 9)} was delivered; the guard is cleared`);
-    return null;
-  }
-  // A slot of a process that died has no owner left to finish its round: free it, the guard keeps the merge undelivered.
-  clearConflictRound(d.store, d.ticketId);
-  const localHead = d.localHead;
-  if (localHead === undefined) return { kind: 'busy' };
-  const head = await localHead(stored.repo).catch(() => null);
-  if (head === null) return { kind: 'busy' };
-  if (head !== stored.sha) {
-    clearRefusedMerge(d.store, d.ticketId);
-    d.debug(`${LOG} ticket ${d.key}: the fix moved the local head; the refused-merge guard is cleared`);
-    return null;
-  }
-  const failure = deliverRunFailureState(d.store, d.ticketId, stored.runId, stored.baseRef, stored.baseSha);
-  if (failure.available) {
-    // A fix commits in a FAILED repo, so its head moves past the head the refused run gated even when the conflicted merge
-    // repo did not move. Then the round made a commit (autoReship pushes it) and the old run heads must not read as no
-    // change. The guard repo was checked above against the refused sha; only the OTHER failed repos are compared here.
-    for (const [repo, gateHead] of failedRepoHeads(failure.failed, failure.run.headSha)) {
-      if (repo === stored.repo || gateHead === null) continue;
-      const now = await localHead(repo).catch(() => null);
-      if (now !== null && now !== gateHead) {
-        clearRefusedMerge(d.store, d.ticketId);
-        d.debug(`${LOG} ticket ${d.key}: the fix moved ${repo} past the refused run; the guard is cleared`);
-        return null;
-      }
-    }
-  }
-  // A park already names the state (a spent budget, a placement stop, a no-change round): re-entering it every tick would
-  // only repeat the placement/budget checks and could announce a wait for a round that already parked. A person's action
-  // (Retry, approve one more, an override change) clears the park and the recorded heads first.
-  if (getAutopilotTicket(d.store, d.ticketId).stoppedReason !== null) return { kind: 'idle' };
-  // No readable run, no failed gate or no seam: the T1315 fallback park names the merge for a manual Deliver. The guard
-  // stays, so no automatic resume delivers it.
-  if (!failure.available || failure.failed.length === 0 || d.sendRefusedMergeFailure === undefined) return parkRefusedMerge(d, refused);
-  // A round already ran at this state: never a second send. The gate fix round's own no-change guard decides between a
-  // retry (a head moved) and the park (nothing moved). The launch-death window is the grace while the session starts; after
-  // it, a sent round with no head move is one that made no commit, so park with the no-change reason instead of waiting in
-  // silence (a Retry clears the recorded heads and an override change clears the mark, so neither can wedge the tick).
-  const sent = [...failedRepoHeads(failure.failed, failure.run.headSha)]
-    .find(([repo, head]) => head !== null && getCiRoundHeadSha(d.store, d.ticketId, repo) === head);
-  if (sent !== undefined) {
-    const at = getCiRoundAt(d.store, d.ticketId);
-    // Stryker disable next-line EqualityOperator: equivalent at the exact millisecond boundary (one more busy tick or the same park)
-    if (Date.now() - (at ?? 0) < ROUND_LAUNCH_DEATH_WINDOW_MS) return { kind: 'busy' };
-    // A ship that started after the refusal may already have pushed the merge; prs.head_oid can lag its own push, so the
-    // no-change park would be false. Wait for the probe, which either ends the round or clears the guard. A run with no end
-    // time (a malformed row) falls back to its own start: never park on evidence that cannot name when the refusal happened.
-    // Stryker disable next-line EqualityOperator: equivalent at the exact equality of a ship start and the refusal end
-    if (listShipRuns(d.store, d.ticketId).some((r) => r.startedAt > (failure.run.endedAt ?? failure.run.startedAt))) return { kind: 'busy' };
-    return park(d, 'ci', NO_CHANGE_BASE_MOVED_REASON, 'the gate fix round made no commit and the failed repo is still at the same head; fix it by hand or approve one more attempt.', false, sent[1]);
-  }
-  return sendRefusedRound(d, cfg, failure, () => d.sendRefusedMergeFailure!(failure));
-}
-
-/** The refusal's round and its wait note are done: the gate fix round was sent, parked or left to the ask policy. */
-function dropRefusedRound(d: Pick<AutopilotDeps, 'store' | 'ticketId' | 'dropConflictRound'>): void {
-  d.dropConflictRound();
-  clearConflictRound(d.store, d.ticketId);
-  armedNoted(d.store).delete(flightKeyOf(d));
 }
 
 /** One round per ticket at a time in this process. */

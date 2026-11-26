@@ -19,7 +19,6 @@ import { checkBaseMoved } from './baseMovedCheck.js';
 import { remedyBaseMoved } from './baseMovedRemedy.js';
 import { latestBaseMovedFailedGates } from '../../workflow/baseMovedFailure.js';
 import type { BaseRemedy } from '../../workflow/stages/ship.js';
-import type { BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { baseCheckParent, readLastGreenBase, seedMergedState } from './baseMovedHost.js';
 import { autoDeliverAfterConflict, beginManualPush, conflictRounds, endConflictRoundOnDeliver, rerunSkippedGates, supersedeRerun, takeOverAutoDeliver, verifyMergeResolved, type AutoDeliverDeps, type RerunResult } from './autoDeliverOps.js';
 import { getDeliverRun, listDeliverResults, takeOverDeliverRun } from '../../store/deliverRuns.js';
@@ -95,9 +94,9 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
   });
 }
 
-export function sendGateFailureAction(i: CiActionsInput, state?: BaseMovedFailureState): Promise<void> {
+export function sendGateFailureAction(i: CiActionsInput): Promise<void> {
   return sendGateFailureToAgent({
-    store: i.store, ticketId: i.ticketId, state,
+    store: i.store, ticketId: i.ticketId,
     writeLog: (name, text) => {
       mkdirSync(i.artifactDir, { recursive: true });
       const path = join(i.artifactDir, name);

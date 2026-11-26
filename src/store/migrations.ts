@@ -3155,22 +3155,5 @@ function migrateLocked(db: Database): void {
     }
   }
 
-  if (current < 140) {
-    // v140: `autopilot_tickets.refused_merge_repo` and `refused_merge_sha` — the merge a refused auto-deliver left at HEAD while a gate fix round repairs it (T1381, @arch:AP-06). Store state: a reload or a second window must not deliver that merge again. Additive; NULL = no refused merge (no backfill).
-    const autoCols140 = tableColumns(db, 'autopilot_tickets');
-    for (const col of ['refused_merge_repo', 'refused_merge_sha']) {
-      if (autoCols140.size > 0 && !autoCols140.has(col)) db.exec(`ALTER TABLE autopilot_tickets ADD COLUMN ${col} TEXT`);
-    }
-  }
-
-  if (current < 141) {
-    // v141: `autopilot_tickets.refused_merge_run_id`, `refused_merge_base_ref`, `refused_merge_base_sha` and `refused_merge_tail` — the retry state of a refused merge's gate fix round, so the same step can finish after a reload or a lease loss (T1381, @arch:AP-06). Additive; NULL = a pre-v141 guard row or no refusal (no backfill).
-    const autoCols141 = tableColumns(db, 'autopilot_tickets');
-    for (const col of ['refused_merge_base_ref', 'refused_merge_base_sha', 'refused_merge_tail']) {
-      if (autoCols141.size > 0 && !autoCols141.has(col)) db.exec(`ALTER TABLE autopilot_tickets ADD COLUMN ${col} TEXT`);
-    }
-    if (autoCols141.size > 0 && !autoCols141.has('refused_merge_run_id')) db.exec('ALTER TABLE autopilot_tickets ADD COLUMN refused_merge_run_id INTEGER');
-  }
-
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

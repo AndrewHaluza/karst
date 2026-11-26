@@ -1578,13 +1578,7 @@ CREATE TABLE IF NOT EXISTS autopilot_tickets (
   session_owner TEXT,                         -- window that holds the ticket's session; set at session open, cleared at close
   ci_round_manual INTEGER NOT NULL DEFAULT 0, -- v129 (T1212): 1 when the mark in ci_round_at came from a person's Send CI failure / Send gate failure click, not from the Autopilot engine; such a re-ship needs no Autopilot mode
   ci_round_at INTEGER,                        -- v118 (T1095): epoch ms an Autopilot CI round was sent; NULL once ship starts, a park, a pause, off mode or Stop now. It lets the driver re-ship to open PRs without the Confirm click
-  conflict_round_at INTEGER,                  -- v101 (T996): epoch ms a conflict round was sent; NULL once it delivered, stopped or was dropped. It holds a slot
-  refused_merge_repo TEXT,                    -- v140 (T1381): the repo of the merge a refused auto-deliver left at HEAD; NULL when no gate fix round repairs one
-  refused_merge_sha TEXT,                     -- v140 (T1381): that merge's sha. The resume guard reads both, so a reload or a second window never re-delivers it
-  refused_merge_run_id INTEGER,               -- v141 (T1381): the deliver run that refused the merge; NULL when none opened. The recovery path rebuilds the failure state from it
-  refused_merge_base_ref TEXT,                -- v141 (T1381): the PR base ref the refusal recorded (the rebuilt reason names origin/<base>)
-  refused_merge_base_sha TEXT,                -- v141 (T1381): the base head the conflict round resolved against
-  refused_merge_tail TEXT                     -- v141 (T1381): the park tail (e.g. `gate "unit" failed`) for the fallback park after a reload
+  conflict_round_at INTEGER                   -- v101 (T996): epoch ms a conflict round was sent; NULL once it delivered, stopped or was dropped. It holds a slot
 );
 CREATE TABLE IF NOT EXISTS autopilot_budgets (
   ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,

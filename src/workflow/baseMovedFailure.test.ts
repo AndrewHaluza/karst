@@ -53,10 +53,17 @@ describe('baseMovedFailureState', () => {
     run('base-moved', 'passed', 0);
     expect(baseMovedFailureState(store, id)).toEqual({ available: false, reason: 'no-failed-run' });
   });
-  it('ignores a failed run of another kind', () => {
+  it('reads the newest run of kind auto or base-moved, ignoring another kind', () => {
     park();
-    run('auto', 'failed');
-    expect(baseMovedFailureState(store, id)).toEqual({ available: false, reason: 'no-failed-run' });
+    // An auto-deliver run that refused a resolved merge is read like a base-moved one (T1381).
+    const auto = run('auto', 'failed');
+    expect(baseMovedFailureState(store, id)).toMatchObject({ available: true, run: { id: auto } });
+    // The newest of the two kinds wins.
+    const baseMoved = run('base-moved', 'failed');
+    expect(baseMovedFailureState(store, id)).toMatchObject({ available: true, run: { id: baseMoved } });
+    // A run of another kind is never the block's run.
+    openDeliverRun(store, { ticketId: id, headSha: 'abc', gates: ['unit'], pid: 1, now: 'T0', kind: 'after-take-over' });
+    expect(baseMovedFailureState(store, id)).toMatchObject({ available: true, run: { id: baseMoved } });
   });
   it('is not offered while a PR has merged', () => {
     park();
@@ -146,11 +153,13 @@ describe('latestBaseMovedFailedGates (T1169)', () => {
     run('base-moved', 'passed', 0);
     expect(latestBaseMovedFailedGates(store, id, 'r')).toEqual([]);
   });
-  it('ignores a newer auto run and a gate that did not exit non-zero', () => {
+  it('reads the newest auto or base-moved run, and a gate that did not exit non-zero is not a failure', () => {
     const bm = run('base-moved', 'failed');
-    run('auto', 'failed');
-    expect(latestBaseMovedFailedGates(store, id, 'r').map((g) => g.runId)).toEqual([bm]);
-    store.db.prepare('UPDATE deliver_gate_results SET exit_code = NULL WHERE run_id = ?').run(bm);
+    const auto = run('auto', 'failed');
+    // The newest run of either kind is the block's run (T1381).
+    expect(latestBaseMovedFailedGates(store, id, 'r').map((g) => g.runId)).toEqual([auto]);
+    expect(bm).toBeGreaterThan(0);
+    store.db.prepare('UPDATE deliver_gate_results SET exit_code = NULL WHERE run_id = ?').run(auto);
     expect(latestBaseMovedFailedGates(store, id, 'r')).toEqual([]);
   });
 });

@@ -547,6 +547,9 @@
   "src/extension/ops/autoDeliverOps.ts": [
     "arch:AP-01"
   ],
+  "src/extension/ops/autoDeliverOps.ts#autoDeliverAfterConflict": [
+    "arch:AP-12"
+  ],
   "src/extension/ops/autoReship.ts": [
     "arch:AP-06"
   ],
@@ -564,22 +567,14 @@
     "arch:AP-07",
     "arch:AP-11"
   ],
-  "src/extension/ops/autopilotOps.ts#recoverRefusedMerge": [
+  "src/extension/ops/autopilotOps.ts#autopilotTick": [
     "arch:AP-12"
   ],
-  "src/extension/ops/autopilotOps.ts#refusedMergeDelivered": [
-    "arch:AP-12"
-  ],
-  "src/extension/ops/autopilotOps.ts#refusedMergeStep": [
+  "src/extension/ops/autopilotOps.ts#parkRefusedMerge": [
     "arch:AP-12"
   ],
   "src/extension/ops/autopilotOps.ts#runBaseMovedRound": [
-    "arch:AP-06"
-  ],
-  "src/extension/ops/autopilotOps.ts#sendRefusedRound": [
-    "arch:AP-12"
-  ],
-  "src/extension/ops/autopilotOps.ts#startRefusedMerge": [
+    "arch:AP-06",
     "arch:AP-12"
   ],
   "src/extension/ops/autopilotRefusal.ts": [
@@ -599,10 +594,6 @@
   ],
   "src/extension/ops/autopilotWiring.ts": [
     "arch:AP-00"
-  ],
-  "src/extension/ops/autopilotWiring.ts#refusedMergeOutcome": [
-    "arch:AP-06",
-    "arch:AP-12"
   ],
   "src/extension/ops/baseMovedCheck.ts": [
     "arch:GATE-BASE-MOVED"
@@ -1077,15 +1068,6 @@
     "arch:AP-03",
     "arch:AP-06"
   ],
-  "src/store/autopilot.ts#clearRefusedMerge": [
-    "arch:AP-12"
-  ],
-  "src/store/autopilot.ts#getRefusedMerge": [
-    "arch:AP-12"
-  ],
-  "src/store/autopilot.ts#setRefusedMerge": [
-    "arch:AP-12"
-  ],
   "src/store/autostart.ts": [
     "arch:AP-01"
   ],
@@ -1204,9 +1186,6 @@
   ],
   "src/store/prs.ts#dismissPr": [
     "arch:GH-06"
-  ],
-  "src/store/prs.ts#listCurrentPrsByTicket": [
-    "arch:AP-12"
   ],
   "src/store/prs.ts#updatePrDetail": [
     "arch:GH-03"
@@ -1398,8 +1377,14 @@
   "src/workflow/artifacts/alignment.ts#runAlignment": [
     "arch:APP-12"
   ],
+  "src/workflow/baseMovedFailure.ts#baseMovedFailureState": [
+    "arch:AP-12"
+  ],
   "src/workflow/baseMovedFailure.ts#deliverRunFailureState": [
     "arch:AP-06",
+    "arch:AP-12"
+  ],
+  "src/workflow/baseMovedFailure.ts#latestBaseMovedFailedGates": [
     "arch:AP-12"
   ],
   "src/workflow/baseMovedStale.ts": [

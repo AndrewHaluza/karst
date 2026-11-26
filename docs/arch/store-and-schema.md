@@ -399,9 +399,7 @@ END_DOC_BLOCK: [@arch:V121]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
-**v141:** `autopilot_tickets.refused_merge_run_id`, `refused_merge_base_ref`, `refused_merge_base_sha` and `refused_merge_tail` — the retry state of a refused merge's gate fix round (the deliver run, the base ref/sha the refusal recorded, the park tail), so the same step finishes after a reload or a lease loss (`@arch:AP-06`). Additive, NULL = a pre-v141 guard row or no refusal, no backfill.
 
-**v140:** `autopilot_tickets.refused_merge_repo` and `refused_merge_sha` (the merge a refused auto-deliver left at HEAD while a gate fix round repairs it; store state so a reload or a second window never delivers it again, `@arch:AP-06`). Additive, NULL = no refused merge, no backfill.
 
 **v139:** `phase_marks.source` (TEXT NOT NULL DEFAULT `'agent'` CHECK `'agent'|'host'` — WHO wrote the mark: the agent's `karst phase` or the host's evidence; `@arch:RESULTS`, `@arch:APP-09`). Additive, every existing row is an `'agent'` row (the only writer before this version), no backfill. Reads: `listPhaseMarks` (model, stepper) and diagnostics' `readPhaseMarks`, which reports `source`.
 

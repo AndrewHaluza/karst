@@ -3,7 +3,7 @@ import type { ResumeOutcome } from './conflictResumeOps.js';
 import type { CiActionsInput } from './ciActionsWiring.js';
 import { formatId } from '../../model/entityId.js';
 import { sendCiFailureAction, sendGateFailureAction } from './ciActionsWiring.js';
-import { baseMovedFailureState, type BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
+import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
@@ -39,14 +39,6 @@ export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
  */
 export async function gateFailureOutcome(input: CiActionsInput): Promise<FixOutcome> {
   return roundOutcome(input, baseMovedFailureState(input.store, input.ticketId).available, 'ci', 'no failed base-moved gate run to send', sendGateFailureAction);
-}
-
-/**
- * Run "Send gate failure to agent" for the run that refused a resolved merge (T1381, @arch:AP-06): the failure state was
- * read from that run already, so this skips the base-moved block and sends the same excerpts as a CI round.
- */
-export async function refusedMergeOutcome(input: CiActionsInput, state: BaseMovedFailureState): Promise<FixOutcome> {
-  return roundOutcome(input, state.available, 'ci', 'no failed gate run to send', (i) => sendGateFailureAction(i, state));
 }
 
 async function roundOutcome(
@@ -98,8 +90,6 @@ export interface TicketSeams {
   readonly sendCi: () => Promise<FixOutcome>;
   /** "Send gate failure to agent" for a failed base-moved run (@arch:AP-00). Absent: no round for that block. */
   readonly sendGateFailure?: () => Promise<FixOutcome>;
-  /** The gate fix round of a refused resolved merge (T1381): the pre-read failure state of the run that refused it. */
-  readonly sendRefusedMergeFailure?: (state: BaseMovedFailureState) => Promise<FixOutcome>;
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or its resolved merge is being delivered (arch:AC-39). */
   readonly conflictRoundActive: () => boolean;
@@ -201,7 +191,6 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         isGraphTicket: () => nudgeSurface(d.store.db, t.id) === 'no-op',
         sendCiFailure: seams.sendCi,
         ...(seams.sendGateFailure ? { sendGateFailure: seams.sendGateFailure } : {}),
-        ...(seams.sendRefusedMergeFailure ? { sendRefusedMergeFailure: seams.sendRefusedMergeFailure } : {}),
         sendConflict: seams.sendConflict,
         conflictRoundActive: seams.conflictRoundActive,
         ...(seams.conflictRoundEnded ? { conflictRoundEnded: seams.conflictRoundEnded } : {}),

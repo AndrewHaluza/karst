@@ -16,7 +16,6 @@ import { transition } from '../../workflow/machine.js';
 import { createUndeliveredTracker } from './deliverToPrOps.js';
 import { conflictRounds, autoDeliverAfterConflict, autoDeliverPhase, beginManualPush, rerunSkippedGates, supersedeRerun } from './autoDeliverOps.js';
 import { openDeliverRun, recordDeliverGate, currentDeliverRun, listDeliverResults, finishDeliverRun } from '../../store/deliverRuns.js';
-import { deliverRunFailureState } from '../../workflow/baseMovedFailure.js';
 import { OPEN_SYNC_DIFF } from './sandboxLifecycleOps.js';
 import { autoDeliverAction, baseMovedFailure, shipBaseCheck, shipBaseRemedy, deliverBlockedPrompt, deliverToPrAction, headShaOf, refreshUndeliveredForShipTickets, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput } from './ciActionsWiring.js';
 
@@ -840,20 +839,6 @@ describe('autoDeliverAction names the deliver run that refused the merge (T1381)
     } finally {
       conflictRounds.disarm(id);
     }
-  });
-});
-
-describe('sendGateFailureAction forwards an explicit failure state (T1381)', () => {
-  it('writes the log of the refused run even with no base-moved block', async () => {
-    setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null });
-    const runId = openDeliverRun(store, { ticketId: id, headSha: 'head1', gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
-    recordDeliverGate(store, runId, { gateName: 'unit', repo: 'r', exitCode: 1, summary: 'FAIL a.test.ts', startedAt: null, endedAt: null });
-    finishDeliverRun(store, runId, 'failed', 'T1');
-    const state = deliverRunFailureState(store, id, runId, 'develop', '1d1930be8'.padEnd(40, '0'));
-    if (!state.available) throw new Error('the refused run should be readable');
-    await sendGateFailureAction(input(), state);
-    expect(existsSync(join(dir, `base-moved-failure-${runId}.log`))).toBe(true);
-    expect(getTicket(store, id).stageCurrent).toBe('impl');
   });
 });
 
