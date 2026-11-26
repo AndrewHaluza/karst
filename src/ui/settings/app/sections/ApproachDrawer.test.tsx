@@ -240,7 +240,7 @@ describe('ApproachDrawer — the form', () => {
     fireEvent.click(addApproachControl());
     setField('af-id', 'gitsrc');
     setField('af-label', 'Git source');
-    setField('af-sourceType', 'git');
+    fireEvent.click(screen.getByRole('radio', { name: 'Git' }));
     setField('af-gitRepo', 'https://example.test/r');
     fireEvent.click(screen.getByRole('button', { name: 'Add approach' }));
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('at least one glob');
@@ -269,8 +269,8 @@ describe('ApproachDrawer — the destructive controls (UI-R10b)', () => {
   });
 
   it('emits data-karst-action on the roster Uninstall control', () => {
-    mount();
-    const un = within(card('tdd')).getByRole('button', { name: 'Uninstall' });
+    mount(BASE, ['remote']);
+    const un = within(card('remote')).getByRole('button', { name: 'Uninstall' });
     expect(un.getAttribute('data-karst-action')).toBe('uninstall-approach');
   });
 
@@ -279,6 +279,60 @@ describe('ApproachDrawer — the destructive controls (UI-R10b)', () => {
     editApproach('tdd');
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(approaches().some((a) => a.id === 'tdd')).toBe(false);
+  });
+});
+
+describe('ApproachDrawer — the shell (spec Edit 6)', () => {
+  function monoNames(): string[] {
+    return Array.from(document.querySelectorAll('[data-region="approach-drawer"] .drawer-mono'))
+      .map((n) => n.getAttribute('name') ?? '')
+      .sort();
+  }
+
+  it('is a form drawer with groups, a footer and no graph parts', () => {
+    mount();
+    editApproach('tdd');
+    const node = document.querySelector('[data-region="approach-drawer"]')!;
+    expect(node.querySelector('.drawer-body.form')).not.toBeNull();
+    expect(node.classList.contains('is-graph')).toBe(false);
+    expect(node.querySelector('.drawer-jump')).toBeNull();
+    expect(node.querySelector('.form-grid')).toBeNull();
+    const groups = Array.from(node.querySelectorAll('.drawer-group-title')).map((n) => n.textContent);
+    expect(groups).toEqual(['Identity', 'Source', 'Run']);
+    const footer = Array.from(node.querySelectorAll('.drawer-actions button')).map((b) => b.textContent);
+    expect(footer).toEqual(['Cancel', 'Save approach']);
+    expect(node.querySelector('.drawer-danger-title')?.textContent).toBe('Delete approach');
+  });
+
+  it('puts the mono font only on the code fields', () => {
+    mount();
+    editApproach('tdd');
+    expect(monoNames()).toEqual(['af-entrypoint', 'af-id']);
+    fireEvent.click(screen.getByRole('radio', { name: 'Git' }));
+    expect(monoNames()).toEqual(['af-entrypoint', 'af-gitInclude', 'af-gitRef', 'af-gitRepo', 'af-id']);
+    fireEvent.click(screen.getByRole('radio', { name: 'npm' }));
+    expect(monoNames()).toEqual(['af-entrypoint', 'af-id', 'af-npmCollect', 'af-npmCommand', 'af-npmPackage']);
+  });
+
+  it('shows the source type as a Local / Git / npm segmented control', () => {
+    mount();
+    editApproach('remote');
+    const radios = screen.getAllByRole('radio').map((r) => [r.textContent, r.getAttribute('aria-checked')]);
+    expect(radios).toEqual([
+      ['Local', 'false'],
+      ['Git', 'true'],
+      ['npm', 'false'],
+    ]);
+    expect(document.querySelector('.drawer-pair [name="af-gitRepo"]')).not.toBeNull();
+    expect(document.querySelector('.drawer-pair [name="af-gitRef"]')).not.toBeNull();
+  });
+
+  it('shows one visible Recommended label in the Run group', () => {
+    mount();
+    editApproach('tdd');
+    const check = document.querySelector('.drawer-check')!;
+    expect(check.querySelector('[name="af-recommended"]')).not.toBeNull();
+    expect(check.querySelector('label')?.textContent).toBe('Recommended');
   });
 });
 

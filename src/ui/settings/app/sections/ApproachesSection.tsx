@@ -24,11 +24,11 @@
  *   `approachCommandBody`, and the drawer's selection is keyed on the record's
  *   presence), so a destructive control cannot outlive the approach it deletes.
  *
- * The card still hosts the **graph configuration surface** (vanilla's
- * `renderGraphConfig`, now in `GraphDrawerSections.tsx`), and one graph write (a
- * profile pick or a limit edit) goes over the same `writeList` path the enable
- * toggle takes, so the approaches tab goes dirty the same way (R26) and no other
- * tab or approach is touched.
+ * The **graph configuration** (agents, limits, planner prompt) lives in the
+ * Edit drawer (`GraphDrawerSections.tsx`). A graph edit changes only the
+ * drawer-local working copy (`graphDrawerDraft.ts`): Save approach applies it
+ * through the drawer save, and Cancel, Escape or close discard it. A graph edit
+ * never makes the tab dirty on its own.
  *
  * Async lifecycle: the drawer's Save and Delete are mutations whose result the
  * user must see, so they go through `useHostMutation` — the ONLY owner of async
@@ -51,6 +51,14 @@ import {
 } from './ApproachDrawer.js';
 import { pickerCores } from './presetDraft.js';
 import {
+  editGraphLimit,
+  graphLimitErrors,
+  pickGraphProfile,
+  resetGraphLimit,
+  seedGraphDrawer,
+  type GraphDrawerState,
+} from './graphDrawerDraft.js';
+import {
   approachGroups,
   approachToggleAffordance,
   applyApproachToList,
@@ -59,8 +67,6 @@ import {
   rebuildApproachFromDrawer,
   replaceApproach,
   toApproachDeltas,
-  writeGraphLimit,
-  writeGraphProfile,
   type ApproachDrawerFields,
 } from './approachDraft.js';
 
@@ -85,6 +91,8 @@ export function ApproachesSection() {
   const [editId, setEditId] = useState<string | null>(null);
   const [fields, setFields] = useState<DrawerFields>(BLANK);
   const [drawerError, setDrawerError] = useState<string | null>(null);
+  // The graph approach's drawer-local working copy; `null` for other approaches.
+  const [graphDraft, setGraphDraft] = useState<GraphDrawerState | null>(null);
 
   // The island's mount effect keys on identity, and `applyState` rebuilds the
   // catalog / recents / provider list on every push — so they are keyed on
@@ -119,6 +127,7 @@ export function ApproachesSection() {
       setMode(next);
       setEditId(next === 'edit' ? (approach?.id ?? null) : null);
       setFields(fieldsFor(next, approach));
+      setGraphDraft(next === 'edit' ? seedGraphDrawer(approach) : null);
       setDrawerError(null);
     },
     [],
@@ -127,6 +136,7 @@ export function ApproachesSection() {
   const close = useCallback(() => {
     setMode(null);
     setEditId(null);
+    setGraphDraft(null);
     setDrawerError(null);
   }, []);
 
@@ -200,7 +210,11 @@ export function ApproachesSection() {
     }
   }, [receipts, drawerSave, drawerDelete, close]);
 
+  const graphErrors = useMemo(() => (graphDraft ? graphLimitErrors(graphDraft) : {}), [graphDraft]);
+  const graphErrorCount = Object.keys(graphErrors).length;
+
   const onSave = (): void => {
+    if (graphErrorCount > 0) return undefined;
     const id = fields.id.trim();
     const label = fields.label.trim();
     const description = fields.description.trim();
@@ -242,7 +256,11 @@ export function ApproachesSection() {
       source,
       recommended: fields.recommended,
     };
-    const approach = rebuildApproachFromDrawer(visibleMode === 'edit' ? current : null, built);
+    // The graph working copy already carries the profile and limit writes
+    // (`writeGraphProfile` / `writeGraphLimit`); `rebuildApproachFromDrawer`
+    // keeps its `graph`.
+    const base = visibleMode === 'edit' ? (graphDraft?.entry ?? current) : null;
+    const approach = rebuildApproachFromDrawer(base, built);
     const next = applyApproachToList(list, visibleMode ?? 'add', editId, approach);
     writeList(next);
     // Stay open, pending, until the ack (UI-R14b): closing here would leave a
@@ -264,15 +282,6 @@ export function ApproachesSection() {
   // an absent field into a literal `true` and churn the file).
   const onToggle = (approach: ApproachDef, next: boolean): void => {
     writeList(list.map((a) => (a.id === approach.id ? { ...a, enabled: next } : a)));
-  };
-
-  // One graph write (a profile pick or a limit edit): replace THIS approach
-  // through the draft helper — which spreads `entry`/`graph`/`limits`/
-  // `profiles` rather than rebuilding them — over the same `writeList` path the
-  // enable toggle takes, so the approaches tab goes dirty the same way (R26)
-  // and no other tab or approach is touched.
-  const writeGraph = (approach: ApproachDef, mutate: (entry: ApproachDef) => ApproachDef): void => {
-    writeList(list.map((a) => (a.id === approach.id ? mutate(a) : a)));
   };
 
   return (
@@ -298,31 +307,27 @@ export function ApproachesSection() {
           <div className="k-empty-title">No approaches configured.</div>
         </div>
       ) : (
-        approachGroups(list, installedIds).map((group) => (
-          <div key={group.title}>
-            <div className="approach-group-header">{group.title}</div>
-            {group.items.map((approach) => (
-              <ApproachCard
-                key={approach.id}
-                approach={approach}
-                installed={installedIds.includes(approach.id)}
-                toggle={approachToggleAffordance(approach, installedIds)}
-                catalog={catalog}
-                recent={recent}
-                cores={cores}
-                routes={routes}
-                onToggle={(next) => onToggle(approach, next)}
-                onEdit={() => open('edit', approach)}
-                onWriteProfile={(profile, identity) =>
-                  writeGraph(approach, (entry) => writeGraphProfile(entry, profile, identity))
-                }
-                onWriteLimit={(field, value) =>
-                  writeGraph(approach, (entry) => writeGraphLimit(entry, field, value))
-                }
-              />
-            ))}
-          </div>
-        ))
+        <div className="approach-roster" data-region="roster">
+          {approachGroups(list, installedIds).map((group) => (
+            <div key={group.title}>
+              <div className="approach-group-header">
+                <span className="approach-group-title">{group.title}</span>
+                <span className="approach-group-count">{group.items.length}</span>
+                <span className="approach-group-help">{group.help}</span>
+              </div>
+              {group.items.map((approach) => (
+                <ApproachCard
+                  key={approach.id}
+                  approach={approach}
+                  installed={installedIds.includes(approach.id)}
+                  toggle={approachToggleAffordance(approach, installedIds)}
+                  onToggle={(next) => onToggle(approach, next)}
+                  onEdit={() => open('edit', approach)}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
       )}
 
       {visibleMode === null ? null : (
@@ -335,6 +340,26 @@ export function ApproachesSection() {
           canDelete={canDeleteApproach(editId, installedIds)}
           saving={drawerSave.status === 'pending'}
           deleting={drawerDelete.status === 'pending'}
+          graph={
+            graphDraft === null
+              ? null
+              : {
+                  approach: graphDraft.entry,
+                  inputs: graphDraft.inputs,
+                  errors: graphErrors,
+                  catalog,
+                  recent,
+                  cores,
+                  routes,
+                  onPickProfile: (profile, identity) =>
+                    setGraphDraft((prev) => (prev ? pickGraphProfile(prev, profile, identity) : prev)),
+                  onEditLimit: (field, input) =>
+                    setGraphDraft((prev) => (prev ? editGraphLimit(prev, field, input) : prev)),
+                  onResetLimit: (field) =>
+                    setGraphDraft((prev) => (prev ? resetGraphLimit(prev, field) : prev)),
+                }
+          }
+          errorCount={graphErrorCount}
           onClose={close}
           onSave={onSave}
           onDelete={onDelete}

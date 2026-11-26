@@ -72,9 +72,11 @@ export function ApproachInstallActions({ id, installed }: ApproachInstallActions
             </Button>
           </>
         ) : (
+          // The first step is a quiet danger text button; the confirm step is not.
           <DestructiveButton
             action="uninstall-approach"
             size="sm"
+            data-quiet="true"
             busy={uninstall.busy}
             disabled={uninstall.disabled}
             onClick={() => setConfirming(true)}
@@ -84,7 +86,7 @@ export function ApproachInstallActions({ id, installed }: ApproachInstallActions
         )
       ) : (
         <Button
-          variant="secondary"
+          variant="primary"
           size="sm"
           className="approach-install"
           busy={install.busy}

@@ -1,59 +1,56 @@
 /**
- * One roster card: status rail, id + label, the action cluster, and — until a
- * later change moves it into the Edit drawer — the graph configuration groups.
+ * One roster card (spec Edits 3 to 5): one header line, a short description,
+ * and for a graph approach one summary line.
  *
- * Moved out of `ApproachesSection.tsx` with no behavior change. The rules the
+ * The header line holds the label, the source chip (`npm <pkg>` or
+ * `repo@ref`) or the Built-in tag, and the actions at the right. The rules the
  * card carries:
  *
- * - the enable toggle is DEAD for a sourced-but-not-installed approach, because
- *   there is nothing to enable until it is installed;
- * - the card shows `ApproachInstallActions` for an installed or sourced
- *   approach, and the Built-in tag only for a sourceless one;
- * - the graph groups are a pure child: the card forwards the section's write
- *   callbacks and the injected picker identity (catalog, recents, cores,
- *   routes), so the draft stays the single source of truth.
+ * - the card reads `approach.source` FIRST: a sourceless approach is Built-in
+ *   and never shows Install or Uninstall, even when its id is in
+ *   `installedIds`;
+ * - an available (sourced, not installed) card shows no switch, because there
+ *   is nothing to enable until it is installed; its actions are Edit and a
+ *   primary Install;
+ * - the switch keeps its `aria-label` and has no visible text;
+ * - the graph agents, limits and planner prompt live in the Edit drawer, so
+ *   the card writes nothing but the enable toggle.
  */
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { ApproachDef } from '../../../../manifest/types.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
-import type { AgentPickerIdentity, AgentPickerRoutes } from '../hostBridge.js';
 import { Button } from '../primitives/Button.js';
+import { Chip } from '../primitives/Chip.js';
 import { Switch } from '../primitives/Switch.js';
 import { ApproachInstallActions } from './ApproachInstallActions.js';
-import { GraphDrawerSections } from './GraphDrawerSections.js';
 import { PendingOutputs } from './PendingOutputs.js';
-import type { GraphLimitField } from './approachDraft.js';
-import { pickerCores } from './presetDraft.js';
+import { changedLimitCount } from './graphDrawerDraft.js';
+import { modelLabel } from './presetDraft.js';
+
+function sourceText(source: NonNullable<ApproachDef['source']>): string {
+  if (source.type === 'npm') return `npm ${source.package}`;
+  return `${source.repo}${source.ref ? `@${source.ref}` : ''}`;
+}
 
 export function ApproachCard({
   approach,
   installed,
   toggle,
-  catalog,
-  recent,
-  cores,
-  routes,
   onToggle,
   onEdit,
-  onWriteProfile,
-  onWriteLimit,
 }: {
   readonly approach: ApproachDef;
   readonly installed: boolean;
   readonly toggle: { readonly usable: boolean; readonly label: string };
-  readonly catalog: unknown;
-  readonly recent: Readonly<Record<string, readonly string[]>>;
-  readonly cores: ReturnType<typeof pickerCores>;
-  readonly routes: AgentPickerRoutes;
   readonly onToggle: (next: boolean) => void;
   readonly onEdit: () => void;
-  /** Write one profile's identity into the draft entry (spread, not rebuild). */
-  readonly onWriteProfile: (profile: string, identity: AgentPickerIdentity) => void;
-  /** Write one limit field into the draft entry; `undefined` deletes the key. */
-  readonly onWriteLimit: (field: GraphLimitField, value: number | undefined) => void;
 }) {
   const { state } = useSettingsApp();
-  const stateClass = installed ? 'installed' : (approach.source ? 'available' : 'builtin');
+  const source = approach.source;
+  const isInstalled = source !== undefined && installed;
+  const stateClass = source === undefined ? 'builtin' : isInstalled ? 'installed' : 'available';
   const pendingView = state.host?.pendingOutputs?.[approach.id];
+  const text = source === undefined ? null : sourceText(source);
 
   return (
     <div className={`roster-card ${stateClass}`} data-approach={approach.id}>
@@ -61,49 +58,92 @@ export function ApproachCard({
       <div className="approach-body">
         <div className="approach-head" title={approach.id}>
           <span className="approach-label">{approach.label}</span>
+          {text === null ? (
+            <span className="approach-install builtin-tag">Built-in</span>
+          ) : (
+            <span className="approach-source" title={text}>
+              <Chip name="approach-source">{text}</Chip>
+            </span>
+          )}
           <span className="approach-actions">
-            <Switch
-              name={`approach-enabled-${approach.id}`}
-              checked={approach.enabled !== false}
-              label={toggle.label}
-              disabled={!toggle.usable}
-              onChange={onToggle}
-            >
-              <span>Enabled</span>
-            </Switch>
+            {stateClass === 'available' ? null : (
+              <Switch
+                name={`approach-enabled-${approach.id}`}
+                checked={approach.enabled !== false}
+                label={toggle.label}
+                disabled={!toggle.usable}
+                onChange={onToggle}
+              />
+            )}
             <Button variant="secondary" size="sm" onClick={onEdit}>
               Edit
             </Button>
-            {installed || approach.source ? (
-              <ApproachInstallActions id={approach.id} installed={installed} />
-            ) : (
-              <span className="approach-install builtin-tag">Built-in</span>
-            )}
+            {source === undefined ? null : <ApproachInstallActions id={approach.id} installed={isInstalled} />}
           </span>
         </div>
-        {approach.description ? <div className="approach-desc">{approach.description}</div> : null}
-        {approach.source ? (
-          <div className="approach-foot">
-            {approach.source.type === 'npm'
-              ? `npm ${approach.source.package}`
-              : `${approach.source.repo}${approach.source.ref ? `@${approach.source.ref}` : ''}`}
-          </div>
-        ) : null}
+        {approach.description ? <ApproachDescription text={approach.description} /> : null}
+        {approach.graph ? <GraphSummary approach={approach} /> : null}
         {pendingView !== undefined ? (
           <PendingOutputs approachId={approach.id} view={pendingView} />
         ) : null}
-        {approach.graph ? (
-          <GraphDrawerSections
-            approach={approach}
-            catalog={catalog}
-            recent={recent}
-            cores={cores}
-            routes={routes}
-            onWriteProfile={onWriteProfile}
-            onWriteLimit={onWriteLimit}
-          />
-        ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The description, clamped to 2 lines. A `More` / `Less` text button shows
+ * only when the clamped text overflows.
+ */
+function ApproachDescription({ text }: { readonly text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || expanded) return;
+    setOverflows(node.scrollHeight > node.clientHeight + 1);
+  }, [text, expanded]);
+  return (
+    <>
+      <div ref={ref} className={expanded ? 'approach-desc' : 'approach-desc is-clamped'}>
+        {text}
+      </div>
+      {overflows ? (
+        <Button
+          variant="text"
+          size="sm"
+          className="approach-more"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? 'Less' : 'More'}
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
+/** `expert <model> · worker <model> · …`, then `· N limit(s) changed`. */
+function GraphSummary({ approach }: { readonly approach: ApproachDef }) {
+  const profiles = approach.graph?.profiles ?? {};
+  const changed = changedLimitCount(approach);
+  const names = Object.keys(profiles);
+  return (
+    <div className="graph-summary">
+      {names.map((name, index) => (
+        <span key={name}>
+          {index > 0 ? ' · ' : null}
+          <span className="graph-summary-profile">{name}</span>{' '}
+          {modelLabel((profiles[name]?.provider as string) || '', profiles[name]?.model)}
+        </span>
+      ))}
+      {changed > 0 ? (
+        <span className="graph-summary-changed">
+          {names.length > 0 ? ' · ' : null}
+          {changed} {changed === 1 ? 'limit' : 'limits'} changed
+        </span>
+      ) : null}
     </div>
   );
 }

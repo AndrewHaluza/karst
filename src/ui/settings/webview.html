@@ -385,10 +385,18 @@
 
   /* ---- approaches roster (grouped Installed / Available / Built-in cards) ---- */
   .approach-group-header{
-    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;
-    color:var(--k-text-dim);
+    display:flex;align-items:baseline;gap:var(--k-space-4);min-width:0;
     margin:var(--k-space-7) var(--k-space-0) var(--k-space-4);padding-bottom:var(--k-space-2);
     border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .approach-group-title{
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;
+    color:var(--k-text-dim);font-weight:600;flex:0 0 auto;
+  }
+  .approach-group-count{font-size:var(--k-text-xs);color:var(--k-text-dim);flex:0 0 auto}
+  .approach-group-help{
+    font-size:var(--k-text-xs);color:var(--k-text-dim);margin-left:auto;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
   .approach-group-header:first-child{margin-top:var(--k-space-0)}
 
@@ -444,42 +452,48 @@
   .roster-card .approach-rail{width:var(--k-space-2);flex:0 0 auto;background:var(--vscode-panel-border)}
   .roster-card.installed .approach-rail{background:var(--k-success)}
   .roster-card .approach-body{padding:var(--k-space-6) var(--k-space-6);flex:1 1 auto;min-width:0}
-  .roster-card .approach-head{display:flex;align-items:baseline;gap:var(--k-space-5)}
+  .roster-card .approach-head{display:flex;align-items:center;gap:var(--k-space-5);min-width:0}
   .roster-card .approach-id{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-base)}
   .roster-card .approach-label{
-    color:var(--k-text);font-size:var(--k-text-md);flex:1 1 auto;min-width:0;
+    color:var(--k-text);font-size:var(--k-text-md);font-weight:600;flex:0 1 auto;min-width:0;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  /* The source chip: mono, and cut with an ellipsis so the actions stay on the line. */
+  .roster-card .approach-source{flex:0 1 auto;min-width:0;display:inline-flex;overflow:hidden}
+  .roster-card .approach-source .k-chip{
+    font-family:var(--k-font-mono);max-width:100%;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;
   }
   .roster-card .approach-desc{
     color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal);
     margin-top:var(--k-space-3);max-width:calc(var(--k-space-8) * 38);
   }
+  .roster-card .approach-desc.is-clamped{
+    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;
+  }
+  .roster-card .approach-more{margin-top:var(--k-space-1)}
+  /* The first Uninstall step is a quiet danger text button, the same height as
+     Install. Confirm uninstall keeps the full danger style. */
+  .roster-card .approach-actions .k-btn--danger[data-quiet]{
+    background:transparent;border-color:transparent;color:var(--k-danger);
+  }
+  .roster-card .graph-summary{
+    margin-top:var(--k-space-3);font-size:var(--k-text-xs);color:var(--k-text-dim);
+    line-height:var(--k-leading-normal);
+  }
+  .roster-card .graph-summary-profile{font-family:var(--k-font-mono)}
+  .roster-card .graph-summary-changed{color:var(--k-warning)}
   .roster-card .approach-actions{display:flex;align-items:center;gap:var(--k-space-5);margin-left:auto;flex:0 0 auto}
-  .roster-card .approach-foot{margin-top:var(--k-space-5)}
   .roster-card .approach-error{color:var(--vscode-errorForeground)}
 
-  /* ---- graph configuration surface (built-in approach card, Slice-1 T6) ---- */
-  .graph-config{
-    margin-top:var(--k-space-7);padding-top:var(--k-space-6);
-    border-top:var(--k-border-w) solid var(--vscode-panel-border);
-  }
+  /* ---- pending outputs (roster card) ---- */
   .graph-subsection-title{
     font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;
     color:var(--k-text-dim);margin:var(--k-space-7) var(--k-space-0) var(--k-space-4);
   }
   .graph-subsection-title:first-child{margin-top:var(--k-space-0)}
-  .graph-row{display:flex;gap:var(--k-space-5);align-items:center;flex-wrap:wrap;padding:var(--k-space-2) var(--k-space-0)}
   .pending-outputs{margin-top:var(--k-space-4)}
   .pending-output-row{display:flex;gap:var(--k-space-5);align-items:center;flex-wrap:wrap;padding:var(--k-space-2) var(--k-space-0)}
-  .graph-row .graph-label{font-size:var(--k-text-md);min-width:calc(var(--k-space-8) * 9)}
-  .graph-row input[type="number"]{width:calc(var(--k-space-8) * 5);flex:0 0 auto}
-  .graph-row input[type="text"]{flex:0 0 auto}
-  .graph-hint{font-size:var(--k-text-xs);opacity:.65;font-family:var(--k-font-mono)}
-  .graph-profile-name{font-family:var(--k-font-mono);font-weight:600;min-width:calc(var(--k-space-8) * 2.6)}
-  .graph-prompt-link{font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
-  /* SET-26: the compact profile picker takes the row's free width, so it can
-     sit on one line instead of wrapping under its label. */
-  .graph-profile-picker{flex:1;min-width:0}
 
   /* ---- agents roster (provenance groups: Yours / From approaches) ---- */
   .agent-hero{
@@ -581,6 +595,112 @@
     font-size:var(--k-text-base);white-space:normal;
   }
   .drawer .drawer-body.form label:first-child{margin-top:var(--k-space-0)}
+
+  /* ---- approach-editor drawer (Settings › Approaches) ----
+     480 px, and 560 px for a graph approach; max 92vw. The open drawer has no
+     transform, so the agent picker's fixed menu is placed against the viewport. */
+  .drawer.approach-drawer{width:min(calc(var(--k-space-8) * 24),92vw)}
+  .drawer.approach-drawer.is-graph{width:min(calc(var(--k-space-8) * 28),92vw)}
+  .drawer.approach-drawer.open{transform:none}
+  .approach-drawer .drawer-subtitle{
+    font-size:var(--k-text-xs);color:var(--k-text-dim);min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .approach-drawer .drawer-jump{
+    display:flex;flex-wrap:wrap;gap:var(--k-space-3);flex:0 0 auto;
+    padding:var(--k-space-4) var(--k-space-6);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .approach-drawer .drawer-body.form{display:flex;flex-direction:column;gap:var(--k-space-7)}
+  .approach-drawer .drawer-group{display:flex;flex-direction:column;gap:var(--k-space-5);min-width:0}
+  .approach-drawer .drawer-group-title{
+    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;
+    color:var(--k-text-dim);font-weight:600;
+  }
+  /* Labels above controls: each field is one column, full width. */
+  .approach-drawer .drawer-group > .k-field,.approach-drawer .drawer-pair > .k-field{
+    display:flex;flex-direction:column;gap:var(--k-space-2);min-width:0;
+  }
+  .drawer.approach-drawer .drawer-body.form label{margin:var(--k-space-0)}
+  .approach-drawer .k-field .k-input{width:100%;box-sizing:border-box}
+  .approach-drawer .k-input.drawer-mono{font-family:var(--k-font-mono)}
+  .approach-drawer textarea.drawer-mono{field-sizing:content}
+  .approach-drawer .drawer-pair{display:flex;gap:var(--k-space-5);min-width:0}
+  .approach-drawer .drawer-pair-main{flex:1 1 auto}
+  .approach-drawer .drawer-pair-side{flex:0 0 calc(var(--k-space-8) * 7)}
+  .approach-drawer .drawer-segment{display:flex;flex-direction:column;gap:var(--k-space-2);align-items:flex-start}
+  /* One visible "Recommended": the checkbox's own label carries the name. */
+  .approach-drawer .drawer-check > .field-label{display:none}
+  .approach-drawer .drawer-note{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .approach-drawer .drawer-danger{
+    display:flex;align-items:center;gap:var(--k-space-5);
+    padding:var(--k-space-5) var(--k-space-6);border-radius:var(--k-radius-md);
+    border:var(--k-border-w) solid var(--k-danger);
+  }
+  .approach-drawer .drawer-danger-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
+  .approach-drawer .drawer-danger-title{font-weight:600}
+  .approach-drawer .drawer-delete-note{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  /* The footer stays at the bottom: the body scrolls, the footer does not. */
+  .approach-drawer .drawer-actions{
+    display:flex;align-items:center;gap:var(--k-space-4);flex:0 0 auto;
+    padding:var(--k-space-5) var(--k-space-6);border-top:var(--k-border-w) solid var(--vscode-panel-border);
+    background:var(--vscode-editorWidget-background,var(--k-bg));
+  }
+  .approach-drawer .drawer-actions .spacer{flex:1 1 auto}
+  .approach-drawer .drawer-error-count{font-size:var(--k-text-xs);color:var(--k-danger)}
+
+  /* Graph drawer › Agents: Profile / Core / Model / Effort. Below 560 px each
+     profile stacks its pickers under its name. The drawer is min(560px, 92vw),
+     so it is under 560 px only when the viewport is under 560 / 0.92 = 608 px. */
+  .approach-drawer .graph-agents-head{
+    display:grid;grid-template-columns:calc(var(--k-space-8) * 5) minmax(0,1fr) minmax(0,1.4fr) calc(var(--k-space-8) * 5);
+    column-gap:var(--k-space-4);font-size:var(--k-text-xs);color:var(--k-text-dim);
+    padding-bottom:var(--k-space-2);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .approach-drawer .graph-agent-row{
+    display:grid;grid-template-columns:calc(var(--k-space-8) * 5) minmax(0,1fr);column-gap:var(--k-space-4);
+    align-items:center;padding:var(--k-space-2) var(--k-space-0);
+    border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .approach-drawer .graph-profile{display:flex;flex-direction:column;min-width:0}
+  .approach-drawer .graph-profile-name{font-family:var(--k-font-mono);font-weight:600}
+  .approach-drawer .graph-profile-hint{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .approach-drawer .graph-profile-picker{min-width:0}
+  @media (max-width: 608px){
+    .approach-drawer .graph-agents-head{display:none}
+    .approach-drawer .graph-agent-row{grid-template-columns:minmax(0,1fr);row-gap:var(--k-space-2)}
+  }
+
+  /* Graph drawer › Limits: the D829 row style — label and help at the left,
+     the number and its unit at the right. The error sits under the row, so the
+     inputs do not move. */
+  .approach-drawer .graph-limit-group{display:flex;flex-direction:column}
+  .approach-drawer .graph-limit-group-title{font-size:var(--k-text-xs);color:var(--k-text-dim);margin:var(--k-space-3) var(--k-space-0) var(--k-space-1)}
+  .approach-drawer .graph-limit-row{
+    display:grid;grid-template-columns:minmax(0,1fr) auto auto;column-gap:var(--k-space-4);
+    align-items:center;padding:var(--k-space-3) var(--k-space-0);
+    border-top:var(--k-border-w) solid var(--vscode-panel-border);
+  }
+  .approach-drawer .graph-limit-row > .graph-limit-field{display:contents}
+  .approach-drawer .graph-limit-field > label{grid-column:1;grid-row:1;min-width:0}
+  .approach-drawer .graph-limit-field > .k-input{grid-column:2;grid-row:1;width:8ch}
+  .approach-drawer .graph-limit-field > .graph-limit-unit{grid-column:3;grid-row:1}
+  .approach-drawer .graph-limit-field > .k-field-help{grid-column:1;grid-row:2}
+  .approach-drawer .graph-limit-field > .k-field-error{grid-column:1 / -1;grid-row:3}
+  .approach-drawer .graph-limit-reset{grid-column:2 / -1;grid-row:2;justify-self:end}
+  .approach-drawer .graph-limit-dot{
+    display:inline-block;width:var(--k-space-3);height:var(--k-space-3);margin-left:var(--k-space-3);
+    border-radius:var(--k-radius-circle);background:var(--k-warning);vertical-align:middle;
+  }
+  .approach-drawer .graph-limit-fixed .graph-limit-label{grid-column:1;grid-row:1}
+  .approach-drawer .graph-limit-fixed .graph-limit-help{grid-column:1;grid-row:2;font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .approach-drawer .graph-limit-fixed .graph-limit-static{grid-column:2 / -1;grid-row:1;font-size:var(--k-text-xs);color:var(--k-text-dim)}
+
+  /* Graph drawer › Planner. */
+  .approach-drawer .graph-planner-row{display:flex;align-items:center;gap:var(--k-space-5)}
+  .approach-drawer .graph-planner-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+  .approach-drawer .graph-prompt-path{
+    font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);overflow-wrap:anywhere;
+  }
 
   /* Local (non-k-prefixed) transitions the injected design system's own
      reduced-motion block does not reach — nulled here for the same reason

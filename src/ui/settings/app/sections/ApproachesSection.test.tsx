@@ -137,19 +137,40 @@ describe('ApproachesSection — the page and groups', () => {
     );
   });
 
+  function groupTitles(): string[] {
+    return Array.from(document.querySelectorAll('.approach-group-title')).map((n) => n.textContent ?? '');
+  }
+
   it('groups by Installed / Available / Built-in', () => {
-    mount();
-    const headers = Array.from(document.querySelectorAll('.approach-group-header')).map((n) => n.textContent);
-    // tdd is installed; remote is sourced and not installed; review is a
-    // built-in that is not installed.
-    expect(headers).toEqual(['Installed', 'Available', 'Built-in']);
+    // remote is sourced and installed; other is sourced and not installed;
+    // tdd and review have no source, so they are built-in.
+    const other = {
+      id: 'other',
+      label: 'Other',
+      source: { type: 'npm', package: '@x/other' },
+    } as unknown as ApproachDef;
+    mount({ ...BASE, approaches: [...BASE.approaches!, other] }, ['remote', 'tdd']);
+    expect(groupTitles()).toEqual(['Installed', 'Available', 'Built-in']);
   });
 
-  it('omits a group with no members', () => {
-    // Only an installed approach: Available and Built-in are both empty.
+  it('shows the title, the count and the help text in each group header', () => {
+    mount();
+    const header = document.querySelector('.approach-group-header')!;
+    expect(header.querySelector('.approach-group-title')?.textContent).toBe('Available');
+    expect(header.querySelector('.approach-group-count')?.textContent).toBe('1');
+    expect(header.querySelector('.approach-group-help')?.textContent).toBe('Install a package to use it.');
+    const builtIn = document.querySelectorAll('.approach-group-header')[1]!;
+    expect(builtIn.querySelector('.approach-group-title')?.textContent).toBe('Built-in');
+    expect(builtIn.querySelector('.approach-group-count')?.textContent).toBe('2');
+    expect(builtIn.querySelector('.approach-group-help')?.textContent).toBe('Ship with Karst. Nothing to install.');
+    expect(document.querySelector('[data-region="roster"]')).not.toBeNull();
+  });
+
+  it('puts a sourceless approach under Built-in even when its id is installed', () => {
+    // Edit 4: the group reads `approach.source` only.
     mount({ ...BASE, approaches: [{ id: 'tdd', label: 'TDD' } as unknown as ApproachDef] }, ['tdd']);
-    const headers = Array.from(document.querySelectorAll('.approach-group-header')).map((n) => n.textContent);
-    expect(headers).toEqual(['Installed']);
+    expect(groupTitles()).toEqual(['Built-in']);
+    expect(document.querySelector('[data-approach="tdd"]')?.textContent).not.toContain('Uninstall');
   });
 
   it('renders the empty state when nothing is configured', () => {
