@@ -110,8 +110,8 @@ async function prove(c: BaseRedContext, target: FailedCheck, url: CheckUrl, base
   const newest = runs[0]!;
   const prHead = await c.seams.readRunHeadSha(target.cwd, url);
   if (newest.conclusion === 'success') {
-    // Stryker disable next-line StringLiteral: 'green' is only "not green-in-head and not red"; any other text acts the same.
     const inHead = await c.seams.commitInHead(target.cwd, url, newest.headSha, prHead);
+    // Stryker disable next-line StringLiteral: 'green' is only "not green-in-head and not red"; any other text acts the same.
     return { target, url, base, prHead, red, newest, state: inHead ? 'green-in-head' : 'green' };
   }
   if (newest.conclusion !== 'failure') return null;
