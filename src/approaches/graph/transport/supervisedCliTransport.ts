@@ -48,6 +48,7 @@ import type {
 } from './agentTransport.js';
 import type { AgentAdapter, HookChannel, InteractiveCommandOpts } from '../../../agent/adapter.js';
 import { randomUUID } from 'node:crypto';
+import { cleanupOwnedPaths } from '../../../agent/materializedCleanup.js';
 import { killTree as systemKillTree, type KillOutcome } from '../../../runtime/processTree.js';
 import { attributeServer, type ProcessFactsSource } from '../../../runtime/serverIdentity.js';
 import { emitGraphDiagnostic, type GraphDiagnosticIdentity } from '../diagnostics.js';
@@ -400,6 +401,11 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         // registry makes reconcile treat a dead node as owned by this window
         // forever, so the graph remains stuck at `running`.
         if (sessions.get(key) === session) sessions.delete(key);
+        // The adapter-owned files the launch wrote into the node cwd (the
+        // opencode2 bridge plugin) leave with the session, as in a ticket
+        // session (T1370). The clone's exclude rules keep them out of claim
+        // validation while the session runs.
+        removeOwnedPaths(request.cwd, built.ownedPaths, deps.debug);
         // The Stop marker is scoped to the session that just ended — a later
         // launch of the same reserved visit must report its own failures. Read
         // it BEFORE clearing: this close is the Stop when it is set.
@@ -554,4 +560,18 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       }
     },
   };
+}
+
+/** Remove the adapter-owned paths of a closed graph session; a failure is logged, never thrown. */
+export function removeOwnedPaths(
+  cwd: string,
+  ownedPaths: readonly string[] | undefined,
+  debug: ((message: string) => void) | undefined,
+): void {
+  if (ownedPaths === undefined || ownedPaths.length === 0) return;
+  try {
+    cleanupOwnedPaths(cwd, ownedPaths);
+  } catch (error) {
+    debug?.(`[graph] removing the adapter-owned paths in ${cwd} failed (${String(error)})`);
+  }
 }

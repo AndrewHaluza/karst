@@ -11,8 +11,8 @@ import type { ClaudeWatchState } from '../agent/claudeTranscriptWatch.js';
 import { makeTranscriptReader } from '../agent/claudeTranscriptRead.js';
 import { sweepGraphClaudeSessions, type GraphClaudeSession } from '../agent/graphClaudeSweep.js';
 import { graphLaunchIdForLaunch } from '../approaches/graph/graphLaunchId.js';
-import type { SupervisedAgentSession } from '../approaches/graph/transport/agentTransport.js';
-import type { SupervisedLaunchRequest } from '../approaches/graph/transport/supervisedCliTransport.js';
+// Types come through the transport module: it is the sole AgentAdapter/AgentTransport bridge.
+import type { SupervisedAgentSession, SupervisedLaunchRequest } from '../approaches/graph/transport/supervisedCliTransport.js';
 
 /** The only core whose graph usage arrives as a hook (the opencode2 bridge plugin). */
 const HOOK_USAGE_PROVIDER = 'opencode2';

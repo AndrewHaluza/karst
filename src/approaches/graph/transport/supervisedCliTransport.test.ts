@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, mkdtempSync, symlinkSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { ensureClaudeWorkspaceTrusted } from '../../../agent/workspaceTrust.js';
 import { join, dirname } from 'node:path';
@@ -21,6 +21,7 @@ import { stopServersUnder, reapStaleServers } from '../../../runtime/worktreeSer
 import {
   createSupervisedCliTransport,
   LAUNCH_EXIT_WINDOW_MS,
+  removeOwnedPaths,
   type LaunchFailure,
   type SupervisedLaunchRequest,
   type SupervisedTransportDeps,
@@ -1236,3 +1237,59 @@ describe('SupervisedCLITransport graph launch identity (T1370)', () => {
   });
 });
 
+describe('adapter-owned paths of a graph session (T1370)', () => {
+  const PLUGIN = join('.opencode', 'plugins', 'karst-bridge.js');
+
+  function workspaceWithPlugin(): string {
+    const cwd = mkdtempSync(join(tmpdir(), 'karst-graph-owned-'));
+    mkdirSync(join(cwd, '.opencode', 'plugins'), { recursive: true });
+    writeFileSync(join(cwd, PLUGIN), '// plugin');
+    return cwd;
+  }
+
+  it('removes the paths the adapter owns when the session terminal closes', async () => {
+    const cwd = workspaceWithPlugin();
+    try {
+      const terminal = fakeTerminal(4242);
+      let closeHandler: ((exitCode?: number) => void) | undefined;
+      terminal.onDidClose = (handler) => {
+        closeHandler = handler;
+      };
+      const transport = createSupervisedCliTransport({
+        ...harness(4242).deps,
+        terminalHost: { createTerminal: () => terminal },
+      });
+      const adapter = adapterFor({ command: 'opencode', args: [], env: {}, ownedPaths: [PLUGIN] } as InteractiveCommand);
+      await transport.start({ ...LAUNCH, cwd, interactive: { cwd }, adapter } as SupervisedLaunchRequest);
+      expect(existsSync(join(cwd, PLUGIN))).toBe(true);
+      closeHandler?.(0);
+      expect(existsSync(join(cwd, PLUGIN))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('logs a refused path and does not throw', () => {
+    const debug: string[] = [];
+    expect(() => removeOwnedPaths('/wt/n1', ['../outside'], (m) => debug.push(m))).not.toThrow();
+    expect(debug).toHaveLength(1);
+    expect(debug[0]).toContain('[graph] removing the adapter-owned paths in /wt/n1 failed');
+  });
+
+  it('does nothing when the adapter owns no path', () => {
+    const debug: string[] = [];
+    removeOwnedPaths('/wt/n1', undefined, (m) => debug.push(m));
+    removeOwnedPaths('/wt/n1', [], (m) => debug.push(m));
+    expect(debug).toEqual([]);
+  });
+
+  it('removes each owned path in the cwd', () => {
+    const cwd = workspaceWithPlugin();
+    try {
+      removeOwnedPaths(cwd, [PLUGIN], undefined);
+      expect(existsSync(join(cwd, PLUGIN))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
