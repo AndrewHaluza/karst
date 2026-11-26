@@ -1,11 +1,11 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { gatePaths, killGateScript, sweepScript } from './sshGateScript.js';
+import { gateScript, gatePaths, killGateScript, sweepScript } from './sshGateScript.js';
 
 /**
  * The kill and sweep scripts against a real process group under every remote
@@ -15,6 +15,7 @@ import { gatePaths, killGateScript, sweepScript } from './sshGateScript.js';
 
 const run = promisify(execFile);
 const RUN_ID = 'abcdef0123456789';
+const HAS_SETSID = ['/usr/bin/setsid', '/bin/setsid'].some((p) => existsSync(p));
 const SHELLS = ['/bin/sh', '/bin/dash', '/bin/bash'].filter((s) => existsSync(s));
 
 let ws: string;
@@ -62,5 +63,37 @@ describe.each(SHELLS)('gate kill under %s', (shell) => {
     await run(shell, ['-c', sweepScript(ws, [])]);
     expect(await within(3000, exited)).toBe('exited');
     expect(await readdir(ws)).toEqual([]);
+  }, 15_000);
+
+  it('sweepScript keeps a group whose wrapper is alive (a live gate of another window)', async () => {
+    const { pid, exited } = await startGroup();
+    const { pgidFile, ownerFile } = gatePaths(ws, RUN_ID);
+    await writeFile(pgidFile, `${String(pid)}\n`);
+    await writeFile(ownerFile, `${String(process.pid)}\n`);
+    await run(shell, ['-c', sweepScript(ws, [])]);
+    expect(await within(1500, exited)).toBe('alive');
+    expect((await readdir(ws)).sort()).toEqual([`gate-${RUN_ID}.owner`, `gate-${RUN_ID}.pgid`]);
+  }, 15_000);
+
+  it('sweepScript ends a group whose wrapper is dead, and removes its owner file', async () => {
+    const dead = spawn('true');
+    await new Promise<void>((resolve) => dead.once('exit', () => resolve()));
+    const { pid, exited } = await startGroup();
+    const { pgidFile, ownerFile } = gatePaths(ws, RUN_ID);
+    await writeFile(pgidFile, `${String(pid)}\n`);
+    await writeFile(ownerFile, `${String(dead.pid)}\n`);
+    await run(shell, ['-c', sweepScript(ws, [])]);
+    expect(await within(3000, exited)).toBe('exited');
+    expect(await readdir(ws)).toEqual([]);
+  }, 15_000);
+
+  it.skipIf(!HAS_SETSID)('gateScript writes the wrapper pid and removes both files when it exits', async () => {
+    const { ownerFile } = gatePaths(ws, RUN_ID);
+    const env = join(ws, 'env.sh');
+    await writeFile(env, '');
+    const script = gateScript({ workspace: ws, runId: RUN_ID, cwd: ws, envFile: env, command: 'sh', args: ['-c', `cat ${ownerFile} > ${ws}/seen`] });
+    await run(shell, ['-c', script]).catch(() => undefined);
+    expect((await readdir(ws)).sort()).toEqual(['env.sh', 'gates', 'seen']);
+    expect(await readFile(join(ws, 'seen'), 'utf8')).toMatch(/^\d+\n$/);
   }, 15_000);
 });

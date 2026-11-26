@@ -81,6 +81,14 @@ export function stashMessage(ticketLabel: string, now: Date = new Date()): strin
 /** Reason prefix of a dirty refusal where the host is NOT ahead: there is nothing to bring in, so the refusal protects nothing. */
 export const DIRTY_NOT_BEHIND = 'the sandbox clone has uncommitted work; nothing was overwritten';
 
+/** An ssh runner names its remote first (`ssh <remote>: <reason>`); a remote name has no space or colon. */
+const DIRTY_NOT_BEHIND_RE = new RegExp(`^(?:ssh [^\\s:]+: )?${DIRTY_NOT_BEHIND.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+
+/** A refresh refusal for uncommitted clone work with nothing to bring in, from any runner kind (sbx, docker, ssh). */
+export function isDirtyNotBehind(reason: string): boolean {
+  return DIRTY_NOT_BEHIND_RE.test(reason);
+}
+
 /** Map the script's outcome to the runner result; `stdout` carries the dirty diff. */
 export function refreshOutcome(code: number, stdout: string, stderr: string, branch: string): SyncResult {
   const out = refreshOutcomeBase(code, stdout, stderr, branch);

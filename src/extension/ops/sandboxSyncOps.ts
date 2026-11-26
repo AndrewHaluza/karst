@@ -20,7 +20,7 @@ import { linuxUser } from '../../agent/docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SandboxProbe, type SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
-import { DIRTY_NOT_BEHIND, stashMessage } from '../../agent/cloneRefresh.js';
+import { isDirtyNotBehind, stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
 import { reasonText } from '../../model/notifyText.js';
 import type { TicketPlacement } from '../../store/placement.js';
@@ -197,7 +197,8 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
         const synced = await resolved.runner.sync?.(ticketRef);
         if (synced && !synced.ok) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${synced.reason}`);
         const refreshed = await resolved.runner.refresh?.(ticketRef);
-        if (refreshed && !refreshed.ok) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${refreshed.reason}`);
+        // Opening a session (like `allowDirtyClone`): uncommitted remote work with nothing to bring in is the user's own to continue.
+        if (refreshed && !refreshed.ok && !isDirtyNotBehind(refreshed.reason)) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${refreshed.reason}`);
       }
     } else if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
       const synced = await input.syncExisting();
@@ -391,7 +392,7 @@ export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTa
     try {
       const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, baseOpts(deps, target.ticketId));
       // Opening a session: uncommitted clone work with nothing to bring in is the user's own to continue, not a blocker.
-      if (!refreshed.ok && opts.allowDirtyClone && refreshed.reason.startsWith(DIRTY_NOT_BEHIND)) return { ok: true };
+      if (!refreshed.ok && opts.allowDirtyClone && isDirtyNotBehind(refreshed.reason)) return { ok: true };
       return refreshed.ok ? { ok: true } : { ok: false, reason: refreshed.reason, diverged: /diverged/i.test(refreshed.reason) };
     } catch (err) {
       return { ok: false, reason: `sandbox refresh failed: ${reasonText(err)}`, diverged: false };

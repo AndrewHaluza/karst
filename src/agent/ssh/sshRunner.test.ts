@@ -133,6 +133,8 @@ describe('prepareInteractive', () => {
     const sweep = ssh.calls.map((c) => scriptOf(c.args)).find((s) => s.startsWith('# karst-ssh-gate-sweep'))!;
     expect(sweep).toContain(`set -- 'bbbbbbbbbbbbbbbb'`);
     expect(sweep).toContain('kill -KILL "-$p"');
+    expect(sweep).toContain('if [ -n "$o" ] && kill -0 "$o" 2>/dev/null; then continue; fi');
+    expect(sweep).toContain('rm -f -- "$f" "$ws/gate-$id.owner" "$ws/gates/$id.exit"');
   });
 });
 
@@ -148,7 +150,8 @@ describe('runGate', () => {
     expect(script).toContain(`cd '${REPO}/pkg/api'`);
     expect(script).toContain(`${REPO}/a.ts`);
     expect(script).toContain(`setsid -w sh -c`);
-    expect(script).toContain(`trap 'rm -f '\\''${WS}/gate-${RUN_ID}.pgid'\\''' EXIT`);
+    expect(script).toContain(`trap 'rm -f '\\''${WS}/gate-${RUN_ID}.pgid'\\'' '\\''${WS}/gate-${RUN_ID}.owner'\\''' EXIT`);
+    expect(script).toContain(`echo $$ > '${WS}/gate-${RUN_ID}.owner'`);
     expect(script).toContain(`${WS}/gates/${RUN_ID}.exit`);
   });
 
@@ -205,7 +208,7 @@ describe('runGate', () => {
     expect(kill).toContain('if [ -f "$f" ]; then kill -KILL -4242');
     expect(kill).not.toContain(' -- -');
     expect(kill).toContain('is still alive after KILL');
-    expect(kill).toContain(`rm -f -- "$f" '${WS}/gates/${RUN_ID}.exit'`);
+    expect(kill).toContain(`rm -f -- "$f" '${WS}/gate-${RUN_ID}.owner' '${WS}/gates/${RUN_ID}.exit'`);
   });
 
   it.each(['', '1', '0', '-1', '12 34', 'abc'])('never kills an invalid pgid %j', async (pgid) => {

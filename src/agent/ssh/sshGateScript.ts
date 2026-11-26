@@ -32,6 +32,8 @@ export interface GatePaths {
   readonly exitFile: string;
   /** `<ws>/gate-<runId>.pgid` */
   readonly pgidFile: string;
+  /** `<ws>/gate-<runId>.owner`: the pid of the gate wrapper (the remote `sh` that waits for the group). */
+  readonly ownerFile: string;
 }
 
 export function assertRunId(runId: string): string {
@@ -45,6 +47,7 @@ export function gatePaths(workspace: string, runId: string): GatePaths {
     gatesDir: `${workspace}/gates`,
     exitFile: `${workspace}/gates/${runId}.exit`,
     pgidFile: `${workspace}/gate-${runId}.pgid`,
+    ownerFile: `${workspace}/gate-${runId}.owner`,
   };
 }
 
@@ -65,8 +68,9 @@ export interface GateScriptInput {
  * keeps the spec's chain but makes a failed `cd` or `.` of a missing env file
  * an rc, not an exit of the whole shell, so the exit file is always written.
  * `setsid -w` returns the gate's exit code; its child writes its own pid, which
- * is the new process group id, to the pgid file. The `trap` removes that file
- * when the wrapper exits.
+ * is the new process group id, to the pgid file. The wrapper writes its own
+ * pid to the owner file first, so the sweep can tell a live gate of another
+ * window from an orphan. The `trap` removes both files when the wrapper exits.
  */
 export function gateScript(input: GateScriptInput): string {
   const paths = gatePaths(input.workspace, input.runId);
@@ -75,7 +79,8 @@ export function gateScript(input: GateScriptInput): string {
   return [
     '# karst-ssh-gate',
     `mkdir -p -m 700 ${sshQuote(paths.gatesDir)}`,
-    `trap ${sshQuote(`rm -f ${sshQuote(paths.pgidFile)}`)} EXIT`,
+    `trap ${sshQuote(`rm -f ${sshQuote(paths.pgidFile)} ${sshQuote(paths.ownerFile)}`)} EXIT`,
+    `echo $$ > ${sshQuote(paths.ownerFile)}`,
     `(cd ${sshQuote(input.cwd)} && . ${sshQuote(input.envFile)} && export KARST_SANDBOX=1 && ` +
       `setsid -w sh -c 'echo $$ > "$2"; exec sh -c "$1"' _ ${sshQuote(inner)} ${sshQuote(paths.pgidFile)})`,
     'rc=$?',
@@ -171,15 +176,19 @@ export function killGateScript(workspace: string, runId: string, pgid: number, g
     `if [ -f "$f" ]; then kill -KILL ${group} 2>/dev/null; fi`,
     `i=0; while alive && [ "$i" -lt ${String(KILL_SETTLE_SECONDS)} ]; do sleep 1; i=$((i+1)); done`,
     `if alive; then echo ${sshQuote(`ssh gate: group ${group} is still alive after KILL`)} >&2; exit 1; fi`,
-    `rm -f -- "$f" ${sshQuote(paths.exitFile)}`,
+    `rm -f -- "$f" ${sshQuote(paths.ownerFile)} ${sshQuote(paths.exitFile)}`,
   ].join('\n');
 }
 
 /**
  * The orphan sweep (session start and reattach): kill every gate group whose
- * pgid file is in `<ws>` and whose run id is NOT live in this window's
- * registry. The live ids arrive as positional parameters (`set -- …`), never
- * as script text; a file name whose run id is not hex is skipped.
+ * pgid file is in `<ws>`, whose run id is NOT live in this window's registry,
+ * and whose wrapper is dead. Two windows can share one ssh sandbox, and the
+ * registry knows only this window: a live wrapper pid in the owner file marks
+ * a gate that another window still waits for, so the sweep keeps it. A reused
+ * pid only keeps a group, it never kills one. The live ids arrive as positional
+ * parameters (`set -- …`), never as script text; a file name whose run id is
+ * not hex is skipped.
  */
 export function sweepScript(workspace: string, liveRunIds: readonly string[]): string {
   const live = liveRunIds.map(assertRunId);
@@ -193,10 +202,13 @@ export function sweepScript(workspace: string, liveRunIds: readonly string[]): s
     `  case "$id" in ''|*[!0-9a-f]*) continue ;; esac`,
     '  skip=0; for l in "$@"; do [ "$l" = "$id" ] && skip=1; done',
     '  [ "$skip" = 1 ] && continue',
+    '  o=$(cat -- "$ws/gate-$id.owner" 2>/dev/null)',
+    `  case "$o" in ''|*[!0-9]*) o='' ;; esac`,
+    '  if [ -n "$o" ] && kill -0 "$o" 2>/dev/null; then continue; fi',
     '  p=$(cat -- "$f" 2>/dev/null)',
     `  ${PGID_OK}`,
     '  if [ -n "$p" ]; then kill -KILL "-$p" 2>/dev/null; fi',
-    '  rm -f -- "$f" "$ws/gates/$id.exit"',
+    '  rm -f -- "$f" "$ws/gate-$id.owner" "$ws/gates/$id.exit"',
     'done',
     'exit 0',
   ].join('\n');

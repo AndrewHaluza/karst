@@ -7682,14 +7682,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const revealsDuringRecovery = backgroundRecoveryPlan.resume.length > 0;
   if (revealsDuringRecovery) binder.suspend();
   const recoveryTasks: Array<Promise<unknown>> = [];
-  for (const ticketId of backgroundRecoveryPlan.resume) {
-    // D555: a live tmux session on a DIRECT, trusted ssh remote opens on the attach — no new SessionStart
-    // hook follows. The probe runs ONE ssh call and only after the trust check; every other ticket is false.
-    const readyOnOpen = await liveRemoteSession({
-      placement: getPlacement(localStore, ticketId),
-      remotes: currentManifest()?.remotes,
-      trust: readRemoteTrust(storageDir, (m) => logger.warn(m)),
-    }).catch((err: unknown) => { logger.warn(`session recovery: ticket ${ticketId} ssh probe failed: ${String(err)}`); return false; });
+  // D555: a live tmux session on a DIRECT, trusted ssh remote opens on the attach — no new SessionStart
+  // hook follows. Each probe runs ONE ssh call and only after the trust check; every other ticket is false.
+  // The probes run at once, so N ssh tickets wait one ConnectTimeout, not N.
+  const recoveryTrust = readRemoteTrust(storageDir, (m) => logger.warn(m));
+  const readyOnOpenOf = await Promise.all(backgroundRecoveryPlan.resume.map((ticketId) => liveRemoteSession({
+    placement: getPlacement(localStore, ticketId),
+    remotes: currentManifest()?.remotes,
+    trust: recoveryTrust,
+  }).catch((err: unknown) => { logger.warn(`session recovery: ticket ${ticketId} ssh probe failed: ${String(err)}`); return false; })));
+  for (const [index, ticketId] of backgroundRecoveryPlan.resume.entries()) {
+    const readyOnOpen = readyOnOpenOf[index] === true;
     const recoveryTask = recoverSession(
       sessions,
       recoveryLifecycle,

@@ -1,6 +1,7 @@
 import { configureAccounts, configureRecordedAccountLookup, resetAccounts } from '../../agent/accounts/registry.js';
 import { resolveBackend } from '../../agent/backendResolver.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
+import { DIRTY_NOT_BEHIND } from '../../agent/cloneRefresh.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -988,6 +989,17 @@ describe('resolveLaunchBackend ssh launch (D555 mutation)', () => {
   it('a runner without sync or refresh does not throw', async () => {
     await expect(resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: 'k/b' }, resolve: async () => ({ runner: sshRunner(), line: `ssh (${NAME})` }) }))
       .resolves.toMatchObject({ sandboxed: true });
+  });
+
+  it('a dirty remote clone with nothing to bring in opens the session; a dirty clone behind the host still blocks', async () => {
+    const sync = vi.fn(async () => ({ ok: true as const }));
+    const worktree = { path: '/wt', branch: 'k/b' };
+    const dirty = vi.fn(async () => ({ ok: false as const, reason: `ssh devbox: ${DIRTY_NOT_BEHIND}:\n M a.ts` }));
+    await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: sshRunner({ sync, refresh: dirty }), line: `ssh (${NAME})` }) }))
+      .resolves.toMatchObject({ sandboxed: true });
+    const ahead = vi.fn(async () => ({ ok: false as const, reason: 'ssh devbox: sandbox has uncommitted work and the host is ahead by 1 commit(s); nothing was overwritten:\n M a.ts' }));
+    await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: sshRunner({ sync, refresh: ahead }), line: `ssh (${NAME})` }) }))
+      .rejects.toThrow(/K-7: the sandbox is not in sync with the host branch: ssh devbox: sandbox has uncommitted work and the host is ahead/);
   });
 
   it('a refused refresh stops the launch with its reason', async () => {
