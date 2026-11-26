@@ -588,6 +588,39 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'refused_merge_repo')).toHaveLength(1);
   });
 
+  it('migrates a pre-v141 database by adding the refused-merge retry columns as NULL, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`CREATE TABLE autopilot_tickets (
+      ticket_id INTEGER PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'inherit', stop_after INTEGER NOT NULL DEFAULT 0,
+      paused_reason TEXT, stopped_reason TEXT, stopped_head_sha TEXT, claim_owner TEXT, claim_until INTEGER,
+      session_owner TEXT, ci_round_manual INTEGER NOT NULL DEFAULT 0, ci_round_at INTEGER, conflict_round_at INTEGER,
+      refused_merge_repo TEXT, refused_merge_sha TEXT
+    )`);
+    legacy.exec("INSERT INTO autopilot_tickets (ticket_id, mode, refused_merge_repo, refused_merge_sha) VALUES (7, 'on', 'api', 'abc123')");
+    legacy.pragma('user_version = 140');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('autopilot_tickets')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toEqual(expect.arrayContaining(['refused_merge_run_id', 'refused_merge_base_ref', 'refused_merge_base_sha', 'refused_merge_tail']));
+    // The v140 guard row survives with no retry state (the pre-v141 row reads as an unreadable run, not a lost guard).
+    expect(migrated.db.prepare(`SELECT refused_merge_repo AS repo, refused_merge_sha AS sha, refused_merge_run_id AS runId,
+      refused_merge_base_ref AS baseRef, refused_merge_base_sha AS baseSha, refused_merge_tail AS tail
+      FROM autopilot_tickets WHERE ticket_id = 7`).get())
+      .toEqual({ repo: 'api', sha: 'abc123', runId: null, baseRef: null, baseSha: null, tail: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'refused_merge_run_id')).toHaveLength(1);
+  });
+
   it('a fresh database defaults phase_marks.source to agent', () => {
     const fresh = openStore(':memory:');
     cleanups.push(() => fresh.close());

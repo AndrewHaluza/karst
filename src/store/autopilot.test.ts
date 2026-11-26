@@ -177,14 +177,16 @@ describe('stopped head sha', () => {
 });
 
 describe('refused merge guard (T1381)', () => {
-  it('stores the refused merge and clears it', () => {
+  it('stores the refused merge and its gate fix round, then clears all of it', () => {
     const store = openStore(':memory:');
     const t = createTicket(store, { key: 'A', title: 'a' });
     expect(getRefusedMerge(store, t.id)).toBeNull();
-    setRefusedMerge(store, t.id, { repo: 'api', sha: '952a97b54aaa' });
-    expect(getRefusedMerge(store, t.id)).toEqual({ repo: 'api', sha: '952a97b54aaa' });
+    setRefusedMerge(store, t.id, { repo: 'api', sha: '952a97b54aaa', runId: 12, baseRef: 'develop', baseSha: 'b4se', tail: 'gate "unit" failed' });
+    expect(getRefusedMerge(store, t.id)).toEqual({ repo: 'api', sha: '952a97b54aaa', runId: 12, baseRef: 'develop', baseSha: 'b4se', tail: 'gate "unit" failed' });
     clearRefusedMerge(store, t.id);
     expect(getRefusedMerge(store, t.id)).toBeNull();
+    expect(store.db.prepare(`SELECT refused_merge_run_id AS runId, refused_merge_base_ref AS baseRef, refused_merge_base_sha AS baseSha,
+      refused_merge_tail AS tail FROM autopilot_tickets WHERE ticket_id = ?`).get(t.id)).toEqual({ runId: null, baseRef: null, baseSha: null, tail: null });
     store.close();
   });
 

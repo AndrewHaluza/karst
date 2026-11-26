@@ -108,31 +108,45 @@ export function clearConflictRound(store: Store, ticketId: number): void {
   store.db.prepare('UPDATE autopilot_tickets SET conflict_round_at = NULL WHERE ticket_id = ?').run(ticketId);
 }
 
-/** The merge a refused auto-deliver left at HEAD (T1381): its repo and sha, while a gate fix round repairs it. */
+/** The merge a refused auto-deliver left at HEAD (T1381): the repair state of its gate fix round. */
 export interface RefusedMerge {
   readonly repo: string;
   readonly sha: string;
+  /** The deliver run that refused the merge, or null when none opened. */
+  readonly runId: number | null;
+  readonly baseRef: string | null;
+  readonly baseSha: string | null;
+  /** The park tail, e.g. `gate "unit" failed`; null for a pre-v141 row. */
+  readonly tail: string | null;
 }
 
 /**
  * v140: remember the refused merge in the store, not in memory (T1381). A reload or a second window taking the lease must
- * not deliver that merge again: SQLite is the source of truth and the guard outlives the process.
+ * not deliver that merge again: SQLite is the source of truth and the guard outlives the process. v141 adds the retry
+ * state of the gate fix round (`runId`, base ref/sha, tail), so the same step can finish after a reload.
  */
 export function setRefusedMerge(store: Store, ticketId: number, refused: RefusedMerge): void {
   ensureRow(store, ticketId);
-  store.db.prepare('UPDATE autopilot_tickets SET refused_merge_repo = ?, refused_merge_sha = ? WHERE ticket_id = ?').run(refused.repo, refused.sha, ticketId);
+  store.db.prepare(`UPDATE autopilot_tickets SET refused_merge_repo = ?, refused_merge_sha = ?, refused_merge_run_id = ?,
+    refused_merge_base_ref = ?, refused_merge_base_sha = ?, refused_merge_tail = ? WHERE ticket_id = ?`)
+    .run(refused.repo, refused.sha, refused.runId, refused.baseRef, refused.baseSha, refused.tail, ticketId);
 }
 
-/** The refused merge a gate fix round is repairing, or null. A half-written row (one field null) reads as none. */
+/** The refused merge a gate fix round is repairing, or null. A half-written row (no repo or sha) reads as none. */
 export function getRefusedMerge(store: Store, ticketId: number): RefusedMerge | null {
-  const row = store.db.prepare('SELECT refused_merge_repo AS repo, refused_merge_sha AS sha FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { repo: string | null; sha: string | null } | undefined;
+  const row = store.db.prepare(`SELECT refused_merge_repo AS repo, refused_merge_sha AS sha, refused_merge_run_id AS runId,
+    refused_merge_base_ref AS baseRef, refused_merge_base_sha AS baseSha, refused_merge_tail AS tail
+    FROM autopilot_tickets WHERE ticket_id = ?`).get(ticketId) as
+    { repo: string | null; sha: string | null; runId: number | null; baseRef: string | null; baseSha: string | null; tail: string | null } | undefined;
   if (row?.repo == null || row.sha == null) return null;
-  return { repo: row.repo, sha: row.sha };
+  return { repo: row.repo, sha: row.sha, runId: row.runId, baseRef: row.baseRef, baseSha: row.baseSha, tail: row.tail };
 }
 
-/** The agent's fix moved the local head (or a new conflict round replaced the merge): the refused merge is history. */
+/** The agent's fix moved the local head, or the refused merge was delivered: the guard is history. */
 export function clearRefusedMerge(store: Store, ticketId: number): void {
-  store.db.prepare('UPDATE autopilot_tickets SET refused_merge_repo = NULL, refused_merge_sha = NULL WHERE ticket_id = ?').run(ticketId);
+  store.db.prepare(`UPDATE autopilot_tickets SET refused_merge_repo = NULL, refused_merge_sha = NULL,
+    refused_merge_run_id = NULL, refused_merge_base_ref = NULL, refused_merge_base_sha = NULL, refused_merge_tail = NULL
+    WHERE ticket_id = ?`).run(ticketId);
 }
 
 /**
