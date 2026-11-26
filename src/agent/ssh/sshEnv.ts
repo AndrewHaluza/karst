@@ -108,6 +108,15 @@ function replaceAllPaths(value: string, hostPrefix: string, remotePrefix: string
 }
 
 /**
+ * Rewrite a host path wherever it sits inside each argv element, at a path
+ * boundary only (`--settings=<path>`, an inline JSON settings blob). The same
+ * rule as the env values; `rewriteHostPaths` stays the exact-or-child form.
+ */
+export function rewriteEmbeddedHostPaths(values: readonly string[], hostPrefix: string, remotePrefix: string): string[] {
+  return values.map((value) => replaceAllPaths(value, hostPrefix, remotePrefix));
+}
+
+/**
  * The env a remote launch may have: a NEW record, built from
  * `withoutHostOnlyEnv`, restricted to `KARST_*` plus `REMOTE_ENV_ALLOWLIST`,
  * with every host path in a value rewritten to its remote form and
