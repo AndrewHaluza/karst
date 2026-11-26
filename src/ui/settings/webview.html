@@ -414,6 +414,13 @@
   .q-row > .k-field > .k-field-help{grid-column:1;grid-row:2;margin:var(--k-space-0)}
   .q-row > .k-field > .k-field-error{grid-column:1;grid-row:3;margin:var(--k-space-0)}
   .q-row > .k-field > .k-input[type=number]{width:9ch;justify-self:start}
+  /* A tall control keeps its help directly under the label: the label, help
+     and error form one copy block, so the control's height cannot push the
+     help to the bottom of the row (T1373, acceptance 3). */
+  .q-row--area > .k-field > .k-field-copy{grid-column:1;grid-row:1;min-width:0}
+  .k-field-copy > label{display:block;margin:var(--k-space-0);min-height:0;font-size:var(--k-text-md);color:var(--k-text)}
+  .k-field-copy > .k-field-help{margin:var(--k-space-1) var(--k-space-0) var(--k-space-0)}
+  .k-field-copy > .k-field-error{margin:var(--k-space-1) var(--k-space-0) var(--k-space-0)}
   /* A textarea row aligns to the top: the textarea never spans the help line. */
   .q-row--area > .k-field{align-items:start}
   /* A checkbox row keeps the native checkbox (SET-18) on the right: the field's
@@ -424,9 +431,9 @@
     display:grid;grid-template-columns:minmax(0,1fr) auto auto;
     align-items:center;gap:var(--k-space-3);min-width:0;
   }
-  .q-row > .k-field > .k-check > label{grid-column:1;margin:var(--k-space-0);font-size:var(--k-text-md);color:var(--k-text)}
-  .q-row > .k-field > .k-check > input[type=checkbox]{grid-column:2}
-  .q-row > .k-field > .k-check::after{grid-column:3;content:'Off';font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .q-row > .k-field > .k-check > label{grid-column:1;grid-row:1;margin:var(--k-space-0);font-size:var(--k-text-md);color:var(--k-text)}
+  .q-row > .k-field > .k-check > input[type=checkbox]{grid-column:2;grid-row:1}
+  .q-row > .k-field > .k-check::after{grid-column:3;grid-row:1;content:'Off';font-size:var(--k-text-sm);color:var(--k-text-dim)}
   .q-row > .k-field > .k-check:has(input:checked)::after{content:'On'}
   /* Child settings indented under their switch; a grandchild one more step. */
   .q-row--child{padding-left:calc(var(--k-space-6) + var(--k-space-1));border-left:calc(var(--k-border-w) * 2) solid var(--vscode-panel-border,var(--k-border))}
@@ -1007,6 +1014,7 @@
     .q-row > .k-field > label,
     .q-row > .k-field > .k-field-help,
     .q-row > .k-field > .k-field-error{grid-column:1}
+    .q-row > .k-field > .k-field-copy{grid-column:1;grid-row:auto}
     .q-row > .k-field > .k-field-help{grid-row:auto}
     .q-row > .k-field > .k-field-error{grid-row:auto}
     .q-row > .k-field > .k-input,
@@ -1016,14 +1024,20 @@
     .gate-head{display:none}
     .gate-list--override .gate-row,
     .gate-row{
-      grid-template-columns:auto minmax(0,1fr) auto;
+      grid-template-columns:auto auto minmax(0,1fr) auto;
       grid-template-areas:
-        'on name remove'
-        'kind runs runs'
-        'repo repo repo'
-        'oom oom oom';
+        'on name name remove'
+        'kl kind runs runs'
+        'repo repo repo repo'
+        'oom oom oom oom';
       gap:var(--k-space-2) var(--k-space-3);
       padding:var(--k-space-4) var(--k-space-0);
+    }
+    /* The prototype's narrow card opens the runs line with a muted "Runs"
+       label, then the kind and the run value (T1373, @ui:UI-R39). */
+    .gate-row::before{
+      content:'Runs';grid-area:kl;align-self:center;
+      font-size:var(--k-text-xs);color:var(--k-text-dim);
     }
     .gate-row > .gate-on{grid-area:on}
     .gate-row > .gate-name{grid-area:name}

@@ -73,6 +73,7 @@ export function TesterEvidenceFields({ rule }: { rule: UatTesterRequireEvidence 
           <div className="q-row q-row--grandchild q-row--area">
             <Field
               label="Required when changed"
+              copyBlock
               help="Repo-relative globs of the ticket diff, one for each line. Test files never count."
               error={problems.whenChanged}
               control={{
