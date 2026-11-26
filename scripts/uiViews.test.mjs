@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import {
   ALL_VIEWS,
   LAYOUT_BOOKENDS,
   VIEW_DIRS,
+  VIEW_FILES,
   fixtureViews,
   gateGrep,
   isUiPath,
@@ -42,6 +43,19 @@ describe('selectViews', () => {
 
   it('maps view-specific visual test files to their owning view', () => {
     expect(selectViews(['tests/visual/panelVariants.ts'])).toEqual({ all: false, views: ['dashboard', 'status'] });
+    expect(selectViews(['tests/visual/variants/usage.ts'])).toEqual({ all: false, views: ['usage'] });
+    expect(selectViews(['tests/visual/variants/dashboard.ts'])).toEqual({ all: false, views: ['dashboard', 'status'] });
+  });
+
+  it('selects every view for the shared variant registry and the shared helpers', () => {
+    expect(selectViews(['tests/visual/variants.ts']).all).toBe(true);
+    expect(selectViews(['tests/visual/variantCore.ts']).all).toBe(true);
+  });
+
+  it('does not count a visual file that renders nothing as a UI path', () => {
+    // sweepBudget.ts holds the sweep counts; only sweepBudget.test.ts in the unit gate reads it.
+    expect(isUiPath('tests/visual/sweepBudget.ts')).toBe(false);
+    expect(selectDeltaViews(['tests/visual/sweepBudget.ts'])).toEqual({ all: false, views: [] });
   });
 
   it('selects every view when the layout ledger changed, so each edited entry is judged', () => {
@@ -95,6 +109,13 @@ describe('the map', () => {
 
   it('only names directories that exist', () => {
     for (const dir of Object.keys(VIEW_DIRS)) expect(() => readdirSync(`src/ui/${dir}`)).not.toThrow();
+  });
+
+  it('gives every view variant file an owner and names only real files', () => {
+    for (const file of readdirSync('tests/visual/variants')) {
+      expect(VIEW_FILES[`tests/visual/variants/${file}`], `${file} needs a VIEW_FILES entry`).toBeDefined();
+    }
+    for (const file of Object.keys(VIEW_FILES)) expect(existsSync(file), `${file} is missing`).toBe(true);
   });
 });
 

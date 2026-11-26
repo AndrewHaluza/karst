@@ -148,15 +148,34 @@ names the default page of each view (dashboard `pending`, settings `minimal`, ev
 - **Capture mode**: a variant is a full-page shot by default. A fixed overlay sets `capture: 'viewport'` (`fullPage: false`, `screenshotFullPage`); a full-page shot would also record the page height below it (T1060). Only the ticket-details drawer uses it; if it scrolls inside itself, the viewport shows its top. Tolerance: `ui:VISUAL-TOLERANCE`.
 - **Element capture (T1364)**: a component variant records only its target element (`captureTarget`, `screenshotTarget`; `pages.visual.ts` shoots `page.locator(target)`). `CAPTURE_TARGET_FAMILIES` maps `panel-srv-*` -> `[data-region="servers"]`, `panel-wt-*` -> `[data-region="worktrees"]`, `panel-pr-*` -> `[data-region="prs"]`, `runtime-*` -> `[data-region="runtime"]`, `inside-*` -> `#inside` (no new `data-region`, which would shift the layout ledger keys). KEEP the page for fixed popovers/menus (`runtime-*-open-*`, `runtime-shell-off-*`, `panel-wt-base-*`, `panel-pr-ready-info-*`, `inside-*-menu-open-*`, `inside-review-menu-retry-only`) and header/runtime changes (`inside-impl-interrupted`, `inside-done-closed`, `inside-scope-needs-you`); when in doubt keep the page.
 - **Width tiers**: the multi-width keep rule (dark-only, representative states) and the pruned families are in `ui:VISUAL-VARIANTS-TIERS`.
-- **Adding a variant**: add it to the registry, run `npm run -s test:visual:docker:update`, review the new PNGs, run `npm run -s test:layout:docker` and ledger new failures with the owner's approval. `variants.test.ts` names the missing piece; `sweepBudget.test.ts` names the budget (`@ui:SWEEP-BUDGET`).
+- **Adding a variant**: see `ui:VISUAL-VARIANTS-FILES`.
 - **Sidebar variants**: the sidebar width, tier and chip variants are in `ui:VISUAL-VARIANTS-SIDEBAR`.
 - **Dynamic Graph variants**: the dashboard graph ledger, DAG and failed-park variants are in `ui:VISUAL-VARIANTS-GRAPH`.
 END_DOC_BLOCK: [@ui:VISUAL-VARIANTS]
 
+## [@ui:VISUAL-VARIANTS-FILES] Where a variant lives and which views its change runs
+covers: tests/visual/variants.ts, tests/visual/variantCore.ts
+
+`tests/visual/variants.ts` is the registry. The builder of each view lives in
+`tests/visual/variants/<view>.ts`. Types, constants and helpers that more than one
+view uses live in `tests/visual/variantCore.ts`. A view file imports only
+`variantCore.ts`, `src/**` and its own view-specific modules; it never imports
+another view file.
+
+- **Adding a variant**: add it to the view file `tests/visual/variants/<view>.ts` and,
+  when needed, its registry entry, run `npm run -s test:visual:docker:update`, review
+  the new PNGs, run `npm run -s test:layout:docker` and ledger new failures with the
+  owner's approval. `variants.test.ts` names the missing piece; `sweepBudget.test.ts`
+  names the budget (`@ui:SWEEP-BUDGET`).
+- **Gate scope**: a change to `tests/visual/variants/<view>.ts` runs only that view in
+  the visual gate (`@arch:GATE-REPEAT`). A change to a shared module (`variants.ts`,
+  `variantCore.ts`) runs every view.
+END_DOC_BLOCK: [@ui:VISUAL-VARIANTS-FILES]
+
 ## [@ui:VISUAL-VARIANTS-TIERS] Width-tier rule and the T1352 prune
 
 - **Rule (@ui:VISUAL-VARIANTS, @ui:UI-R43, @ui:UI-R57)**: every dashboard state records its default/`wide` baseline. Extra full-page width-tier shots (`mid`, `narrow`, `tight`) are recorded **dark-only** — wrapping is theme-independent — and **only for representative responsive, long-text, popover or overflow-prone states** of each family; every other state keeps its single shot. A tier is a screenshot field, never a page: it shares the base state's layout run.
-- **Kept tier states** (`tests/visual/variants.ts`, `tests/visual/panelVariants.ts`): `inside-*` `mid`/`narrow`/`tight` for the 16 `INSIDE_TIER_CASES` (impl-running, impl-graph-long-reason, impl-bounded-timeline, uat-running, uat-fix-parked-gate, uat-gates-wait-and-run, review-rounds-12, review-long-attempt-note, review-long-gate-detail, review-long-finding-title, review-multi-repo-filter, ship-long-repo-names, ship-autofix-header, ship-deliver-auto-failed, ship-auto-budget-spent, done-long-text); `panel-*` `mid`/`narrow` for the seven `multiWidth` states (srv-mixed, wt-ext, wt-base, pr-mixed, pr-ready-info, pr-blocked-2-open, pr-autofix-parked); `runtime-*` `mid`/`narrow` for docker and host-note plus both open popovers; `ticket-details-rich` and `-rich-raw` at all three tiers; `drill-index` and `drill-long-identity` at all four.
+- **Kept tier states** (`tests/visual/variants/dashboard.ts`, `tests/visual/panelVariants.ts`): `inside-*` `mid`/`narrow`/`tight` for the 16 `INSIDE_TIER_CASES` (impl-running, impl-graph-long-reason, impl-bounded-timeline, uat-running, uat-fix-parked-gate, uat-gates-wait-and-run, review-rounds-12, review-long-attempt-note, review-long-gate-detail, review-long-finding-title, review-multi-repo-filter, ship-long-repo-names, ship-autofix-header, ship-deliver-auto-failed, ship-auto-budget-spent, done-long-text); `panel-*` `mid`/`narrow` for the seven `multiWidth` states (srv-mixed, wt-ext, wt-base, pr-mixed, pr-ready-info, pr-blocked-2-open, pr-autofix-parked); `runtime-*` `mid`/`narrow` for docker and host-note plus both open popovers; `ticket-details-rich` and `-rich-raw` at all three tiers; `drill-index` and `drill-long-identity` at all four.
 - **Responsive coverage does not shrink**: `layout.layout.ts` still opens every distinct page at every `LAYOUT_WIDTHS` width (and `INSIDE_EXTRA_WIDTHS` for all `inside-*` pages), so a state without a tier shot is still measured at every width; `dashboard.layout` stays 785.
 - **The prune (T1352)**: 321 redundant PNGs removed — `inside-*` 240, `panel-*` 46, `runtime-*` 14, `ticket-details-*` 12, `drill-*` 9 — taking the five families from 565 to 244 PNGs and `SWEEP_BUDGET.dashboard.screenshots` from 655 to 334 (`@ui:SWEEP-BUDGET`). A surviving single-width state keeps its `-wide` name and `width: 1100`, so every removal under `__baselines__/` was a pure deletion with no re-record.
 END_DOC_BLOCK: [@ui:VISUAL-VARIANTS-TIERS]
