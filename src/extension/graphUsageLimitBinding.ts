@@ -178,6 +178,33 @@ export function parkedGraphRole(role: GraphSessionRole, agentName: string | null
   return role === 'planner' ? 'expert' : 'worker';
 }
 
+/** The truthful reason a pick did not reach the snapshot; the prompt stays open. */
+export const graphAccountRefusalNotice = (
+  provider: string,
+  role: GraphRole,
+  account: string,
+  outcome: SwitchAccountOutcome,
+): string => {
+  const cause =
+    outcome === 'unknown-account'
+      ? `it is not a stored ${provider} account`
+      : outcome === 'no-snapshot'
+        ? 'the graph run has no identity snapshot'
+        : outcome === 'role-missing'
+          ? `the ${role} role is not in the run snapshot`
+          : 'the graph run no longer exists';
+  return `Karst did not switch the graph ${role} of this run to the ${provider} account '${account}': ${cause}.`;
+};
+
+/**
+ * The Activity text names the account that RUNS. A pick of `default`
+ * removes the pin (the plan), so the role follows the active account.
+ */
+export const graphAccountActivity = (role: GraphRole, chosen: string, active: string | undefined): string =>
+  chosen === DEFAULT_ACCOUNT && active !== undefined && active !== DEFAULT_ACCOUNT
+    ? `graph ${role} runs under the active account ${active} (picked default at the usage limit)`
+    : `graph ${role} runs under account ${chosen} (picked at the usage limit)`;
+
 export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): GraphUsageLimitBinding {
   const warn = deps.ask ?? ((message: string, ...actions: string[]) => ask.warn(message, ...actions));
   const toastError = deps.toastError ?? ((message: string) => void toast.error(message));
@@ -264,38 +291,11 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
       input.account,
     );
 
-  /** The truthful reason a pick did not reach the snapshot; the prompt stays open. */
-  const accountRefusalNotice = (
-    provider: string,
-    role: GraphRole,
-    account: string,
-    outcome: SwitchAccountOutcome,
-  ): string => {
-    const cause =
-      outcome === 'unknown-account'
-        ? `it is not a stored ${provider} account`
-        : outcome === 'no-snapshot'
-          ? 'the graph run has no identity snapshot'
-          : outcome === 'role-missing'
-            ? `the ${role} role is not in the run snapshot`
-            : 'the graph run no longer exists';
-    return `Karst did not switch the graph ${role} of this run to the ${provider} account '${account}': ${cause}.`;
-  };
-
   /**
    * The accounts the parked core can offer, with the parked session's account
    * marked. `undefined` when account support is not wired or the core has no
    * second account: one account is no choice (@arch:AC-55).
    */
-  /**
-   * The Activity text names the account that RUNS. A pick of `default`
-   * removes the pin (the plan), so the role follows the active account.
-   */
-  const accountActivity = (role: GraphRole, chosen: string, active: string | undefined): string =>
-    chosen === DEFAULT_ACCOUNT && active !== undefined && active !== DEFAULT_ACCOUNT
-      ? `graph ${role} runs under the active account ${active} (picked default at the usage limit)`
-      : `graph ${role} runs under account ${chosen} (picked at the usage limit)`;
-
   const accountChoices = async (
     provider: string,
     pinned: string | undefined,
@@ -385,8 +385,7 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
       ? parseRunIdentities(graphRunAgentIdentity(store.db, input.signal.graphRunId))
       : undefined;
     const offered = await accountChoices(input.provider, snapshot?.roles[input.parkedRole]?.account);
-    const choices = offered?.choices;
-    const actions = choices
+    const actions = offered
       ? [PICK_LABEL, PICK_ACCOUNT_LABEL, RETRY_LABEL, DISMISS_LABEL]
       : [PICK_LABEL, RETRY_LABEL, DISMISS_LABEL];
     for (;;) {
@@ -411,8 +410,8 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
         if (outcome === 'unchanged') continue;
         return;
       }
-      if (choice === PICK_ACCOUNT_LABEL && choices) {
-        const chosen = await deps.pickAccount!(input.provider, choices);
+      if (choice === PICK_ACCOUNT_LABEL && offered) {
+        const chosen = await deps.pickAccount!(input.provider, offered.choices);
         // A cancelled picker keeps the park (and the prompt) available.
         if (chosen === undefined) continue;
         if (!store) return;
@@ -425,10 +424,10 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
           deps.debug(
             `[graph] usage-limit: account "${chosen}" not pinned for run ${input.signal.graphRunId} role "${input.parkedRole}" (${outcome})`,
           );
-          void warn(accountRefusalNotice(input.provider, input.parkedRole, chosen, outcome));
+          void warn(graphAccountRefusalNotice(input.provider, input.parkedRole, chosen, outcome));
           continue;
         }
-        deps.activity?.(input.signal.ticketId, accountActivity(input.parkedRole, chosen, offered?.active));
+        deps.activity?.(input.signal.ticketId, graphAccountActivity(input.parkedRole, chosen, offered.active));
         resume(input.signal.ticketId, input.signal.graphRunId);
         return;
       }
