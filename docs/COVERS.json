@@ -585,6 +585,9 @@
   "src/extension/ops/autopilotWiring.ts": [
     "arch:AP-00"
   ],
+  "src/extension/ops/autopilotWiring.ts#refusedMergeOutcome": [
+    "arch:AP-06"
+  ],
   "src/extension/ops/baseMovedCheck.ts": [
     "arch:GATE-BASE-MOVED"
   ],
@@ -1366,6 +1369,9 @@
   ],
   "src/workflow/artifacts/alignment.ts#runAlignment": [
     "arch:APP-12"
+  ],
+  "src/workflow/baseMovedFailure.ts#deliverRunFailureState": [
+    "arch:AP-06"
   ],
   "src/workflow/baseMovedStale.ts": [
     "arch:GATE-BASE-MOVED"
