@@ -72,7 +72,7 @@ export default defineConfig({
   expect: {
     toHaveScreenshot: {
       // @ui:VISUAL-TOLERANCE: the full-page tolerance. An element capture overrides it with ELEMENT_TOLERANCE, and a
-      // page in PAGE_KNOWN_DRIFT with its own measured drift (tests/visual/pages.visual.ts, status.visual.ts).
+      // page in PAGE_KNOWN_DRIFT or PAGE_SUBTLE_DRIFT with threshold 0.2 (tests/visual/pages.visual.ts, status.visual.ts).
       ...PAGE_TOLERANCE,
       animations: 'disabled',
       caret: 'hide',

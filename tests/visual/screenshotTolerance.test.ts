@@ -3,8 +3,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  COLOUR_THRESHOLD,
+  DRIFT_THRESHOLD,
   ELEMENT_TOLERANCE,
   PAGE_KNOWN_DRIFT,
+  PAGE_SUBTLE_DRIFT,
   PAGE_TOLERANCE,
   effectiveAllowance,
   pageToleranceFor,
@@ -35,6 +38,15 @@ const PAGE_WORDS_PX = [27, 41, 60, 60, 78, 114];
 const ELEMENT_TINT_PX = [52, 103, 126, 320, 345, 535, 546, 1720];
 const PAGE_TINT_PX = [1661, 26837, 28713];
 
+/**
+ * (a) The same tints shifted by only 16/255, counted at `COLOUR_THRESHOLD`
+ * (0.05). At the old 0.2 every one of these counted 0 px, and so did 0.1.
+ * Label counts only grow as the threshold drops, so the 0.2 label rows above
+ * are lower bounds at 0.05.
+ */
+const ELEMENT_SUBTLE_TINT_PX = [48, 110, 120, 243, 394, 531, 541, 551, 1720];
+const PAGE_SUBTLE_TINT_PX = [1661, 1661, 1661, 8408, 26827, 28751];
+
 /** The areas the allocation is judged at: the smallest and the largest capture of each mode (registry scan). */
 const ELEMENT_AREA_SMALLEST = 26_100;
 const ELEMENT_AREA_LARGEST = 883_300;
@@ -46,6 +58,9 @@ const OLD_PAGE_ALLOWANCE_PX = 400;
 
 /** PAGE_KNOWN_DRIFT is a ratchet: lower this count when an entry goes, never raise it. */
 const KNOWN_DRIFT_ENTRIES = 56;
+
+/** PAGE_SUBTLE_DRIFT is a ratchet too: lower this count when a key goes, never raise it. */
+const SUBTLE_DRIFT_ENTRIES = 16;
 
 describe('effectiveAllowance: the smaller of the two limits (@ui:VISUAL-TOLERANCE)', () => {
   it('takes the smaller limit when both are set', () => {
@@ -65,6 +80,11 @@ describe('effectiveAllowance: the smaller of the two limits (@ui:VISUAL-TOLERANC
 });
 
 describe('the page-mode tolerance (@ui:VISUAL-TOLERANCE)', () => {
+  it('compares colours at the threshold that registers a 16/255 tint shift', () => {
+    expect(PAGE_TOLERANCE.threshold).toBe(COLOUR_THRESHOLD);
+    expect(COLOUR_THRESHOLD).toBeLessThan(DRIFT_THRESHOLD);
+  });
+
   it('allows a flat count at every page area, with no ratio', () => {
     expect(PAGE_TOLERANCE.maxDiffPixelRatio).toBeUndefined();
     expect(effectiveAllowance(PAGE_AREA_SMALLEST, PAGE_TOLERANCE)).toBe(PAGE_TOLERANCE.maxDiffPixels);
@@ -72,7 +92,7 @@ describe('the page-mode tolerance (@ui:VISUAL-TOLERANCE)', () => {
   });
 
   it('catches every measured label change and tint shift', () => {
-    for (const diffPixels of [...PAGE_DIGIT_PX, ...PAGE_WORDS_PX, ...PAGE_TINT_PX]) {
+    for (const diffPixels of [...PAGE_DIGIT_PX, ...PAGE_WORDS_PX, ...PAGE_TINT_PX, ...PAGE_SUBTLE_TINT_PX]) {
       expect(diffPixels).toBeGreaterThan(effectiveAllowance(PAGE_AREA_LARGEST, PAGE_TOLERANCE));
     }
   });
@@ -104,15 +124,47 @@ describe('the known drift ledger (@ui:VISUAL-TOLERANCE)', () => {
   });
 
   it('gives a ledger shot exactly its own drift, and every other shot the page tolerance', () => {
-    expect(pageToleranceFor('hc', 'sidebar--stage-chip-300.png')).toEqual({ threshold: 0.2, maxDiffPixels: 389 });
+    // A ledger count was measured at DRIFT_THRESHOLD, so the shot keeps that threshold with its count.
+    expect(pageToleranceFor('hc', 'sidebar--stage-chip-300.png')).toEqual({ threshold: DRIFT_THRESHOLD, maxDiffPixels: 389 });
+    for (const key of Object.keys(PAGE_KNOWN_DRIFT)) {
+      const [project, baseline] = key.split('/') as [string, string];
+      expect(pageToleranceFor(project, baseline).threshold, key).toBe(DRIFT_THRESHOLD);
+    }
     expect(pageToleranceFor('dark', 'status-primitives.png').maxDiffPixels).toBe(234);
     expect(pageToleranceFor('dark', 'dashboard-running.png')).toBe(PAGE_TOLERANCE);
-    // The key is the project AND the file: the light drift of a shot does not leak into its dark twin.
-    expect(pageToleranceFor('dark', 'sidebar--planning-artifacts-300.png')).toBe(PAGE_TOLERANCE);
+    // The key is the project AND the file: the dark drift of a shot does not leak into its light twin.
+    expect(pageToleranceFor('dark', 'agents-compare.png')).not.toBe(PAGE_TOLERANCE);
+    expect(pageToleranceFor('light', 'agents-compare.png')).toBe(PAGE_TOLERANCE);
+  });
+});
+
+describe('the subtle drift list (@ui:VISUAL-TOLERANCE)', () => {
+  const keys = [...PAGE_SUBTLE_DRIFT];
+
+  it('only shrinks', () => {
+    expect(keys).toHaveLength(SUBTLE_DRIFT_ENTRIES);
+  });
+
+  it('names only recorded baselines, and none that the known drift ledger already holds', () => {
+    expect(keys.filter((key) => !existsSync(join(BASELINES, key)))).toEqual([]);
+    expect(keys.filter((key) => key in PAGE_KNOWN_DRIFT)).toEqual([]);
+  });
+
+  it('gives a listed shot the page allowance at the old colour threshold', () => {
+    for (const key of keys) {
+      const [project, baseline] = key.split('/') as [string, string];
+      expect(pageToleranceFor(project, baseline), key).toEqual({ ...PAGE_TOLERANCE, threshold: DRIFT_THRESHOLD });
+    }
+    // A shot in neither list keeps the page tolerance at COLOUR_THRESHOLD.
+    expect(pageToleranceFor('dark', 'dashboard-running.png')).toBe(PAGE_TOLERANCE);
   });
 });
 
 describe('the element-mode tolerance (@ui:VISUAL-TOLERANCE)', () => {
+  it('compares colours at the threshold that registers a 16/255 tint shift', () => {
+    expect(ELEMENT_TOLERANCE.threshold).toBe(COLOUR_THRESHOLD);
+  });
+
   it('allows a flat count at every element area, with no ratio', () => {
     // No ratio on purpose: a ratio would allow 1,766 px on the 883,300 px Inside region, which is exactly the
     // silent pass this ticket removes.
@@ -122,7 +174,7 @@ describe('the element-mode tolerance (@ui:VISUAL-TOLERANCE)', () => {
   });
 
   it('catches every measured label change and tint shift', () => {
-    for (const diffPixels of [...ELEMENT_DIGIT_PX, ...ELEMENT_WORDS_PX, ...ELEMENT_TINT_PX]) {
+    for (const diffPixels of [...ELEMENT_DIGIT_PX, ...ELEMENT_WORDS_PX, ...ELEMENT_TINT_PX, ...ELEMENT_SUBTLE_TINT_PX]) {
       expect(diffPixels).toBeGreaterThan(effectiveAllowance(ELEMENT_AREA_LARGEST, ELEMENT_TOLERANCE));
     }
   });

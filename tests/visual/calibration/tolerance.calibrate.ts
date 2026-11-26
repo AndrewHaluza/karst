@@ -28,24 +28,30 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from '../fixtures.js';
-import { effectiveAllowance, type ScreenshotTolerance } from '../screenshotTolerance.js';
+import { effectiveAllowance, PAGE_TOLERANCE, type ScreenshotTolerance } from '../screenshotTolerance.js';
 import { screenshotFullPage, VARIANTS, type Variant, type ViewId } from '../variants.js';
 
 /** The comparator threshold the sweep configures; a pixel counts as different above it. */
-const THRESHOLD = 0.2;
+const THRESHOLD = PAGE_TOLERANCE.threshold;
 
 /** The global tolerance before this ticket, used for the "old" verdict column. */
-const OLD_TOLERANCE: ScreenshotTolerance = { threshold: THRESHOLD, maxDiffPixelRatio: 0.002, maxDiffPixels: 400 };
+const OLD_TOLERANCE: ScreenshotTolerance = { threshold: 0.2, maxDiffPixelRatio: 0.002, maxDiffPixels: 400 };
+
+/**
+ * Every pair is also counted at these comparator thresholds, so one run shows
+ * where a colour shift starts to register and whether the noise floor stays 0.
+ */
+const THRESHOLD_SWEEP = [0.2, 0.1, 0.05, 0.03, 0] as const;
 
 /** A repeat of the SAME page with no perturbation: the largest count is the noise floor. */
 const NOISE_REPEATS = 3;
 
 /**
  * Per-channel steps for the colour-token perturbation, on a 0-255 channel.
- * 16 is the step the ticket names as "subtle" (about 6%); 64 is the smallest
- * step measured to cross the comparator's own colour threshold on this UI.
+ * 16 is the step the ticket names as "subtle" (about 6%); 8 shows the margin
+ * below it; 64 crossed the old comparator threshold (0.2) on this UI.
  */
-const COLOUR_STEPS = [16, 64] as const;
+const COLOUR_STEPS = [8, 16, 64] as const;
 
 /** The elements `pages.visual.ts` masks before a shot (a live clock or elapsed-time readout). */
 const TIME_MASKS = ['[data-karst-clock]', '.k-clock', '[data-elapsed]'].join(', ');
@@ -191,11 +197,13 @@ export function pngArea(png: Buffer): { width: number; height: number; area: num
 }
 
 /**
- * `#rrggbb`, `rgb(...)` or `rgba(...)` with `delta` added to each colour
- * channel (clamped to 0-255). The alpha is unchanged.
+ * `#rrggbb`, `rgb(...)` or `rgba(...)` with each colour channel moved by
+ * `delta`: up when the channel has room, down when it is within `delta` of 255.
+ * A clamped shift (white + 64) changes nothing and read as a silent pass. The
+ * alpha is unchanged.
  */
 export function shiftColour(value: string, delta: number): string {
-  const clamp = (channel: number): number => Math.max(0, Math.min(255, channel + delta));
+  const clamp = (channel: number): number => (channel + delta <= 255 ? channel + delta : Math.max(0, channel - delta));
   const hex = /^#([0-9a-f]{6})$/i.exec(value);
   if (hex !== null) {
     const packed = parseInt(hex[1]!, 16);
@@ -222,6 +230,8 @@ interface Measurement {
   readonly detail: string;
   readonly diffPixels: number;
   readonly passesOld: boolean;
+  /** The count at each `THRESHOLD_SWEEP` threshold, keyed by the threshold. */
+  readonly byThreshold: Readonly<Record<string, number>>;
 }
 
 /** One measured variant of the report. */
@@ -243,14 +253,14 @@ function verdict(area: number, diffPixels: number): boolean {
 /** The markdown table of a finished run. */
 function markdownTable(results: readonly CaseResult[]): string {
   const lines = [
-    '| Variant | Mode | Area (px) | Perturbation | Diff px | Old allowance | Old verdict |',
-    '| --- | --- | --- | --- | --- | --- | --- |',
+    `| Variant | Mode | Area (px) | Perturbation | Diff px | Old allowance | Old verdict | ${THRESHOLD_SWEEP.map((t) => `@${t}`).join(' | ')} |`,
+    `| --- | --- | --- | --- | --- | --- | --- | ${THRESHOLD_SWEEP.map(() => '---').join(' | ')} |`,
   ];
   for (const result of results) {
     for (const measurement of result.measurements) {
       const allowance = effectiveAllowance(result.area, OLD_TOLERANCE);
       lines.push(
-        `| ${result.id} | ${result.mode} | ${result.area} | ${measurement.perturbation}: ${measurement.detail} | ${measurement.diffPixels} | ${Math.round(allowance)} | ${measurement.passesOld ? 'PASS' : 'FAIL'} |`,
+        `| ${result.id} | ${result.mode} | ${result.area} | ${measurement.perturbation}: ${measurement.detail} | ${measurement.diffPixels} | ${Math.round(allowance)} | ${measurement.passesOld ? 'PASS' : 'FAIL'} | ${THRESHOLD_SWEEP.map((t) => measurement.byThreshold[String(t)]).join(' | ')} |`,
       );
     }
   }
@@ -359,32 +369,36 @@ test('measures the differing pixels of a small perturbation in each capture mode
     if (colourValue === '') throw new Error(`${calibrationCase.id}: ${calibrationCase.colourToken} has no computed value`);
 
     const measurements: Measurement[] = [];
-    const record = (perturbation: string, detail: string, diffPixels: number): void => {
-      measurements.push({ perturbation, detail, diffPixels, passesOld: verdict(size.area, diffPixels) });
-      console.log(`${project} | ${calibrationCase.id} | ${perturbation} | ${detail} | ${diffPixels} px`);
+    const record = (perturbation: string, detail: string, shot: Buffer): void => {
+      const byThreshold = Object.fromEntries(THRESHOLD_SWEEP.map((t) => [String(t), countDifferingPixels(shot, base, t)]));
+      const diffPixels = countDifferingPixels(shot, base);
+      const passesOld = verdict(size.area, countDifferingPixels(shot, base, OLD_TOLERANCE.threshold));
+      measurements.push({ perturbation, detail, diffPixels, passesOld, byThreshold });
+      const sweep = THRESHOLD_SWEEP.map((t) => `${t}:${byThreshold[String(t)]}`).join(' ');
+      console.log(`${project} | ${calibrationCase.id} | ${perturbation} | ${detail} | ${diffPixels} px | ${sweep}`);
     };
 
     // (c) the noise floor: the same page rendered twice with no perturbation.
     for (let repeat = 1; repeat <= NOISE_REPEATS; repeat++) {
       await open();
-      record('noise', `repeat ${repeat}`, countDifferingPixels(await capture(), base));
+      record('noise', `repeat ${repeat}`, await capture());
     }
 
     // (a) one colour custom property shifted by a small per-channel step.
     for (const delta of COLOUR_STEPS) {
       await open();
       await page.addStyleTag({ content: `:root { ${calibrationCase.colourToken}: ${shiftColour(colourValue, delta)} }` });
-      record('colour', `${calibrationCase.colourToken} ${colourValue} -> ${shiftColour(colourValue, delta)} (+${delta}/channel)`, countDifferingPixels(await capture(), base));
+      record('colour', `${calibrationCase.colourToken} ${colourValue} -> ${shiftColour(colourValue, delta)} (${delta}/channel)`, await capture());
     }
 
     // (b) a 1-2 word label change, then a single-digit change in a visible label.
     await open();
     await replaceVisibleText(page, target, calibrationCase.words.from, calibrationCase.words.to);
-    record('words', `"${calibrationCase.words.from}" -> "${calibrationCase.words.to}"`, countDifferingPixels(await capture(), base));
+    record('words', `"${calibrationCase.words.from}" -> "${calibrationCase.words.to}"`, await capture());
     if (calibrationCase.digit !== undefined) {
       await open();
       await replaceVisibleText(page, target, calibrationCase.digit.from, calibrationCase.digit.to);
-      record('digit', `"${calibrationCase.digit.from}" -> "${calibrationCase.digit.to}"`, countDifferingPixels(await capture(), base));
+      record('digit', `"${calibrationCase.digit.from}" -> "${calibrationCase.digit.to}"`, await capture());
     }
 
     results.push({
@@ -400,7 +414,7 @@ test('measures the differing pixels of a small perturbation in each capture mode
 
   const directory = join(process.cwd(), 'tests', 'visual', '.report', 'calibration');
   mkdirSync(directory, { recursive: true });
-  const payload = { project, threshold: THRESHOLD, oldTolerance: OLD_TOLERANCE, noiseRepeats: NOISE_REPEATS, colourSteps: COLOUR_STEPS, cases: results };
+  const payload = { project, threshold: THRESHOLD, thresholdSweep: THRESHOLD_SWEEP, oldTolerance: OLD_TOLERANCE, noiseRepeats: NOISE_REPEATS, colourSteps: COLOUR_STEPS, cases: results };
   writeFileSync(join(directory, `tolerance-${project}.json`), `${JSON.stringify(payload, null, 2)}\n`);
   const table = markdownTable(results);
   writeFileSync(join(directory, `tolerance-${project}.md`), `# T1367 screenshot tolerance measurements (${project})\n\n${table}\n`);

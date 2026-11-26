@@ -14,11 +14,20 @@
  * measurement is `tests/visual/calibration/tolerance.calibrate.ts`; the result
  * and the rationale are `docs/ui/VISUAL-COVERAGE.md` `@ui:VISUAL-TOLERANCE`.
  *
- * `threshold` stays at 0.2 in both modes: it is the comparator's own colour
- * threshold, and lowering it for anti-aliasing reasons would make every glyph
- * edge a difference (a tint shifted by 16/255 changed 0 px, by 64/255 changed
- * hundreds: that is the threshold, not the allowance).
+ * `threshold` is the comparator's own colour distance. At the old 0.2 a tint
+ * shifted by 16/255 per channel changed 0 px in every probe case: the
+ * threshold, not the allowance, let it pass. `COLOUR_THRESHOLD` (0.05) is the
+ * largest probed value at which that shift registers in every case (48 px or
+ * more), while every noise pair and an 8/255 shift stay at 0 px. A
+ * `PAGE_KNOWN_DRIFT` shot keeps `DRIFT_THRESHOLD` (0.2), the threshold its
+ * count was measured at.
  */
+
+/** The comparator threshold of every shot outside `PAGE_KNOWN_DRIFT` (probe sweep 0.2/0.1/0.05/0.03/0). */
+export const COLOUR_THRESHOLD = 0.05;
+
+/** The comparator threshold of a `PAGE_KNOWN_DRIFT` shot: its count is valid only at this value. */
+export const DRIFT_THRESHOLD = 0.2;
 
 /** The tolerance a screenshot is compared with (`expect.toHaveScreenshot` options). */
 export interface ScreenshotTolerance {
@@ -39,7 +48,7 @@ export interface ScreenshotTolerance {
  * (400 px, ratio 0.002) let a 12-114 px label change on a page pass.
  */
 export const PAGE_TOLERANCE: ScreenshotTolerance = {
-  threshold: 0.2,
+  threshold: COLOUR_THRESHOLD,
   maxDiffPixels: 3,
 };
 
@@ -115,13 +124,49 @@ export const PAGE_KNOWN_DRIFT: Readonly<Record<string, number>> = Object.freeze(
 });
 
 /**
+ * Subtle drift list (T1367 round 3, `@ui:VISUAL-TOLERANCE`): full-page shots
+ * that match their PNG within 3 px at `DRIFT_THRESHOLD` (0.2) but not at
+ * `COLOUR_THRESHOLD` (0.05), keyed `<project>/<baseline>`. The full sweep at
+ * 0.05 measured 4-80 px on 14 of them (the same count on the retry; 0-3 px at
+ * 0.2) and 311 or 767 px on two popover shots that failed once and passed on
+ * the retry. Each keeps 0.2 at 3 px: a label change still fails, a sub-56/255
+ * tint change does not (`ui:LIMITATIONS`). A pinned 0.05 count would let a
+ * 23-38 px digit change pass. A ratchet: remove a key when its baseline is
+ * re-recorded, and never add one (`screenshotTolerance.test.ts` pins the count).
+ */
+export const PAGE_SUBTLE_DRIFT: ReadonlySet<string> = new Set([
+  'dark/dashboard--baseline-overlay-mid.png',
+  'dark/dashboard--baseline-overlay-narrow.png',
+  'dark/dashboard--baseline-overlay-reject-error.png',
+  'dark/dashboard--baseline-overlay-reject-tight.png',
+  'dark/dashboard--baseline-overlay-tight.png',
+  // Intermittent at 0.05: 311 px on the first attempt, 0 px on the retry.
+  'dark/dashboard--inside-review-menu-open-narrow.png',
+  'dark/dashboard--inside-ship-menu-open-narrow.png',
+  // Intermittent at 0.05: 767 px on the first attempt, 0 px on the retry.
+  'dark/dashboard--stage-menu-bottom-edge.png',
+  'dark/sidebar--peek-blocked-300.png',
+  'dark/sidebar--planning-artifacts-300.png',
+  'dark/sidebar--planning-artifacts-320.png',
+  'dark/sidebar--planning-artifacts-460.png',
+  'dark/sidebar--subtasks.png',
+  'hc/sidebar--planning-artifacts-300.png',
+  'hc/sidebar--planning-artifacts-320.png',
+  'hc/sidebar--planning-artifacts-460.png',
+]);
+
+/**
  * The page-mode tolerance of one shot: its `PAGE_KNOWN_DRIFT` allowance, or
  * `PAGE_TOLERANCE`. `project` is the Playwright theme project and `baseline`
- * the PNG file name.
+ * the PNG file name. A `PAGE_KNOWN_DRIFT` or `PAGE_SUBTLE_DRIFT` shot keeps
+ * `DRIFT_THRESHOLD`, so a sub-0.2 tint change on it still passes
+ * (`ui:LIMITATIONS`).
  */
 export function pageToleranceFor(project: string, baseline: string): ScreenshotTolerance {
-  const drift = PAGE_KNOWN_DRIFT[`${project}/${baseline}`];
-  return drift === undefined ? PAGE_TOLERANCE : { ...PAGE_TOLERANCE, maxDiffPixels: drift };
+  const key = `${project}/${baseline}`;
+  const drift = PAGE_KNOWN_DRIFT[key];
+  if (drift !== undefined) return { ...PAGE_TOLERANCE, threshold: DRIFT_THRESHOLD, maxDiffPixels: drift };
+  return PAGE_SUBTLE_DRIFT.has(key) ? { ...PAGE_TOLERANCE, threshold: DRIFT_THRESHOLD } : PAGE_TOLERANCE;
 }
 
 /**
@@ -133,7 +178,7 @@ export function pageToleranceFor(project: string, baseline: string): ScreenshotT
  * ticket removes.
  */
 export const ELEMENT_TOLERANCE: ScreenshotTolerance = {
-  threshold: 0.2,
+  threshold: COLOUR_THRESHOLD,
   maxDiffPixels: 3,
 };
 
