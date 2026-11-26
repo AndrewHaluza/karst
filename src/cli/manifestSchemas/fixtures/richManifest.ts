@@ -154,6 +154,17 @@ export function richManifest(): Raw {
     agentPresets: { fast: { label: 'Fast', slots: { uatFix: SLOT, review: SLOT } }, legacy: { provider: 'claude', model: 'claude-sonnet-5-5', effort: 'high' } },
     activeAgentPreset: 'fast',
     agentBackends: { claude: 'sbx', codex: 'host', opencode: 'docker', opencode2: 'host', agy: 'host' },
+    remotes: {
+      devbox: {
+        host: 'devbox.example.com',
+        user: 'karst',
+        port: 2222,
+        keyPath: '~/.ssh/id_ed25519',
+        mode: 'direct',
+        remoteDir: '/srv/karst',
+        allowHostServices: false,
+      },
+    },
     quota: { warnThresholdPct: 80, claudeGlobalStatusline: true, claudeOauthUsageApi: false },
     resilience: { retries: 2, backoffMs: 1000, fallbackModels: ['claude-sonnet-5-5'] },
     artifacts: { maxAgeDays: 30 },

@@ -18,7 +18,7 @@ export interface BackendProbes {
  * runs (arch:AC-31), so the status the UI shows is the decision a session start
  * would make. Never throws.
  */
-export async function probeBackends(want: BackendWant = { sbx: true, docker: true }, debug: (msg: string) => void = () => {}): Promise<BackendProbes> {
+export async function probeBackends(want: BackendWant = { sbx: true, docker: true, ssh: false }, debug: (msg: string) => void = () => {}): Promise<BackendProbes> {
   const [sbx, docker] = await Promise.all([
     want.sbx ? sbxPreflight(NODE_SBX_PROCESS) : NOT_SELECTED,
     want.docker ? dockerPreflight(NODE_DOCKER_PROCESS, DOCKER_ASSETS_DIR, debug) : NOT_SELECTED,

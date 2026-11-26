@@ -16,7 +16,7 @@ export interface ResumeGuardInput {
   /** The session id about to be passed to `--resume` (absent = a fresh session, always allowed). */
   readonly resume: string | undefined;
   /** The runner that would execute the resume. */
-  readonly runner: 'host' | 'sbx' | 'docker';
+  readonly runner: 'host' | 'sbx' | 'docker' | 'ssh';
   /** The ticket has a sandbox (from the runners' listing). */
   readonly hasSandbox: boolean;
 }

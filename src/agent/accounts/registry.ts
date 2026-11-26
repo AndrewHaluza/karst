@@ -234,10 +234,12 @@ export function sbxTokenAccount(core: AccountCore, account?: string): string | u
  * when it has a stored token (`tokenAccounts`): the host OAuth proxy then
  * carries its login. The default account only changes the home folder.
  */
-export function sandboxAccountBlock(core: AccountCore, account?: string, backend: 'docker' | 'sbx' = 'docker', tokenAccounts: ReadonlySet<string> = new Set()): string | undefined {
+export function sandboxAccountBlock(core: AccountCore, account?: string, backend: 'docker' | 'sbx' | 'ssh' = 'docker', tokenAccounts: ReadonlySet<string> = new Set()): string | undefined {
   const list = config[core]?.list ?? {};
   const name = account ?? activeName(core);
   const found = name === DEFAULT_ACCOUNT ? undefined : list[name];
+  // The remote has only its own login: a stored account never travels there (T1387).
+  if (found && backend === 'ssh') return `${core} account '${name}' has its own login, so the ssh remote cannot use it`;
   if (found?.source === 'command') return `${core} account '${name}' runs the host command '${found.command}', which is not in the container`;
   if (found && backend === 'sbx') {
     if (sbxTokenAccount(core, name) !== undefined && tokenAccounts.has(name)) return undefined;

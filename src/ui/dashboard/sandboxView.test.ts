@@ -144,3 +144,16 @@ describe('buildSandbox shell probe', () => {
     expect(sandboxShell).not.toHaveBeenCalled();
   });
 });
+
+describe('buildSandboxView ssh project (T1387)', () => {
+  it.each(['ssh:devbox', 'ssh'] as const)('a %s project with no placement shows the host strip, never a docker sandbox', (project) => {
+    expect(buildSandboxView({ project, ticketOverride: null, core: 'claude' })).toMatchObject({
+      backend: 'host', workspace: 'worktree', actions: false, note: 'ssh backend has no runner yet',
+    });
+  });
+
+  it('a ssh:<name> project from agentBackends reaches the card as the host strip', () => {
+    const view = buildSandbox({ agentBackends: { claude: 'ssh:devbox' } } as never, { id: 1 }, 'claude');
+    expect(view).toMatchObject({ backend: 'host', note: 'ssh backend has no runner yet' });
+  });
+});

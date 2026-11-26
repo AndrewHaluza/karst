@@ -32,7 +32,7 @@ export interface SandboxLifecycleDeps extends SandboxSyncDeps {
   readonly debug?: (message: string) => void;
 }
 
-export type BackendKind = 'host' | 'sbx' | 'docker';
+export type BackendKind = 'host' | 'sbx' | 'docker' | 'ssh';
 
 /**
  * Which sandbox kind a core WOULD use when a sandbox backend is configured.
@@ -251,7 +251,7 @@ export function reconcileSandboxes(
   clearSession: (ticketId: number) => void,
 ): ReconcileResult {
   const liveIds = new Set(live.map((t) => t.id));
-  const listed = (kind: BackendKind): boolean => !inv.errors.some((e) => e.startsWith(kind === 'sbx' ? 'sbx ' : 'docker '));
+  const listed = (kind: 'sbx' | 'docker'): boolean => !inv.errors.some((e) => e.startsWith(kind === 'sbx' ? 'sbx ' : 'docker '));
   const running: number[] = [], stopped: number[] = [], missing: number[] = [];
   for (const t of live) {
     if (!owns(t.id)) continue;
@@ -260,7 +260,8 @@ export function reconcileSandboxes(
     else {
       // Recorded placement decides (arch:AC-32); a core only tells which sandbox kind it would use.
       const kind = t.placementBackend ?? sandboxKindOfCore(t.sessionProvider);
-      if (kind !== 'host' && t.sessionId !== null && listed(kind)) {
+      // No ssh inventory exists yet (T1387): a recorded ssh placement proves nothing missing.
+      if (kind !== 'host' && kind !== 'ssh' && t.sessionId !== null && listed(kind)) {
         clearSession(t.id);
         missing.push(t.id);
       }

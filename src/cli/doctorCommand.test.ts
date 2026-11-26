@@ -299,7 +299,7 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
     const list = vi.fn(async () => ({ sandboxes: [], errors: [] }));
     const backends = vi.fn(ready.backends);
     const checks = await doctorWith('agentBackends:\n  claude: sbx\n  opencode: docker\n', list, { ...ready, backends }, 'tools');
-    expect(backends).toHaveBeenCalledWith({ sbx: true, docker: true });
+    expect(backends).toHaveBeenCalledWith({ sbx: true, docker: true, ssh: false });
     expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-sbx', status: 'ok' }));
     expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-docker', status: 'warn' }));
   });
@@ -307,7 +307,7 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
   it('probes only the selected backend', async () => {
     const backends = vi.fn(ready.backends);
     await doctorWith('agentBackends:\n  codex: sbx\n', vi.fn(async () => ({ sandboxes: [], errors: [] })), { ...ready, backends }, 'tools');
-    expect(backends).toHaveBeenCalledWith({ sbx: true, docker: false });
+    expect(backends).toHaveBeenCalledWith({ sbx: true, docker: false, ssh: false });
   });
 
   it('warns about disk above 10 GB in the state area', async () => {

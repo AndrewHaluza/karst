@@ -43,7 +43,7 @@ export function sandboxProjectsDir(bridgeDir: string): string {
 
 export interface TranscriptLocationInput {
   /** The ticket's recorded placement; null (never recorded) reads like the host. */
-  readonly placement: { readonly backend: 'host' | 'sbx' | 'docker' } | null;
+  readonly placement: { readonly backend: 'host' | 'sbx' | 'docker' | 'ssh' } | null;
   readonly hostProjectsDir: string;
   readonly worktreePath: string;
   readonly sessionId: string;

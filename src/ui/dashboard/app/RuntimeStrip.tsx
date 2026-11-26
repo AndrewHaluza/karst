@@ -24,7 +24,7 @@ type Which = 'agent' | 'sandbox' | 'more';
 const LOCKED_TITLE = 'Cannot switch while a fix recovery is running';
 const CARRY_TEXT = 'Host branch was rewritten — sync refused. Sandbox commits are safe.';
 
-const BACKEND_NAME: Record<DashboardSandboxView['backend'], string> = { docker: 'Docker', sbx: 'sbx', host: 'Host' };
+const BACKEND_NAME: Record<DashboardSandboxView['backend'], string> = { docker: 'Docker', sbx: 'sbx', host: 'Host', ssh: 'SSH' };
 const WORKSPACE_TEXT: Record<DashboardSandboxView['workspace'], string> = { clone: 'Isolated git clone', worktree: 'Host git worktree' };
 
 /** The network fact as a short phrase: an allowlist (sbx policy or docker proxy) reads "Allowlist proxy". */

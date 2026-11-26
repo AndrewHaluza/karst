@@ -78,6 +78,13 @@ describe('sandboxAccountBlock', () => {
     expect(sandboxAccountBlock('claude', 'work', 'sbx', new Set(['other']))).toMatch(/no sbx token/);
     expect(sandboxAccountBlock('claude', 'cmd', 'sbx', new Set(['cmd']))).toMatch(/host command/);
   });
+  it('blocks every non-default account on ssh, without a token exception, and lets default through', () => {
+    configureAccounts(config);
+    expect(sandboxAccountBlock('claude', 'work', 'ssh')).toBe("claude account 'work' has its own login, so the ssh remote cannot use it");
+    expect(sandboxAccountBlock('claude', 'cmd', 'ssh')).toBe("claude account 'cmd' has its own login, so the ssh remote cannot use it");
+    expect(sandboxAccountBlock('claude', 'default', 'ssh')).toBeUndefined();
+    expect(sandboxAccountBlock('claude', 'work', 'ssh', new Set(['work']))).toBe("claude account 'work' has its own login, so the ssh remote cannot use it");
+  });
   it('tells which accounts can take an sbx token', () => {
     configureAccounts(config);
     expect(sbxTokenAccount('claude', 'work')).toBe('work');

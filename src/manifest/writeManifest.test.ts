@@ -108,6 +108,21 @@ describe('writeManifest', () => {
     }
   });
 
+  it('round-trips remotes and drops an empty map', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const remote = { host: 'devbox.example.com', user: 'karst', mode: 'direct' as const, remoteDir: '/srv/karst' };
+      writeManifest(path, { ...m, remotes: { devbox: remote } });
+      expect(loadManifest(path).remotes).toEqual({ devbox: remote });
+      writeManifest(path, { ...loadManifest(path), remotes: {} });
+      expect(readFileSync(path, 'utf8')).not.toMatch(/^remotes:/m);
+      expect(loadManifest(path).remotes).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('preserves unknown top-level keys and unmodeled repository fields', () => {
     const { path, cleanup } = fixture();
     try {
@@ -432,6 +447,8 @@ describe('writeManifest', () => {
         agentSandbox: true,
         // Same reason: absent agentBackends round-trips regardless of the overlay.
         agentBackends: { claude: 'sbx', opencode: 'docker' },
+        // Same reason: absent remotes round-trips regardless of the overlay.
+        remotes: { devbox: { host: 'devbox.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' } },
         // Same reason: absent sandboxMemory round-trips regardless of the overlay.
         sandboxMemory: { interactiveMemory: '2g', gateReservation: '1536m' },
         // Same reason again: absent closeDoneTerminalsWithTicket would round-trip

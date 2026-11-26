@@ -10,7 +10,7 @@ it('falls back to the host when the active account is a command account (docker 
   });
   for (const backend of ['docker', 'sbx'] as const) {
     const r = await resolveBackend({
-      backends: { claude: backend } as never, core: 'claude', projectRoot: '/p', ticketId: 1,
+      backends: { claude: backend } as never, core: 'claude', projectRoot: '/p', ticketId: 1, remoteTrusted: () => false,
     });
     expect(r.line).toMatch(/^host \(claude account 'x' runs the host command 'claude-x'/);
   }
@@ -23,7 +23,7 @@ it('checks the account that was passed (the recorded one of a resume), not the a
       x: { kind: 'subscription', source: 'command', command: 'claude-x', dir: '/h/x' },
     } },
   });
-  const input = { backends: { claude: 'docker' } as never, core: 'claude', projectRoot: '/p', ticketId: 1 };
+  const input = { backends: { claude: 'docker' } as never, core: 'claude', projectRoot: '/p', ticketId: 1, remoteTrusted: () => false };
   expect((await resolveBackend({ ...input, account: 'x' })).line).toMatch(/^host \(claude account 'x' runs the host command/);
   expect((await resolveBackend({ ...input })).line).not.toMatch(/runs the host command/);
 });

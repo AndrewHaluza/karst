@@ -1,9 +1,13 @@
 import type { Store } from './db.js';
 import type { AgentProvider } from '../manifest/types.js';
 
-/** Where a ticket's session runs (arch:AC-32). `sandboxName` is set only for a sandbox backend; `reason` only for a host fallback. */
+/**
+ * Where a ticket's session runs (arch:AC-32). `sandboxName` is set only for a
+ * sandbox backend (`ssh` holds `<remote>/<sandboxName>`); `reason` only for a
+ * host fallback.
+ */
 export interface TicketPlacement {
-  readonly backend: 'host' | 'sbx' | 'docker';
+  readonly backend: 'host' | 'sbx' | 'docker' | 'ssh';
   readonly core: string | null;
   readonly sandboxName: string | null;
   readonly reason: string | null;
@@ -17,7 +21,7 @@ interface PlacementRow {
 }
 
 function isBackend(v: string | null): v is TicketPlacement['backend'] {
-  return v === 'host' || v === 'sbx' || v === 'docker';
+  return v === 'host' || v === 'sbx' || v === 'docker' || v === 'ssh';
 }
 
 /** The recorded placement, or null when none was ever recorded (legacy row before the backfill). */
@@ -97,7 +101,7 @@ export function placementLine(p: TicketPlacement | null): string | null {
 
 export interface ListedSandbox {
   readonly ticketId: number;
-  readonly runner: 'sbx' | 'docker';
+  readonly runner: 'sbx' | 'docker' | 'ssh';
   readonly core: string;
   readonly name: string;
 }
