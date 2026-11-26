@@ -26,6 +26,7 @@ import {
 } from '../store/implementationRuns.js';
 import { recordUsageSample } from './usageIngest.js';
 import { dispatchGraphHook } from './graphDispatch.js';
+import type { GraphLaunchOwner } from '../store/graph/sessionOwners.js';
 import { isKnownProvider } from '../agent/provider.js';
 import type {
   HookChannelRecorder,
@@ -689,6 +690,11 @@ export function dispatchHook(
    * Observation only — `session.error` stays a no-signal event for agent_state.
    */
   onSessionError?: (ticketId: number, payload: HookPayload) => void,
+  /**
+   * T1380: an owned graph session's `session.error` carried the provider's
+   * quota verdict. Observation only — the callback parks the graph run.
+   */
+  onGraphUsageLimit?: (owner: GraphLaunchOwner, text: string) => void,
 ): HookDispatchResult {
   // Observation only — a recorder defect may not change what a hook does.
   const observe = (outcome: HookDispatchOutcome): void => {
@@ -707,6 +713,7 @@ export function dispatchHook(
     notify: notify ? (id: number): void => notify(id, payload) : undefined,
     observe,
     debug,
+    ...(onGraphUsageLimit ? { onGraphUsageLimit } : {}),
   };
   const byLaunch = dispatchGraphHook(store, payload, graphDeps, 'launch');
   if (byLaunch !== null) return byLaunch;

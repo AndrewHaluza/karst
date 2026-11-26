@@ -59,6 +59,10 @@ describe('graph-run transition map', () => {
       // the run at `planning`, and recovery re-opens it to `planning` to launch
       // a fresh bootstrap planner on the same graph run.
       'blocked → planning',
+      // The replan-planner resume exit: a `usage-limit` park of a replan planner
+      // blocks the run while its revision drains; Resume re-opens the drain so
+      // the replacement planner (same target revision) can compile N+1.
+      'blocked → draining',
       'running → completed-awaiting-impl-marker',
       'draining → completed-awaiting-impl-marker',
       'completed-awaiting-impl-marker → closed',

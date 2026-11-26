@@ -21,6 +21,7 @@ const GEN = '019ab3c2-7d10-7e4f-8a2b-3c4d5e6f7a8b';
 const OTHER_GEN = '019ab3c2-0000-7e4f-8a2b-3c4d5e6f7a8b';
 const PLANNER_LAUNCH = graphLaunchId({ graphRunId: 7, runId: 4, role: 'planner', generation: GEN });
 const NODE_LAUNCH = graphLaunchId({ graphRunId: 7, runId: 31, role: 'node', generation: GEN });
+const QUOTA = "You've hit your 5-hour limit · resets 4:10am";
 
 let store: Store;
 let ticketId: number;
@@ -333,5 +334,126 @@ describe('dispatchHook — graph planner launch id (T1370)', () => {
     dispatchHook(store, { hook_event_name: 'SessionStart', cwd: WT, session_id: 'ticket-sess' }, undefined, () => true, () => 'claude');
     expect(getTicket(store, ticketId).agentState).toBe('running');
     expect(getTicket(store, ticketId).sessionId).toBe('ticket-sess');
+  });
+});
+
+describe('dispatchHook — graph usage-limit session.error (T1380)', () => {
+  it('reports a quota session.error of an owned node and writes no ticket state', () => {
+    setAgentState(store, ticketId, 'idle');
+    setSessionId(store, ticketId, 'ticket-sess', 'claude');
+    const onGraphUsageLimit = vi.fn();
+    const notify = vi.fn();
+    const recorder = createHookChannelRecorder();
+    const tracker = new TurnTracker();
+    const result = dispatchHook(
+      store,
+      { hook_event_name: 'session.error', cwd: WS, session_id: 'oc-1', message: QUOTA },
+      notify,
+      () => true,
+      () => 'claude',
+      recorder,
+      undefined,
+      tracker,
+      undefined,
+      onGraphUsageLimit,
+    );
+    expect(result).toEqual({ admitted: false });
+    expect(onGraphUsageLimit).toHaveBeenCalledTimes(1);
+    expect(onGraphUsageLimit).toHaveBeenCalledWith(
+      expect.objectContaining({ ticketId, graphRunId: 7, runId: 31, role: 'node', provider: 'opencode2' }),
+      QUOTA,
+    );
+    const ticket = getTicket(store, ticketId);
+    expect(ticket.agentState).toBe('idle');
+    expect(ticket.sessionId).toBe('ticket-sess');
+    expect(notify).not.toHaveBeenCalled();
+    expect(tracker.toolCount(ticketId)).toBe(0);
+    expect(ledger()).toEqual([]);
+    expect(recorder.snapshot().outcomes).toEqual({ 'graph-ignored': 1 });
+    const stamped = store.db
+      .prepare('SELECT last_hook_at FROM tickets WHERE id = ?')
+      .get(ticketId) as { last_hook_at: string | null } | undefined;
+    expect(stamped?.last_hook_at ?? null).toBeNull();
+  });
+
+  it('reports a quota session.error of an owned planner launch', () => {
+    const onGraphUsageLimit = vi.fn();
+    dispatchHook(
+      store,
+      { hook_event_name: 'session.error', cwd: WT, session_id: 'claude-uuid', launchId: PLANNER_LAUNCH, message: QUOTA },
+      undefined,
+      () => true,
+      () => 'claude',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onGraphUsageLimit,
+    );
+    expect(onGraphUsageLimit).toHaveBeenCalledTimes(1);
+    expect(onGraphUsageLimit).toHaveBeenCalledWith(
+      expect.objectContaining({ graphRunId: 7, runId: 4, role: 'planner', provider: 'claude' }),
+      QUOTA,
+    );
+  });
+
+  it('drops a non-quota session.error without reporting it', () => {
+    const onGraphUsageLimit = vi.fn();
+    for (const message of ['network timeout', 'Rate limit reached, retrying']) {
+      const result = dispatchHook(
+        store,
+        { hook_event_name: 'session.error', cwd: WS, session_id: 'oc-1', message },
+        undefined,
+        () => true,
+        () => 'claude',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        onGraphUsageLimit,
+      );
+      expect(result).toEqual({ admitted: false });
+    }
+    expect(onGraphUsageLimit).not.toHaveBeenCalled();
+  });
+
+  it('never reports an unowned graph session quota error', () => {
+    const onGraphUsageLimit = vi.fn();
+    const unknown = graphLaunchId({ graphRunId: 7, runId: 99, role: 'planner', generation: GEN });
+    expect(
+      dispatchHook(
+        store,
+        { hook_event_name: 'session.error', cwd: WT, session_id: 's', launchId: unknown, message: QUOTA },
+        undefined,
+        () => true,
+        () => 'claude',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        onGraphUsageLimit,
+      ),
+    ).toEqual({ admitted: false });
+    expect(onGraphUsageLimit).not.toHaveBeenCalled();
+  });
+
+  it('a throwing onGraphUsageLimit never breaks the hook path', () => {
+    const debug = vi.fn();
+    const result = dispatchHook(
+      store,
+      { hook_event_name: 'session.error', cwd: WS, session_id: 'oc-1', message: QUOTA },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      debug,
+      undefined,
+      undefined,
+      () => {
+        throw new Error('boom');
+      },
+    );
+    expect(result).toEqual({ admitted: false });
+    expect(debug.mock.calls.some(([m]) => String(m).includes('onGraphUsageLimit'))).toBe(true);
   });
 });

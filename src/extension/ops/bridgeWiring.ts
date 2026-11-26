@@ -12,6 +12,7 @@ import {
 } from '../../hooks/dispatch.js';
 import type { StageKey } from '../../model/types.js';
 import type { Store } from '../../store/db.js';
+import type { GraphLaunchOwner } from '../../store/graph/sessionOwners.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { findTicketById, getSessionLaunchId } from '../../store/tickets.js';
 import type { MarkerFailure } from '../../agent/bridge/markerFlow.js';
@@ -33,6 +34,7 @@ export interface HookDispatchClosures {
   readonly debug?: (message: string) => void;
   readonly tracker?: TurnTracker;
   readonly onSessionError?: (ticketId: number, payload: HookPayload) => void;
+  readonly onGraphUsageLimit?: (owner: GraphLaunchOwner, text: string) => void;
 }
 
 export interface BridgeBuildDeps {
@@ -120,7 +122,7 @@ function liveExpectation(deps: BridgeBuildDeps, ticketId: number, worktreePath: 
 function dispatch(deps: BridgeBuildDeps, ticketId: number, payload: HookPayload, log: (m: string) => void): void {
   const c = deps.hookDispatch;
   try {
-    dispatchHook(deps.store, payload, c.notify, c.shouldApplyState, c.sessionProviderFor, c.recorder, c.debug, c.tracker, c.onSessionError);
+    dispatchHook(deps.store, payload, c.notify, c.shouldApplyState, c.sessionProviderFor, c.recorder, c.debug, c.tracker, c.onSessionError, c.onGraphUsageLimit);
   } catch (err) {
     log(`ticket ${ticketId} dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
   }

@@ -90,6 +90,7 @@ describe('makeBridgeBuild', () => {
       debug: vi.fn(),
       tracker: undefined,
       onSessionError: vi.fn(),
+      onGraphUsageLimit: vi.fn(),
     };
     const build = makeBridgeBuild(deps({ hookDispatch: closures }));
     build(ticketId, paths);
@@ -97,7 +98,7 @@ describe('makeBridgeBuild', () => {
     captured[0]!.dispatch(payload);
     expect(dispatchMock).toHaveBeenCalledWith(
       store, payload, closures.notify, closures.shouldApplyState, closures.sessionProviderFor,
-      closures.recorder, closures.debug, undefined, closures.onSessionError,
+      closures.recorder, closures.debug, undefined, closures.onSessionError, closures.onGraphUsageLimit,
     );
   });
 
