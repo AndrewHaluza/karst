@@ -101,7 +101,11 @@ const REQUIRED_ARTIFACTS = [
 // Raised 426 → 428 KB for the T1297 review fixes: the quota card's three per-control host
 // mutations (receipt-correlated settling, aria-busy, duplicate guards) and the per-tab candidate
 // validation in the settings context — ~2.1 KB minified; bundle is 436682 bytes (~1.6 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 428 * 1024;
+// Raised 428 → 438 KB for T1374 (Approaches cards): the approach Edit drawer (ApproachDrawer), the
+// Dynamic Graph agents, limits and planner prompt sections in that drawer (GraphDrawerSections,
+// graphDrawerDraft), and the number-plus-unit limit inputs with an exact round trip
+// (graphLimitUnits) — ~9 KB of genuine app code; bundle is 445734 bytes (~2.7 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 438 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
