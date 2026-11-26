@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
 import { outsideTags } from './projectFilter.js';
+import { ELEMENT_TOLERANCE, pageToleranceFor } from './screenshotTolerance.js';
 import { screenshotFullPage, screenshotTarget, VARIANTS } from './variants.js';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 
@@ -123,9 +124,13 @@ karstTest.describe('full-page screenshots', () => {
         const mask = [page.locator(TIME_MASKS)];
         if (target !== undefined) {
           // T1364 (@ui:VISUAL-VARIANTS): a component variant records only its target element, not the page.
-          await expect(page.locator(target)).toHaveScreenshot(`${v.baseline}.png`, { mask });
+          // T1367 (@ui:VISUAL-TOLERANCE): an element capture gets the element-mode allowance, a flat pixel count:
+          // the page-mode ratio would allow 1,766 px on the largest Inside region.
+          await expect(page.locator(target)).toHaveScreenshot(`${v.baseline}.png`, { mask, ...ELEMENT_TOLERANCE });
         } else {
-          await expect(page).toHaveScreenshot(`${v.baseline}.png`, { fullPage: screenshotFullPage(v), mask });
+          // T1367 (@ui:VISUAL-TOLERANCE): a page gets 3 px, or its own measured drift from PAGE_KNOWN_DRIFT.
+          const tolerance = pageToleranceFor(testInfo.project.name, `${v.baseline}.png`);
+          await expect(page).toHaveScreenshot(`${v.baseline}.png`, { fullPage: screenshotFullPage(v), mask, ...tolerance });
         }
       });
     }
