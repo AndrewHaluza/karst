@@ -11,6 +11,7 @@ import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from '../../agent/sbx/sbxRunner.js';
 import type { TempDirs } from '../../agent/docker/dockerClone.js';
+import type { RemoteDef } from '../../manifest/types.js';
 import { isDockerCore } from '../../agent/docker/dockerImage.js';
 import { dockerNames } from '../../agent/docker/dockerNames.js';
 import { NODE_DOCKER_PROCESS, type DockerProcess } from '../../agent/docker/dockerProcess.js';
@@ -19,12 +20,13 @@ import { linuxUser } from '../../agent/docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SandboxProbe, type SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
-import { DIRTY_NOT_BEHIND, stashMessage } from '../../agent/cloneRefresh.js';
+import { isDirtyNotBehind, stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
 import { reasonText } from '../../model/notifyText.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import type { SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
+import { blockedSshRunner } from './sshPlacementOps.js';
 
 export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps.js';
 
@@ -56,6 +58,10 @@ export interface BackendSessionInput {
    * `readRemoteTrust` + `isRemoteTrusted`; absent fails closed to "not confirmed".
    */
   readonly remoteTrust?: (name: string) => boolean;
+  /** The manifest's `remotes`: an `ssh:<name>` backend is looked up here (D555). */
+  readonly remotes?: Readonly<Record<string, RemoteDef>>;
+  /** The per-install id (`ssh/install-id`) that salts the remote sandbox name (D555). */
+  readonly installId?: string;
   /** Attaches the ticket's evidence bridge; `openSession` calls it only for a sandbox runner (arch:AC-34). */
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
@@ -98,6 +104,8 @@ export function backendSessionOptions(input: BackendSessionInput): {
     const out = await resolve({
       ...(oauth ? { oauth } : {}),
       remoteTrusted: input.remoteTrust ?? (() => false),
+      ...(input.remotes ? { remotes: input.remotes } : {}),
+      ...(input.installId !== undefined ? { installId: input.installId } : {}),
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...accountFor(input.core, input.resumeSessionId, input.account),
       ...(bridgePaths?.dir ? { bridgeDir: bridgePaths.dir } : {}),
@@ -124,7 +132,12 @@ export function backendSessionOptions(input: BackendSessionInput): {
 export interface LaunchBackend {
   /** The `openSession` options; a resolved runner is handed over as is so the session does not resolve (and prepare) it twice. */
   readonly options: ReturnType<typeof backendSessionOptions>;
-  /** The runner enforces a sandbox: compose sandbox instructions, not the host CLI ones. */
+  /**
+   * The launch runs OFF the host (`runner.kind !== 'host'`): a sandbox or an
+   * ssh remote. Host-path channels (CLI seed, MCP, host services, the host
+   * worktree materialization) are unavailable there. NOT autonomy: that stays
+   * `runner.enforcesSandbox` (`@arch:AC-31`, a direct ssh launch is prompted).
+   */
   readonly sandboxed: boolean;
   /** Where this launch runs: what the host records on the ticket (arch:AC-32), including a fail-closed fallback and its reason. */
   readonly placement: TicketPlacement;
@@ -150,11 +163,15 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   const options = backendSessionOptions(input);
   if (!options.resolveRunner) return { options, sandboxed: false, placement: { backend: 'host', core: input.core, sandboxName: null, reason: null } };
   const resolved = await options.resolveRunner();
+  // Non-blocking warnings of the step (the no-tmux one): the launch notification shows them.
+  for (const warning of resolved.warnings ?? []) input.warn?.(warning);
+  // The launch runs off the host: a sandbox OR an ssh remote (D555, `@arch:AC-31`).
+  const offHost = resolved.runner.kind !== 'host';
   // Pointer text follows THIS launch's runner (arch:AC-34).
-  remember?.(resolved.runner.enforcesSandbox ? input.core : null);
+  remember?.(offHost ? input.core : null);
   const handed = { ...options, resolveRunner: () => Promise.resolve(resolved) };
   const placement = placementOfResolved(resolved, input.core);
-  if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false, placement, ...(resolved.blocked ? { blocked: resolved.blocked } : {}) };
+  if (!offHost) return { options: handed, sandboxed: false, placement, ...(resolved.blocked ? { blocked: resolved.blocked } : {}) };
   const existing = resolved.runner.ensureWritable ? await resolved.runner.hasSandbox?.() : false;
   if (existing) {
     const writable = await resolved.runner.ensureWritable!(input.worktree?.branch ? { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } : undefined);
@@ -165,12 +182,25 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
       if (!ready.ok) throw new Error(`${input.ticketLabel}: ${ready.reason}`);
     }
   }
+  const ticketRef = input.worktree
+    ? { hostWorktreePath: input.worktree.path, branch: input.worktree.branch ?? '', ...(input.worktree.baseRef ? { baseRef: input.worktree.baseRef } : {}) }
+    : undefined;
   // sbx claude through the host proxy: a new key per launch, the policy rule and the key approval (@arch:AC-51).
   // A launch that stops after the key is issued gives the key back: no key outlives a failed launch.
   try {
     const prepared = await resolved.runner.prepareLaunch?.();
     if (prepared && !prepared.ok) throw new Error(`${input.ticketLabel}: ${prepared.reason}`);
-    if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
+    if (resolved.runner.kind === 'ssh') {
+      // D826 replaces this special case: `sandboxRunnerFor` then reads the placement and the generic path applies.
+      // Until then `syncExisting` cannot be used: it reaches `sandboxRunnerFor`, which picks a runner from the core.
+      if (ticketRef?.branch) {
+        const synced = await resolved.runner.sync?.(ticketRef);
+        if (synced && !synced.ok) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${synced.reason}`);
+        const refreshed = await resolved.runner.refresh?.(ticketRef);
+        // Opening a session (like `allowDirtyClone`): uncommitted remote work with nothing to bring in is the user's own to continue.
+        if (refreshed && !refreshed.ok && !isDirtyNotBehind(refreshed.reason)) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${refreshed.reason}`);
+      }
+    } else if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
       const synced = await input.syncExisting();
       if (!synced.ok) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${synced.reason}`);
     }
@@ -208,11 +238,12 @@ function transcriptLinkStep(runner: SessionRunner, input: BackendSessionInput, b
   };
 }
 
-/** The placement a resolved runner means: its kind, the name inside `sbx (<name>)` / `docker (<name>)`, or the host fallback reason. */
+/** The placement a resolved runner means: its kind, the name inside `sbx (<name>)` / `docker (<name>)` / `ssh (<remote>/<name>)`, or the host fallback reason. */
 export function placementOfResolved(resolved: ResolvedBackend, core: string): TicketPlacement {
   const inParens = /^\w+ \((.*)\)$/s.exec(resolved.line)?.[1] ?? null;
-  const { kind, enforcesSandbox } = resolved.runner;
-  if (kind === 'host' || !enforcesSandbox) return { backend: 'host', core, sandboxName: null, reason: inParens };
+  const { kind } = resolved.runner;
+  // Placement is where it runs; autonomy is `enforcesSandbox` (@arch:AC-31).
+  if (kind === 'host') return { backend: 'host', core, sandboxName: null, reason: inParens };
   return { backend: kind, core, sandboxName: inParens, reason: null };
 }
 
@@ -249,10 +280,19 @@ export interface SandboxSyncDeps {
   readonly onRewritten?: (ticketId: number, rewritten: boolean) => void;
   /** The base branch of a recorded merge conflict on this ticket, or null: while one is open every refresh ships `origin/<base>` in the bundle. */
   readonly conflictBaseRef?: (ticketId: number) => string | null;
+  /**
+   * The ticket's recorded placement (D555). `sandboxRunnerFor` reads it so an
+   * `ssh` placement fails closed instead of picking a runner from the core;
+   * D826 replaces the interim block. Absent = derive from the core as before.
+   */
+  readonly placementOf?: (ticketId: number) => TicketPlacement | undefined;
 }
 
 /** The sandbox runner that holds a core's clone: sbx (claude, codex) or docker (opencode, opencode2). */
 export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, ticketId: number): SessionRunner | undefined {
+  // D555 → D826: an ssh placement has no host-side runner here yet. Returning
+  // undefined would let a gate or sync run on the host clone, so fail closed.
+  if (deps.placementOf?.(ticketId)?.backend === 'ssh') return blockedSshRunner();
   if (isSbxCore(core)) {
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
     const evidenceDir = deps.evidenceDirOf?.(ticketId);
@@ -352,7 +392,7 @@ export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTa
     try {
       const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, baseOpts(deps, target.ticketId));
       // Opening a session: uncommitted clone work with nothing to bring in is the user's own to continue, not a blocker.
-      if (!refreshed.ok && opts.allowDirtyClone && refreshed.reason.startsWith(DIRTY_NOT_BEHIND)) return { ok: true };
+      if (!refreshed.ok && opts.allowDirtyClone && isDirtyNotBehind(refreshed.reason)) return { ok: true };
       return refreshed.ok ? { ok: true } : { ok: false, reason: refreshed.reason, diverged: /diverged/i.test(refreshed.reason) };
     } catch (err) {
       return { ok: false, reason: `sandbox refresh failed: ${reasonText(err)}`, diverged: false };

@@ -31,6 +31,19 @@ describe('HostSessionRunner', () => {
   });
 });
 
+describe('SessionRunner seam (D555)', () => {
+  const spec = { ticketId: 7, hostWorktreePath: '/wt', command: 'claude', args: [], env: {} };
+
+  it('a spec may ask for a reattach, and the host runner ignores it', () => {
+    const direct = HOST_SESSION_RUNNER.placeInteractive(spec);
+    expect(HOST_SESSION_RUNNER.placeInteractive({ ...spec, reattach: true })).toEqual(direct);
+  });
+
+  it('the host runner has no prepareInteractive: it needs no remote state', () => {
+    expect(HOST_SESSION_RUNNER.prepareInteractive).toBeUndefined();
+  });
+});
+
 describe('host runner and the bridge', () => {
   const spec = { ticketId: 7, hostWorktreePath: '/wt', command: 'claude', args: ['a'], env: {} };
   it('never mounts: bridgeDir does not change the placed launch', () => {

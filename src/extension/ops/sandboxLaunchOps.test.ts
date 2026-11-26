@@ -17,6 +17,7 @@ describe('launchMarkerInstruction: host vs docker vs sbx, impl and fix', () => {
   it.each([
     ['docker', '/karst-bridge/7', 'opencode2'],
     ['sbx', '/g/events/7', 'claude'],
+    ['ssh', '/srv/karst/karst-abcd1234-7-claude/bridge/7', 'claude'],
   ] as const)('%s: emit-marker on the container-visible bridge path, for impl and fix', (_runner, runDir, core) => {
     for (const stage of ['impl', 'fix'] as const) {
       const text = launchMarkerInstruction({ ...base, core, backend: backend({ sandboxed: true, runDir }), stage });
@@ -146,6 +147,10 @@ describe('launchWithoutSilentHostFallback (F14)', () => {
     });
     it('still launches a sandboxed backend', async () => {
       expect(await launchWithoutSilentHostFallback(base({ failClosed: true, launch: async () => box }))).toMatchObject({ kind: 'launched', freshSession: false });
+    });
+    it('an ssh remote counts as off-host: no fallback choice and no refusal (D555)', async () => {
+      const ssh = { sandboxed: true, placement: { backend: 'ssh' as const, core: 'claude', sandboxName: 'devbox/x', reason: null } };
+      expect(await launchWithoutSilentHostFallback(base({ failClosed: true, launch: async () => ssh }))).toMatchObject({ kind: 'launched', backend: ssh });
     });
     it('a ticket that does not want a sandbox launches on the host', async () => {
       expect(await launchWithoutSilentHostFallback(base({ failClosed: true, wantsSandbox: false }))).toMatchObject({ kind: 'launched' });

@@ -39,6 +39,7 @@ import { ticketToastLabel } from '../ticketToastLabel.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
 import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
+import { blockedSshRunner } from './sshPlacementOps.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -100,6 +101,12 @@ export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number, c
   const backend = placement ? placement.backend : backendForCore(deps.backends(), core);
   const bridge = deps.bridgeOf?.(ticketId);
   const projectRoot = deps.projectRoot(ticketId);
+  // D555 → D826: an ssh placement gets no host-side runner yet. A fail-closed
+  // runner (never `undefined`) keeps every gate off the host clone.
+  // Only a recorded placement is `ssh` (the configured value is `ssh:<remote>`).
+  if (placement?.backend === 'ssh') {
+    return { runner: blockedSshRunner(), sandboxName: placement.sandboxName ?? '' };
+  }
   if (backend === 'sbx' && (SBX_CORES as readonly string[]).includes(core)) {
     const name = sbxName({ projectRoot, ticketId, core });
     const runner = createSbxSessionRunner({

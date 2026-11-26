@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { REFRESH_DIRTY, REFRESH_DIVERGED, STASH_REFRESH_SCRIPT, refreshOutcome, stashMessage } from './cloneRefresh.js';
+import { DIRTY_NOT_BEHIND, REFRESH_DIRTY, REFRESH_DIVERGED, STASH_REFRESH_SCRIPT, isDirtyNotBehind, refreshOutcome, stashMessage } from './cloneRefresh.js';
 
 describe('refreshOutcome', () => {
   it('maps every exit code', () => {
@@ -37,5 +37,17 @@ describe('stashMessage', () => {
   it('the stash script never discards: no reset or clean', () => {
     expect(STASH_REFRESH_SCRIPT).not.toMatch(/reset|clean|checkout/);
     expect(STASH_REFRESH_SCRIPT).toContain('git stash push -u -m "$3"');
+  });
+});
+
+describe('isDirtyNotBehind', () => {
+  it('accepts the plain refusal and the ssh refusal, and nothing else', () => {
+    expect(isDirtyNotBehind(`${DIRTY_NOT_BEHIND}:\n M a.ts`)).toBe(true);
+    expect(isDirtyNotBehind(`ssh devbox: ${DIRTY_NOT_BEHIND}:\n M a.ts`)).toBe(true);
+    expect(isDirtyNotBehind('sandbox has uncommitted work and the host is ahead by 2 commit(s); nothing was overwritten:\n M a.ts')).toBe(false);
+    expect(isDirtyNotBehind(`ssh devbox: sandbox has uncommitted work and the host is ahead by 1 commit(s)`)).toBe(false);
+    expect(isDirtyNotBehind(`note: ${DIRTY_NOT_BEHIND}`)).toBe(false);
+    expect(isDirtyNotBehind(`ssh a b: ${DIRTY_NOT_BEHIND}`)).toBe(false);
+    expect(isDirtyNotBehind('diverged')).toBe(false);
   });
 });

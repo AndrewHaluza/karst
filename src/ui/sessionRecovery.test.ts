@@ -69,6 +69,63 @@ describe('resumeRestoredSession', () => {
     }
   });
 
+  it('readyOnOpen reports opened on an open terminal without waiting for SessionStart (D555)', async () => {
+    const lifecycle = new SessionRecoveryLifecycle(100);
+    const result = await resumeRestoredSession(
+      { isOpen: () => true },
+      lifecycle,
+      7,
+      async () => undefined,
+      true,
+    );
+
+    // An attach to a live tmux session sends no new SessionStart hook.
+    expect(result).toEqual({ kind: 'opened' });
+  });
+
+  it('readyOnOpen still needs the terminal to be open', async () => {
+    const lifecycle = new SessionRecoveryLifecycle(100);
+    const result = await resumeRestoredSession(
+      { isOpen: () => false },
+      lifecycle,
+      7,
+      async () => undefined,
+      true,
+    );
+
+    expect(result).toEqual({ kind: 'not-open' });
+  });
+
+  it('a closed result still wins over readyOnOpen', async () => {
+    const lifecycle = new SessionRecoveryLifecycle(100);
+    const result = await resumeRestoredSession(
+      { isOpen: () => true },
+      lifecycle,
+      7,
+      async () => {
+        lifecycle.sessionClosed(7, lifecycle.currentLaunchId(7));
+      },
+      true,
+    );
+
+    expect(result).toEqual({ kind: 'closed' });
+  });
+
+  it('recoverSession carries readyOnOpen through to the open result', async () => {
+    const lifecycle = new SessionRecoveryLifecycle(100);
+    const disposeSession = vi.fn();
+    const result = await recoverSession(
+      { isOpen: () => true, disposeSession },
+      lifecycle,
+      7,
+      async () => undefined,
+      true,
+    );
+
+    expect(result).toEqual({ kind: 'opened' });
+    expect(disposeSession).not.toHaveBeenCalled();
+  });
+
   it('times out a terminal that never reports SessionStart', async () => {
     vi.useFakeTimers();
     try {

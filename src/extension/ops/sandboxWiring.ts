@@ -103,7 +103,14 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     }
     return null;
   };
-  const syncTrack = { onRewritten, conflictBaseRef, ...(w.bridgeDirOf ? { evidenceDirOf: w.bridgeDirOf } : {}) };
+  // D555: `sandboxRunnerFor` reads the recorded placement so an `ssh` placement fails closed (one reader for every deps object).
+  const placementOf = (ticketId: number): TicketPlacement | undefined => getPlacement(w.store, ticketId) ?? undefined;
+  const syncTrack = {
+    onRewritten,
+    conflictBaseRef,
+    placementOf,
+    ...(w.bridgeDirOf ? { evidenceDirOf: w.bridgeDirOf } : {}),
+  };
   const target = (ticketId: number): SandboxSyncTarget => {
     const t = getTicket(w.store, ticketId);
     const worktrees = listWorktreesByTicket(w.store, ticketId);
@@ -125,6 +132,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       openSyncDiff: (t) => w.openSyncDiff(t.ticketId),
       worktreeOf: (id) => { try { return target(id).worktree?.path; } catch { return undefined; } },
       debug: w.debug,
+      placementOf,
       ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
       ...oauthDeps(),
     };
@@ -138,6 +146,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       d: {
         notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: controls,
         ...(bridges ? { bridges } : {}), openSyncDiff: (target) => w.openSyncDiff(target.ticketId),
+        placementOf,
         ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
         ...oauthDeps(),
       },

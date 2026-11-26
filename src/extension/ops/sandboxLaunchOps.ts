@@ -55,6 +55,7 @@ export function sandboxScrubber(sandboxed: boolean, log: (message: string) => vo
 export const TOO_LARGE_NOTE = '(too large for the sandbox, not copied)';
 
 export interface SandboxTextInput {
+  /** The launch runs OFF the host (a sandbox or an ssh remote, `LaunchBackend.sandboxed`). */
   readonly sandboxed: boolean;
   readonly ticketId: number;
   readonly storageDir: string;
@@ -143,7 +144,7 @@ export interface ResumeGuardLaunch {
   readonly ticketId: number;
   readonly ticketLabel: string;
   readonly resumeId: string | undefined;
-  /** The launch runs in a sandbox (a sandbox resume is legitimate). */
+  /** The launch runs off the host (a sandbox or an ssh remote, `LaunchBackend.sandboxed`). */
   readonly sandboxed: boolean;
   readonly hasSandbox: () => Promise<boolean>;
   readonly warn: (message: string) => void;

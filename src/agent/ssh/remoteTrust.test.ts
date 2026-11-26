@@ -92,11 +92,12 @@ describe('the resolve gate', () => {
     expect(out.line).toBe("host (ssh: remote 'devbox' not confirmed)");
   });
 
-  it('a confirmed remote still resolves to the host; D553 has no ssh runner yet', async () => {
-    const out = await resolveBackend({ ...base, remoteTrusted: () => true });
+  it('a confirmed remote is no longer the "backend not available yet" placeholder (D555)', async () => {
+    const out = await resolveBackend({ ...base, remotes: { devbox: def }, remoteTrusted: () => true });
     expect(out.runner).toBe(HOST_SESSION_RUNNER);
-    expect(out.line).toBe('host (ssh: backend not available yet)');
-    const unconfirmed = await resolveBackend({ ...base, remoteTrusted: () => false });
+    // No per-install id and no injected ssh deps here: fail closed, but never the old placeholder.
+    expect(out.line).toBe('host (ssh: the karst install id is not available)');
+    const unconfirmed = await resolveBackend({ ...base, remotes: { devbox: def }, remoteTrusted: () => false });
     expect(out.line).not.toBe(unconfirmed.line);
   });
 });

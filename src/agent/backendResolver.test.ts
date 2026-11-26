@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { configureAccounts, resetAccounts } from './accounts/registry.js';
 import { resolveBackend } from './backendResolver.js';
 import { fakeSbxProcess } from './sbx/fakeSbxProcess.js';
+import { fakeSshProcess } from './ssh/fakeSshProcess.js';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
+import type { RemoteDef } from '../manifest/types.js';
+import type { SshPreflightFacts, SshPreflightResult } from './ssh/sshPreflight.js';
 
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -139,6 +142,76 @@ describe('resolveBackend', () => {
   it('uses an injected host runner', async () => {
     const host = { ...HOST_SESSION_RUNNER };
     expect((await resolveBackend({ ...base, backends: undefined, host })).runner).toBe(host);
+  });
+});
+
+const SSH_REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+const SSH_FACTS: SshPreflightFacts = {
+  os: 'Linux', uid: 1000, gid: 1000, git: '2.43', setsid: true, setsidW: true, tmux: true, node: '20.1',
+  remoteDirOk: true, allowTcpForwarding: 'yes', freeMb: 20000, coreBin: '/usr/bin/claude',
+};
+
+function sshDeps(ssh: ReturnType<typeof fakeSshProcess>, over: { readonly preflight?: () => Promise<SshPreflightResult> } = {}) {
+  return {
+    ssh, sshBin: 'ssh', host: fakeSbxProcess(), controlDir: '/tmp/karst-ssh-0/',
+    ensureControlDir: async () => ({ ok: true as const }),
+    preflight: over.preflight ?? (async () => ({ ok: true as const, facts: SSH_FACTS, warnings: [] })),
+    clone: async () => ({ ok: true as const }),
+    trust: async () => undefined,
+  };
+}
+
+describe('resolveBackend ssh backend (D555)', () => {
+  afterEach(() => resetAccounts());
+  const sshBase = { ...base, core: 'claude', backends: { claude: 'ssh:devbox' as const }, remotes: { devbox: SSH_REMOTE }, installId: 'install1', remoteTrusted: () => true, worktree };
+
+  it('a trusted direct remote resolves to the ssh runner, prompted', async () => {
+    const ssh = fakeSshProcess({ '# karst-ssh-login': { stdout: 'yes\n' } });
+    const out = await resolveBackend({ ...sshBase, ssh: sshDeps(ssh) });
+    expect(out.runner.kind).toBe('ssh');
+    expect(out.runner.enforcesSandbox).toBe(false);
+    expect(out.line).toMatch(/^ssh \(devbox\/karst-[0-9a-f]{8}-7-claude\)$/);
+    expect(out.blocked).toBeUndefined();
+  });
+
+  it('a preflight failure falls back to the host with its reason', async () => {
+    const ssh = fakeSshProcess();
+    const out = await resolveBackend({ ...sshBase, ssh: sshDeps(ssh, { preflight: async () => ({ ok: false, reason: 'ssh devbox: git not found' }) }) });
+    expect(out.runner).toBe(HOST_SESSION_RUNNER);
+    expect(out.line).toBe('host (ssh devbox: git not found)');
+  });
+
+  it('docker mode is the host placeholder, with no ssh call', async () => {
+    const ssh = fakeSshProcess();
+    const out = await resolveBackend({ ...sshBase, remotes: { devbox: { ...SSH_REMOTE, mode: 'docker' } }, ssh: sshDeps(ssh) });
+    expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: 'host (ssh docker mode not available yet)' });
+    expect(ssh.calls).toHaveLength(0);
+    expect(ssh.stdinCalls).toHaveLength(0);
+  });
+
+  it('an unconfirmed remote makes zero ssh calls', async () => {
+    const ssh = fakeSshProcess();
+    const out = await resolveBackend({ ...sshBase, remoteTrusted: () => false, ssh: sshDeps(ssh) });
+    expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: "host (ssh: remote 'devbox' not confirmed)" });
+    expect(ssh.calls).toHaveLength(0);
+    expect(ssh.stdinCalls).toHaveLength(0);
+  });
+
+  it('a missing install id fails closed without an ssh call', async () => {
+    const ssh = fakeSshProcess();
+    const out = await resolveBackend({ ...sshBase, installId: undefined, ssh: sshDeps(ssh) });
+    expect(out.runner).toBe(HOST_SESSION_RUNNER);
+    expect(out.line).toMatch(/^host \(ssh: the karst install id/);
+    expect(ssh.calls).toHaveLength(0);
+  });
+
+  it('an account block uses the ssh rule, before any ssh call', async () => {
+    configureAccounts({ claude: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } });
+    const ssh = fakeSshProcess();
+    const out = await resolveBackend({ ...sshBase, ssh: sshDeps(ssh) });
+    expect(out.runner).toBe(HOST_SESSION_RUNNER);
+    expect(out.blocked?.reason).toContain('ssh remote cannot use it');
+    expect(ssh.calls).toHaveLength(0);
   });
 });
 
