@@ -31,6 +31,13 @@ export interface InteractiveLaunchSpec {
    * ignores it.
    */
   readonly bridgeDir?: string;
+  /**
+   * Recovery of an SSH session (arch:AC-37): the ssh runner ATTACHES to the
+   * live remote tmux session instead of killing and recreating it, so the
+   * running agent keeps its arguments and no new SessionStart is produced. The
+   * host/sbx/docker runners ignore it.
+   */
+  readonly reattach?: true;
 }
 
 /** What the terminal host is asked to create. */
@@ -164,6 +171,14 @@ export interface SessionRunner {
    * the proxy port and approve the key. Run it before `placeInteractive`, which fails without it (@arch:AC-51).
    */
   prepareLaunch?(): Promise<StepOutcome>;
+  /**
+   * ssh only: runs immediately BEFORE `placeInteractive` and writes the state
+   * that placed launch reads (the remote env file, the bridge and gate dirs).
+   * It throws on failure, so the launch fails closed with no host fallback.
+   * `prepareLaunch` cannot be used: it takes no spec and runs before the spec
+   * (and therefore the launch's env) exists.
+   */
+  prepareInteractive?(spec: InteractiveLaunchSpec): Promise<void>;
   /** sbx only: a new sandbox still needs its guest setup, which only `linkTranscripts` runs (it needs a bridge). */
   guestSetupPending?(): boolean;
   /** sbx only: a launch that fails after `prepareLaunch` gives its proxy key back at once (revoke, policy rule), so no key outlives the failed launch. */
