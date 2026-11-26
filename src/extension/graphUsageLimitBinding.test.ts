@@ -353,6 +353,7 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     const h = harness(fixture, [DISMISS_LABEL], { transport: () => undefined });
     await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
     expect(h.terminate).not.toHaveBeenCalled();
+    expect(h.debug).not.toHaveBeenCalledWith(expect.stringContaining('termination failed'));
     expect(runRow(fixture.graphRunId).status).toBe('blocked');
     expect(h.ask).toHaveBeenCalledTimes(1);
   });
@@ -446,6 +447,7 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
     expect(h.recover).not.toHaveBeenCalled();
     expect(h.logError).not.toHaveBeenCalled();
+    expect(h.ask).toHaveBeenCalledTimes(1);
   });
 
   it('a Pick with no readable snapshot does not resume', async () => {

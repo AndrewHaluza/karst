@@ -95,6 +95,7 @@ export interface GraphUsageLimitBinding {
 
 /** The parked role from the process run's agent name, else the role's fallback. */
 export function parkedGraphRole(role: GraphSessionRole, agentName: string | null): GraphRole {
+  // Stryker disable next-line ConditionalExpression: equivalent — `includes(null)` is already false, so the `agentName !== null` half cannot change the result.
   if (agentName !== null && (GRAPH_ROLES as readonly string[]).includes(agentName)) {
     return agentName as GraphRole;
   }
@@ -133,6 +134,7 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
     const manifest = deps.manifest();
     if (!manifest) return undefined;
     const run = graphRunById(store.db, input.graphRunId);
+    // Stryker disable next-line StringLiteral: equivalent — the caller treats every outcome but switched/unchanged the same, so '' and 'not-found' cannot differ here.
     if (!run) return 'not-found';
     const config = deps.graphConfigOf(run.approach_id);
     const snapshot =
