@@ -9,34 +9,28 @@
  */
 import type { GraphDb } from '../../store/graph/transitions.js';
 import { graphRunStatus } from '../../store/graph/graphRuns.js';
-import { countOtherNodeRunsInStatuses } from '../../store/graph/nodeRuns.js';
-import type { GraphDocument } from './parse.js';
-import { ACTIVE_NODE_STATUSES } from './coordinator/completion.js';
 
 export interface VisitMailboxFacts {
   unreadMail: number;
   unreadNotes: number;
   noteTitles: readonly string[];
-  /** This visit completes the graph ticket: it is also asked for a note. */
-  completing: boolean;
 }
 
-/** The brief section for one visit; '' when there is nothing to say. */
+/**
+ * The brief section for one visit; '' when there is nothing to say. A node
+ * cannot run `karst inbox` / `notes`, so the section carries the counts and the
+ * sanitized titles only — never a command the node would fail to execute.
+ */
 export function composeVisitMailbox(facts: VisitMailboxFacts): string {
   const lines: string[] = [];
   if (facts.unreadMail > 0) {
     const n = facts.unreadMail;
-    lines.push(`${n} unread message${n === 1 ? '' : 's'} — run \`karst inbox\` to read them.`);
+    lines.push(`${n} unread message${n === 1 ? '' : 's'}.`);
   }
   if (facts.unreadNotes > 0) {
     const n = facts.unreadNotes;
-    lines.push(`${n} unread project note${n === 1 ? '' : 's'} match this ticket — run \`notes\` to list them.`);
+    lines.push(`${n} unread project note${n === 1 ? '' : 's'} match this ticket.`);
     for (const title of facts.noteTitles) lines.push(`- ${title}`);
-  }
-  if (facts.completing) {
-    lines.push(
-      'This visit completes the ticket: if you learned something another task should know, post ONE short project note with `karst notes post`.',
-    );
   }
   return lines.length === 0 ? '' : `## Ticket mailbox\n${lines.join('\n')}`;
 }
@@ -59,25 +53,4 @@ export function mayInjectIntoVisit(db: GraphDb, visit: VisitIdentity): boolean {
     .prepare('SELECT status FROM approach_graph_revisions WHERE id = ? AND graph_run_id = ?')
     .get(visit.revisionId, visit.graphRunId) as { status: string } | undefined;
   return revision?.status === 'active';
-}
-
-/**
- * Decided AT VISIT TIME from the active revision (no fixed "final node" — a
- * replan changes the graph): every outgoing edge of this node ends the graph,
- * no other node run is active, and no token is pending or claimed elsewhere.
- */
-export function isCompletingVisit(db: GraphDb, visit: VisitIdentity, document: GraphDocument): boolean {
-  const out = document.edges.filter((e) => e.from === visit.nodeId);
-  if (out.length === 0 || out.some((e) => e.to !== 'END')) return false;
-  if (countOtherNodeRunsInStatuses(db, visit.graphRunId, visit.nodeRunId, ACTIVE_NODE_STATUSES) > 0) {
-    return false;
-  }
-  const tokens = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM approach_graph_tokens
-       WHERE revision_id = ? AND destination_end = 0 AND status IN ('pending','claimed')
-         AND (claiming_node_run_id IS NULL OR claiming_node_run_id <> ?)`,
-    )
-    .get(visit.revisionId, visit.nodeRunId) as { n: number };
-  return tokens.n === 0;
 }

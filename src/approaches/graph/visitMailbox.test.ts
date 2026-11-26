@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { openStore } from '../../store/db.js';
-import { parseGraphDocument } from './parse.js';
-import { composeVisitMailbox, isCompletingVisit, mayInjectIntoVisit } from './visitMailbox.js';
+import { composeVisitMailbox, mayInjectIntoVisit } from './visitMailbox.js';
 
 const NOW = '2026-08-12T00:00:00.000Z';
 
@@ -41,32 +40,42 @@ function setup(over: { runStatus?: string; revStatus?: string } = {}) {
        VALUES (?, 1, ?, 'fp', ?, ?)`,
     ).run(graphRunId, docJson(), over.revStatus ?? 'active', NOW).lastInsertRowid,
   );
-  const run = (nodeId: string, status: string): number =>
-    Number(
-      db.prepare(
-        `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-         VALUES (?, ?, ?, 'agent', 1, ?)`,
-      ).run(graphRunId, revisionId, nodeId, status).lastInsertRowid,
-    );
-  const parsed = parseGraphDocument(docJson());
-  if (!parsed.ok) throw new Error('fixture');
-  return { db, graphRunId, revisionId, run, document: parsed.document };
+  return { db, graphRunId, revisionId };
 }
 
 describe('composeVisitMailbox', () => {
-  it('is empty when nothing is pending and the visit is not completing', () => {
-    expect(composeVisitMailbox({ unreadMail: 0, unreadNotes: 0, noteTitles: [], completing: false })).toBe('');
+  it('is empty when nothing is pending', () => {
+    expect(composeVisitMailbox({ unreadMail: 0, unreadNotes: 0, noteTitles: [] })).toBe('');
   });
-  it('points at inbox and notes with titles only', () => {
-    const text = composeVisitMailbox({ unreadMail: 2, unreadNotes: 1, noteTitles: ['T1'], completing: false });
-    expect(text).toContain('2 unread messages — run `karst inbox`');
-    expect(text).toContain('1 unread project note match this ticket — run `notes`');
-    expect(text).toContain('- T1');
+
+  it('names the singular unread message count without a command hint', () => {
+    const text = composeVisitMailbox({ unreadMail: 1, unreadNotes: 0, noteTitles: [] });
+    expect(text).toContain('1 unread message.');
+    expect(text).not.toContain('1 unread messages');
+    expect(text.startsWith('## Ticket mailbox\n')).toBe(true);
+    expect(text).not.toContain('karst inbox');
     expect(text).not.toContain('karst notes post');
+    expect(text).not.toContain('`notes`');
   });
-  it('asks for a note only when completing', () => {
-    const text = composeVisitMailbox({ unreadMail: 0, unreadNotes: 0, noteTitles: [], completing: true });
-    expect(text).toContain('karst notes post');
+
+  it('renders plural counts and the note titles, with no command hints', () => {
+    const text = composeVisitMailbox({ unreadMail: 2, unreadNotes: 1, noteTitles: ['T1'] });
+    expect(text).toContain('2 unread messages.');
+    expect(text).toContain('1 unread project note match this ticket.');
+    expect(text).toContain('- T1');
+    expect(text).not.toContain('karst inbox');
+    expect(text).not.toContain('karst notes post');
+    expect(text).not.toContain('`notes`');
+  });
+
+  it('renders several note titles without a command hint', () => {
+    const text = composeVisitMailbox({ unreadMail: 0, unreadNotes: 2, noteTitles: ['T1', 'T2'] });
+    expect(text).toContain('2 unread project notes match this ticket.');
+    expect(text).toContain('- T1');
+    expect(text).toContain('- T2');
+    expect(text).not.toContain('karst inbox');
+    expect(text).not.toContain('karst notes post');
+    expect(text).not.toContain('`notes`');
   });
 });
 
@@ -82,18 +91,5 @@ describe('mayInjectIntoVisit', () => {
   it('refuses a stranded (superseded) revision', () => {
     const s = setup({ revStatus: 'superseded' });
     expect(mayInjectIntoVisit(s.db, { graphRunId: s.graphRunId, revisionId: s.revisionId, nodeRunId: 1, nodeId: 'a' })).toBe(false);
-  });
-});
-
-describe('isCompletingVisit', () => {
-  it('is true only for the sole active visit whose edges all end the graph', () => {
-    const s = setup();
-    const a = s.run('a', 'launching');
-    const b = s.run('b', 'launching');
-    const id = (nodeRunId: number, nodeId: string) => ({ graphRunId: s.graphRunId, revisionId: s.revisionId, nodeRunId, nodeId });
-    expect(isCompletingVisit(s.db, id(a, 'a'), s.document)).toBe(false); // a → b, not END
-    expect(isCompletingVisit(s.db, id(b, 'b'), s.document)).toBe(false); // a still active
-    s.db.prepare("UPDATE approach_node_runs SET status = 'completed' WHERE id = ?").run(a);
-    expect(isCompletingVisit(s.db, id(b, 'b'), s.document)).toBe(true);
   });
 });

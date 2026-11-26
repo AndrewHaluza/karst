@@ -149,12 +149,7 @@ export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-import {
-  composeVisitMailbox,
-  isCompletingVisit,
-  mayInjectIntoVisit,
-  type VisitMailboxFacts,
-} from './visitMailbox.js';
+import { composeVisitMailbox, mayInjectIntoVisit, type VisitMailboxFacts } from './visitMailbox.js';
 
 export interface GraphDriverDeps {
   db: GraphDb;
@@ -204,7 +199,7 @@ export interface GraphDriverDeps {
   ticketContextOf: (ticketId: number) => Promise<string>;
   /** The graph TICKET's pending mail/notes, read from the unread rows at visit
    *  time (never stored). Absent → no mailbox section is added to a visit. */
-  visitMailboxOf?: (ticketId: number) => Omit<VisitMailboxFacts, 'completing'>;
+  visitMailboxOf?: (ticketId: number) => VisitMailboxFacts;
   /** The compile context (profiles/commands/repositories/maxima). The parsed
    *  document is supplied so `artifactFileExists` can map artifact ids to
    *  their declared staging paths under the artifact root. */
@@ -863,7 +858,7 @@ async function executeReadyNode(
   // not read the claimed row, which has no process yet, as a crash.
   const launchDone = markLaunchInFlight(deps.db, row.id);
   try {
-    return await launchClaimedAgentNode(deps, graphRunId, row, node, parsed.document, resolved, config!, {
+    return await launchClaimedAgentNode(deps, graphRunId, row, node, resolved, config!, {
       capability: nodeCapability,
       generation: nodeGeneration,
       ownerNonce: nodeOwnerNonce,
@@ -880,7 +875,6 @@ async function launchClaimedAgentNode(
   graphRunId: number,
   row: RunnableNodeRow,
   node: AgentNode,
-  document: GraphDocument,
   resolved: RoleIdentity,
   config: NonNullable<ReturnType<GraphDriverDeps['graphConfigOf']>>,
   claim: { capability: string; generation: string; ownerNonce: string },
@@ -968,7 +962,7 @@ async function launchClaimedAgentNode(
         }),
       ticketContext: [
         nodeContext,
-        visitMailboxSection(deps, graphRunId, row, document),
+        visitMailboxSection(deps, graphRunId, row),
       ]
         .filter((part) => part !== '')
         .join('\n\n'),
@@ -1088,23 +1082,16 @@ function runTicketId(deps: GraphDriverDeps, graphRunId: number): number {
 }
 
 /** The graph ticket's mailbox/bulletin pointer for THIS visit, or ''. Decided
- *  at visit time: nothing mid-replan or into a stranded revision, and the
- *  completing-visit note ask goes only to the visit that would end the graph. */
-function visitMailboxSection(
-  deps: GraphDriverDeps,
-  graphRunId: number,
-  row: RunnableNodeRow,
-  document: GraphDocument,
-): string {
+ *  at visit time: nothing mid-replan or into a stranded revision. */
+function visitMailboxSection(deps: GraphDriverDeps, graphRunId: number, row: RunnableNodeRow): string {
   if (!deps.visitMailboxOf) return '';
   const visit = { graphRunId, revisionId: row.revision_id, nodeRunId: row.id, nodeId: row.node_id };
   if (!mayInjectIntoVisit(deps.db, visit)) {
     deps.debug?.(`[graph] run ${graphRunId}: node run ${row.id} — mailbox not injected (replan/stranded)`);
     return '';
   }
-  const completing = isCompletingVisit(deps.db, visit, document);
-  deps.debug?.(`[graph] run ${graphRunId}: node run ${row.id} — mailbox injected (completing=${completing})`);
-  return composeVisitMailbox({ ...deps.visitMailboxOf(runTicketId(deps, graphRunId)), completing });
+  deps.debug?.(`[graph] run ${graphRunId}: node run ${row.id} — mailbox injected`);
+  return composeVisitMailbox(deps.visitMailboxOf(runTicketId(deps, graphRunId)));
 }
 
 /** The ticket context for an agent NODE: the generic ticket context (which

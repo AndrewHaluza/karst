@@ -2745,15 +2745,15 @@ describe('driveReadyNodeRuns — graph ticket mailbox and bulletin', () => {
   }
 
   /** Pending state read from the unread rows themselves, as the host binding does. */
-  function withMailbox(h: Harness): void {
+  function withMailbox(h: Harness, noteTitles: readonly string[] = []): void {
     h.deps.visitMailboxOf = (ticketId) => ({
       unreadMail: (
         h.db
           .prepare('SELECT COUNT(*) AS n FROM ticket_messages WHERE to_ticket_id = ? AND read_at IS NULL')
           .get(ticketId) as { n: number }
       ).n,
-      unreadNotes: 0,
-      noteTitles: [],
+      unreadNotes: noteTitles.length,
+      noteTitles,
     });
   }
 
@@ -2766,6 +2766,14 @@ describe('driveReadyNodeRuns — graph ticket mailbox and bulletin', () => {
       .run(h.ticketId);
   };
 
+  /** Commands a node cannot run: it has no `karst` wrapper, and the notes branch
+   *  needs `KARST_TICKET` (`@arch:CLI-12`). */
+  const expectNoUnrunnableCommands = (prompt: string): void => {
+    expect(prompt).not.toContain('karst inbox');
+    expect(prompt).not.toContain('karst notes post');
+    expect(prompt).not.toContain('`notes`');
+  };
+
   it('puts the pending pointer in the next visit brief, from the unread rows (survives a reload)', async () => {
     const h = harness();
     withMailbox(h);
@@ -2774,7 +2782,10 @@ describe('driveReadyNodeRuns — graph ticket mailbox and bulletin', () => {
     // A reload rebuilds the deps; the pointer is re-derived from the same rows.
     withMailbox(h);
     await driveReadyNodeRuns(h.deps, graphRunId);
-    expect(promptOf(h)).toContain('1 unread message — run `karst inbox`');
+    const prompt = promptOf(h);
+    expect(prompt).toContain('## Ticket mailbox');
+    expect(prompt).toContain('1 unread message.');
+    expectNoUnrunnableCommands(prompt);
   });
 
   it('adds no pointer when no mail or notes are pending', async () => {
@@ -2782,32 +2793,35 @@ describe('driveReadyNodeRuns — graph ticket mailbox and bulletin', () => {
     withMailbox(h);
     const graphRunId = readyImpl(h);
     await driveReadyNodeRuns(h.deps, graphRunId);
-    expect(promptOf(h)).not.toContain('karst inbox');
+    const prompt = promptOf(h);
+    expect(prompt).not.toContain('## Ticket mailbox');
+    expectNoUnrunnableCommands(prompt);
   });
 
-  it('asks the completing visit (decided at visit time) for a note', async () => {
+  it('names the unread project notes without any command hint', async () => {
     const h = harness();
-    withMailbox(h);
+    withMailbox(h, ['A learned note']);
     const graphRunId = readyImpl(h);
     await driveReadyNodeRuns(h.deps, graphRunId);
-    expect(promptOf(h)).toContain('karst notes post');
+    const prompt = promptOf(h);
+    expect(prompt).toContain('1 unread project note match this ticket.');
+    expect(prompt).toContain('- A learned note');
+    expectNoUnrunnableCommands(prompt);
   });
 
-  it('does not ask a visit that has another active node run for a note', async () => {
+  it('asks the completing visit (decided at visit time) for no note', async () => {
+    // `readyImpl` is a single node whose only edges go to `END`: the completing
+    // visit. It must carry the counts only, never a note-post ask.
     const h = harness();
-    withMailbox(h);
+    withMailbox(h, ['A learned note']);
+    sendMail(h);
     const graphRunId = readyImpl(h);
-    const revisionId = (
-      h.db.prepare('SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?').get(graphRunId) as { id: number }
-    ).id;
-    h.db
-      .prepare(
-        `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
-         VALUES (?, ?, 'other', 'agent', 1, 'running')`,
-      )
-      .run(graphRunId, revisionId);
     await driveReadyNodeRuns(h.deps, graphRunId);
-    expect(promptOf(h)).not.toContain('karst notes post');
+    const prompt = promptOf(h);
+    expect(prompt).toContain('## Ticket mailbox');
+    expect(prompt).toContain('1 unread message.');
+    expect(prompt).toContain('- A learned note');
+    expectNoUnrunnableCommands(prompt);
   });
 
   it.each(['draining', 'superseded'] as const)('injects nothing into a %s revision', async (status) => {
@@ -2816,8 +2830,10 @@ describe('driveReadyNodeRuns — graph ticket mailbox and bulletin', () => {
     sendMail(h);
     const graphRunId = readyImpl(h, status);
     await driveReadyNodeRuns(h.deps, graphRunId);
-    expect(promptOf(h)).not.toContain('karst inbox');
-    expect(promptOf(h)).not.toContain('karst notes post');
+    const prompt = promptOf(h);
+    expect(prompt).not.toContain('## Ticket mailbox');
+    expect(prompt).not.toContain('1 unread message');
+    expectNoUnrunnableCommands(prompt);
   });
 });
 
