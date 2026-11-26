@@ -1182,7 +1182,7 @@ END_DOC_BLOCK: [@ui:UI-R42]
 
 Width tiers are ≥1000, 700–999 and ≤699 px (`src/ui/layout/layoutBreakpoints.ts`).
 At ≤699 side-by-side regions stack and the detail view offers Back. A page never
-scrolls horizontally. The tiers bind new and changed pages (pinned via
+scrolls horizontally. Below the 320 px floor an editor webview keeps its 320 px layout and scrolls sideways (`--k-page-floor`); the sidebar webview opts out with `data-k-floor="off"`. The tiers bind new and changed pages (pinned via
 `BREAKPOINT_PINNED_FILES`); existing settings CSS (1024/768/800/700px) migrates
 over time.
 
@@ -1291,7 +1291,7 @@ END_DOC_BLOCK: [@ui:GROUP-E]
 
 ## [@ui:UI-R49] Regions adapt to their container, in four tiers
 
-Every webview region that changes layout with width declares `container-type: inline-size` and adapts with `@container` at the tier boundaries `wide ≥ 1000`, `mid 700–999`, `narrow 400–699`, `tight 320–399`. 320 px is the floor: no sideways page scroll (UI-R43) at any width ≥ 320. Window `@media` is allowed only for page chrome. Tier CSS follows the base rule in source order.
+Every webview region that changes layout with width declares `container-type: inline-size` and adapts with `@container` at the tier boundaries `wide ≥ 1000`, `mid 700–999`, `narrow 400–699`, `tight 320–399`. 320 px is the floor: no sideways page scroll (UI-R43) at any width ≥ 320. Below the 320 px floor an editor webview keeps its 320 px layout and scrolls sideways (`--k-page-floor`); the sidebar webview opts out with `data-k-floor="off"`. Window `@media` is allowed only for page chrome. Tier CSS follows the base rule in source order.
 
 `RESPONSIVE-DENSITY.md` `ui:RD-TIERS`.
 

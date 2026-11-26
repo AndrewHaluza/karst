@@ -4,12 +4,21 @@
  * constant is the single source; layoutBreakpoints.test.ts pins the `@media`
  * widths of the allowlisted CSS files to it.
  *
- * Tiers: wide >= 1000, mid 700-999, narrow 400-699, tight <= 399.
+ * Tiers: wide >= 1000, mid 700-999, narrow 400-699, tight 320-399. The tight
+ * tier ends at `PAGE_FLOOR` (320): below it an editor webview keeps its 320 px
+ * layout and the page scrolls sideways (UI-R43, UI-R49).
  */
 
 export const WIDE_MIN = 1000;
 export const NARROW_MAX = 699;
 export const TIGHT_MAX = 399;
+
+/**
+ * The narrowest width the tier layout supports (UI-R43, UI-R49). Below it an
+ * editor webview keeps its 320 px layout and scrolls sideways
+ * (`--k-page-floor`); the sidebar webview opts out.
+ */
+export const PAGE_FLOOR = 320;
 
 export type LayoutTier = 'wide' | 'mid' | 'narrow' | 'tight';
 

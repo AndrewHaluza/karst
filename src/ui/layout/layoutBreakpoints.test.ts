@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { INSIDE_EXTRA_WIDTHS, LAYOUT_WIDTHS, NARROW_MAX, SETTINGS_LAYOUT_WIDTHS, TIGHT_MAX, USAGE_EXTRA_WIDTHS, WIDE_MIN, layoutWidthsFor, tierFor } from './layoutBreakpoints.js';
+import { INSIDE_EXTRA_WIDTHS, LAYOUT_WIDTHS, NARROW_MAX, PAGE_FLOOR, SETTINGS_LAYOUT_WIDTHS, TIGHT_MAX, USAGE_EXTRA_WIDTHS, WIDE_MIN, layoutWidthsFor, tierFor } from './layoutBreakpoints.js';
 
 /**
  * CSS files whose `@media` widths are pinned to the tiers. Empty today: the
@@ -43,6 +43,15 @@ describe('tierFor', () => {
     expect(tiers).toEqual(new Set(['wide', 'mid', 'narrow']));
     expect(LAYOUT_WIDTHS).toContain(NARROW_MAX);
     expect(LAYOUT_WIDTHS).toContain(NARROW_MAX + 1);
+  });
+});
+
+describe('PAGE_FLOOR', () => {
+  it('is the narrowest width the tier layout supports, and the smallest settings probe', () => {
+    // UI-R43 / UI-R49 make 320 px the floor: below it an editor webview keeps
+    // its 320 px layout and the page scrolls sideways.
+    expect(PAGE_FLOOR).toBe(320);
+    expect(PAGE_FLOOR).toBe(Math.min(...SETTINGS_LAYOUT_WIDTHS));
   });
 });
 
