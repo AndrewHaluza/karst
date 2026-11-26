@@ -113,7 +113,7 @@ import {
 import type { GraphPromptIdentity } from '../../agent/graphPrompts.js';
 import type { TerminalNamingBag } from '../../ui/terminalNaming.js';
 import { uuidv7 } from './coordinator/lineage.js';
-import { markLaunchInFlight } from './coordinator/launchInFlight.js';
+import { markLaunchInFlight, markPlannerLaunchInFlight } from './coordinator/launchInFlight.js';
 import {
   PLANNER_SUBMIT_INSTRUCTION,
   plannerVocabulary,
@@ -483,66 +483,79 @@ export async function bootstrapAndLaunchPlanner(
     ownerNonce: plannerOwnerNonce,
   });
   if (!claimed) {
-    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
+    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (another launch or the reconcile sweep claimed it)` };
   }
-  const artifactRoot = deps.artifactRootOf(graphRunId);
-  unlinkStaleGraphJson(deps, graphRunId);
-  const env = deps.graphEnvOf({
-    launchId: plannerRunId,
-    graphRunId,
-    revisionId: 0,
-    generation,
-    capability,
-    artifactRoot,
-  });
-  const prompt = [
-    new TextDecoder().decode(promptBytes),
-    await deps.ticketContextOf(input.ticketId),
-    plannerVocabularyFor(() => deps.compileContextOf(graphRunId), artifactRoot, deps.debug),
-    PLANNER_SUBMIT_INSTRUCTION,
-  ]
-    .filter((part) => part !== '')
-    .join('\n\n');
-  const naming = deps.sessionNamingOf(graphRunId, plannerRunId, 'planner');
-  let session: SupervisedAgentSession;
+  // Register right after the claim, before the first await: this window's own
+  // reconcile would otherwise read the `launching` row as a pre-spawn crash.
+  const releasePlannerLaunch = markPlannerLaunchInFlight(deps.db, plannerRunId);
   try {
-    session = await deps.transport.start({
-      nodeRunId: plannerRunId,
-      runKind: 'planner',
-      ticketId: input.ticketId,
+    const artifactRoot = deps.artifactRootOf(graphRunId);
+    unlinkStaleGraphJson(deps, graphRunId);
+    const env = deps.graphEnvOf({
+      launchId: plannerRunId,
       graphRunId,
-      repo: workspace.repo,
-      cwd: workspace.cwd,
+      revisionId: 0,
       generation,
-      ownerNonce: plannerOwnerNonce,
-      sessionName: naming.name,
-      ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
-      graphEnv: env,
-      identity: launchIdentityOf(config.planner.profile, resolved),
-      adapter: deps.adapterFor(resolved.provider),
-      interactive: {
+      capability,
+      artifactRoot,
+    });
+    const prompt = [
+      new TextDecoder().decode(promptBytes),
+      await deps.ticketContextOf(input.ticketId),
+      plannerVocabularyFor(() => deps.compileContextOf(graphRunId), artifactRoot, deps.debug),
+      PLANNER_SUBMIT_INSTRUCTION,
+    ]
+      .filter((part) => part !== '')
+      .join('\n\n');
+    const naming = deps.sessionNamingOf(graphRunId, plannerRunId, 'planner');
+    let session: SupervisedAgentSession;
+    try {
+      session = await deps.transport.start({
+        nodeRunId: plannerRunId,
+        runKind: 'planner',
+        ticketId: input.ticketId,
+        graphRunId,
+        repo: workspace.repo,
         cwd: workspace.cwd,
-        initialPrompt: prompt,
-        model: resolved.model,
-        effort: resolved.effort,
+        generation,
+        ownerNonce: plannerOwnerNonce,
         sessionName: naming.name,
-      },
-    } satisfies SupervisedLaunchRequest);
-  } catch (err) {
-    // The row stays `launching` with its nonce and no process — the one shape
-    // reconcile can prove never spawned, and therefore relaunch.
+        ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
+        graphEnv: env,
+        identity: launchIdentityOf(config.planner.profile, resolved),
+        adapter: deps.adapterFor(resolved.provider),
+        interactive: {
+          cwd: workspace.cwd,
+          initialPrompt: prompt,
+          model: resolved.model,
+          effort: resolved.effort,
+          sessionName: naming.name,
+        },
+      } satisfies SupervisedLaunchRequest);
+    } catch (err) {
+      // The row stays `launching` with its nonce and no process — the one shape
+      // reconcile can prove never spawned, and therefore relaunch.
+      deps.debug?.(
+        `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} failed to spawn (${String(err)}) — left launching for the sweep`,
+      );
+      return { kind: 'failed', reason: `planner run ${plannerRunId} failed to spawn: ${String(err)}` };
+    }
+    if (!markPlannerRunning(deps, plannerRunId, launchIdentityOf(config.planner.profile, resolved))) {
+      // Another launch (or this window's sweep) moved the row while the spawn
+      // ran. The session is not ours: stop it, and leave the row to its owner.
+      await stopLostClaimSession(deps, graphRunId, plannerRunId, session, 'planner');
+      return {
+        kind: 'failed',
+        reason: `planner run ${plannerRunId} already moved (another launch or the reconcile sweep claimed it)`,
+      };
+    }
     deps.debug?.(
-      `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} failed to spawn (${String(err)}) — left launching for the sweep`,
+      `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`,
     );
-    return { kind: 'failed', reason: `planner run ${plannerRunId} failed to spawn: ${String(err)}` };
+    return { kind: 'launched', graphRunId, plannerRunId, generation, capability, session };
+  } finally {
+    releasePlannerLaunch();
   }
-  if (!markPlannerRunning(deps, plannerRunId, launchIdentityOf(config.planner.profile, resolved))) {
-    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
-  }
-  deps.debug?.(
-    `[graph] run ${graphRunId}: bootstrap planner ${plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`,
-  );
-  return { kind: 'launched', graphRunId, plannerRunId, generation, capability, session };
 }
 
 export type RelaunchBootstrapPlannerResult =
@@ -627,76 +640,87 @@ export async function relaunchBootstrapPlanner(
     ownerNonce: plannerOwnerNonce,
   });
   if (!claimed) {
-    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
+    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (another launch or the reconcile sweep claimed it)` };
   }
-  const artifactRoot = deps.artifactRootOf(input.graphRunId);
-  unlinkStaleGraphJson(deps, input.graphRunId);
-  const env = deps.graphEnvOf({
-    launchId: plannerRunId,
-    graphRunId: input.graphRunId,
-    revisionId: 0,
-    generation,
-    capability,
-    artifactRoot,
-  });
-  // A relaunch after a rejected bootstrap plan (the Resume out of
-  // `graph-plan-invalid`) MUST carry what the compiler rejected: without it the
-  // fresh planner run replans from scratch and resubmits the same rejection.
-  const rejection = compileDiagnosticsSection(latestPlannerDiagnostics(deps, input.graphRunId));
-  const prompt = [
-    new TextDecoder().decode(promptBytes),
-    await deps.ticketContextOf(run.ticket_id),
-    plannerVocabularyFor(() => deps.compileContextOf(input.graphRunId), artifactRoot, deps.debug),
-    ...(rejection ? [rejection] : []),
-    PLANNER_SUBMIT_INSTRUCTION,
-  ]
-    .filter((part) => part !== '')
-    .join('\n\n');
-  const naming = deps.sessionNamingOf(input.graphRunId, plannerRunId, 'planner');
-  let session: SupervisedAgentSession;
+  // Register right after the claim, before the first await (see
+  // `bootstrapAndLaunchPlanner`).
+  const releasePlannerLaunch = markPlannerLaunchInFlight(deps.db, plannerRunId);
   try {
-    session = await deps.transport.start({
-      nodeRunId: plannerRunId,
-      runKind: 'planner',
-      ticketId: run.ticket_id,
+    const artifactRoot = deps.artifactRootOf(input.graphRunId);
+    unlinkStaleGraphJson(deps, input.graphRunId);
+    const env = deps.graphEnvOf({
+      launchId: plannerRunId,
       graphRunId: input.graphRunId,
-      repo: workspace.repo,
-      cwd: workspace.cwd,
+      revisionId: 0,
       generation,
-      ownerNonce: plannerOwnerNonce,
-      sessionName: naming.name,
-      ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
-      graphEnv: env,
-      identity: launchIdentityOf(config.planner.profile, resolved),
-      adapter: deps.adapterFor(resolved.provider),
-      interactive: {
+      capability,
+      artifactRoot,
+    });
+    // A relaunch after a rejected bootstrap plan (the Resume out of
+    // `graph-plan-invalid`) MUST carry what the compiler rejected: without it the
+    // fresh planner run replans from scratch and resubmits the same rejection.
+    const rejection = compileDiagnosticsSection(latestPlannerDiagnostics(deps, input.graphRunId));
+    const prompt = [
+      new TextDecoder().decode(promptBytes),
+      await deps.ticketContextOf(run.ticket_id),
+      plannerVocabularyFor(() => deps.compileContextOf(input.graphRunId), artifactRoot, deps.debug),
+      ...(rejection ? [rejection] : []),
+      PLANNER_SUBMIT_INSTRUCTION,
+    ]
+      .filter((part) => part !== '')
+      .join('\n\n');
+    const naming = deps.sessionNamingOf(input.graphRunId, plannerRunId, 'planner');
+    let session: SupervisedAgentSession;
+    try {
+      session = await deps.transport.start({
+        nodeRunId: plannerRunId,
+        runKind: 'planner',
+        ticketId: run.ticket_id,
+        graphRunId: input.graphRunId,
+        repo: workspace.repo,
         cwd: workspace.cwd,
-        initialPrompt: prompt,
-        model: resolved.model,
-        effort: resolved.effort,
+        generation,
+        ownerNonce: plannerOwnerNonce,
         sessionName: naming.name,
-      },
-    } satisfies SupervisedLaunchRequest);
-  } catch (err) {
+        ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
+        graphEnv: env,
+        identity: launchIdentityOf(config.planner.profile, resolved),
+        adapter: deps.adapterFor(resolved.provider),
+        interactive: {
+          cwd: workspace.cwd,
+          initialPrompt: prompt,
+          model: resolved.model,
+          effort: resolved.effort,
+          sessionName: naming.name,
+        },
+      } satisfies SupervisedLaunchRequest);
+    } catch (err) {
+      deps.debug?.(
+        `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} failed to spawn (${String(err)}) — left launching for the sweep`,
+      );
+      return { kind: 'failed', reason: `planner run ${plannerRunId} failed to spawn: ${String(err)}` };
+    }
+    if (!markPlannerRunning(deps, plannerRunId, launchIdentityOf(config.planner.profile, resolved))) {
+      await stopLostClaimSession(deps, input.graphRunId, plannerRunId, session, 'planner');
+      return {
+        kind: 'failed',
+        reason: `planner run ${plannerRunId} already moved (another launch or the reconcile sweep claimed it)`,
+      };
+    }
     deps.debug?.(
-      `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} failed to spawn (${String(err)}) — left launching for the sweep`,
+      `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} relaunched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`,
     );
-    return { kind: 'failed', reason: `planner run ${plannerRunId} failed to spawn: ${String(err)}` };
+    return {
+      kind: 'launched',
+      graphRunId: input.graphRunId,
+      plannerRunId,
+      generation,
+      capability,
+      session,
+    };
+  } finally {
+    releasePlannerLaunch();
   }
-  if (!markPlannerRunning(deps, plannerRunId, launchIdentityOf(config.planner.profile, resolved))) {
-    return { kind: 'failed', reason: `planner run ${plannerRunId} already moved (a second window?)` };
-  }
-  deps.debug?.(
-    `[graph] run ${input.graphRunId}: bootstrap planner ${plannerRunId} relaunched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`,
-  );
-  return {
-    kind: 'launched',
-    graphRunId: input.graphRunId,
-    plannerRunId,
-    generation,
-    capability,
-    session,
-  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1027,7 +1051,7 @@ async function launchClaimedAgentNode(
     deps.debug?.(
       `[graph] run ${graphRunId}: agent node ${row.node_id} (run ${row.id}) launched but lost launching→running CAS`,
     );
-    await stopLostClaimSession(deps, graphRunId, row.id, runResult.session);
+    await stopLostClaimSession(deps, graphRunId, row.id, runResult.session, 'node');
     return 'blocked';
   }
   deps.debug?.(
@@ -1036,37 +1060,40 @@ async function launchClaimedAgentNode(
   return 'launched';
 }
 
-/** A drive that lost the launching→running CAS does not own the node run, yet
- *  its agent already spawned. Stop the process tree and close the tab, so no
- *  untracked agent holds the node workspace. The row stays as it is. The close
+/** A launch that lost the launching→running CAS does not own the run, yet its
+ *  agent already spawned. Stop the process tree and close the tab, so no
+ *  untracked agent holds the run's workspace. The row stays as it is. The close
  *  of the terminal closes the `process_runs` row, so reconcile reads no live
- *  owner. A stop failure is logged as a WARN, never swallowed. */
+ *  owner. A stop failure is logged as a WARN, never swallowed. `kind` only
+ *  changes the log text: node and planner launches lose their claim the same
+ *  way. */
 async function stopLostClaimSession(
   deps: GraphDriverDeps,
   graphRunId: number,
-  nodeRunId: number,
+  runId: number,
   session: SupervisedAgentSession,
+  kind: 'node' | 'planner',
 ): Promise<void> {
   try {
     const proof = await deps.transport.terminate(session);
     deps.debug?.(
-      `[graph] run ${graphRunId}: node run ${nodeRunId} lost its launch claim — stopped the orphan agent (pid ${session.pid ?? 'none'}): ${proof.kind}`,
+      `[graph] run ${graphRunId}: ${kind} run ${runId} lost its launch claim — stopped the orphan agent (pid ${session.pid ?? 'none'}): ${proof.kind}`,
     );
     if (proof.kind === 'attributable' && proof.kill !== 'killed') {
       deps.debug?.(
-        `[graph] WARN run ${graphRunId}: node run ${nodeRunId} orphan agent (pid ${session.pid}) not stopped (kill ${proof.kill})`,
+        `[graph] WARN run ${graphRunId}: ${kind} run ${runId} orphan agent (pid ${session.pid}) not stopped (kill ${proof.kill})`,
       );
     }
   } catch (error) {
     deps.debug?.(
-      `[graph] WARN run ${graphRunId}: node run ${nodeRunId} stopping the orphan agent (pid ${session.pid ?? 'none'}) failed (${String(error)})`,
+      `[graph] WARN run ${graphRunId}: ${kind} run ${runId} stopping the orphan agent (pid ${session.pid ?? 'none'}) failed (${String(error)})`,
     );
   }
   try {
     session.terminal?.dispose();
   } catch (error) {
     deps.debug?.(
-      `[graph] WARN run ${graphRunId}: node run ${nodeRunId} closing the orphan terminal tab failed (${String(error)})`,
+      `[graph] WARN run ${graphRunId}: ${kind} run ${runId} closing the orphan terminal tab failed (${String(error)})`,
     );
   }
 }
@@ -1445,53 +1472,61 @@ export async function launchReplanPlanner(
     ownerNonce: plannerOwnerNonce,
   });
   if (!claimed) return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
-  if (!launch.isRepair) {
-    unlinkStaleGraphJson(deps, launch.graphRunId);
-  }
-  const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
-  let session: SupervisedAgentSession;
+  // Register right after the claim, before any await (see
+  // `bootstrapAndLaunchPlanner`).
+  const releasePlannerLaunch = markPlannerLaunchInFlight(deps.db, launch.plannerRunId);
   try {
-    session = await deps.transport.start({
-      nodeRunId: launch.plannerRunId,
-      runKind: 'planner',
-      ticketId: run.ticket_id,
-      graphRunId: launch.graphRunId,
-      repo: launch.repo,
-      cwd: launch.cwd,
-      generation,
-      ownerNonce: plannerOwnerNonce,
-      sessionName: naming.name,
-      ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
-      graphEnv: deps.graphEnvOf({
-        launchId: launch.plannerRunId,
+    if (!launch.isRepair) {
+      unlinkStaleGraphJson(deps, launch.graphRunId);
+    }
+    const naming = deps.sessionNamingOf(launch.graphRunId, launch.plannerRunId, 'planner');
+    let session: SupervisedAgentSession;
+    try {
+      session = await deps.transport.start({
+        nodeRunId: launch.plannerRunId,
+        runKind: 'planner',
+        ticketId: run.ticket_id,
         graphRunId: launch.graphRunId,
-        revisionId: 0,
-        generation,
-        capability,
-        artifactRoot: deps.artifactRootOf(launch.graphRunId),
-      }),
-      identity: launchIdentityOf(config!.planner.profile, resolved),
-      adapter: deps.adapterFor(resolved.provider),
-      interactive: {
+        repo: launch.repo,
         cwd: launch.cwd,
-        initialPrompt: launch.prompt,
-        model: resolved.model,
-        effort: resolved.effort,
+        generation,
+        ownerNonce: plannerOwnerNonce,
         sessionName: naming.name,
-      },
-    } satisfies SupervisedLaunchRequest);
-  } catch (err) {
-    deps.debug?.(
-      `[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} failed to spawn (${String(err)}) — left launching`,
-    );
-    return {
-      kind: 'failed',
-      reason: `planner run ${launch.plannerRunId} failed to spawn: ${String(err)}`,
-    };
+        ...(naming.iconPath ? { sessionIconPath: naming.iconPath } : {}),
+        graphEnv: deps.graphEnvOf({
+          launchId: launch.plannerRunId,
+          graphRunId: launch.graphRunId,
+          revisionId: 0,
+          generation,
+          capability,
+          artifactRoot: deps.artifactRootOf(launch.graphRunId),
+        }),
+        identity: launchIdentityOf(config!.planner.profile, resolved),
+        adapter: deps.adapterFor(resolved.provider),
+        interactive: {
+          cwd: launch.cwd,
+          initialPrompt: launch.prompt,
+          model: resolved.model,
+          effort: resolved.effort,
+          sessionName: naming.name,
+        },
+      } satisfies SupervisedLaunchRequest);
+    } catch (err) {
+      deps.debug?.(
+        `[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} failed to spawn (${String(err)}) — left launching`,
+      );
+      return {
+        kind: 'failed',
+        reason: `planner run ${launch.plannerRunId} failed to spawn: ${String(err)}`,
+      };
+    }
+    if (!markPlannerRunning(deps, launch.plannerRunId, launchIdentityOf(config!.planner.profile, resolved))) {
+      await stopLostClaimSession(deps, launch.graphRunId, launch.plannerRunId, session, 'planner');
+      return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
+    }
+    deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`);
+    return { kind: 'launched', session, generation, capability };
+  } finally {
+    releasePlannerLaunch();
   }
-  if (!markPlannerRunning(deps, launch.plannerRunId, launchIdentityOf(config!.planner.profile, resolved))) {
-    return { kind: 'failed', reason: `planner run ${launch.plannerRunId} already moved` };
-  }
-  deps.debug?.(`[graph] run ${launch.graphRunId}: replan planner ${launch.plannerRunId} launched (${resolved.provider}/${resolved.model ?? 'default'}, ${resolved.source})`);
-  return { kind: 'launched', session, generation, capability };
 }

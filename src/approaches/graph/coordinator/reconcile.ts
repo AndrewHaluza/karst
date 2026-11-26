@@ -78,6 +78,7 @@ import { drainingRevisionNumber, inReplanDrain } from './replanDrain.js';
 import { MAX_COMPILE_ATTEMPTS } from './repair.js';
 import {
   isLaunchInFlight,
+  isPlannerLaunchInFlight,
   launchClaimedAtMs,
   LAUNCH_PREPARATION_TIMEOUT_MS,
 } from './launchInFlight.js';
@@ -697,6 +698,16 @@ async function reconcilePlannerRun(
   }
   if (!planner) return planningResult(deps, run, 0);
   if (deps.sessionFor(planner.id)) return planningResult(deps, run, 0); // this window owns it
+  if (isPlannerLaunchInFlight(deps.db, planner.id)) {
+    // This window is still inside `transport.start` for this planner. The row
+    // is `launching` with an owner nonce and no process — the shape that
+    // otherwise proves a pre-spawn crash. Relaunching it here starts a second
+    // planner, and the first one's spawn then loses its claim.
+    deps.debug?.(
+      `[graph] reconcile: run ${run.id} ${kind} planner ${planner.id} has a launch in flight in this window — not relaunching it`,
+    );
+    return planningResult(deps, run, 0);
+  }
   const proc = plannerProcessOf(deps.db, planner);
 
   // G2's fire-once re-prompt, made recoverable from the sweep: a bootstrap

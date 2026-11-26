@@ -128,6 +128,8 @@ A compiled bootstrap plan runs at once: plan acceptance moves the run `planning 
 
 The driver claims an agent node run BEFORE it prepares the workspace (`executeReadyNode` in `approaches/graph/driver.ts`). The claim is a database compare-and-swap: `ready → launching` for a ready row, `claimRearmedNodeRunLaunch` for a re-armed `launching` row. A drive that loses the claim returns with no side effect. The claim writes a UUIDv7 `generation`, which holds the claim time. While the clone runs, the row is `launching` with an owner nonce and no process. The window registers the launch in `coordinator/launchInFlight.ts`, and its own reconcile skips that row. Another window reads such a row as `crashed before spawn` only when the claim is older than `LAUNCH_PREPARATION_TIMEOUT_MS`. The host runs one continuation drive per graph run at a time (`approaches/graph/singleFlight.ts`).
 
+A planner launch has the same shape. The driver claims the planner row (`launching` with an owner nonce) before it starts the session, and it registers the launch in the planner in-flight set of `coordinator/launchInFlight.ts` (`markPlannerLaunchInFlight`), so the reconcile sweep of the same window does not read the row as `crashed before spawn`. If a planner launch loses `launching → running` after its spawn, the launch stops the spawned session, as a node launch does.
+
 Two deliberate, documented exceptions remain:
 
 - **The `karst` CLI's authenticated reads and UPDATEs** (`src/cli/node.ts`,
