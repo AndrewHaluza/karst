@@ -157,11 +157,12 @@ describe('exportCorpusFromDb', () => {
     expect(text).not.toContain(quoted);
   });
 
-  it('replaces PR author logins and keeps no raw store id on a sub-task row', () => {
+  it('replaces PR author logins and branch names, and keeps no raw store id on a sub-task row', () => {
     const extra = seedCorpusDatabase(join(tempDir, 'karst-hostile.db'));
     const writable = openStore(extra.dbPath);
     try {
-      writable.db.prepare("UPDATE prs SET author = 'alice-gh'").run();
+      writable.db.prepare("UPDATE prs SET author = 'alice-gh', head_ref = 'zelda/secret-branch'").run();
+      writable.db.prepare("UPDATE worktrees SET branch = 'zelda/wip'").run();
     } finally {
       writable.close();
     }
@@ -171,7 +172,10 @@ describe('exportCorpusFromDb', () => {
       projectId: extra.projectId,
       ticketId: extra.dashboardTicketId,
     });
-    expect(JSON.stringify(corpus)).not.toContain('alice-gh');
+    const text = JSON.stringify(corpus);
+    expect(text).not.toContain('alice-gh');
+    expect(text).not.toContain('zelda');
+    expect(text).toContain('fixture/branch-');
     for (const row of corpus.dashboard.subtasks ?? []) {
       expect(row.id).toBeGreaterThanOrEqual(FIXTURE_TICKET_ID_MIN);
       expect(row.idLabel).toBe(`T${row.id}`);

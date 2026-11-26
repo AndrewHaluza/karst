@@ -164,7 +164,8 @@ It is opened read-only, so the extension does not need to be stopped first.
   `tickets.source_ref`/`source_ref_internal`, also where a ticket key, label or
   description quotes it; the export fails when one survives), logins in
   `author`/`login`/`username` fields `fixture-user-<n>` (also where text quotes
-  them; the leak scan fails on one left), emails
+  them; the leak scan fails on one left), branch names other than `main`/`develop`-style
+  bases `fixture/branch-<n>` (also in text; the export fails on one left), emails
   `developer@fixture.invalid`, token shapes `fixture-token-redacted`. Timestamps
   are rebased onto `FIXTURE_NOW_MS` (the page clock) in a DATABASE copy before
   the builders run (`rebase.ts`): the newest past-event row (`ANCHOR_COLUMNS`)

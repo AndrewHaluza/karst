@@ -123,6 +123,24 @@ describe('sanitizeCorpus', () => {
     expect(out).toEqual({ resetsAt: future, startedAt: past });
   });
 
+  it('replaces a registered branch name in fields and text, and keeps a shared base branch', () => {
+    const sanitizer = new CorpusSanitizer();
+    sanitizer.registerBranches(['zelda/secret-branch', 'zelda/secret', 'develop', '']);
+    const input = {
+      branch: 'zelda/secret',
+      branches: 'zelda/secret-branch → develop',
+      note: 'from zelda/secret, not zelda/secret.txt or /repo/zelda/secret',
+    };
+    sanitizer.collect(input);
+    const out = sanitizer.apply<typeof input>(input);
+    expect(out.branch).toBe('fixture/branch-1');
+    expect(out.branches).toBe('fixture/branch-2 → develop');
+    expect(out.note).toContain('from fixture/branch-1,');
+    expect(out.note).toContain('zelda/secret.txt');
+    expect(sanitizer.leftoverRefs(out)).toEqual([]);
+    expect(sanitizer.leftoverRefs(input)).toEqual(['zelda/secret', 'zelda/secret-branch']);
+  });
+
   it('replaces a registered external ticket ref wherever it appears, keys and text alike', () => {
     const sanitizer = new CorpusSanitizer();
     sanitizer.registerExternalRefs(['869e494q2', '869e48tv6', 'CU-12']);

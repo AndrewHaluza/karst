@@ -109,7 +109,7 @@
         "worktrees": [
           {
             "baseRef": "develop",
-            "branch": "karst/FIX-102",
+            "branch": "fixture/branch-2",
             "createdAt": "2026-10-27T02:00:00.000Z",
             "depsMode": "inherited",
             "launchable": false,
@@ -185,7 +185,7 @@
         "worktrees": [
           {
             "baseRef": "develop",
-            "branch": "karst/FIX-104",
+            "branch": "fixture/branch-3",
             "createdAt": "2026-10-27T12:00:00.000Z",
             "depsMode": "inherited",
             "launchable": false,
@@ -270,7 +270,7 @@
         "worktrees": [
           {
             "baseRef": "develop",
-            "branch": "karst/FIX-107",
+            "branch": "fixture/branch-4",
             "createdAt": "2026-10-27T10:00:00.000Z",
             "depsMode": "inherited",
             "launchable": false,
@@ -359,7 +359,7 @@
         "worktrees": [
           {
             "baseRef": "develop",
-            "branch": "karst/FIX-101",
+            "branch": "fixture/branch-1",
             "createdAt": "2026-10-26T20:00:00.000Z",
             "depsMode": "inherited",
             "launchable": false,

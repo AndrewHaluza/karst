@@ -918,7 +918,7 @@
             "kind": "rows",
             "rows": [
               {
-                "detail": "./api · karst/FIX-101",
+                "detail": "./api · fixture/branch-1",
                 "label": "worktree",
                 "status": "pass",
                 "time": "8:00:00 PM"
@@ -1095,7 +1095,7 @@
     {
       "author": "",
       "baseRef": "develop",
-      "branches": "karst/fix-101-server-inventory → develop",
+      "branches": "fixture/branch-5 → develop",
       "canDismiss": true,
       "canMerge": true,
       "changes": null,
@@ -1375,7 +1375,7 @@
       "baseCandidates": [],
       "baseDefault": "",
       "baseRef": "develop",
-      "branch": "karst/FIX-101",
+      "branch": "fixture/branch-1",
       "createdAt": "2026-10-26T20:00:00.000Z",
       "depsMode": "inherited",
       "launchable": false,

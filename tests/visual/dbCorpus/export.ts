@@ -258,6 +258,7 @@ export function buildCorpus(store: Store, opts: CorpusOptions = {}): Corpus {
 
   const sanitizer = new CorpusSanitizer({ nowMs, shiftMs: 0 });
   sanitizer.registerExternalRefs(externalRefsOf(store));
+  sanitizer.registerBranches(branchNamesOf(store));
   sanitizer.collect(raw);
   const cleaned: Corpus = {
     dashboard: sanitizer.apply<DashboardState>(raw.dashboard),
@@ -290,6 +291,43 @@ export function externalRefsOf(store: Store): string[] {
     )
     .all() as { ref: unknown }[];
   return rows.map((r) => r.ref).filter((ref): ref is string => typeof ref === 'string');
+}
+
+/**
+ * Every git branch name the database holds, sorted: worktree and archive
+ * branches, PR head and base refs, merge-check bases and the per-repo base
+ * overrides in `tickets.base_refs` (a JSON object of repo → branch).
+ */
+export function branchNamesOf(store: Store): string[] {
+  const rows = store.db
+    .prepare(
+      `SELECT branch AS name FROM worktrees
+       UNION SELECT base_ref FROM worktrees
+       UNION SELECT branch FROM worktree_archives
+       UNION SELECT base_ref FROM worktree_archives
+       UNION SELECT archive_ref FROM worktree_archives
+       UNION SELECT head_ref FROM prs
+       UNION SELECT base_ref FROM prs
+       UNION SELECT base_ref FROM merge_checks`,
+    )
+    .all() as { name: unknown }[];
+  const names = new Set<string>();
+  for (const { name } of rows) if (typeof name === 'string' && name !== '') names.add(name);
+  const bases = store.db.prepare("SELECT base_refs AS refs FROM tickets WHERE base_refs IS NOT NULL AND base_refs <> ''").all() as {
+    refs: unknown;
+  }[];
+  for (const { refs } of bases) {
+    if (typeof refs !== 'string') continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(refs);
+    } catch (e) {
+      throw new Error(`export: tickets.base_refs is not JSON: ${(e as Error).message}`);
+    }
+    if (typeof parsed !== 'object' || parsed === null) continue;
+    for (const value of Object.values(parsed)) if (typeof value === 'string' && value !== '') names.add(value);
+  }
+  return [...names].sort();
 }
 
 /** Sort object keys recursively so two equal corpora serialize to equal bytes. */

@@ -130,6 +130,36 @@ function isTextReplaceableRef(ref: string): boolean {
   return ref.length >= MIN_TEXT_REF_LENGTH && /[A-Za-z]/.test(ref) && !/\s/.test(ref);
 }
 
+/**
+ * Branch names that every repository shares. They name no person and no
+ * topic, so they stay as they are; every other branch name is replaced.
+ */
+const SHARED_BRANCHES: ReadonlySet<string> = new Set([
+  'main',
+  'master',
+  'develop',
+  'development',
+  'dev',
+  'trunk',
+  'staging',
+  'production',
+]);
+
+/** The fixture name of the n-th replaced branch. */
+export const FIXTURE_BRANCH_PREFIX = 'fixture/branch-';
+
+/**
+ * A ref-shaped token: a whole run of ref characters, not inside a path
+ * (`/repo/x`) and not part of a longer word. A trailing `.` (sentence end) is
+ * dropped. Each token is looked up as a whole in the branch map, so a large
+ * live database needs no regex with thousands of alternatives.
+ */
+const REF_TOKEN = /(?<![A-Za-z0-9_./-])[A-Za-z0-9_][A-Za-z0-9_./-]*/g;
+
+function refToken(match: string): string {
+  return match.replace(/\.+$/, '');
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -225,6 +255,9 @@ export class CorpusSanitizer {
   /** External refs and logins distinctive enough to replace in all text. */
   private readonly textRefs = new Set<string>();
   private textRefRe: RegExp | null = null;
+  /** Branch names the database holds, except the shared ones. */
+  private readonly branches = new Set<string>();
+  private branchMap: Map<string, string> | null = null;
 
   private ticketMap: Map<number, number> | null = null;
   private pathMap: Map<string, string> | null = null;
@@ -279,6 +312,7 @@ export class CorpusSanitizer {
 
   private invalidate(): void {
     this.textRefRe = null;
+    this.branchMap = null;
     this.ticketMap = null;
     this.pathMap = null;
     this.urlMap = null;
@@ -302,14 +336,33 @@ export class CorpusSanitizer {
     this.invalidate();
   }
 
-  /** The registered external refs and collected logins that still appear in a tree, sorted. */
+  /**
+   * Register the branch names the database holds (worktree, PR and archive
+   * refs). A branch template or a hand-made branch can carry a login or a
+   * private topic (`zelda/secret-branch`), so each name other than a shared
+   * one (`main`, `develop`) becomes `fixture/branch-<n>`, also inside text.
+   */
+  registerBranches(names: Iterable<string>): void {
+    for (const name of names) {
+      const branch = name.trim();
+      if (branch === '' || SHARED_BRANCHES.has(branch)) continue;
+      this.branches.add(branch);
+    }
+    this.invalidate();
+  }
+
+  /** The registered external refs, branches and collected logins that still appear in a tree, sorted. */
   leftoverRefs(value: unknown): string[] {
     this.freeze();
-    const re = this.textRefRe;
-    if (re === null) return [];
     const text = JSON.stringify(value) ?? '';
     const found = new Set<string>();
-    for (const match of text.matchAll(re)) found.add(match[0]);
+    if (this.textRefRe !== null) for (const match of text.matchAll(this.textRefRe)) found.add(match[0]);
+    if (this.branchMap!.size > 0) {
+      for (const match of text.matchAll(REF_TOKEN)) {
+        const token = refToken(match[0]);
+        if (this.branchMap!.has(token)) found.add(token);
+      }
+    }
     return [...found].sort();
   }
 
@@ -339,7 +392,7 @@ export class CorpusSanitizer {
 
   /** Assign the stable maps once, from the sorted sets collected so far. */
   private freeze(): void {
-    if (this.ticketMap && this.pathMap && this.urlMap && this.refMap && this.userMap) return;
+    if (this.ticketMap && this.pathMap && this.urlMap && this.refMap && this.userMap && this.branchMap) return;
     const ticketIds = [...this.ticketIds].sort((a, b) => a - b);
     this.ticketMap = new Map(
       ticketIds.map((id, i) => [id, FIXTURE_TICKET_ID_MIN + i] as const),
@@ -358,6 +411,8 @@ export class CorpusSanitizer {
       textRefs.length === 0
         ? null
         : new RegExp(`(?<![A-Za-z0-9_-])(?:${textRefs.map(escapeRegExp).join('|')})(?![A-Za-z0-9_-])`, 'g');
+    const branches = [...this.branches].sort();
+    this.branchMap = new Map(branches.map((b, i) => [b, `${FIXTURE_BRANCH_PREFIX}${i + 1}`] as const));
     this.shift = this.fixedShift ?? timestampShift([...this.instants], this.nowMs);
   }
 
@@ -433,6 +488,13 @@ export class CorpusSanitizer {
     return next;
   }
 
+  /** A ref-shaped token: its fixture branch when it names a registered branch, else unchanged. */
+  private branchFor(match: string): string {
+    const token = refToken(match);
+    const fixture = this.branchMap!.get(token);
+    return fixture === undefined ? match : fixture + match.slice(token.length);
+  }
+
   /** A text match of the ref/login regex: a provider id wins over a login of the same spelling. */
   private textRefFor(match: string): string {
     if (this.refMap!.has(match) || !this.userMap!.has(match)) return this.refFor(match);
@@ -446,6 +508,7 @@ export class CorpusSanitizer {
       const url = trimUrl(match);
       return this.urlFor(url) + match.slice(url.length);
     });
+    if (this.branchMap!.size > 0) out = out.replace(REF_TOKEN, (match) => this.branchFor(match));
     if (this.textRefRe !== null) out = out.replace(this.textRefRe, (match) => this.textRefFor(match));
     // Relative paths before absolute ones: `../../Users/nd` holds `/Users/nd`.
     out = out.replace(REL_PATH, (match, lead: string, path: string) => lead + this.pathFor(path));
