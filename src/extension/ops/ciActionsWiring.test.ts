@@ -323,7 +323,7 @@ describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
     const autoShip = vi.fn(async () => {});
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'r: gate run was stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'r: gate run was stopped', failed: [] })); }),
@@ -374,7 +374,7 @@ describe('deliverToPrAction re-runs the skipped gates after a take-over push (D5
     recordDeliverGate(store, currentDeliverRun(store, id)!.id, { gateName: 'unit', repo: 'r', exitCode: 0, summary: null, startedAt: null, endedAt: null });
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
@@ -411,7 +411,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
     recordDeliverGate(store, currentDeliverRun(store, id)!.id, { gateName: 'unit', repo: 'r', exitCode: 0, summary: null, startedAt: null, endedAt: null });
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
@@ -561,7 +561,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
     seedPr();
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
@@ -649,7 +649,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
     const hold = new Promise<void>((r) => { release = r; });
     entry.arm(id, { repo: 'r', baseSha: null, files: [] });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: async () => ({ reason: null, failed: [] }), blocked: async () => {}, runShip: () => hold, reprobe: async () => {}, status: () => {}, log: () => {},
@@ -866,7 +866,7 @@ describe('takeover note limits (T1018)', () => {
     let started: () => void = () => {};
     const inPush = new Promise<void>((r) => { started = r; });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: async () => ({ reason: null, failed: [] }),
@@ -889,7 +889,7 @@ describe('takeover note limits (T1018)', () => {
     openDeliverRun(store, { ticketId: id, headSha: SHA, gates: [name], pid: 1, now: 'T0' });
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
@@ -909,7 +909,7 @@ describe('takeover note limits (T1018)', () => {
     expect(run).toBeGreaterThan(0);
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
@@ -929,7 +929,7 @@ describe('takeover note limits (T1018)', () => {
     store.db.prepare('UPDATE tickets SET key = NULL WHERE id = ?').run(id);
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'x', rounds: conflictRounds,
+      store, ticketId: id, key: 'x', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),

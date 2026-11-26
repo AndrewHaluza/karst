@@ -121,6 +121,7 @@ export async function verifyMergeResolved(git: Git, cwd: string, round: Resolved
 }
 
 export interface AutoDeliverDeps extends Omit<DeliverDeps, 'verify'> {
+  readonly store: Store;
   readonly ticketId: number;
   /** Ticket label for the log line. */
   readonly key: string;
@@ -374,11 +375,13 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
         if (entry.takenOver) return TAKEN_OVER;
         if (gates.reason !== null) {
           d.error(`Resolved merge not delivered: a ship-stage gate failed — ${gates.reason}`);
-          // The merge is finished and correct: only a gate stopped the delivery. Name it, so autopilot parks with the gate,
-          // the merge commit and the manual Deliver instead of dropping the round as one that never delivered (T1315).
+          // The merge is finished and correct: only a gate stopped the delivery. Name the FAILING repo (its head is the one
+          // a fix moves, and its base names the failure), not the conflicted round's repo on another repo's failure (T1381).
+          const failedPr = targets.prs.find((p) => p.repo === gates.failed[0]?.repo) ?? pr;
+          const failedBase = getMergeCheck(d.store, d.ticketId, failedPr.repo)?.baseSha ?? round.baseSha;
           d.rounds.refuse(d.ticketId, {
-            repo: round.repo, tail: shipGateFailureTail(gates), sha: await mergeShaOf(d, pr),
-            runId: d.lastRunId?.() ?? null, baseRef: d.baseRef?.(pr) ?? null, baseSha: round.baseSha,
+            repo: failedPr.repo, tail: shipGateFailureTail(gates), sha: await mergeShaOf(d, failedPr),
+            runId: d.lastRunId?.() ?? null, baseRef: d.baseRef?.(failedPr) ?? null, baseSha: failedBase,
           });
           return gates.reason;
         }

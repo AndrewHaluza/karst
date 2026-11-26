@@ -44,6 +44,7 @@ function rig(over: Partial<AutoDeliverDeps> = {}) {
   rounds.arm(1, ROUND);
   const log: string[] = [];
   const deps: AutoDeliverDeps = {
+    store: openStore(':memory:'),
     ticketId: 1,
     key: 'T1',
     rounds,
@@ -882,6 +883,32 @@ describe('the refused delivery of a verified merge (T1315)', () => {
     expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: SHA, runId: null, baseRef: null, baseSha: ROUND.baseSha });
     // The round stays armed for the manual Deliver and for the park the engine writes: a refusal is not a disarm.
     expect(rounds.armed(1)).not.toBeNull();
+  });
+
+  it('binds the refusal to the FAILING repo, not the conflicted round repo (T1381)', async () => {
+    const store = openStore(':memory:');
+    setMergeCheck(store, { ticketId: 1, repo: 'api', state: 'clean', files: [], reason: null, headSha: 'apih', baseSha: 'apibase', baseRef: 'main', checkedAt: 'x' });
+    const api = { repo: 'api', number: 9, branch: 'feat/api', cwd: '/wt/api' };
+    const { deps, rounds } = rig({
+      store,
+      targets: () => ({ available: true, prs: [OPEN.prs[0]!, api] }),
+      runGates: async () => ({ reason: 'api: gate "unit" failed (exit 1)', failed: [{ name: 'unit', repo: 'api', output: 'x' }] }),
+      mergeSha: async (pr) => (pr.repo === 'api' ? 'apis' : SHA),
+      baseRef: (pr) => (pr.repo === 'api' ? 'main' : 'develop'),
+    });
+    await autoDeliverAfterConflict(deps);
+    // The failing repo's head, base ref and base head: a fix moves THAT repo, and the failure names its base.
+    expect(rounds.refusal(1)).toEqual({ repo: 'api', tail: 'gate "unit" failed', sha: 'apis', runId: null, baseRef: 'main', baseSha: 'apibase' });
+  });
+
+  it('records the round repo when the failed run names no gate', async () => {
+    const { deps, rounds } = rig({
+      runGates: async () => ({ reason: 'r: gate run was stopped', failed: [] }),
+      mergeSha: async () => SHA,
+    });
+    await autoDeliverAfterConflict(deps);
+    // No failed gate: the round's own repo is the only one to name, and the tail is the generic one.
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'a ship gate failed', sha: SHA, runId: null, baseRef: null, baseSha: ROUND.baseSha });
   });
 
   it('leaves the sha unread when the host has no merge-sha seam', async () => {

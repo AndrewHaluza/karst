@@ -458,6 +458,7 @@ export function autoDeliverAction(
     onRunOpened: (id) => { openedRunId = id; extra.gate.onRunOpened?.(id); },
   };
   return autoDeliverAfterConflict({
+    store: i.store,
     ticketId: i.ticketId,
     key: extra.key, status: extra.status, log: extra.log,
     rounds: conflictRounds,

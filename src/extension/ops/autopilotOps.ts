@@ -487,11 +487,13 @@ async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, store
   }
   const failure = refusedFailure(d, stored.runId, stored.baseRef, stored.baseSha);
   if (failure === null || !failure.available || failure.failed.length === 0) return parkRefusedMerge(d, refused);
-  // A round already ran at this head: the agent's fix is in flight and the guard waits (never a second send, never the
-  // no-change park of a new round). The round records the run head per FAILED-GATE repo, not the conflicted round's repo.
-  const runHead = failure.run.headSha;
-  if (runHead !== null && baseMovedTargets(failure.failed, failure.reason).some((t) => getCiRoundHeadSha(d.store, d.ticketId, t.repo) === runHead)) {
-    d.debug(`${LOG} ticket ${d.key}: the gate fix round ran at head ${runHead.slice(0, 9)}; waiting for the fix`);
+  // A round already ran at this state: the agent's fix is in flight and the guard waits (never a second send, never the
+  // no-change park of a new round). The round records a head per FAILED-GATE repo, not the conflicted round's repo, and not
+  // the run's single (first planned repo) head for every repo.
+  const sent = [...failedRepoHeads(failure.failed, failure.run.headSha)]
+    .find(([repo, head]) => head !== null && getCiRoundHeadSha(d.store, d.ticketId, repo) === head);
+  if (sent !== undefined) {
+    d.debug(`${LOG} ticket ${d.key}: the gate fix round ran for ${sent[0]} at head ${sent[1]!.slice(0, 9)}; waiting for the fix`);
     return { kind: 'busy' };
   }
   return sendRefusedRound(d, cfg, failure, () => d.sendRefusedMergeFailure!(failure));
@@ -631,6 +633,14 @@ function baseMovedTargets(failed: readonly { readonly repo: string }[], reason: 
 }
 
 /**
+ * The head each failed repo's own gate recorded (T1381), falling back to the run head. A ship gate run opens with the head of
+ * the FIRST planned repo, so a multi-repo failure must not compare or record that head for every repo.
+ */
+function failedRepoHeads(failed: BaseMovedFailureRun['failed'], runHead: string | null): Map<string, string | null> {
+  return new Map(failed.map((g) => [g.repo, g.headSha ?? runHead] as const));
+}
+
+/**
  * A failed base-moved run is a red CI rollup (@arch:AP-00): one CI round through the CI budget and its mark, so the driver
  * re-ships after the round (@arch:AP-06). The round records the ticket head the failed run tested. A second failure on that head
  * means the round made no commit (D564): the ticket parks and the block `base-moved-failed` stays.
@@ -650,9 +660,10 @@ async function runGateFailureRound(d: AutopilotDeps, cfg: AutopilotConfig, state
   if (state.failed.length === 0) return { kind: 'nothing' };
   if (cfg.ci.policy === 'ask') return { kind: 'ask', reason: 'ci policy is ask' };
   const targets = baseMovedTargets(state.failed, state.reason);
-  const head = state.run.headSha;
-  if (head !== null && targets.some((t) => getCiRoundHeadSha(d.store, d.ticketId, t.repo) === head)) {
-    return park(d, 'ci', NO_CHANGE_BASE_MOVED_REASON, 'the agent made no commit and the base-moved check failed again on the same head; fix it by hand or approve one more attempt.', false, head);
+  const heads = failedRepoHeads(state.failed, state.run.headSha);
+  const sent = [...heads].find(([repo, head]) => head !== null && getCiRoundHeadSha(d.store, d.ticketId, repo) === head);
+  if (sent !== undefined) {
+    return park(d, 'ci', NO_CHANGE_BASE_MOVED_REASON, 'the agent made no commit and the base-moved check failed again on the same head; fix it by hand or approve one more attempt.', false, sent[1]);
   }
   const placed = await placementOf(d, 'ci');
   if (placed.kind === 'park') return placed.result;
@@ -673,10 +684,17 @@ async function runGateFailureRound(d: AutopilotDeps, cfg: AutopilotConfig, state
   const refundAll = (): void => { for (const t of taken) refundAutopilotAttempt(d.store, d.ticketId, t.repo, 'ci'); };
   const blocked = await sandboxGate(d, placed.placement, 'ci', first.repo, refundAll);
   if (blocked) return blocked;
-  const outcome: FixOutcome = await send()
-    .catch((err: unknown): FixOutcome => ({ kind: 'failed', reason: err instanceof Error ? err.message : String(err) }));
+  let outcome: FixOutcome;
+  try {
+    outcome = await send();
+  } catch (err: unknown) {
+    // Stryker disable next-line StringLiteral: equivalent, settleRound treats every kind but sent, lease-lost and env-blocker as the failed path
+    outcome = { kind: 'failed', reason: err instanceof Error ? err.message : String(err) };
+  }
   const settled = await settleRound(d, { kind: 'ci', repo: first.repo, used: budget.used, max: budget.max, action: 'Send gate failure to agent', refundAll }, outcome);
-  if (settled.kind === 'armed' && head !== null) for (const t of targets) setCiRoundHeadSha(d.store, d.ticketId, t.repo, head);
+  // The round head is per repo: a ship gate run opens with the FIRST planned repo's head, so writing that for every failed
+  // repo would compare a later repo's fix against another repo's head (T1381).
+  if (settled.kind === 'armed') for (const [repo, head] of heads) setCiRoundHeadSha(d.store, d.ticketId, repo, head);
   return settled;
 }
 

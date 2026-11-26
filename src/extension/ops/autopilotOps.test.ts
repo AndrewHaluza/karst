@@ -1737,8 +1737,41 @@ describe('conflicts', () => {
       const reload = rig({ localHead: async () => SHA, conflictRoundRefused: () => null, sendRefusedMergeFailure: sent });
       expect((await autopilotTick(reload.deps)).kind).toBe('busy');
       expect(sent).not.toHaveBeenCalled();
-      expect(reload.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: the gate fix round ran at head ccccccccc; waiting for the fix');
+      expect(reload.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: the gate fix round ran for a at head ccccccccc; waiting for the fix');
       expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+    });
+
+    it('(z12) records each failed repo its own head, not the first planned repo head, for the round', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const runId = openDeliverRun(store, { ticketId: id, headSha: 'firsthead', gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+      recordDeliverGate(store, runId, { gateName: 'unit', repo: 'a', exitCode: 1, headSha: 'ahead', summary: 'FAIL a', startedAt: null, endedAt: null });
+      recordDeliverGate(store, runId, { gateName: 'unit', repo: 'b', exitCode: 1, headSha: 'bhead', summary: 'FAIL b', startedAt: null, endedAt: null });
+      finishDeliverRun(store, runId, 'failed', 'T1');
+      expect(await autopilotTick(rigRefused(runId).deps)).toEqual({ kind: 'armed', problem: 'ci', used: 1, max: 3 });
+      expect(getCiRoundHeadSha(store, id, 'a')).toBe('ahead');
+      expect(getCiRoundHeadSha(store, id, 'b')).toBe('bhead');
+    });
+
+    it('(z13) parks no-change on the same failed-repo heads, not the run head', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      const multiRun = (head: string): number => {
+        const runId = openDeliverRun(store, { ticketId: id, headSha: head, gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+        recordDeliverGate(store, runId, { gateName: 'unit', repo: 'a', exitCode: 1, headSha: 'ahead', summary: 'FAIL a', startedAt: null, endedAt: null });
+        recordDeliverGate(store, runId, { gateName: 'unit', repo: 'b', exitCode: 1, headSha: 'bhead', summary: 'FAIL b', startedAt: null, endedAt: null });
+        finishDeliverRun(store, runId, 'failed', 'T1');
+        return runId;
+      };
+      expect(await autopilotTick(rigRefused(multiRun('firsthead')).deps)).toEqual({ kind: 'armed', problem: 'ci', used: 1, max: 3 });
+      // The fix round came back: the failed repos did not commit, even though the run's first planned repo head changed.
+      markConflictRound(store, id, Date.now());
+      const second = rigRefused(multiRun('secondhead'));
+      expect(await autopilotTick(second.deps)).toEqual({ kind: 'parked', reason: NO_CHANGE_BASE_MOVED_REASON });
+      expect(second.sendRefusedMergeFailure).not.toHaveBeenCalled();
+      expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
     });
 
     it('(z10) a fresh refusal whose run cannot be read parks the fallback, using no other run', async () => {
