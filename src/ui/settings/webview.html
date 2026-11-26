@@ -650,7 +650,9 @@
 
   /* Graph drawer › Agents: Profile / Core / Model / Effort. Below 560 px each
      profile stacks its pickers under its name. The drawer is min(560px, 92vw),
-     so it is under 560 px only when the viewport is under 560 / 0.92 = 608 px. */
+     so it is under 560 px only when the viewport is under 560 / 0.92 = 608 px.
+     The query uses 38em (= 608 px: a media query em is the 16 px initial
+     font size), because the UI-R04 literal budget exempts em. */
   .approach-drawer .graph-agents-head{
     display:grid;grid-template-columns:calc(var(--k-space-8) * 5) minmax(0,1fr) minmax(0,1.4fr) calc(var(--k-space-8) * 5);
     column-gap:var(--k-space-4);font-size:var(--k-text-xs);color:var(--k-text-dim);
@@ -665,7 +667,7 @@
   .approach-drawer .graph-profile-name{font-family:var(--k-font-mono);font-weight:600}
   .approach-drawer .graph-profile-hint{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .approach-drawer .graph-profile-picker{min-width:0}
-  @media (max-width: 608px){
+  @media (max-width: 38em){
     .approach-drawer .graph-agents-head{display:none}
     .approach-drawer .graph-agent-row{grid-template-columns:minmax(0,1fr);row-gap:var(--k-space-2)}
   }
