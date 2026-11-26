@@ -1380,7 +1380,8 @@ END_DOC_BLOCK: [@ui:UI-R56]
 ## [@ui:UI-R57] Every view declares a variant matrix; every variant is fixtured, baselined and geometry-checked
 
 Every webview in `WEBVIEW_NAMES` (`src/model/webviewChains.ts`) declares its
-variants in `tests/visual/variants.ts`. Mandatory for every view: `populated`,
+variants in `tests/visual/variants/<view>.ts`; the registry is `tests/visual/variants.ts`.
+Shared types and helpers are in `tests/visual/variantCore.ts`. Mandatory for every view: `populated`,
 `empty`, `loading` (before the first host message), `error` (host failure or
 unknown), `long-content` (40+ char names, 60+ char model ids, long paths, enough
 rows to reach "+N more"). View-specific states (dashboard stage scenarios,

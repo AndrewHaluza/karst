@@ -26,6 +26,8 @@ const BASELINE_PNG = /^tests\/visual\/__baselines__\/.+\.png$/;
 export const BASELINE_READERS = ['tests/visual/variants.test.ts', 'scripts/uiViews.test.mjs'];
 
 const CODE_FILE = /\.(?:[cm]?[jt]sx?)$/;
+/** A code file under tests/visual/ (never a baseline) selects the related tests, not the full suite. */
+const VISUAL_CODE_FILE = /^tests\/visual\/(?!__baselines__\/).+\.(?:[cm]?[jt]sx?)$/;
 
 /** Stable key of a gate: the hash of its vitest args (or of the script name for a docker gate). */
 export const stateKey = (args) => createHash('sha256').update(args.join('\0')).digest('hex').slice(0, 24);
@@ -41,6 +43,7 @@ export function classifyPath(path) {
   if (path.startsWith('scripts/vitest-')) return { kind: 'full', reason: `${path} changed (test setup)` };
   if (path.startsWith('docs/')) return { kind: 'docs' };
   if (BASELINE_PNG.test(path)) return { kind: 'readers', files: BASELINE_READERS };
+  if (VISUAL_CODE_FILE.test(path)) return { kind: 'code' };
   if (!path.startsWith('src/')) return { kind: 'full', reason: `${path} changed (outside src and docs)` };
   if (!CODE_FILE.test(path)) return { kind: 'full', reason: `${path} changed (non-code file under src)` };
   return { kind: 'code' };

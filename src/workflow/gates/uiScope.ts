@@ -21,7 +21,11 @@ export const UI_GATE_SCRIPTS: readonly string[] = ['test:visual:docker', 'test:l
 /** The reason a UI gate records when the diff holds no UI path. */
 export const NO_UI_CHANGE_REASON = 'no UI change';
 
+/** Visual files that render nothing (`scripts/uiViews.mjs` keeps the same list): sweepBudget.ts holds the sweep counts, and only sweepBudget.test.ts in the unit gate reads it. */
+export const NON_RENDERING_VISUAL_PATHS: readonly string[] = ['tests/visual/sweepBudget.ts'];
+
 export function matchesUiPath(path: string): boolean {
+  if (NON_RENDERING_VISUAL_PATHS.includes(path)) return false;
   return UI_PATH_PATTERNS.some((pattern) => pattern.test(path));
 }
 

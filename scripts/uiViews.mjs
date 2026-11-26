@@ -30,16 +30,28 @@ const UI_PATH = [/^src\/ui\//, /^tests\/visual\//, /^playwright\.config\.ts$/, /
 /** A unit test never renders. */
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/;
 
+/** Visual files that render nothing: `sweepBudget.ts` holds the sweep counts, and only sweepBudget.test.ts in the unit gate reads it. */
+const NON_RENDERING_VISUAL = new Set(['tests/visual/sweepBudget.ts']);
+
 /** Files under tests/visual/ with a single owning view (e.g. panel variant definitions). */
 export const VIEW_FILES = {
   'tests/visual/panelVariants.ts': 'dashboard',
+  'tests/visual/variants/dashboard.ts': 'dashboard',
+  'tests/visual/variants/diffs.ts': 'diffs',
+  'tests/visual/variants/gettingStarted.ts': 'gettingStarted',
+  'tests/visual/variants/resources.ts': 'resources',
+  'tests/visual/variants/serverLogs.ts': 'serverLogs',
+  'tests/visual/variants/settings.ts': 'settings',
+  'tests/visual/variants/sidebar.ts': 'sidebar',
+  'tests/visual/variants/ticketForm.ts': 'ticketForm',
+  'tests/visual/variants/usage.ts': 'usage',
 };
 
 const VIEW_DIR_PATH = /^src\/ui\/([^/]+)\/(.+)$/;
 const BASELINE_PATH = /^tests\/visual\/__baselines__\/[^/]+\/([a-zA-Z0-9]+?)(?:--|-.*)?\.png$/;
 
 /** Whether a changed path can alter a render: the paths `selectViews` counts as UI. */
-export const isUiPath = (path) => UI_PATH.some((p) => p.test(path)) && !TEST_FILE.test(path);
+export const isUiPath = (path) => UI_PATH.some((p) => p.test(path)) && !TEST_FILE.test(path) && !NON_RENDERING_VISUAL.has(path);
 
 /**
  * `{ all: true }` or `{ all: false, views }` (views sorted, possibly empty when

@@ -13,6 +13,9 @@ describe('classifyPath', () => {
     ['src/ui/x.tsx', 'code'],
     ['src/a.test.ts', 'code'],
     ['docs/arch/x.md', 'docs'],
+    ['tests/visual/variants/usage.ts', 'code'],
+    ['tests/visual/variants.ts', 'code'],
+    ['tests/visual/variantCore.ts', 'code'],
   ])('%s -> %s', (path, kind) => expect(classifyPath(path).kind).toBe(kind));
 
   it.each([
@@ -27,9 +30,9 @@ describe('classifyPath', () => {
     'vitest.integration.config.ts',
     'scripts/vitest-global-setup.mjs',
     'scripts/other.mjs',
-    'tests/visual/x.ts',
     'src/data/fixture.json',
     'src/ui/x.css',
+    'tests/visual/layout-known-failures.json',
     'README.md',
   ])('%s forces a full run', (path) => expect(classifyPath(path).kind).toBe('full'));
 });
@@ -38,7 +41,10 @@ const PNG = 'tests/visual/__baselines__/dark/usage--loading.png';
 
 describe('baseline PNG', () => {
   it('classifies a baseline PNG as the readers', () => expect(classifyPath(PNG)).toEqual({ kind: 'readers', files: BASELINE_READERS }));
-  it('keeps a non-PNG under the baseline directory full', () => expect(classifyPath('tests/visual/__baselines__/x.json').kind).toBe('full'));
+  it('keeps a non-PNG under the baseline directory full', () => {
+    expect(classifyPath('tests/visual/__baselines__/x.json').kind).toBe('full');
+    expect(classifyPath('tests/visual/__baselines__/x.ts').kind).toBe('full');
+  });
   it('scopes a PNG-only delta to the two readers', () => {
     expect(plan({ delta: [{ status: 'M', path: PNG }] })).toMatchObject({ kind: 'scoped', paths: BASELINE_READERS });
   });
@@ -52,8 +58,9 @@ describe('baseline PNG', () => {
   it('stays full for a PNG plus package.json', () => {
     expect(plan({ delta: [{ status: 'M', path: PNG }, { status: 'M', path: 'package.json' }] }).kind).toBe('full');
   });
-  it('stays full for a PNG plus tests/visual/foo.ts', () => {
-    expect(plan({ delta: [{ status: 'M', path: PNG }, { status: 'M', path: 'tests/visual/foo.ts' }] }).reason).toContain('outside src and docs');
+  it('scopes a PNG plus a visual code file to the readers and that file', () => {
+    const r = plan({ delta: [{ status: 'M', path: PNG }, { status: 'M', path: 'tests/visual/foo.ts' }] });
+    expect(r).toMatchObject({ kind: 'scoped', paths: [...BASELINE_READERS, 'tests/visual/foo.ts'] });
   });
   it('stays full when a non-baseline file is deleted next to a PNG', () => {
     expect(plan({ delta: [{ status: 'M', path: PNG }, { status: 'D', path: 'src/a.ts' }] }).reason).toContain('deleted or renamed');
