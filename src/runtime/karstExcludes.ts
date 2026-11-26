@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -121,4 +121,16 @@ export async function ensureKarstExcludedAsync(repoPath: string): Promise<void> 
   const missing = missingRules(contents);
   if (missing.length === 0) return;
   await writeFile(file, withRules(contents, missing));
+}
+
+/**
+ * `ensureKarstExcludedAsync` for a graph node workspace CLONE (T1370). A fresh
+ * `git clone` does not copy the source's `.git/info/exclude`, and an empty clone
+ * template has no `.git/info` dir at all. Without the rules, a file an adapter
+ * writes into the node cwd (the opencode2 bridge plugin) enters claim
+ * validation as an untracked `added` path and parks the node.
+ */
+export async function ensureCloneKarstExcluded(clonePath: string): Promise<void> {
+  await mkdir(join(clonePath, '.git', 'info'), { recursive: true });
+  await ensureKarstExcludedAsync(clonePath);
 }

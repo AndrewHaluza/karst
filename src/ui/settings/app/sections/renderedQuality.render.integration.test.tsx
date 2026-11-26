@@ -175,16 +175,17 @@ const asUat = (block: Record<string, unknown>): UatConfig =>
   block as unknown as UatConfig;
 
 describe('rendered Settings — Quality tab mounts into the real document', () => {
-  it('renders both policy panels and the gate mount, with no script errors', async () => {
+  it('renders both stage sections and the gate mounts, with no script errors', async () => {
     const { view } = await mountOnQuality();
     expect(root(view).querySelector('[id="section-quality"]')).not.toBeNull();
     expect(root(view).querySelector('.page-title')?.textContent).toBe('Quality');
     const titles = Array.from(root(view).querySelectorAll('.section-title')).map(
       (n) => n.textContent,
     );
-    expect(titles).toContain('UAT policy');
-    expect(titles).toContain('Review policy');
-    // Findings is MERGED into the review panel, not a panel of its own.
+    expect(titles).toEqual(['UAT', 'Review']);
+    expect(root(view).querySelector('[data-region="quality-uat"]')).not.toBeNull();
+    expect(root(view).querySelector('[data-region="quality-review"]')).not.toBeNull();
+    // Findings is MERGED into the review section, not a section of its own.
     expect(titles).not.toContain('Findings');
     expect(view.errors).toEqual([]);
   });
@@ -196,6 +197,53 @@ describe('rendered Settings — Quality tab mounts into the real document', () =
       'quality',
     );
     expect(root(view).querySelector('.topbar-section')?.textContent).toBe('› Quality');
+  });
+});
+
+describe('rendered Settings — the Quality stage sections (T1373)', () => {
+  it('drops the old panels and puts UAT above Review', async () => {
+    const { view } = await mountOnQuality();
+    expect(root(view).querySelector('.quality-grid')).toBeNull();
+    expect(root(view).querySelector('.quality-panel')).toBeNull();
+    const uat = root(view).querySelector('[data-region="quality-uat"]') as Element;
+    const review = root(view).querySelector('[data-region="quality-review"]') as Element;
+    expect(uat).not.toBeNull();
+    expect(review).not.toBeNull();
+    // 4 = DOCUMENT_POSITION_FOLLOWING: Review renders after UAT.
+    expect(uat.compareDocumentPosition(review) & 4).toBeTruthy();
+    expect(uat.querySelector('[data-region="gates"].gate-block')).not.toBeNull();
+  });
+
+  it('renders each Tester child and grandchild as its own row', async () => {
+    const { view } = await mountOnQuality({
+      uat: asUat({
+        testerObservations: {
+          blockingSeverity: 'none',
+          requireEvidence: { file: 'out/s.json', whenChanged: [] },
+        },
+      }),
+    });
+    const options = root(view).querySelector('#uatTesterOptions') as Element;
+    expect(options).not.toBeNull();
+    expect(options.querySelectorAll(':scope > .q-row').length).toBe(5);
+    expect(options.querySelectorAll('.q-row--grandchild').length).toBe(2);
+  });
+
+  it('renders a gate on one line, with a problem under the row', async () => {
+    const { view } = await mountOnQuality();
+    const addGate = [...root(view).querySelectorAll('button')].find(
+      (b) => b.textContent === '+ Add gate',
+    ) as Element;
+    await view.click(addGate);
+    const item = root(view).querySelector('.gate-item') as Element;
+    expect(item.querySelector('.gate-row')).not.toBeNull();
+    expect(item.querySelector('.gate-meta')).toBeNull();
+    expect(item.querySelector('.gate-summary')).toBeNull();
+    const problem = item.querySelector('.gate-problem') as Element;
+    expect(problem.getAttribute('role')).toBe('alert');
+    // Its own line, outside the gate's row grid: the row inputs never move.
+    expect(problem.closest('.gate-row')).toBeNull();
+    expect(problem.previousElementSibling?.className).toContain('gate-row');
   });
 });
 
@@ -353,8 +401,12 @@ describe('rendered Settings — the gate editor and overrides, end to end', () =
     // the seeded copy, which is what "replaces rather than extends" means.
     expect(controlValueIn(overrideCard(view, 'backend'), view, 'Gate 1 name')).toBe('build');
     expect(controlValue(view, 'Gate 1 name')).toBe('build');
-    // And the tab says so in the copy, beside the cards.
-    expect(root(view).querySelector('.override-editor-note')?.textContent).toContain('replaces');
+    // And the tab says so in the copy, beside the picker that seeds it.
+    expect(
+      Array.from(root(view).querySelectorAll('.override-editor .k-field-help'))
+        .map((n) => n.textContent ?? '')
+        .join(' '),
+    ).toContain('replaces');
   });
 
   it('removes the whole override from its own control (UI-R10b)', async () => {

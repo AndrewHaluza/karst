@@ -16,6 +16,7 @@ import {
   beginSave,
   clearUndo,
   discardWithUndo,
+  recordTicketRequest,
   setDraftManifest,
   settingsAppReducer,
   touchField,
@@ -299,15 +300,53 @@ describe('settingsAppReducer — the folder picker', () => {
 });
 
 describe('settingsAppReducer — the ticketing status fetch', () => {
-  const base = () => withDraftEdit(TICKETING_EDITED_MANIFEST);
+  /** A ClickUp draft whose statuses can be made coherent, with both toggles ON. */
+  const base = () =>
+    withDraftEdit({
+      ...TICKETING_EDITED_MANIFEST,
+      ticketing: {
+        provider: 'clickup',
+        listId: 'L1',
+        teamId: 'T1',
+        advanceOnShip: true,
+        advanceOnStart: true,
+      },
+    });
 
-  it('fills both statuses so a toggled-on ticketing config is never invalid', () => {
-    // Statuses arriving with nothing chosen on either side would leave an
+  it('fills both statuses when both toggles are on', () => {
+    // Statuses arriving with a toggle ON and nothing chosen would leave an
     // invalid draft — shipping with an empty shipStatus.
     const s = push({ type: 'ticket-statuses', statuses: ['open', 'in progress'] }, base());
     expect(s.draft.ticketing?.shipStatus).toBe('open');
     expect(s.draft.ticketing?.startStatus).toBe('in progress');
     expect(s.statuses).toEqual({ kind: 'ready', statuses: ['open', 'in progress'] });
+  });
+
+  it('stores only the fetch result when both toggles are off, so it stays clean', () => {
+    // T1371 / bug 1: the page auto-loads the statuses. Filling an OFF toggle's
+    // status here would make the draft dirty on open, and the topbar could
+    // never read "All changes saved".
+    const clean = hydrated();
+    const s = push({ type: 'ticket-statuses', statuses: ['open', 'in progress'] }, clean);
+    expect(s.statuses).toEqual({ kind: 'ready', statuses: ['open', 'in progress'] });
+    expect(s.draft.ticketing?.shipStatus).toBeUndefined();
+    expect(s.draft.ticketing?.startStatus).toBeUndefined();
+    expect(s.dirtySections).toEqual(clean.dirtySections);
+  });
+
+  it('fills only the side whose toggle is on', () => {
+    const shipOnly = withDraftEdit({
+      ...TICKETING_EDITED_MANIFEST,
+      ticketing: {
+        provider: 'clickup',
+        listId: 'L1',
+        teamId: 'T1',
+        advanceOnShip: true,
+      },
+    });
+    const s = push({ type: 'ticket-statuses', statuses: ['open', 'in progress'] }, shipOnly);
+    expect(s.draft.ticketing?.shipStatus).toBe('open');
+    expect(s.draft.ticketing?.startStatus).toBeUndefined();
   });
 
   it('leaves an explicitly chosen status alone', () => {
@@ -317,6 +356,7 @@ describe('settingsAppReducer — the ticketing status fetch', () => {
         provider: 'clickup',
         listId: 'L1',
         teamId: 'T1',
+        advanceOnShip: true,
         shipStatus: 'done',
       },
     });
@@ -595,5 +635,58 @@ describe('discardWithUndo / undoDiscard (Q11 / SET-15)', () => {
     expect(cleared.undo).toBeNull();
     expect(cleared.draft).toEqual(discarded.draft);
     expect(clearUndo(cleared)).toBe(cleared);
+  });
+});
+
+describe('settingsAppReducer — a ticketing reply lands only on its own key', () => {
+  const board = () =>
+    withDraftEdit({
+      ...TICKETING_EDITED_MANIFEST,
+      ticketing: { provider: 'clickup', listId: 'L1', teamId: 'T1', advanceOnShip: true },
+    });
+
+  it('records the key a fetch was posted for, and leaves the other alone', () => {
+    const s = recordTicketRequest(board(), 'statuses', 'L1');
+    expect(s.ticketRequests).toEqual({ statuses: 'L1', lists: null });
+    expect(recordTicketRequest(s, 'lists', 'T1').ticketRequests).toEqual({ statuses: 'L1', lists: 'T1' });
+    expect(INITIAL_SETTINGS_APP_STATE.ticketRequests).toEqual({ statuses: null, lists: null });
+  });
+
+  it('applies a status reply for the key it was asked for, and clears the record', () => {
+    const s = push({ type: 'ticket-statuses', statuses: ['open'] }, recordTicketRequest(board(), 'statuses', 'L1'));
+    expect(s.statuses).toEqual({ kind: 'ready', statuses: ['open'] });
+    expect(s.draft.ticketing?.shipStatus).toBe('open');
+    expect(s.ticketRequests).toEqual({ statuses: null, lists: null });
+  });
+
+  it('drops a status reply for a list the draft has left, and writes nothing', () => {
+    const asked = recordTicketRequest(board(), 'statuses', 'L0');
+    const s = push({ type: 'ticket-statuses', statuses: ['open'] }, asked);
+    expect(s.statuses).toEqual({ kind: 'idle' });
+    expect(s.statuses).not.toBe(asked.statuses);
+    expect(s.draft).toBe(asked.draft);
+    expect(s.ticketRequests).toEqual({ statuses: null, lists: null });
+    const failed = push({ type: 'ticket-statuses-error', message: 'no' }, asked);
+    expect(failed.statuses).toEqual({ kind: 'idle' });
+    expect(failed.ticketRequests.statuses).toBeNull();
+  });
+
+  it('drops a list reply for a team the draft has left, and keeps the statuses', () => {
+    const asked = recordTicketRequest(recordTicketRequest(board(), 'lists', 'T0'), 'statuses', 'L1');
+    const s = push({ type: 'ticket-lists', lists: [] }, asked);
+    expect(s.lists).toEqual({ kind: 'idle' });
+    expect(s.statuses).toBe(asked.statuses);
+    expect(s.ticketRequests).toEqual({ statuses: 'L1', lists: null });
+    expect(push({ type: 'ticket-lists-error', message: 'no' }, asked).lists).toEqual({ kind: 'idle' });
+  });
+
+  it('applies list replies for the current team, error included', () => {
+    const asked = recordTicketRequest(board(), 'lists', 'T1');
+    expect(push({ type: 'ticket-lists', lists: [] }, asked).lists).toEqual({ kind: 'ready', lists: [] });
+    const failed = push({ type: 'ticket-lists-error', message: 'no' }, asked);
+    expect(failed.lists).toEqual({ kind: 'failed', error: 'no' });
+    expect(failed.ticketRequests.lists).toBeNull();
+    expect(push({ type: 'ticket-statuses-error', message: 'x' }, recordTicketRequest(board(), 'statuses', 'L1')).statuses)
+      .toEqual({ kind: 'failed', error: 'x' });
   });
 });

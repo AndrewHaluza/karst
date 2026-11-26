@@ -1,17 +1,7 @@
-/**
- * COMPONENT-mode tests for the Quality tab (NDL-126 §9.5).
- *
- * The tab CLAIMS both blocks and renders a fraction of them, so the assertions
- * that matter are about what the tab does NOT touch: `uat.env`, `uat.secrets`,
- * `uat.origins`, `review.author`, and a `findings` sibling the user did not edit
- * all have to survive every write path. That is the D1/D3 guard, at component
- * level.
- *
- * Also covered: the defaults the tab SHOWS must be the ones the validator
- * applies (R-X1), the toggle that removes a block by presence rather than by a
- * `false`, the guarded severity listener, the override copy semantics, and the
- * destructive taxonomy on the two remove controls.
- */
+// COMPONENT-mode tests for the Quality tab (NDL-126 §9.5, T1373).
+// The tab renders a fraction of the blocks it claims: inert `uat`/`review` keys
+// survive every write (D1/D3), the shown defaults are the validator's (R-X1),
+// the Tester toggle removes its block by presence, and overrides replace.
 // @vitest-environment jsdom
 import { act } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -130,7 +120,6 @@ describe('QualitySection — the defaults it shows are the defaults ship applies
     expect(field('reviewMaxFixAttempts').value).toBe(String(REVIEW_MAX_FIX_ATTEMPTS));
     expect(field('reviewRequireIndependentSignal').checked).toBe(true);
     expect(field('reviewOpenChanges').checked).toBe(false);
-    // Findings default ON / 'high' / 50, the human-decided blocking default.
     expect(field('reviewFindingsEnabled').checked).toBe(REVIEW_FINDINGS_DEFAULTS.enabled);
     expect(field('reviewFindingsSeverity').value).toBe(
       REVIEW_FINDINGS_DEFAULTS.blockingSeverity,
@@ -140,7 +129,6 @@ describe('QualitySection — the defaults it shows are the defaults ship applies
 
   it('reads the tester toggle from the block PRESENCE, not from a default', () => {
     mountQuality();
-    // Absent block → off, even though `blockingSeverity` defaults to 'none'.
     expect(field('uatTesterEnabled').checked).toBe(false);
     expect(document.getElementById('uatTesterOptions')).toBeNull();
   });
@@ -214,8 +202,6 @@ describe('QualitySection — every write spreads the block (D1/D3)', () => {
 
   it('deep-merges findings over the defaults, never over the draft alone', () => {
     const { probe } = mountQuality();
-    // The block is absent: patching one field must not write a findings block
-    // with a single key, or the lane would stop blocking by default.
     fireEvent.change(field('reviewFindingsMax'), { target: { value: '12' } });
     expect(reviewOf(probe).findings).toEqual({
       enabled: REVIEW_FINDINGS_DEFAULTS.enabled,
@@ -232,7 +218,6 @@ describe('QualitySection — the tester toggle owns the block by presence', () =
     );
     fireEvent.click(field('uatTesterEnabled'));
     expect(uatOf(probe)).not.toHaveProperty('testerObservations');
-    // And the inert keys the toggle does not own are still there.
     expect(uatOf(probe)).toMatchObject({ env: INERT.env });
     expect(document.getElementById('uatTesterOptions')).toBeNull();
   });
@@ -324,7 +309,6 @@ describe('QualitySection — the tester toggle owns the block by presence', () =
       blockingSeverity: 'none',
       requireEvidence: { file: 'out/summary.json', whenChanged: ['src/**', 'scripts/**'] },
     });
-    // The raw text keeps the trailing newline, so Enter is never eaten.
     expect(field('uatTesterEvidenceWhenChanged').value).toBe('src/**\n\nscripts/**\n');
   });
 
@@ -354,12 +338,21 @@ describe('QualitySection — the tester toggle owns the block by presence', () =
     expect(field('uatTesterEvidenceWhenChanged').getAttribute('aria-invalid')).toBe('true');
   });
 
-  it('keeps the findings controls live when findings are off', () => {
-    mountQuality();
-    // Unlike the tester toggle, `f-findingsEnabled` hides nothing — the
-    // severity and max rows stay usable so turning it back on is one click.
-    expect(document.querySelector('[name="reviewFindingsSeverity"]')).not.toBeNull();
-    expect(document.querySelector('[name="reviewFindingsMax"]')).not.toBeNull();
+  it('disables the findings children when findings are off and keeps their values', () => {
+    mountQuality(
+      stateWith({
+        review: partialReview({
+          findings: { enabled: false, blockingSeverity: 'low', maxFindings: 10 },
+        }),
+      }),
+    );
+    expect(field('reviewFindingsSeverity').disabled).toBe(true);
+    expect(field('reviewFindingsMax').disabled).toBe(true);
+    expect(field('reviewFindingsSeverity').value).toBe('low');
+    expect(field('reviewFindingsMax').value).toBe('10');
+    fireEvent.click(field('reviewFindingsEnabled'));
+    expect(field('reviewFindingsSeverity').disabled).toBe(false);
+    expect(field('reviewFindingsMax').disabled).toBe(false);
   });
 });
 
@@ -374,7 +367,11 @@ describe('QualitySection — the gate editor', () => {
 
   it('heads each block with its name and gate count', () => {
     mountQuality();
-    const heads = Array.from(document.querySelectorAll('.gate-block-head')).map((n) => n.textContent);
+    const heads = Array.from(document.querySelectorAll('.gate-block-head')).map(
+      (n) =>
+        (n.querySelector('.gate-subhead')?.textContent ?? '') +
+        (n.querySelector('.gate-count')?.textContent ?? ''),
+    );
     expect(heads).toEqual(['UAT gates0 gates', 'Review gates0 gates']);
   });
 
@@ -389,8 +386,6 @@ describe('QualitySection — the gate editor', () => {
   it('keeps every edit when several land before a re-render', () => {
     const { probe } = mountQuality();
     fireEvent.click(screen.getAllByRole('button', { name: '+ Add gate' })[0] as Element);
-    // One batch: each patch must apply to the CURRENT draft, not the list the
-    // row rendered with — otherwise the script write erases the name.
     act(() => {
       fireEvent.change(byLabel('Gate 1 name'), { target: { value: 'unit' } });
       fireEvent.change(byLabel('Gate 1 script'), { target: { value: 'test' } });
@@ -452,10 +447,8 @@ describe('QualitySection — the gate editor', () => {
     expect(byLabel('Gate 1 name')).toBeTruthy();
     expect(byLabel('Gate 1 kind')).toBeTruthy();
     expect(byLabel('Gate 1 script')).toBeTruthy();
-    // A script gate has no command/arguments row at all.
     expect(() => byLabel('Gate 1 command')).toThrow();
     fireEvent.change(byLabel('Gate 1 kind'), { target: { value: 'command' } });
-    // Switching kind REPLACES the script row with the command + args pair.
     expect(() => byLabel('Gate 1 script')).toThrow();
     expect(byLabel('Gate 1 command')).toBeTruthy();
     expect(byLabel('Gate 1 arguments')).toBeTruthy();
@@ -511,7 +504,6 @@ describe('QualitySection — the gate editor', () => {
     });
     const rows = Array.from(document.querySelectorAll('.gate-row'));
     expect(rows).toHaveLength(2);
-    // Removing the FIRST row must leave the second one's identity intact.
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove gate 1' })[0] as Element);
     expect(byLabel('Gate 1 name').value).toBe('lint');
   });
@@ -523,10 +515,10 @@ describe('QualitySection — the gate editor', () => {
       Array.from(sel.options).some((o) => o.value === 'backend'),
     ) as HTMLSelectElement;
     expect(Array.from(repoSelect.options).map((o) => o.value)).toEqual(['', 'backend', 'frontend']);
-    expect(Array.from(repoSelect.options).map((o) => o.label)).toContain('every target');
+    expect(Array.from(repoSelect.options).map((o) => o.label)).toContain('All repositories');
   });
 
-  it('names the owning repository as text on an override row, with no repo select', () => {
+  it('names the owning repository in the override card head, with no repo column', () => {
     mountQuality({
       ...WITH_REPOS,
       manifest: {
@@ -536,8 +528,11 @@ describe('QualitySection — the gate editor', () => {
         }),
       },
     });
-    const fixed = Array.from(document.querySelectorAll('.gate-repo-fixed')).map((n) => n.textContent);
-    expect(fixed).toContain('Runs in backend');
+    const head = Array.from(document.querySelectorAll('.override-card-head')).map((n) => n.textContent);
+    expect(head.some((text) => text?.includes('backend'))).toBe(true);
+    const card = document.querySelector('.override-card') as HTMLElement;
+    expect(card.querySelector('.gate-repo')).toBeNull();
+    expect(card.querySelector('.gate-repo-fixed')).toBeNull();
   });
 });
 
@@ -563,8 +558,10 @@ describe('QualitySection — per-repository overrides REPLACE the global list', 
         }),
       },
     });
-    const note = document.querySelector('.override-editor-note')?.textContent ?? '';
-    expect(note).toContain('replaces');
+    const help = Array.from(document.querySelectorAll('.override-editor .k-field-help'))
+      .map((n) => n.textContent ?? '')
+      .join(' ');
+    expect(help).toContain('replaces');
   });
 
   it('shows no override editor at all when the manifest declares no repositories', () => {
@@ -588,7 +585,6 @@ describe('QualitySection — per-repository overrides REPLACE the global list', 
       },
     });
     const picker = byLabel('Repository to override') as unknown as HTMLSelectElement;
-    // `backend` is already overridden, so it is not offered again.
     expect(Array.from(picker.options).filter((o) => !o.disabled).map((o) => o.value)).toEqual([
       'frontend',
     ]);
@@ -597,8 +593,6 @@ describe('QualitySection — per-repository overrides REPLACE the global list', 
   it('starts on a disabled placeholder, so the FIRST repository is choosable', () => {
     mountQuality(TWO_REPOS);
     const picker = byLabel('Repository to override') as unknown as HTMLSelectElement;
-    // Without a placeholder the browser shows the first repository as already
-    // selected, and picking it fires no change — it could never be added.
     expect(picker.options[0]?.disabled).toBe(true);
     expect(picker.options[0]?.value).toBe('');
     expect(picker.value).toBe('');
@@ -614,7 +608,6 @@ describe('QualitySection — per-repository overrides REPLACE the global list', 
     >;
     expect(repositories.backend?.gates).toEqual(gates);
     expect(repositories.backend?.gates).not.toBe(gates);
-    // Editing the OVERRIDE's copy must not reach the global list.
     const card = document.querySelector('.override-card') as HTMLElement;
     const overrideName = byLabelIn(card, 'Gate 1 name');
     fireEvent.change(overrideName, { target: { value: 'override-only' } });
@@ -634,8 +627,6 @@ describe('QualitySection — per-repository overrides REPLACE the global list', 
     });
     const card = document.querySelector('.override-card') as HTMLElement;
     fireEvent.click(card.querySelector('[data-karst-action="remove-gate"]') as Element);
-    // The override would fall back to the global list, which is not what the
-    // user asked for by deleting its only entry — so the override is removed.
     expect(uatOf(probe).repositories).toEqual({});
     expect(uatOf(probe).gates).toEqual([{ name: 'build', kind: 'script', script: 'build' }]);
   });
@@ -703,7 +694,9 @@ describe('QualitySection — per-gate enabled switch', () => {
     fireEvent.click(byLabel('Gate 1 enabled'));
     expect((uatOf(probe).gates as Record<string, unknown>[])[0]).toMatchObject({ enabled: false });
     expect(uatOf(probe).env).toEqual(INERT.env);
-    expect(document.querySelector('.gate-summary')?.textContent).toMatch(/^off — /);
+    expect(document.querySelector('.gate-row')?.className).toContain('gate-off');
+    expect(document.querySelector('.gate-meta')).toBeNull();
+    expect(document.querySelector('.gate-summary')).toBeNull();
     expect(document.querySelector('.gate-count')?.textContent).toContain('1 gate · 1 off');
     fireEvent.click(byLabel('Gate 1 enabled'));
     expect('enabled' in (uatOf(probe).gates as Record<string, unknown>[])[0]!).toBe(false);
@@ -711,7 +704,7 @@ describe('QualitySection — per-gate enabled switch', () => {
 
   it('writes onResourceKill for a non-default policy, deletes it for the default, disables with the gate', () => {
     const { probe } = mountQuality(withGate({}));
-    const select = () => byLabel('On out-of-memory kill') as unknown as HTMLSelectElement;
+    const select = () => byLabel('Gate 1 on out-of-memory kill') as unknown as HTMLSelectElement;
     expect(select().value).toBe('retry-then-park');
     fireEvent.change(select(), { target: { value: 'host' } });
     expect((uatOf(probe).gates as Record<string, unknown>[])[0]).toMatchObject({ onResourceKill: 'host' });
@@ -722,7 +715,7 @@ describe('QualitySection — per-gate enabled switch', () => {
     expect(select().disabled).toBe(true);
   });
 
-  it('shows the probe checkbox only with gates, and the bypass note when all are off', () => {
+  it('shows the probe row only with gates, and the bypass note when all are off', () => {
     mountQuality();
     expect(document.querySelector('[name="uatProbeWhenAllDisabled"]')).toBeNull();
     cleanup();
@@ -730,10 +723,12 @@ describe('QualitySection — per-gate enabled switch', () => {
       withGate({ gates: [{ name: 'unit', kind: 'script', script: 'test', enabled: false }] }),
     );
     expect(document.body.textContent).toContain('this stage will be bypassed');
-    fireEvent.click(field('uatProbeWhenAllDisabled'));
+    const picker = field('uatProbeWhenAllDisabled') as unknown as HTMLSelectElement;
+    expect(picker.value).toBe('skip');
+    fireEvent.change(picker, { target: { value: 'probe' } });
     expect(uatOf(probe).probeWhenAllDisabled).toBe(true);
     expect(document.body.textContent).not.toContain('this stage will be bypassed');
-    fireEvent.click(field('uatProbeWhenAllDisabled'));
+    fireEvent.change(picker, { target: { value: 'skip' } });
     expect('probeWhenAllDisabled' in uatOf(probe)).toBe(false);
   });
 

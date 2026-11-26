@@ -291,6 +291,11 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M12 5l0 14"/>' +
     '<path d="M18 11l-6 -6"/>' +
     '<path d="M6 11l6 -6"/>',
+  // Added for the Approaches roster (T1374): the Install button glyph.
+  download:
+    '<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-2"/>' +
+    '<path d="M7 11l5 5l5 -5"/>' +
+    '<path d="M12 4l0 12"/>',
   // Added for the Inside buttons (T1072): 'Send CI failure' and 'Rebase'.
   send:
     '<path d="M10 14l11 -11"/>' +

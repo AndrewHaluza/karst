@@ -1,0 +1,5 @@
+{
+  "wide": { "layout": "stacked", "order": ["ticketing-board", "ticketing-behavior"] },
+  "mid": { "layout": "stacked", "order": ["ticketing-board", "ticketing-behavior"] },
+  "narrow": { "layout": "stacked", "order": ["ticketing-board", "ticketing-behavior"] }
+}

@@ -1,0 +1,469 @@
+{
+  "byActivity": [
+    {
+      "calls": 5,
+      "callsText": "5 calls",
+      "estimated": false,
+      "inputDisplay": "850k",
+      "key": "implementation",
+      "label": "Implementation session",
+      "outputDisplay": "170k",
+      "share": 75.7,
+      "shareDisplay": "75.7%",
+      "totalDisplay": "807.5k",
+      "totalExact": "807,500",
+      "totalTokens": 807500
+    },
+    {
+      "calls": 2,
+      "callsText": "2 calls",
+      "estimated": false,
+      "inputDisplay": "160k",
+      "key": "uat-tester",
+      "label": "UAT tester",
+      "outputDisplay": "30.8k",
+      "share": 14.1,
+      "shareDisplay": "14.1%",
+      "totalDisplay": "150.8k",
+      "totalExact": "150,800",
+      "totalTokens": 150800
+    },
+    {
+      "calls": 1,
+      "callsText": "1 call",
+      "estimated": false,
+      "inputDisplay": "48k",
+      "key": "review-findings",
+      "label": "Review findings",
+      "outputDisplay": "12.4k",
+      "share": 4.5,
+      "shareDisplay": "4.5%",
+      "totalDisplay": "48.4k",
+      "totalExact": "48,400",
+      "totalTokens": 48400
+    },
+    {
+      "calls": 1,
+      "callsText": "1 call",
+      "estimated": false,
+      "inputDisplay": "41k",
+      "key": "fix-resume",
+      "label": "Fix resume",
+      "outputDisplay": "7.2k",
+      "share": 3.6,
+      "shareDisplay": "3.6%",
+      "totalDisplay": "38k",
+      "totalExact": "37,950",
+      "totalTokens": 37950
+    },
+    {
+      "calls": 1,
+      "callsText": "1 call",
+      "estimated": false,
+      "inputDisplay": "12k",
+      "key": "pr-description",
+      "label": "PR description",
+      "outputDisplay": "2.4k",
+      "share": 1.1,
+      "shareDisplay": "1.1%",
+      "totalDisplay": "11.4k",
+      "totalExact": "11,400",
+      "totalTokens": 11400
+    },
+    {
+      "calls": 1,
+      "callsText": "1 call",
+      "estimated": false,
+      "inputDisplay": "8.4k",
+      "key": "ticket-analysis",
+      "label": "Ticket classify",
+      "outputDisplay": "1.1k",
+      "share": 0.7,
+      "shareDisplay": "0.7%",
+      "totalDisplay": "7.4k",
+      "totalExact": "7,400",
+      "totalTokens": 7400
+    },
+    {
+      "calls": 1,
+      "callsText": "1 call",
+      "estimated": false,
+      "inputDisplay": "3.2k",
+      "key": "__other__",
+      "label": "Other (1)",
+      "outputDisplay": "640",
+      "share": 0.3,
+      "shareDisplay": "0.3%",
+      "totalDisplay": "3k",
+      "totalExact": "3,040",
+      "totalTokens": 3040
+    }
+  ],
+  "byModel": [
+    {
+      "calls": 3,
+      "callsText": "3 calls",
+      "estimated": false,
+      "inputDisplay": "438k",
+      "key": "claude-opus-5",
+      "label": "claude-opus-5",
+      "outputDisplay": "94.4k",
+      "share": 39.7,
+      "shareDisplay": "39.7%",
+      "totalDisplay": "422.9k",
+      "totalExact": "422,900",
+      "totalTokens": 422900
+    },
+    {
+      "calls": 2,
+      "callsText": "2 calls",
+      "estimated": false,
+      "inputDisplay": "361k",
+      "key": "opencode-go/deepseek-v4-flash",
+      "label": "opencode-go/deepseek-v4-flash",
+      "outputDisplay": "65.2k",
+      "share": 31.5,
+      "shareDisplay": "31.5%",
+      "totalDisplay": "336k",
+      "totalExact": "335,950",
+      "totalTokens": 335950
+    },
+    {
+      "calls": 3,
+      "callsText": "3 calls",
+      "estimated": false,
+      "inputDisplay": "212k",
+      "key": "gpt-5.6-sol",
+      "label": "gpt-5.6-sol",
+      "outputDisplay": "41.8k",
+      "share": 18.8,
+      "shareDisplay": "18.8%",
+      "totalDisplay": "200.8k",
+      "totalExact": "200,800",
+      "totalTokens": 200800
+    },
+    {
+      "calls": 2,
+      "callsText": "2 calls",
+      "estimated": false,
+      "inputDisplay": "96.4k",
+      "key": "claude-sonnet-5",
+      "label": "claude-sonnet-5",
+      "outputDisplay": "20.1k",
+      "share": 8.7,
+      "shareDisplay": "8.7%",
+      "totalDisplay": "92.4k",
+      "totalExact": "92,400",
+      "totalTokens": 92400
+    },
+    {
+      "calls": 1,
+      "callsText": "1 call",
+      "estimated": false,
+      "inputDisplay": "12k",
+      "key": "opencode-go/kimi-k2",
+      "label": "opencode-go/kimi-k2",
+      "outputDisplay": "2.4k",
+      "share": 1.1,
+      "shareDisplay": "1.1%",
+      "totalDisplay": "11.4k",
+      "totalExact": "11,400",
+      "totalTokens": 11400
+    },
+    {
+      "calls": 1,
+      "callsText": "1 call",
+      "estimated": false,
+      "inputDisplay": "3.2k",
+      "key": "claude-haiku-4",
+      "label": "claude-haiku-4",
+      "outputDisplay": "640",
+      "share": 0.3,
+      "shareDisplay": "0.3%",
+      "totalDisplay": "3k",
+      "totalExact": "3,040",
+      "totalTokens": 3040
+    }
+  ],
+  "byProfile": [],
+  "byProvider": [
+    {
+      "calls": 6,
+      "callsText": "6 calls",
+      "estimated": false,
+      "inputDisplay": "537.6k",
+      "key": "claude",
+      "label": "Claude Code",
+      "outputDisplay": "115.1k",
+      "share": 48.6,
+      "shareDisplay": "48.6%",
+      "totalDisplay": "518.3k",
+      "totalExact": "518,340",
+      "totalTokens": 518340
+    },
+    {
+      "calls": 3,
+      "callsText": "3 calls",
+      "estimated": false,
+      "inputDisplay": "373k",
+      "key": "opencode",
+      "label": "OpenCode",
+      "outputDisplay": "67.6k",
+      "share": 32.6,
+      "shareDisplay": "32.6%",
+      "totalDisplay": "347.4k",
+      "totalExact": "347,350",
+      "totalTokens": 347350
+    },
+    {
+      "calls": 3,
+      "callsText": "3 calls",
+      "estimated": false,
+      "inputDisplay": "212k",
+      "key": "codex",
+      "label": "Codex",
+      "outputDisplay": "41.8k",
+      "share": 18.8,
+      "shareDisplay": "18.8%",
+      "totalDisplay": "200.8k",
+      "totalExact": "200,800",
+      "totalTokens": 200800
+    }
+  ],
+  "costNote": "Tokens, not cost",
+  "counts": {
+    "activities": "7 activities",
+    "activityCount": 7,
+    "modelCount": 6,
+    "models": "6 models",
+    "profileCount": 0,
+    "profiles": "0 profiles",
+    "providerCount": 3,
+    "providers": "3 agent cores",
+    "tickets": "6 tickets"
+  },
+  "empty": false,
+  "error": null,
+  "page": {
+    "groups": 6,
+    "hasNext": false,
+    "hasPrev": false,
+    "limit": 50,
+    "offset": 0,
+    "summary": "1–6 of 6 tickets"
+  },
+  "quota": {
+    "anyNear": false,
+    "rows": [
+      {
+        "core": "claude",
+        "label": "Claude Code",
+        "plainReason": null,
+        "readAgo": "1m ago",
+        "readMeta": "Read 1m ago",
+        "reason": null,
+        "source": "Fixture subscription rate limits",
+        "stale": false,
+        "state": "ok",
+        "windows": [
+          {
+            "ariaLabel": "Claude Code 5-hour used",
+            "expired": false,
+            "label": "5-hour",
+            "level": "ok",
+            "levelLabel": null,
+            "meta": "Resets in 2h 0m",
+            "resetsAt": "2026-10-28T00:00:00.000Z",
+            "resetsIn": "2h 0m",
+            "usedDisplay": "42% used",
+            "usedPct": 42,
+            "width": "42"
+          },
+          {
+            "ariaLabel": "Claude Code 7-day used",
+            "expired": false,
+            "label": "7-day",
+            "level": "ok",
+            "levelLabel": null,
+            "meta": "Resets in 4d 0h",
+            "resetsAt": "2026-10-31T22:00:00.000Z",
+            "resetsIn": "4d 0h",
+            "usedDisplay": "68% used",
+            "usedPct": 68,
+            "width": "68"
+          }
+        ]
+      },
+      {
+        "core": "codex",
+        "label": "Codex",
+        "plainReason": "Codex quota is not available right now.",
+        "readAgo": null,
+        "readMeta": null,
+        "reason": "fixture: no readable source",
+        "source": null,
+        "stale": false,
+        "state": "unknown",
+        "windows": []
+      }
+    ],
+    "subtitle": "Warn at 80% used",
+    "summaryLine": null,
+    "thresholdPct": 80
+  },
+  "scopeLabel": "All time · since Oct 7, 2026",
+  "sort": "total",
+  "sorts": [
+    {
+      "id": "total",
+      "label": "Total tokens"
+    },
+    {
+      "id": "input",
+      "label": "Input tokens"
+    },
+    {
+      "id": "output",
+      "label": "Output tokens"
+    },
+    {
+      "id": "calls",
+      "label": "Calls"
+    },
+    {
+      "id": "recent",
+      "label": "Most recent"
+    }
+  ],
+  "tab": "spend",
+  "tabs": [
+    {
+      "id": "spend",
+      "label": "Spend"
+    },
+    {
+      "id": "quota",
+      "label": "Quota"
+    }
+  ],
+  "tickets": [
+    {
+      "calls": 3,
+      "estimated": false,
+      "inputDisplay": "369.4k",
+      "label": "FIX-104 — Rate-limit the corpus exporter",
+      "lastAt": "2026-10-27T17:00:00.000Z",
+      "lastDisplay": "17:00",
+      "lastTitle": "Oct 27, 2026, 17:00",
+      "outputDisplay": "66.3k",
+      "share": 32.2,
+      "ticketId": 900003,
+      "ticketKey": "FIX-104",
+      "ticketTitle": "Rate-limit the corpus exporter",
+      "totalDisplay": "343.4k",
+      "totalExact": "343,350",
+      "totalTokens": 343350
+    },
+    {
+      "calls": 3,
+      "estimated": false,
+      "inputDisplay": "354k",
+      "label": "FIX-101 — Add the server inventory tab",
+      "lastAt": "2026-10-27T21:00:00.000Z",
+      "lastDisplay": "21:00",
+      "lastTitle": "Oct 27, 2026, 21:00",
+      "outputDisplay": "71.4k",
+      "share": 31.6,
+      "ticketId": 900001,
+      "ticketKey": "FIX-101",
+      "ticketTitle": "Add the server inventory tab",
+      "totalDisplay": "336.9k",
+      "totalExact": "336,900",
+      "totalTokens": 336900
+    },
+    {
+      "calls": 3,
+      "estimated": false,
+      "inputDisplay": "280k",
+      "label": "FIX-102 — Persist the sidebar filter across reloads",
+      "lastAt": "2026-10-27T20:00:00.000Z",
+      "lastDisplay": "20:00",
+      "lastTitle": "Oct 27, 2026, 20:00",
+      "outputDisplay": "65.4k",
+      "share": 25.8,
+      "ticketId": 900002,
+      "ticketKey": "FIX-102",
+      "ticketTitle": "Persist the sidebar filter across reloads",
+      "totalDisplay": "275.4k",
+      "totalExact": "275,400",
+      "totalTokens": 275400
+    },
+    {
+      "calls": 1,
+      "estimated": false,
+      "inputDisplay": "64k",
+      "label": "FIX-107 — Fix the flaky merge-check probe",
+      "lastAt": "2026-10-27T19:00:00.000Z",
+      "lastDisplay": "19:00",
+      "lastTitle": "Oct 27, 2026, 19:00",
+      "outputDisplay": "9.8k",
+      "share": 5.4,
+      "ticketId": 900005,
+      "ticketKey": "FIX-107",
+      "ticketTitle": "Fix the flaky merge-check probe",
+      "totalDisplay": "57.8k",
+      "totalExact": "57,800",
+      "totalTokens": 57800
+    },
+    {
+      "calls": 1,
+      "estimated": false,
+      "inputDisplay": "52k",
+      "label": "FIX-106 — Retire the legacy queue probe",
+      "lastAt": "2026-10-07T22:00:00.000Z",
+      "lastDisplay": "Oct 7",
+      "lastTitle": "Oct 7, 2026, 22:00",
+      "outputDisplay": "11k",
+      "share": 4.7,
+      "ticketId": 900004,
+      "ticketKey": "FIX-106",
+      "ticketTitle": "Retire the legacy queue probe",
+      "totalDisplay": "50k",
+      "totalExact": "50,000",
+      "totalTokens": 50000
+    },
+    {
+      "calls": 1,
+      "estimated": false,
+      "inputDisplay": "3.2k",
+      "label": "Not attributed to a ticket",
+      "lastAt": "2026-10-27T22:00:00.000Z",
+      "lastDisplay": "22:00",
+      "lastTitle": "Oct 27, 2026, 22:00",
+      "outputDisplay": "640",
+      "share": 0.3,
+      "ticketId": null,
+      "ticketKey": null,
+      "ticketTitle": null,
+      "totalDisplay": "3k",
+      "totalExact": "3,040",
+      "totalTokens": 3040
+    }
+  ],
+  "totals": {
+    "cacheReadDisplay": "280.7k",
+    "cacheWriteDisplay": "140.3k",
+    "calls": 12,
+    "erroredCalls": 0,
+    "erroredNote": "",
+    "estimatedCalls": 1,
+    "estimatedNote": "1 of 12 calls estimated",
+    "inputDisplay": "1.1M",
+    "outputDisplay": "224.5k",
+    "reasoningDisplay": "0",
+    "totalDisplay": "1.1M",
+    "totalExact": "1,066,490",
+    "totalNote": "1,066,490 tokens"
+  },
+  "updatedLabel": "Updated 22:00"
+}

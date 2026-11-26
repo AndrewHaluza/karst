@@ -101,14 +101,21 @@ const REQUIRED_ARTIFACTS = [
 // Raised 426 → 428 KB for the T1297 review fixes: the quota card's three per-control host
 // mutations (receipt-correlated settling, aria-busy, duplicate guards) and the per-tab candidate
 // validation in the settings context — ~2.1 KB minified; bundle is 436682 bytes (~1.6 KB headroom).
-// Raised 428 → 440 KB for T1372 (Autopilot is one Auto-fix switch, one rules table and one checks
-// chip row): the rebuilt AutopilotSection is ~3 KB of genuine app code on this branch (bundle is
-// 440016 bytes). This branch predates develop's own two raises — 430 KB for T1373's Quality
-// sections and 438 KB for T1374's Approaches drawer — so this cap has to hold the tree the PR
-// ships, not the pre-merge one: develop plus this ticket's Autopilot delta builds to 449185
-// bytes, which the 438 KB cap misses by ~0.7 KB. 440 KB leaves ~1.3 KB headroom there (and the
-// merge resolution keeps this number, not develop's smaller one).
-const APP_BUNDLE_BUDGET_BYTES = 440 * 1024;
+// Raised 428 → 430 KB for T1373 (Quality is one UAT and one Review section): the per-stage
+// QualityGates table (one line per gate, OOM column, "npm run" prefix), the Field row primitive
+// and the disabled child rows under Agent findings, merged with the D829 quota card rework;
+// bundle is 438575 bytes (~1.7 KB headroom).
+// Raised 430 → 438 KB for T1374 (Approaches cards): the approach Edit drawer (ApproachDrawer), the
+// Dynamic Graph agents, limits and planner prompt sections in that drawer (GraphDrawerSections,
+// graphDrawerDraft), and the number-plus-unit limit inputs with an exact round trip
+// (graphLimitUnits) — ~9 KB of genuine app code; bundle is 446740 bytes after the T1373 merge (~1.7 KB headroom).
+// Raised 438 → 440 KB when T1371 (Ticketing is one settings list, plus its review fix: the ticketing
+// fetches record the key each request was posted for and drop a reply for a key the draft has left)
+// merged with T1373 and T1374: the merged bundle is 448350 bytes, only 0.2 KB under 438 KB (~2.2 KB headroom at 440 KB).
+// Raised 440 → 442 KB for T1372 (Autopilot is one Auto-fix switch, one rules table and one checks
+// chip row): the rebuilt AutopilotSection adds ~2.4 KB of genuine app code on develop's tree, which
+// already carries T1371/T1373/T1374; bundle is 450802 bytes (~1.8 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 442 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

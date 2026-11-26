@@ -121,11 +121,11 @@ export function buildConformanceBlock(a: ReviewArtifacts, repo?: string): string
     ...rules,
     ...renderChainBlock([
       ...(a.intent ? [{ label: 'Intent (what the user must get)', text: a.intent }] : []),
+      ...(description ? [{ label: 'Ticket description (scope and constraints)', text: description }] : []),
       ...(a.spec ? [{ label: 'Spec', text: a.spec, paths: a.paths?.spec }] : []),
       ...(a.plan
         ? [{ label: 'Plan (how it was meant to be built)', text: a.plan, paths: a.paths?.plan }]
         : []),
-      ...(description ? [{ label: 'Ticket description (scope and constraints)', text: description }] : []),
     ]),
   ];
 }

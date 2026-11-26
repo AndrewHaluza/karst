@@ -32,60 +32,67 @@ export function TesterEvidenceFields({ rule }: { rule: UatTesterRequireEvidence 
 
   return (
     <>
-      <Field
-        label="Require probe evidence"
-        help="When the diff matches a changed-path glob, a Tester run without a fresh evidence file counts as observed nothing."
-        control={{
-          kind: 'checkbox',
-          name: 'uatTesterRequireEvidence',
-          checked: rule !== undefined,
-          onChange: (checked) => {
-            setGlobText('');
-            edit((current) =>
-              updateTesterObservations(current, { requireEvidence: checked ? EMPTY_RULE : undefined }),
-            );
-          },
-        }}
-      />
+      <div className="q-row q-row--child">
+        <Field
+          label="Require probe evidence"
+          help="When the diff matches a changed-path glob, a Tester run without a fresh evidence file counts as observed nothing."
+          control={{
+            kind: 'checkbox',
+            name: 'uatTesterRequireEvidence',
+            checked: rule !== undefined,
+            onChange: (checked) => {
+              setGlobText('');
+              edit((current) =>
+                updateTesterObservations(current, { requireEvidence: checked ? EMPTY_RULE : undefined }),
+              );
+            },
+          }}
+        />
+      </div>
       {rule ? (
         <>
-          <Field
-            label="Evidence file"
-            help="Worktree-relative glob of the file the probe writes, for example a summary.json."
-            error={problems.file}
-            control={{
-              kind: 'input',
-              name: 'uatTesterEvidenceFile',
-              value: rule.file,
-              placeholder: '.karst/uat-scratch/out/**/summary.json',
-              onChange: (value) =>
-                edit((current) =>
-                  updateTesterObservations(current, {
-                    requireEvidence: { ...(readRule(current) ?? EMPTY_RULE), file: value },
-                  }),
-                ),
-            }}
-          />
-          <Field
-            label="Required when changed"
-            help="Repo-relative globs of the ticket diff, one for each line. Test files never count."
-            error={problems.whenChanged}
-            control={{
-              kind: 'textarea',
-              name: 'uatTesterEvidenceWhenChanged',
-              rows: 3,
-              value: shownText,
-              placeholder: 'src/**',
-              onChange: (value) => {
-                setGlobText(value);
-                edit((current) =>
-                  updateTesterObservations(current, {
-                    requireEvidence: { ...(readRule(current) ?? EMPTY_RULE), whenChanged: parseGlobLines(value) },
-                  }),
-                );
-              },
-            }}
-          />
+          <div className="q-row q-row--grandchild">
+            <Field
+              label="Evidence file"
+              help="Worktree-relative glob of the file the probe writes."
+              error={problems.file}
+              control={{
+                kind: 'input',
+                name: 'uatTesterEvidenceFile',
+                value: rule.file,
+                placeholder: '.karst/uat-scratch/out/**/summary.json',
+                onChange: (value) =>
+                  edit((current) =>
+                    updateTesterObservations(current, {
+                      requireEvidence: { ...(readRule(current) ?? EMPTY_RULE), file: value },
+                    }),
+                  ),
+              }}
+            />
+          </div>
+          <div className="q-row q-row--grandchild q-row--area">
+            <Field
+              label="Required when changed"
+              copyBlock
+              help="Repo-relative globs of the ticket diff, one for each line. Test files never count."
+              error={problems.whenChanged}
+              control={{
+                kind: 'textarea',
+                name: 'uatTesterEvidenceWhenChanged',
+                rows: 3,
+                value: shownText,
+                placeholder: 'src/**',
+                onChange: (value) => {
+                  setGlobText(value);
+                  edit((current) =>
+                    updateTesterObservations(current, {
+                      requireEvidence: { ...(readRule(current) ?? EMPTY_RULE), whenChanged: parseGlobLines(value) },
+                    }),
+                  );
+                },
+              }}
+            />
+          </div>
         </>
       ) : null}
     </>

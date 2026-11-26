@@ -76,8 +76,12 @@ export function renderChainBlock(
     let text = p.text;
     if (text.length > budget) {
       const keep = Math.max(0, budget);
-      const where = p.paths && p.paths.length > 0 ? p.paths.join(', ') : p.label;
-      text = `${text.slice(0, keep)}\n[truncated: ${p.text.length - keep} chars omitted — read ${where} in the store]`;
+      const omitted = p.text.length - keep;
+      const marker =
+        p.paths && p.paths.length > 0
+          ? `[truncated: ${omitted} chars omitted — read ${p.paths.join(', ')} in the store]`
+          : `[truncated: ${omitted} chars omitted]`;
+      text = `${text.slice(0, keep)}\n${marker}`;
     }
     budget -= Math.min(budget, p.text.length);
     const f = fence(text);
