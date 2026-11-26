@@ -232,7 +232,15 @@ const approachesDrawerGitVariants = (): Variant[] => [
 
 const AUTOPILOT_FAULT = 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1';
 const AUTOPILOT_TIERS = [['mid', 800], ['narrow', 480]] as const;
-const MANY_CHECKS = ['lint', 'typecheck', 'test:unit', 'test:integration', 'test:e2e', 'build', 'docs-gate', 'docs-graph', 'mutation-score', 'visual-regression', 'layout-sanity', 'a-very-long-check-name-for-wrapping'];
+// T1372 acceptance 3: five long check names push the chip flow to the point where
+// the inline add input and its button must stay together.
+const MANY_CHECKS = [
+  'lint-every-workspace-and-package',
+  'typecheck-all-projects',
+  'test:integration-the-long-way',
+  'docs-graph-and-docs-gate',
+  'mutation-score-the-whole-repo',
+];
 
 const AUTOPILOT_ON = {
   autopilot: { enabled: true, ci: { policy: 'auto', maxAttempts: 3, checks: ['lint', 'typecheck'] }, conflicts: { policy: 'auto', maxRounds: 2 } },
