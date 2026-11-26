@@ -150,6 +150,14 @@ export interface FieldProps {
    * for a table row whose column header already names the cell.
    */
   hideLabel?: boolean;
+  /**
+   * Render the label, help and error as one left-hand copy block before the
+   * control (T1373). A tall control (a textarea) otherwise makes its grid row
+   * as tall as the control and pushes the help to the bottom; with this block
+   * the help stays directly under the label while the control stays top-aligned
+   * in its own track. Ignored by the checkbox and pair controls.
+   */
+  copyBlock?: boolean;
   className?: string;
 }
 
@@ -247,6 +255,7 @@ function FieldBody({
   error,
   required = false,
   hideLabel = false,
+  copyBlock = false,
   className,
 }: FieldProps & { readonly id: string }) {
   const errorId = `${id}-error`;
@@ -345,6 +354,23 @@ function FieldBody({
         </div>
         {helpNode}
         {errorNode}
+      </div>
+    );
+  }
+
+  if (copyBlock) {
+    return (
+      <div className={shellClass}>
+        <div className="k-field-copy">
+          <label htmlFor={id} className={hideLabel ? 'sr-only' : undefined}>
+            {label}
+            {required ? <span aria-hidden="true"> *</span> : null}
+          </label>
+          {helpNode}
+          {errorNode}
+        </div>
+        {renderControl(control, wiring, required)}
+        {meta}
       </div>
     );
   }

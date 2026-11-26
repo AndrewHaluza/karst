@@ -153,6 +153,7 @@ describe('AcpTransport lifecycle mirrors SupervisedCLITransport', () => {
       cwd: '/wt/n1',
       generation: 'gen-1',
       startedAt: '2026-08-12T00:00:00.000Z',
+      provider: null,
       providerSessionId: 'acp-session-1',
     });
     // The nonce is the CLAIM transaction's — the transport never mints one.

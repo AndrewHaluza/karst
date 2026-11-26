@@ -1220,6 +1220,34 @@ describe('graph session binding (Slice-3 T10)', () => {
     ).toEqual({ n: 0 });
   });
 
+  it('T1370: a graph PLANNER sample writes exactly one row, beside the ticket session of another provider', () => {
+    // The ticket's own session is opencode2; the graph planner session is
+    // PROVIDER. The binding follows the sample's provider, not the ticket's.
+    setSessionId(store, ticketId, 'ticket-sess', 'opencode2');
+    seedGraphProcess({ kind: 'planner', processId: 'graph-planner', provider: PROVIDER });
+    appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'p1', input: 52_800, output: 5_000 }),
+    });
+    const rows = store.db
+      .prepare('SELECT approach_planner_run_id, approach_node_run_id FROM token_usage')
+      .all();
+    expect(rows).toEqual([{ approach_planner_run_id: 3, approach_node_run_id: null }]);
+  });
+
+  it('T1370: a graph NODE sample writes exactly one row with approach_node_run_id', () => {
+    setSessionId(store, ticketId, 'ticket-sess', 'claude');
+    seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: PROVIDER });
+    appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'n1', input: 1_000, output: 50 }),
+    });
+    const rows = store.db
+      .prepare('SELECT approach_planner_run_id, approach_node_run_id FROM token_usage')
+      .all();
+    expect(rows).toEqual([{ approach_planner_run_id: null, approach_node_run_id: 9 }]);
+  });
+
   it('a graph session of a different provider binds nothing', () => {
     seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: 'claude' });
     expect(

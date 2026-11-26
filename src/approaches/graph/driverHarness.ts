@@ -123,6 +123,7 @@ export function harness(config: GraphApproachConfig = graphApproachConfig()): Ha
     ownerNonce: 'nonce',
     startedAt: NOW,
     processRunId: null,
+    provider: 'opencode2',
     providerSessionId: null,
   };
   const transport = {

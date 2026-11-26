@@ -111,10 +111,12 @@ describe('settings width and spacing consistency', () => {
   it('keeps quality policy rows inside their panels', () => {
     // A fixed copy-track minimum once pushed the findings Select past the
     // panel and the page edge. The copy track must be able to shrink to zero;
-    // only the control track is a fixed width.
+    // only the control track is fixed. T1373 widened that track from 160px
+    // (space-8 * 8) to 340px (space-8 * 17), token-only, so full option and
+    // glob values no longer clip.
     const m = HTML.match(/\.q-row > \.k-field\{([^}]*)\}/);
     expect(m, '.q-row > .k-field rule not found').toBeTruthy();
-    expect(m![1]).toContain('grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 5)');
+    expect(m![1]).toContain('grid-template-columns:minmax(0,1fr) minmax(0,calc(var(--k-space-8) * 17))');
   });
 });
 

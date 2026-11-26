@@ -945,18 +945,21 @@ function qualityStallVariant(id: string, stallDetection: Record<string, unknown>
       baseline: `settings--${id}`,
       themes: DARK_ONLY,
     }),
-    route: { section: 'quality' },
+    // T1373: the Review section now sits below the UAT rows, below the fixed viewport; scroll to the stall row so the
+    // shot still shows the state this variant exists for (the shell scrolls inside a fixed page).
+    route: { section: 'quality', scrollTo: '[name="reviewStallEnabled"]' },
   };
 }
 
 /** Quality route with UAT gates in one OOM-kill state: default, host-selected, or gate disabled (T853). */
-function qualityKillVariant(id: string, gate: Record<string, unknown>): Variant {
-  const manifest = { ...REALISTIC_SETTINGS.manifest, uat: { ...REALISTIC_SETTINGS.manifest.uat, gates: [{ name: 'unit', command: 'npm', args: ['test'], ...gate }] } };
+function qualityKillVariant(id: string, gate: Record<string, unknown>, width?: number): Variant {
+  const manifest = { ...REALISTIC_SETTINGS.manifest, uat: { ...REALISTIC_SETTINGS.manifest.uat, gates: [{ name: 'unit', kind: 'command', command: 'npm', args: ['test'], ...gate }] } };
   return {
     ...variant('settings', id, () => stateMessage({ ...REALISTIC_SETTINGS, manifest } as never), {
       baseline: `settings--${id}`,
       themes: DARK_ONLY,
       skipLayout: true,
+      ...(width === undefined ? {} : { width }),
     }),
     route: { section: 'quality', scrollTo: '.gate-block' },
   };
@@ -1269,6 +1272,9 @@ const settingsVariants = (): Variant[] => [
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
   qualityKillVariant('quality-oom-disabled', { enabled: false }),
+  // T1373 (@ui:UI-R55): the same gate at the 400 px tier, where the container is under 700 px and a gate is a card.
+  // skipLayout through `qualityKillVariant`: `route-quality` already opens the page at every settings width.
+  qualityKillVariant('quality-oom-narrow', {}, 400),
   ...autopilotVariants(),
   ...navNarrowVariants(),
   ...rolesNarrowVariants(),

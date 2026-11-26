@@ -199,6 +199,24 @@ describe('createNodeWorkspace', () => {
     }
   });
 
+  it('keeps a karst-generated adapter file in the node cwd out of git status (T1370)', async () => {
+    const h = harness();
+    try {
+      const result = await createNodeWorkspace(makeDeps(h), input(h, 8));
+      expect(result.kind).toBe('created');
+      if (result.kind !== 'created') return;
+      const cwd = result.paths[0]!.cwd;
+      // The opencode2 bridge plugin a graph launch writes; claim validation
+      // reads untracked files with --exclude-standard.
+      mkdirSync(join(cwd, '.opencode', 'plugins'), { recursive: true });
+      writeFileSync(join(cwd, '.opencode', 'plugins', 'karst-bridge.js'), '// plugin');
+      writeFileSync(join(cwd, 'agent-file.ts'), 'export {};');
+      expect(git(cwd, ['ls-files', '--others', '--exclude-standard'])).toBe('agent-file.ts');
+    } finally {
+      h.close();
+    }
+  });
+
   it('two workspaces from the same base have independent refs and indexes; commits never leak across', async () => {
     const h = harness();
     try {

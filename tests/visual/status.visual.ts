@@ -1,4 +1,5 @@
 import { test as karstTest, expect } from './fixtures.js';
+import { pageToleranceFor } from './screenshotTolerance.js';
 
 /**
  * Status/state surface screenshots for UI-R28 (grayscale) and UI-R30
@@ -41,6 +42,8 @@ karstTest.describe('status/state screenshots', () => {
     await expect(page).toHaveScreenshot('status-primitives.png', {
       fullPage: false,
       mask: [page.locator('[data-karst-clock], .k-clock, [data-elapsed]')],
+      // T1367 (@ui:VISUAL-TOLERANCE): the page tolerance, or this project's measured drift (PAGE_KNOWN_DRIFT).
+      ...pageToleranceFor(testInfo.project.name, 'status-primitives.png'),
     });
   });
 });
