@@ -3,6 +3,7 @@ import { clearOpenPrProbe } from '../../store/prs.js';
 import { parseCheckUrl, type CheckUrl } from '../../workflow/transientCi.js';
 import { NO_CHANGE_PATTERN, RERUN_SETTLE_MS, type FailedCheck, type RerunContext } from './autopilotRerun.js';
 import { STALE_PATTERN_PREFIX } from '../../workflow/staleGeneratedCi.js';
+import { isBaseRedPattern } from '../../workflow/baseRedCi.js';
 
 export { NO_CHANGE_PATTERN };
 
@@ -49,9 +50,9 @@ export async function noChangeStep(c: RerunContext, fails: readonly FailedCheck[
     const recorded = getCiRoundHeadSha(c.store, c.ticketId, target.repo);
     if (!url || recorded === null) continue;
     const done = getAutopilotRerun(c.store, c.ticketId, target.repo, url.runId, target.name);
-    // A stale rebase pushed a new head, so its marker belongs to its own step. A network re-run marker on this run means the one
+    // A stale rebase or a base-red rebase (@arch:AP-12) pushed a new head, so its marker belongs to its own step. A network re-run marker on this run means the one
     // re-run of this run is used: on an unchanged head the check is not re-run again, and it stops once the re-run has settled.
-    if (done?.pattern.startsWith(STALE_PATTERN_PREFIX)) continue;
+    if (done && (done.pattern.startsWith(STALE_PATTERN_PREFIX) || isBaseRedPattern(done.pattern))) continue;
     let headSha: string;
     try { headSha = await c.seams.readRunHeadSha(target.cwd, url); } catch (err) { return { kind: 'error', reason: messageOf(err) }; }
     if (headSha !== recorded) continue;

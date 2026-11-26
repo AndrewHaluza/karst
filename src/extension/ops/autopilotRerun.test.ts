@@ -33,6 +33,13 @@ describe('transientRerunStep', () => {
     expect(x.readJobLog).not.toHaveBeenCalled();
   });
 
+  it.each(['base-red:develop', 'base-red-wait:100'])('ignores a base-red marker (%s): it is not a network re-run and does not settle (T1383)', async (pattern) => {
+    const x = ctx('');
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern, rerunAt: clock });
+    expect(await transientRerunStep(x.c, [check('A')])).toEqual({ kind: 'none', earlier: new Set() });
+    expect(x.readJobLog).not.toHaveBeenCalled();
+  });
+
   it('ignores a no-change marker: it neither settles nor counts as a network re-run', async () => {
     const x = ctx('');
     markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern: 'no-change', rerunAt: clock });

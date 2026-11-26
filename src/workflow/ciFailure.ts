@@ -24,6 +24,8 @@ export interface CiFailurePr {
   /** All failing checks the rollup counted; `failing` is capped, so a larger count means the list is cut short. */
   failedTotal?: number;
   /** Names of the failing checks that are known optional (GitHub's required split says so). */
+  /** The PR base branch (`prs.base_ref`), or null when it is not known. */
+  base?: string | null;
   optional?: readonly string[];
 }
 
@@ -37,13 +39,14 @@ interface OpenPrRow {
   url: string;
   checks: string | null;
   cwd: string;
+  base: string | null;
 }
 
 /** The repo's current open, undismissed PRs with a worktree to run gh in. */
 function openPrRows(store: Store, ticketId: number): OpenPrRow[] {
   return store.db
     .prepare(
-      `SELECT p.repo, p.number, p.url, p.checks,
+      `SELECT p.repo, p.number, p.url, p.checks, p.base_ref AS base,
               (SELECT w.path FROM worktrees w WHERE w.ticket_id = p.ticket_id AND w.repo = p.repo
                 ORDER BY w.rowid DESC LIMIT 1) AS cwd
          FROM prs p
@@ -65,7 +68,7 @@ export function ciFailureState(store: Store, ticketId: number): CiFailureState {
     const checks = parseChecks(row.checks);
     if (checks?.state === 'pending') return { available: false, reason: 'pending' };
     if (checks?.state === 'failing' && row.cwd) {
-      prs.push({ repo: row.repo, number: row.number, url: row.url, cwd: row.cwd, failing: checks.failing, failedTotal: checks.failed, optional: checks.failing.filter((f) => isKnownOptional(checks, f)).map((f) => f.name) });
+      prs.push({ repo: row.repo, number: row.number, url: row.url, cwd: row.cwd, base: row.base, failing: checks.failing, failedTotal: checks.failed, optional: checks.failing.filter((f) => isKnownOptional(checks, f)).map((f) => f.name) });
     }
   }
   return prs.length === 0 ? { available: false, reason: 'not-failing' } : { available: true, prs };
