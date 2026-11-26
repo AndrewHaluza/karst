@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { diffTrees, gitDirOf, loadPassInput, planScope, readState, snapshotTree, writeState } from './gateState.mjs';
@@ -45,6 +45,35 @@ describe('state files and snapshots', () => {
     expect(readdirSync(gd).filter((f) => f.startsWith('karst-gate-index'))).toEqual([]);
     const names = sh('ls-tree', '-r', '--name-only', tree).stdout.split('\n').filter(Boolean);
     expect(names).toEqual(['.gitignore', 'a.txt', 'new.txt']);
+  });
+
+  it('keeps a tracked file that .git/info/exclude matches and leaves out an untracked one under it', async () => {
+    init();
+    mkdirSync(join(dir, 'a'));
+    writeFileSync(join(dir, 'a', 'keep.md'), 'k');
+    sh('-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A');
+    sh('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'two');
+    const gd = await gitDirOf(dir);
+    appendFileSync(join(gd, 'info', 'exclude'), '\n/a/\n');
+    writeFileSync(join(dir, 'a', 'new.md'), 'n');
+    const tree = await snapshotTree(dir);
+    const names = sh('ls-tree', '-r', '--name-only', tree).stdout.split('\n').filter(Boolean);
+    expect(names).toContain('a/keep.md');
+    expect(names).not.toContain('a/new.md');
+    const head = sh('rev-parse', 'HEAD^{tree}').stdout.trim();
+    expect((await diffTrees(dir, head, tree)).filter((e) => e.status === 'D')).toEqual([]);
+  });
+
+  it('snapshots the untracked, non-ignored files of an unborn repository', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-gstate-'));
+    sh('init', '-q', '-b', 'develop');
+    writeFileSync(join(dir, '.gitignore'), 'ignored\n');
+    writeFileSync(join(dir, 'a.txt'), 'a');
+    writeFileSync(join(dir, 'ignored'), 'i');
+    const tree = await snapshotTree(dir);
+    expect(tree).toMatch(/^[0-9a-f]{40}$/);
+    const names = sh('ls-tree', '-r', '--name-only', tree).stdout.split('\n').filter(Boolean);
+    expect(names).toEqual(['.gitignore', 'a.txt']);
   });
 
   it('diffs two trees and reports a deletion', async () => {

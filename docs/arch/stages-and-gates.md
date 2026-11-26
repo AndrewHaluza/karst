@@ -154,7 +154,7 @@ covers: scripts/gateState.mjs, scripts/vitestGate.mjs, scripts/dockerGate.mjs, s
 
 The first pass stays full, except a UAT first pass with no state, which narrows to the tests related to the branch diff. A later pass narrows to what changed. CI remains the full backstop.
 
-**State.** After a completed run, the gate stores a state file under the git directory of the worktree (`karst-gate-state/<key>.json`, so it works in a host worktree and in a sandbox clone, and needs no store schema change). The key is the hash of the gate args. The state holds the tree snapshot, the merge base, a `clean` flag and the failed tests: test files for unit and integration, `{ project, title }` entries for visual and layout. The snapshot is taken BEFORE the run with a temporary `GIT_INDEX_FILE`, `git add -A` and `git write-tree`. The real index and the working tree are never touched. A file that the gate judged as base drift or flake still counts as failed for the next pass.
+**State.** After a completed run, the gate stores a state file under the git directory of the worktree (`karst-gate-state/<key>.json`, so it works in a host worktree and in a sandbox clone, and needs no store schema change). The key is the hash of the gate args. The state holds the tree snapshot, the merge base, a `clean` flag and the failed tests: test files for unit and integration, `{ project, title }` entries for visual and layout. The snapshot is taken BEFORE the run (@arch:GATE-TREE). A file that the gate judged as base drift or flake still counts as failed for the next pass.
 
 **Unit and integration (`scripts/vitestGate.mjs`).** A later pass with valid state compares the snapshot with the current tree and runs `vitest related --run --passWithNoTests` on the changed code files under `src`, the readers of a changed baseline PNG, plus the stored failed files, through the same `run`, base check and flake logic. A docs-only delta selects no test and exits 0. A changed, added, deleted or renamed `tests/visual/__baselines__/**/*.png` selects `BASELINE_READERS` in `scripts/gateState.mjs` (`variants.test.ts`, `uiViews.test.mjs`), the only tests that read baselines. Integration finds no test and exits 0 (`--passWithNoTests`).
 
@@ -170,6 +170,14 @@ The first pass stays full, except a UAT first pass with no state, which narrows 
 
 **Scope line.** Each pass prints one line: `<gate>: N files, delta since <sha>`, `<gate>: N files, branch diff since <sha>`, `full: <reason>` or `skipped: no UI change since <sha>`. A visual or layout pass also prints a selection line. A selection from the stored run names that run, for example `visual: running diffs (changed since the green run at <sha>)` or `layout: running 2 failed tests of the red run at <sha>`. A scoped run therefore reads as scoped in the gate output and artifact (@arch:GATE-OUTPUT).
 END_DOC_BLOCK: [@arch:GATE-REPEAT]
+
+## [@arch:GATE-TREE] The gate snapshot starts from HEAD, so an exclude rule never hides a tracked file
+covers: scripts/gateState.mjs#snapshotTree
+
+`snapshotTree` writes the tree of the whole working tree with a temporary `GIT_INDEX_FILE` under the git directory. It seeds that index from HEAD (`git read-tree HEAD`), then runs `git add -A` and `git write-tree`. The real index and the working tree are never touched, and the temporary index and its `.lock` are always removed. A tracked file that an ignore or exclude rule matches stays in the snapshot; an untracked ignored file stays out. With no HEAD (an unborn branch) the index starts empty.
+
+Why: an empty index made `git add -A` treat every file as untracked and apply `.git/info/exclude`. The tracked skills under `/.agents/skills/karst-*/` (@arch:ROOT-GEN) then read as deleted, and every UAT first pass went full with `was deleted or renamed` (T1377).
+END_DOC_BLOCK: [@arch:GATE-TREE]
 
 ## [@arch:GATE-BASE-MOVED] Before a push, the gates run on the merge with a moved base (D541)
 covers: src/extension/ops/baseMovedCheck.ts, src/extension/ops/baseMovedHost.ts, src/workflow/baseMovedStale.ts, src/extension/ops/shipGatesOps.ts, scripts/uiViews.mjs#mergedSelection, src/workflow/gates/run.ts, src/workflow/gates/runList.ts, src/workflow/stages/ship.ts#parkShipBaseMovedFailed
