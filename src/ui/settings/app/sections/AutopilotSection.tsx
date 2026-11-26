@@ -71,7 +71,11 @@ export function AutopilotSection() {
   };
   // The host's verdict names one fault. It lands on the field whose path it
   // starts with, as the Git tab does (`validateManifest` throws on the first).
-  const rawFault = state.validation.ok ? null : state.validation.error;
+  // A Save the host REFUSES reports its fault as `error` (hostError), not as a
+  // `validation` verdict (@arch:SAVE), and the shell hides the banner for a path
+  // this page maps inline — so the section reads the same slot, or the fault
+  // shows nowhere at all (T1372 tester observation).
+  const rawFault = state.validation.ok ? state.hostError : state.validation.error;
   const faultFor = (path: string): string | undefined => fieldFaultFor(rawFault, path);
 
   useEffect(() => {

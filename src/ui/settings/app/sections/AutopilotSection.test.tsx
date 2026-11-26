@@ -247,6 +247,28 @@ describe('Autopilot tab', () => {
     expect(probe().valid).toBe(false);
   });
 
+  it('shows a rejected Save fault on the input line, where the banner defers to it', () => {
+    // A Save the host refuses reports the fault as `error` (hostError), not as a
+    // `validation` verdict (@arch:SAVE). The shell hides the banner for an
+    // inline-mapped path, so the field must read the same slot or the fault is
+    // invisible (T1372 tester observation).
+    const { bridge, probe } = mount(stateWith(ON));
+    act(() =>
+      bridge.push({
+        type: 'error',
+        message: 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1',
+      }),
+    );
+    const input = screen.getByLabelText('Max rounds per PR') as HTMLInputElement;
+    const error = screen.getByText('Enter a whole number of at least 1.');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(input.getAttribute('aria-describedby')!)).toBe(error);
+    expect(input.closest('.autopilot-limit')?.contains(error)).toBe(true);
+    expect(screen.queryByText('rounds · resets when the base moves')).toBeNull();
+    // The host action error never turns into a blocking validation fault.
+    expect(probe().valid).toBe(true);
+  });
+
   it('shows the field fault from a state push alone, on the input line', () => {
     const { probe } = mountInvalid();
     const input = screen.getByLabelText('Max rounds per PR') as HTMLInputElement;
