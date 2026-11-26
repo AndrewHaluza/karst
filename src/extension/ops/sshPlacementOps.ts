@@ -85,9 +85,10 @@ export async function liveRemoteSession(input: LiveRemoteSessionInput): Promise<
   // Trust first: an unconfirmed remote never reaches an ssh process.
   if (!isRemoteTrusted(input.trust, target.remote, def)) return false;
   if (!SANDBOX_NAME_RE.test(target.sandboxName)) return false;
-  const ssh = input.deps?.ssh ?? NODE_SSH_PROCESS;
-  const controlDir = input.deps?.controlDir ?? sshControlDir();
-  const control = await (input.deps?.ensureControlDir ?? ensureSshControlDir)(controlDir);
+  const deps = input.deps ?? {};
+  const ssh = deps.ssh ?? NODE_SSH_PROCESS;
+  const controlDir = deps.controlDir ?? sshControlDir();
+  const control = await (deps.ensureControlDir ?? ensureSshControlDir)(controlDir);
   if (!control.ok) return false;
   // `=name` is an exact match: a bare name prefix-matches (`…-opencode` would hit `…-opencode2`).
   const script = `tmux has-session -t ${sshQuote(`=${target.sandboxName}`)} 2>/dev/null`;

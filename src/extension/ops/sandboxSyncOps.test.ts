@@ -939,6 +939,71 @@ describe('sandboxRunnerFor releases the proxy grant at dispose (@arch:AC-51)', (
   });
 });
 
+describe('resolveLaunchBackend ssh launch (D555 mutation)', () => {
+  const NAME = 'devbox/karst-abcd1234-7-claude';
+  const base = { backends: { claude: 'ssh:devbox' as const }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn() };
+  const sshRunner = (over: Record<string, unknown> = {}) => ({ kind: 'ssh', enforcesSandbox: false, ...over }) as never;
+
+  it('forwards remotes and installId to the resolver, and omits an absent installId', async () => {
+    const remotes = { devbox: { host: 'vm', user: 'u', mode: 'direct' as const, remoteDir: '/srv' } };
+    const resolve = vi.fn(async (_input: Record<string, unknown>) => ({ runner: HOST_SESSION_RUNNER, line: 'host (x)' }));
+    await backendSessionOptions({ ...base, remotes, installId: 'inst-1', resolve: resolve as never }).resolveRunner!();
+    expect(resolve.mock.calls[0]![0]).toMatchObject({ remotes, installId: 'inst-1' });
+    await backendSessionOptions({ ...base, resolve: resolve as never }).resolveRunner!();
+    expect(resolve.mock.calls[1]![0]).not.toHaveProperty('installId');
+    expect(resolve.mock.calls[1]![0]).not.toHaveProperty('remotes');
+  });
+
+  it('hands the resolved runner over, and sends no warning when the step has none', async () => {
+    const resolved = { runner: sshRunner(), line: `ssh (${NAME})` };
+    const warn = vi.fn();
+    const out = await resolveLaunchBackend({ ...base, warn, resolve: async () => resolved });
+    expect(await out.options.resolveRunner!()).toBe(resolved);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('shows each step warning, and a launch without a warn callback does not throw', async () => {
+    const resolved = { runner: sshRunner(), line: `ssh (${NAME})`, warnings: ['no tmux'] };
+    const warn = vi.fn();
+    await resolveLaunchBackend({ ...base, warn, resolve: async () => resolved });
+    expect(warn).toHaveBeenCalledWith('no tmux');
+    await expect(resolveLaunchBackend({ ...base, resolve: async () => resolved })).resolves.toMatchObject({ sandboxed: true });
+  });
+
+  it('syncs and refreshes the remote with the host branch and its base ref', async () => {
+    const sync = vi.fn(async () => ({ ok: true as const }));
+    const refresh = vi.fn(async () => ({ ok: true as const }));
+    const worktree = { path: '/wt', branch: 'k/b', baseRef: 'develop' };
+    await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: sshRunner({ sync, refresh }), line: `ssh (${NAME})` }) });
+    expect(sync).toHaveBeenCalledWith({ hostWorktreePath: '/wt', branch: 'k/b', baseRef: 'develop' });
+    expect(refresh).toHaveBeenCalledWith({ hostWorktreePath: '/wt', branch: 'k/b', baseRef: 'develop' });
+  });
+
+  it('a worktree without a branch syncs nothing', async () => {
+    const sync = vi.fn(async () => ({ ok: true as const }));
+    await resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: null }, resolve: async () => ({ runner: sshRunner({ sync }), line: `ssh (${NAME})` }) });
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it('a runner without sync or refresh does not throw', async () => {
+    await expect(resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: 'k/b' }, resolve: async () => ({ runner: sshRunner(), line: `ssh (${NAME})` }) }))
+      .resolves.toMatchObject({ sandboxed: true });
+  });
+
+  it('a refused refresh stops the launch with its reason', async () => {
+    const sync = vi.fn(async () => ({ ok: true as const }));
+    const refresh = vi.fn(async () => ({ ok: false as const, reason: 'diverged' }));
+    await expect(resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: 'k/b' }, resolve: async () => ({ runner: sshRunner({ sync, refresh }), line: `ssh (${NAME})` }) }))
+      .rejects.toThrow('K-7: the sandbox is not in sync with the host branch: diverged');
+  });
+
+  it('placementOfResolved reads the name only when the whole line is `<kind> (<name>)`', () => {
+    const runner = { kind: 'sbx', enforcesSandbox: true } as never;
+    expect(placementOfResolved({ runner, line: 'sbx (n) extra' }, 'claude').sandboxName).toBeNull();
+    expect(placementOfResolved({ runner, line: 'the sbx (n)' }, 'claude').sandboxName).toBeNull();
+  });
+});
+
 describe('ssh placement vs autonomy (D555, @arch:AC-31)', () => {
   it('placementOfResolved is ssh for an ssh runner, and keeps sbx/docker/host as before', () => {
     const ssh = { runner: { kind: 'ssh', enforcesSandbox: false } as never, line: 'ssh (devbox/karst-abcd1234-7-claude)' };

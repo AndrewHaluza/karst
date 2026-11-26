@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import { remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
 import { fakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
@@ -19,6 +19,9 @@ describe('sshPlacementTarget', () => {
     expect(sshPlacementTarget(null)).toBeUndefined();
     expect(sshPlacementTarget(placement({ sandboxName: 'devbox' }))).toBeUndefined();
     expect(sshPlacementTarget(placement({ sandboxName: '/name' }))).toBeUndefined();
+    expect(sshPlacementTarget(placement({ sandboxName: 'devbox/' }))).toBeUndefined();
+    expect(sshPlacementTarget(placement({ sandboxName: null }))).toBeUndefined();
+    expect(sshPlacementTarget(placement({ sandboxName: 'a/b' }))).toEqual({ remote: 'a', sandboxName: 'b' });
   });
 });
 
@@ -31,6 +34,9 @@ describe('blockedSshRunner (D555 → D826)', () => {
     expect(await runner.refresh!({ hostWorktreePath: '/wt', branch: 'k/b' })).toEqual({ ok: false, reason: SSH_RUNNER_NOT_WIRED });
     expect(await runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: SSH_RUNNER_NOT_WIRED });
     expect(await runner.hasSandbox!()).toBe(true);
+    expect(runner.autonomous).toBe(false);
+    expect(() => runner.placeInteractive({} as never)).toThrow(SSH_RUNNER_NOT_WIRED);
+    expect(await runner.probeSandbox!()).toEqual({ state: 'unknown', reason: SSH_RUNNER_NOT_WIRED });
   });
 });
 
@@ -63,6 +69,28 @@ describe('liveRemoteSession (D555 recovery)', () => {
     expect(args.at(-1)).toContain('tmux has-session -t');
     expect(args.at(-1)).toContain(`=${NAME}`);
     expect(args.at(-1)!.startsWith('sh -c ')).toBe(true);
+    expect(args.join(' ')).toContain('ControlPath=/tmp/karst-ssh-0/');
+    expect(ssh.calls[0]!.opts).toEqual({ maxStdoutBytes: 4096 });
+  });
+
+  it('uses the injected control dir step, and a failed step is false without an ssh call', async () => {
+    const ssh = fakeSshProcess({ 'tmux has-session': { code: 0 } });
+    const ensureControlDir = vi.fn(async () => ({ ok: false as const, reason: 'no dir' }));
+    const out = await liveRemoteSession({ placement: placement(), remotes: { devbox: REMOTE }, trust: trusted, deps: { ...deps(ssh), ensureControlDir } });
+    expect(out).toBe(false);
+    expect(ensureControlDir).toHaveBeenCalledWith('/tmp/karst-ssh-0/');
+    expect(ssh.calls).toHaveLength(0);
+  });
+
+  it('exit 0 with a transport failure is not live', async () => {
+    const ssh = fakeSshProcess({ 'tmux has-session': { code: 0, transport: true } });
+    expect(await liveRemoteSession({ placement: placement(), remotes: { devbox: REMOTE }, trust: trusted, deps: deps(ssh) })).toBe(false);
+  });
+
+  it('no remotes table is false without an ssh call', async () => {
+    const ssh = fakeSshProcess();
+    expect(await liveRemoteSession({ placement: placement(), remotes: undefined, trust: trusted, deps: deps(ssh) })).toBe(false);
+    expect(ssh.calls).toHaveLength(0);
   });
 
   it('a dead session, a transport failure or a missing remote is false', async () => {

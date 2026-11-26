@@ -885,6 +885,19 @@ describe('makeSandboxWiring reads the recorded placement, not the core (D245)', 
   });
 });
 
+describe('makeSandboxWiring reads an ssh placement (D555)', () => {
+  it('a recorded ssh placement fails closed and never spawns sbx or docker', async () => {
+    recordPlacement(store, id, { backend: 'ssh', core: 'claude', sandboxName: 'devbox/karst-abcd1234-1-claude', reason: null }, 'claude');
+    const proc = fakeSbxProcess();
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
+    const { w } = wiring({ proc, dockerProc, projectRoot: () => '/p/karst.yml', backendOn: () => true });
+    const out = await w.ensureSynced(id);
+    expect(out.ok).toBe(false);
+    expect(proc.calls).toEqual([]);
+    expect(dockerProc.calls).toEqual([]);
+  });
+});
+
 describe('makeSandboxWiring lifecycle on a recorded-host ticket (D245)', () => {
   const ROOT = '/p/karst.yml';
   it('archive, done, stop and remove spawn no CLI and pass', async () => {

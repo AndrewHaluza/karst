@@ -44,7 +44,8 @@ describe('ticketSandboxRunner (arch:AC-32)', () => {
   it('an ssh placement gets a fail-closed runner: gates refuse, never a host gate (D555)', async () => {
     const ssh = { backend: 'ssh' as const, core: 'claude', sandboxName: 'devbox/karst-abcd1234-7-claude', reason: null };
     const found = ticketSandboxRunner(deps({ placementOf: () => ssh }), 7);
-    expect(found).toMatchObject({ runner: { kind: 'ssh' } });
+    expect(found).toMatchObject({ runner: { kind: 'ssh' }, sandboxName: 'devbox/karst-abcd1234-7-claude' });
+    expect(ticketSandboxRunner(deps({ placementOf: () => ({ ...ssh, sandboxName: null }) }), 7)).toMatchObject({ runner: { kind: 'ssh' }, sandboxName: '' });
     expect(await found!.runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: 'ssh runner not wired yet' });
     const gate = ticketGateProcess(deps({ placementOf: () => ssh }), 7);
     expect(gate).toBeDefined();

@@ -103,8 +103,9 @@ export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number, c
   const projectRoot = deps.projectRoot(ticketId);
   // D555 → D826: an ssh placement gets no host-side runner yet. A fail-closed
   // runner (never `undefined`) keeps every gate off the host clone.
-  if (backend === 'ssh') {
-    return { runner: blockedSshRunner(), sandboxName: placement?.sandboxName ?? '' };
+  // Only a recorded placement is `ssh` (the configured value is `ssh:<remote>`).
+  if (placement?.backend === 'ssh') {
+    return { runner: blockedSshRunner(), sandboxName: placement.sandboxName ?? '' };
   }
   if (backend === 'sbx' && (SBX_CORES as readonly string[]).includes(core)) {
     const name = sbxName({ projectRoot, ticketId, core });
