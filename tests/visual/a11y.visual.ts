@@ -101,7 +101,7 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   // dark theme
   'dark:button#approachDrawerDelete.k-btn.k-btn--danger': { ratio: 4.29, gap: 'G3' },
   'dark:p#leaveModalError.modal-error.hidden': { ratio: 4.29, gap: 'G3' },
-  // Close — done outside Karst… moved into the ⋯ menu (T813): same --k-danger red on the popover surface as the G3 buttons above.
+  // Close moved into the ⋯ menu (T813): same --k-danger red on the popover surface as the G3 buttons above.
   'dark:span': { ratio: 4.29, gap: 'G3' },
   'dark:span.k-ansi-fg-red': { ratio: 3.24, gap: 'G6' },
   'dark:span.stage.stg-impl': { ratio: 4.41, gap: 'G5' },

@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { fireEvent } from '@testing-library/react';
 import type { HostMessage } from '../messages.js';
 import { $, has, headerState, installHeaderDoubles, mountHeader } from './fixtures/headerKit.js';
 
 installHeaderDoubles();
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 const gates: HostMessage = { type: 'gate-options', options: { uat: [{ name: 'lint', disabled: false }, { name: 'e2e', disabled: true }], review: [{ name: 'sec', disabled: false }] } };
 
@@ -27,6 +32,27 @@ describe('TicketMenu — items', () => {
       fireEvent.click($(sel));
       expect(h.send[name], name).toHaveBeenCalledTimes(1);
     }
+  });
+});
+
+describe('TicketMenu — Archive and labels', () => {
+  it('posts archive-ticket once, runtime-pending, from a danger item after a divider', () => {
+    const h = mountHeader(headerState());
+    const item = $('#archiveTicket');
+    expect(item.classList.contains('danger')).toBe(true);
+    expect(item.getAttribute('title')).toBe('Archive ticket, hiding it from the active list');
+    expect(item.previousElementSibling?.classList.contains('menuDivider')).toBe(true);
+    fireEvent.click(item);
+    fireEvent.click(item);
+    expect(h.send.archiveTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('names no action with a trailing "…"', () => {
+    mountHeader(headerState());
+    const labels = [...document.querySelectorAll('#menuPopover .menuButton')].map((b) => (b.textContent ?? '').trim());
+    expect(labels).toContain('Close');
+    expect(labels).toContain('Detach from parent');
+    for (const l of labels) expect(l).not.toMatch(/…$/);
   });
 });
 
@@ -123,5 +149,51 @@ describe('TicketMenu — layout setting', () => {
     expect(h.send.setLayout).toHaveBeenLastCalledWith('centered', expect.any(String));
     fireEvent.keyDown(radios()[0]!, { key: 'Home' });
     expect(h.send.setLayout).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * The page's own `.menuButton{display:flex}` comes after `.hidden{display:none}` at the same specificity, so a
+ * class-hidden menu item stayed visible. Load the page rules and Header.css, as the webview does, and read the
+ * computed `display`.
+ */
+function installPageStyles(): void {
+  const page = readFileSync(join(HERE, '..', 'webview.html'), 'utf8');
+  const css = [...page.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+  for (const text of [css, readFileSync(join(HERE, 'Header.css'), 'utf8')]) {
+    const el = document.createElement('style');
+    el.textContent = text;
+    document.head.appendChild(el);
+  }
+}
+
+const shown = (sel: string): boolean => getComputedStyle($(sel)).display !== 'none';
+
+describe('TicketMenu — computed visibility', () => {
+  beforeEach(installPageStyles);
+  afterEach(() => document.head.querySelectorAll('style').forEach((s) => s.remove()));
+
+  it('open, unpaused ticket with no parent: hides Resume, Create follow-up, Detach and Reopen', () => {
+    mountHeader(headerState({ canClose: true }));
+    expect(shown('#pauseItem')).toBe(true);
+    expect(shown('#closeTicket')).toBe(true);
+    expect(shown('#archiveTicket')).toBe(true);
+    for (const sel of ['#resumeItem', '#followUpItem', '#detachSubtask', '#reopenTicket']) {
+      expect(shown(sel), sel).toBe(false);
+    }
+  });
+
+  it('paused ticket: shows Resume, hides Pause', () => {
+    mountHeader(headerState({ paused: true }));
+    expect(shown('#resumeItem')).toBe(true);
+    expect(shown('#pauseItem')).toBe(false);
+  });
+
+  it('closed sub-task: shows Reopen and Detach, hides Close; an archived ticket hides Archive', () => {
+    mountHeader(headerState({ canClose: false, canReopen: true, canDetachSubtask: true, canArchive: false }));
+    expect(shown('#reopenTicket')).toBe(true);
+    expect(shown('#detachSubtask')).toBe(true);
+    expect(shown('#closeTicket')).toBe(false);
+    expect(shown('#archiveTicket')).toBe(false);
   });
 });

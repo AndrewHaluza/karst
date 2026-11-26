@@ -106,6 +106,7 @@ export interface DashboardActions {
   closeTicket: () => void | Promise<void>;
   /** Reopen a closed ticket. */
   reopenTicket: () => void | Promise<void>;
+  archiveTicket: () => void | Promise<void>;
   /** Open a stage's log (uat/review artifact) in an editor. Carries the stage key ONLY. */
   openStageLog: (stageKey: StageKey) => void | Promise<void>;
   /** Push one gate stage's console log to the panel; the `stage-log` message is the outcome. */

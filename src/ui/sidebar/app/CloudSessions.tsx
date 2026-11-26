@@ -142,8 +142,8 @@ function CloudRow({ session }: { readonly session: UnlinkedCloudSession }) {
             data-menu={owner}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
-            aria-label="Link to…"
-            title="Link to…"
+            aria-label="Link to"
+            title="Link to"
             onClick={(e) => {
               if (menuOpen) closeMenu(true);
               else openMenu(e.currentTarget, owner, linkItems(session.url, allRows(state).filter((r) => !r.archived), drafts));

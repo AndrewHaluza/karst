@@ -385,6 +385,13 @@ describe('buildDashboardState', () => {
     expect(buildDashboardState(store, t.id)).toMatchObject({ canClose: false, canReopen: false });
   });
 
+  it('offers Archive only to a ticket that is not archived yet', () => {
+    const t = createTicket(store, { key: 'PROJ-10', title: 'work' });
+    expect(buildDashboardState(store, t.id).canArchive).toBe(true);
+    store.db.prepare("UPDATE tickets SET archived_at = datetime('now') WHERE id = ?").run(t.id);
+    expect(buildDashboardState(store, t.id).canArchive).toBe(false);
+  });
+
   it('offers Deliver to PR only at ship with an open PR and measured missing commits', () => {
     const t = createTicket(store, { key: 'DLV-1', title: 'deliver' });
     for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, t.id, from, { kind: 'passed' });

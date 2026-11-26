@@ -612,6 +612,7 @@ export function makeDashboardActions(
     // Same commands as the palette; the host prompts for the reason (payload-free message).
     closeTicket: () => void vscode.commands.executeCommand('karst.closeTicket', ticketId),
     reopenTicket: () => void vscode.commands.executeCommand('karst.reopenTicket', ticketId),
+    archiveTicket: () => void vscode.commands.executeCommand('karst.archiveTicket', ticketId),
     // The webview names ONLY the stage key; the path is re-derived from the
     // store row this panel owns (never from the message) before `Uri.file`.
     openStageLog: (stageKey) => {

@@ -149,6 +149,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'close-ticket' };
     case 'reopen-ticket':
       return { type: 'reopen-ticket' };
+    case 'archive-ticket':
+      return { type: 'archive-ticket' };
     case 'open-stage-log':
       return isStageKey(m.stageKey) ? { type: 'open-stage-log', stageKey: m.stageKey } : null;
     case 'resolve-conflicts':

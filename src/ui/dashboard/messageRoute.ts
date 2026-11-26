@@ -121,6 +121,8 @@ export function routeAction(
       return actions.closeTicket();
     case 'reopen-ticket':
       return actions.reopenTicket();
+    case 'archive-ticket':
+      return actions.archiveTicket();
     case 'open-stage-log':
       return actions.openStageLog(msg.stageKey);
     case 'resolve-conflicts':

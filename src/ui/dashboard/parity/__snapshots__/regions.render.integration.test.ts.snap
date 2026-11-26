@@ -320,13 +320,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket
           <span> "Create follow-up"
         <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.hidden.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -399,13 +403,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · empty ticket 
           <span> "Create follow-up"
         <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -478,13 +486,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · paused execut
           <span> "Create follow-up"
         <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -559,13 +571,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
           <span> "Create follow-up"
         <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -638,13 +654,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · running agent
           <span> "Create follow-up"
         <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -717,13 +737,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship confirm 
           <span> "Create follow-up"
         <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -796,13 +820,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship retry af
           <span> "Create follow-up"
         <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -875,13 +903,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · ship waiting 
           <span> "Create follow-up"
         <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>
@@ -954,13 +986,17 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
           <span> "Create follow-up"
         <button#detachSubtask.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Detach from parent…"
+          <span> "Detach from parent"
         <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
           <svg.k-icon aria-hidden="true">
-          <span> "Close — done outside Karst…"
+          <span> "Close"
         <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
           <svg.k-icon aria-hidden="true">
           <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
         <div.menuDivider>
         <div.menuHeading> "Quick setting"
         <div.settingRow>

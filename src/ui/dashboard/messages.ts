@@ -81,6 +81,7 @@ export type WebviewMessage =
    */
   | { type: 'close-ticket' }
   | { type: 'reopen-ticket' }
+  | { type: 'archive-ticket' }
   /**
    * The ONE explicit recovery action: move this ticket back to Implement from
    * the current stage header's ⋯ menu. Payload-free exactly like `refresh-prs`:

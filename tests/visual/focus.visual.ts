@@ -51,7 +51,7 @@ const FOCUS_CAP = 12;
  *
  * Updated a fifth time by the sub-task UI (NDL-76, `#addSubtask`; PR #448,
  * `#detachSubtask`): `dashboard` +2 — the Sub-tasks panel's "Add sub-task…"
- * and the ticket header's "Detach from parent…" controls. Both are net-new
+ * and the ticket header's "Detach from parent" controls. Both are net-new
  * interactive controls on the awaiting-subtask flow and neither folds into an
  * existing focusable: `git diff 65df7194..HEAD -- src/ui/dashboard/webview.html`
  * adds exactly these two focusable elements and removes none (no `tabindex`
@@ -129,7 +129,7 @@ const FOCUS_CAP = 12;
  * Servers pane holds only its "Reading servers…" note), so they add nothing here.
  *
  * Updated a fourteenth time by the human-only `closed` state (arch:STAGEMACH):
- * `dashboard` 47 → 49 — `#closeTicket` ("Close — done outside Karst…") and
+ * `dashboard` 47 → 49 — `#closeTicket` ("Close") and
  * `#reopenTicket` ("Reopen"), the dashboard header's two net-new controls, a
  * recorded vanilla-view exception (ui:REACT-VIEWS). They fold into nothing: no
  * existing control closes or reopens a ticket, and Detach/Pause/Stop act on

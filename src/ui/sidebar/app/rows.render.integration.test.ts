@@ -522,7 +522,7 @@ describe('context window', () => {
   it('opens at the "⋯" trigger with Edit / Create follow-up / Archive and hands focus to the first item', async () => {
     const { h, trigger } = await opened();
     expect(items(h).map((i) => i.getAttribute('data-act'))).toEqual(['edit', 'spin', 'create-follow-up', 'archive', 'cloud-session-add']);
-    expect(items(h).map((i) => text(i).trim())).toEqual(['Edit ticket', 'Start servers', 'Create follow-up', 'Archive', 'Link cloud session…']);
+    expect(items(h).map((i) => text(i).trim())).toEqual(['Edit ticket', 'Start servers', 'Create follow-up', 'Archive', 'Link cloud session']);
     expect(items(h)[3]!.classList.contains('danger')).toBe(true);
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(trigger.getAttribute('aria-haspopup')).toBe('menu');

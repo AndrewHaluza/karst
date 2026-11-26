@@ -230,11 +230,13 @@ export interface DashboardState {
    */
   canDetachSubtask: boolean;
   /**
-   * Whether "Close — done outside Karst…" / "Reopen" are offered — host-derived
+   * Whether "Close" / "Reopen" are offered — host-derived
    * (`model/closeRules.ts`); the webview never re-derives them.
    */
   canClose: boolean;
   canReopen: boolean;
+  /** Whether "Archive" is offered: the ticket is not archived yet. */
+  canArchive: boolean;
   stageCurrent: string | null;
   agentState: string | null;
   paused: boolean;
