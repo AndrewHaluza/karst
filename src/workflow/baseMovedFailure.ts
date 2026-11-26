@@ -1,14 +1,15 @@
 import type { Store } from '../store/db.js';
 import { stageBlock } from '../store/stageBlocks.js';
-import { getDeliverRun, listDeliverResults, type DeliverGateResult, type DeliverRun } from '../store/deliverRuns.js';
+import { getDeliverRun, listDeliverResults, type DeliverGateResult, type DeliverRun, type DeliverRunKind } from '../store/deliverRuns.js';
 import { sendBackState, type SendBackUnavailableReason } from './sendBack.js';
 
 /**
  * "Send gate failure to agent": the availability rule for the ship-stage action (@arch:SHIP-CI-ACTIONS).
  *
  * It rides on `sendBackState`, so the in-flight and landed refusals cannot drift from the plain send-back. On top it
- * needs the ship block `base-moved-failed` (@arch:BLOCKED) and the newest `base-moved` run of the ticket to have
- * `failed`: the block text alone is not evidence, the run row is.
+ * needs the ship block `base-moved-failed` (@arch:BLOCKED) and the newest run the block can name — a `base-moved` ship check
+ * or the `auto` deliver run that refused a resolved merge (@arch:AP-12) — to have `failed`: the block text alone is not
+ * evidence, the run row is.
  */
 export type BaseMovedFailureUnavailableReason = SendBackUnavailableReason | 'no-block' | 'no-failed-run';
 
@@ -79,14 +80,28 @@ export function deliverRunFailureState(
 }
 
 /**
- * The newest deliver run of the ticket that the base-moved block can name: a ship base check (`base-moved`) or the gate run
- * of an auto-deliver that refused a resolved merge (`auto`, T1381), whatever its state; null when none ran.
+ * The newest deliver run of the ticket among `kinds`, whatever its state; null when none ran.
  */
-function latestBaseMovedRun(store: Store, ticketId: number): DeliverRun | null {
+function newestRunOfKinds(store: Store, ticketId: number, kinds: readonly DeliverRunKind[]): DeliverRun | null {
+  const placeholders = kinds.map(() => '?').join(', ');
   const row = store.db
-    .prepare("SELECT id FROM deliver_runs WHERE ticket_id = ? AND kind IN ('auto', 'base-moved') ORDER BY id DESC LIMIT 1")
-    .get(ticketId) as { id: number } | undefined;
+    .prepare(`SELECT id FROM deliver_runs WHERE ticket_id = ? AND kind IN (${placeholders}) ORDER BY id DESC LIMIT 1`)
+    .get(ticketId, ...kinds) as { id: number } | undefined;
   return row ? getDeliverRun(store, row.id) : null;
+}
+
+/** The newest ship-base-check (`base-moved`) run of the ticket, whatever its state; null when none ran. */
+function latestBaseMovedRun(store: Store, ticketId: number): DeliverRun | null {
+  return newestRunOfKinds(store, ticketId, ['base-moved']);
+}
+
+/**
+ * The newest run the `base-moved-failed` block can name: a ship base check (`base-moved`), or the deliver run that refused a
+ * resolved merge (`auto`, T1381). The ship's own base-moved remedy keeps `latestBaseMovedRun`, so it never rebases from an
+ * unrelated auto-deliver run.
+ */
+function latestBlockRun(store: Store, ticketId: number): DeliverRun | null {
+  return newestRunOfKinds(store, ticketId, ['auto', 'base-moved']);
 }
 
 export function baseMovedFailureState(store: Store, ticketId: number): BaseMovedFailureState {
@@ -95,7 +110,7 @@ export function baseMovedFailureState(store: Store, ticketId: number): BaseMoved
   if (sb.stage !== 'ship') return { available: false, reason: 'stage' };
   const block = stageBlock(store, ticketId, 'ship');
   if (block?.kind !== 'base-moved-failed') return { available: false, reason: 'no-block' };
-  const run = latestBaseMovedRun(store, ticketId);
+  const run = latestBlockRun(store, ticketId);
   if (run === null || run.state !== 'failed') return { available: false, reason: 'no-failed-run' };
   const failed = listDeliverResults(store, ticketId).filter((g) => g.runId === run.id && g.exitCode !== null && g.exitCode !== 0);
   return { available: true, run, reason: block.reason ?? '', failed };

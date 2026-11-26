@@ -321,11 +321,12 @@ describe('settleShipGate', () => {
     expect(getTicket(store, id).stageCurrent).toBe('done');
   });
 
-  it('advances a ticket blocked on base-moved-failed once every PR merged or was dismissed', () => {
+  it('advances a SHIPPED ticket blocked on base-moved-failed once every PR merged or was dismissed', () => {
     walkToShip(store, id);
     seedPr(store, id, 'api', 'open', 12);
     seedPr(store, id, 'web', 'open', 13);
-    // A refused resolved merge parks the same base-moved block the ship base check uses (@arch:AP-12).
+    // A refused resolved merge parks the base-moved block AFTER the ship passed (@arch:AP-12).
+    setStage(store, id, 'ship', { status: 'passed' });
     parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'base-moved-failed', reason: 'api: gate "unit" fails when merged with origin/develop abc', runAt: 't0', gates: [] });
     // A teammate merged one PR and the other was dismissed upstream: the ticket has still landed.
     store.db.prepare("UPDATE prs SET status = 'merged' WHERE ticket_id = ? AND repo = 'api'").run(id);
@@ -335,6 +336,19 @@ describe('settleShipGate', () => {
     expect(res.advanced).toBe(true);
     expect(getTicket(store, id).stageCurrent).toBe('done');
     expect(stageBlock(store, id, 'ship')).toBeNull();
+  });
+
+  it('never settles an UNSHIPPED ticket blocked on base-moved-failed, even with landed PRs', () => {
+    walkToShip(store, id);
+    seedPr(store, id, 'api', 'open', 12);
+    // The ship base check failed BEFORE the push: the ship row stays pending.
+    setStage(store, id, 'ship', { status: 'pending' });
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'base-moved-failed', reason: 'api: gate "unit" fails when merged with origin/develop abc', runAt: 't0', gates: [] });
+    store.db.prepare("UPDATE prs SET status = 'merged' WHERE ticket_id = ?").run(id);
+
+    expect(settleShipGate(store, id).advanced).toBe(false);
+    expect(getTicket(store, id).stageCurrent).toBe('ship');
+    expect(stageBlock(store, id, 'ship')?.kind).toBe('base-moved-failed');
   });
 
   // P2-04: `resolveShipLanding`'s not-landed block write is swallowed, so a

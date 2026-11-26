@@ -153,13 +153,12 @@ describe('latestBaseMovedFailedGates (T1169)', () => {
     run('base-moved', 'passed', 0);
     expect(latestBaseMovedFailedGates(store, id, 'r')).toEqual([]);
   });
-  it('reads the newest auto or base-moved run, and a gate that did not exit non-zero is not a failure', () => {
+  it('ignores a newer auto run, and a gate that did not exit non-zero is not a failure', () => {
     const bm = run('base-moved', 'failed');
-    const auto = run('auto', 'failed');
-    // The newest run of either kind is the block's run (T1381).
-    expect(latestBaseMovedFailedGates(store, id, 'r').map((g) => g.runId)).toEqual([auto]);
-    expect(bm).toBeGreaterThan(0);
-    store.db.prepare('UPDATE deliver_gate_results SET exit_code = NULL WHERE run_id = ?').run(auto);
+    run('auto', 'failed');
+    // The ship's base-moved remedy names the base-moved run, never an unrelated auto-deliver run (@arch:AP-12).
+    expect(latestBaseMovedFailedGates(store, id, 'r').map((g) => g.runId)).toEqual([bm]);
+    store.db.prepare('UPDATE deliver_gate_results SET exit_code = NULL WHERE run_id = ?').run(bm);
     expect(latestBaseMovedFailedGates(store, id, 'r')).toEqual([]);
   });
 });
