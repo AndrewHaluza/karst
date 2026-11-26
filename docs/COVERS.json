@@ -1528,5 +1528,11 @@
   ],
   "src/workflow/uat/tester.ts": [
     "arch:PM-00"
+  ],
+  "tests/visual/variantCore.ts": [
+    "ui:VISUAL-VARIANTS-FILES"
+  ],
+  "tests/visual/variants.ts": [
+    "ui:VISUAL-VARIANTS-FILES"
   ]
 }
