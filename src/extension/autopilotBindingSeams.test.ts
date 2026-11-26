@@ -19,7 +19,10 @@ vi.mock('./ops/ciActionsWiring.js', () => ({ rebaseOnBaseAction: vi.fn(async () 
 vi.mock('./ops/conflictResumeOps.js', () => ({ resumeFinishedMerge: vi.fn(async () => 'resumed') }));
 vi.mock('./ops/autoDeliverOps.js', () => ({ conflictRounds: 'ROUNDS', verifyMergeResolved: vi.fn(() => 'VERIFIED'), conflictRoundEnded: vi.fn(async () => true) }));
 vi.mock('../workflow/deliverState.js', () => ({ deliverTargets: vi.fn() }));
-vi.mock('../integrations/ciRerun.js', () => ({ makeTransientCiSeams: vi.fn(() => ({ readJobLog: 'RJL', readRunHeadSha: 'RRS' })) }));
+vi.mock('../integrations/ciRerun.js', () => ({
+  makeTransientCiSeams: vi.fn(() => ({ readJobLog: 'RJL', readRunHeadSha: 'RRS' })),
+  makeBaseRedSeams: vi.fn((_gh: unknown, rebase: unknown) => ({ kind: 'BASE_RED', rebase })),
+}));
 vi.mock('./ops/autopilotOps.js', () => ({ roundDied: vi.fn(() => null) }));
 vi.mock('./ops/autopilotCommandOps.js', () => ({
   approveCommand: vi.fn(async () => 'approve'), retryCommand: vi.fn(async () => 'retry'), setOverrideCommand: vi.fn(async () => 'override'), stopCommand: vi.fn(async () => 'stop'),
@@ -155,7 +158,7 @@ describe('the seams of one ticket', () => {
 
   it('pass the optional seams only when the deps carry them', () => {
     const bare = open(rig());
-    expect(Object.keys(bare.seams)).not.toEqual(expect.arrayContaining(['isDraining', 'resumeDeliver', 'transientCi', 'staleRebase', 'sandboxPreflight']));
+    expect(Object.keys(bare.seams)).not.toEqual(expect.arrayContaining(['isDraining', 'resumeDeliver', 'transientCi', 'staleRebase', 'baseRed', 'sandboxPreflight']));
     bare.handle.dispose();
     const isDraining = (): boolean => true;
     const sandboxPreflight = vi.fn(async () => 'blocked');
@@ -164,6 +167,7 @@ describe('the seams of one ticket', () => {
     expect(full.seams.resumeDeliver).toBeTypeOf('function');
     expect(full.seams.transientCi).toEqual({ readJobLog: 'RJL', readRunHeadSha: 'RRS' });
     expect(full.seams.staleRebase).toBeDefined();
+    expect(full.seams.baseRed).toEqual({ kind: 'BASE_RED', rebase: expect.any(Function) });
     expect(full.seams.sandboxPreflight).toBeTypeOf('function');
     full.handle.dispose();
   });
@@ -254,6 +258,19 @@ describe('the seams of one ticket', () => {
     });
     await expect(stale.rebase('r')).resolves.toBe(true);
     expect(rebaseOnBaseAction).toHaveBeenCalledTimes(1);
+    expect(lease(r)).toBe(NOW + INTERVAL * 3);
+    handle.dispose();
+  });
+
+  it('rebases for base red through the held Rebase on base (T1383)', async () => {
+    const r = rig({ gh: vi.fn() as never });
+    const { handle, seams } = open(r);
+    vi.mocked(rebaseOnBaseAction).mockImplementation(async () => {
+      expect(lease(r)).toBe(NOW + COOLDOWN);
+      return true;
+    });
+    await expect((seams.baseRed as unknown as { rebase: (repo: string) => Promise<boolean> }).rebase('repo-a')).resolves.toBe(true);
+    expect(rebaseOnBaseAction).toHaveBeenCalledWith(expect.anything(), expect.any(Function), { repos: new Set(['repo-a']) });
     expect(lease(r)).toBe(NOW + INTERVAL * 3);
     handle.dispose();
   });

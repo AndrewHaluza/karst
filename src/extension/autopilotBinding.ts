@@ -11,7 +11,7 @@ import { roundDied, type FixOutcome, type Placement } from './ops/autopilotOps.j
 import type { SessionOutcome } from './ops/startOutcome.js';
 import type { CiActionsInput } from './ops/ciActionsWiring.js';
 import type { GhRunner } from '../integrations/github.js';
-import { makeTransientCiSeams } from '../integrations/ciRerun.js';
+import { makeBaseRedSeams, makeTransientCiSeams } from '../integrations/ciRerun.js';
 import { rebaseOnBaseAction, gitFor, headShaOf } from './ops/ciActionsWiring.js';
 import { resumeFinishedMerge, type ResumeDeps } from './ops/conflictResumeOps.js';
 import { conflictRoundEnded, conflictRounds, verifyMergeResolved } from './ops/autoDeliverOps.js';
@@ -273,6 +273,9 @@ export function startAutopilot(d: AutopilotBindingDeps): {
     if (!claimAutopilotTicket(d.store, id, owner, now(), ROUND_COOLDOWN_MS)) return false;
     try { return await run(); } finally { claimAutopilotTicket(d.store, id, owner, now(), d.intervalMs * LEASE_INTERVALS); }
   };
+  // Rebase on base for one repo with no confirm prompt, held for a whole round: the stale step (T1081) and the base-red step (T1383) share it.
+  const heldRebase = (id: number) => (repo: string): Promise<boolean> =>
+    rebaseHeld(id, () => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) }));
   // A ship retry runs longer than the sweep lease: hold the ticket for a whole round while it runs, so a second window
   // starts no second retry beside it, then give the short lease back (@arch:AC-37, @arch:AP-11).
   const shipRetryHeld = async (id: number, repos: readonly string[]): Promise<ShipRetryOutcome> => {
@@ -313,7 +316,8 @@ export function startAutopilot(d: AutopilotBindingDeps): {
           return pr === undefined ? null : headShaOf(d.ciInput(id), pr.cwd);
         },
         ...(d.gh ? { transientCi: makeTransientCiSeams(d.gh) } : {}),
-        ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), (repo) => rebaseHeld(id, () => rebaseOnBaseAction(d.ciInput(id), (r) => regenerateEntries(d.manifest(), r), { repos: new Set([repo]) }))) } : {}),
+        ...(d.gh ? { staleRebase: makeStaleRebaseSeams(d.gh, (repo) => regenerateCommands(d.manifest(), repo), heldRebase(id)) } : {}),
+        ...(d.gh ? { baseRed: makeBaseRedSeams(d.gh, heldRebase(id)) } : {}),
         ...(ready() && d.shipRetry ? { shipRetry: d.shipRetry(id) } : {}),
         ...(ready() && d.retryShip ? { retryShip: (repos: readonly string[]) => shipRetryHeld(id, repos) } : {}),
       }),
