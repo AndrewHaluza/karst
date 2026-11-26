@@ -28,6 +28,8 @@ interface Fixture {
   deps: Parameters<typeof createGraphFirstActivityBinding>[0];
   terminated: SupervisedAgentSession[];
   errors: unknown[];
+  messages: string[];
+  debugs: string[];
 }
 
 function fixture(input: {
@@ -35,6 +37,10 @@ function fixture(input: {
   withSession?: boolean;
   withTransport?: boolean;
   terminateThrows?: boolean;
+  /** Replace the matching session's identity fields (a non-matching session). */
+  sessionPatch?: Partial<SupervisedAgentSession>;
+  /** Extra sessions listed BEFORE the session under test. */
+  decoys?: (graphRunId: number, nodeRunId: number) => SupervisedAgentSession[];
 } = {}): Fixture {
   const graphRunId = Number(
     store.db
@@ -87,14 +93,18 @@ function fixture(input: {
     provider: 'opencode2',
     providerSessionId: null,
     runKind: 'node',
+    ...input.sessionPatch,
   };
   const terminated: SupervisedAgentSession[] = [];
   const errors: unknown[] = [];
+  const messages: string[] = [];
+  const debugs: string[] = [];
+  const decoys = input.decoys?.(graphRunId, nodeRunId) ?? [];
   const transport = {
-    sessions: () => (input.withSession === false ? [] : [session]),
-    terminate: async () => {
+    sessions: () => (input.withSession === false ? decoys : [...decoys, session]),
+    terminate: async (s: SupervisedAgentSession) => {
       if (input.terminateThrows) throw new Error('transport gone');
-      terminated.push(session);
+      terminated.push(s);
       return input.proof ?? { kind: 'attributable', kill: 'killed' };
     },
   };
@@ -104,10 +114,13 @@ function fixture(input: {
     now: () => NOW,
     awakeElapsedMs: (sinceMs, nowMs) => nowMs - sinceMs,
     transport: () => (input.withTransport === false ? undefined : transport),
-    debug: () => undefined,
-    logError: (_message, error) => errors.push(error),
+    debug: (message) => debugs.push(message),
+    logError: (message, error) => {
+      messages.push(message);
+      errors.push(error);
+    },
   };
-  return { graphRunId, nodeRunId, deps, terminated, errors };
+  return { graphRunId, nodeRunId, deps, terminated, errors, messages, debugs };
 }
 
 function nodeStatus(id: number): string {
@@ -137,6 +150,64 @@ describe('createGraphFirstActivityBinding', () => {
   it('leaves the row running when the transport is absent', async () => {
     const h = fixture({ withTransport: false });
     await createGraphFirstActivityBinding(h.deps).run(h.graphRunId);
+    expect(nodeStatus(h.nodeRunId)).toBe('running');
+    // No session lookup is tried: the refusal is "no session", not a thrown lookup.
+    expect(h.debugs).toEqual([
+      `[graph] first-activity watchdog: no session found in this window for node run ${h.nodeRunId}, row left running`,
+    ]);
+  });
+
+  it('returns undefined and touches nothing when the store is absent', async () => {
+    const h = fixture();
+    const result = await createGraphFirstActivityBinding({ ...h.deps, db: () => undefined }).run(
+      h.graphRunId,
+    );
+    expect(result).toBeUndefined();
+    expect(h.terminated).toHaveLength(0);
+    expect(h.errors).toEqual([]);
+    expect(nodeStatus(h.nodeRunId)).toBe('running');
+  });
+
+  it('terminates only the session of the same graph run, node run and node kind', async () => {
+    const h = fixture({
+      decoys: (graphRunId, nodeRunId) => {
+        const base: SupervisedAgentSession = {
+          nodeRunId,
+          ticketId,
+          graphRunId,
+          pid: 1,
+          cwd: '/tmp/d',
+          generation: 'g',
+          ownerNonce: 'decoy',
+          startedAt: NOW,
+          processRunId: 0,
+          provider: 'opencode2',
+          providerSessionId: null,
+          runKind: 'node',
+        };
+        return [
+          { ...base, ownerNonce: 'other-graph', graphRunId: graphRunId + 1 },
+          { ...base, ownerNonce: 'other-node', nodeRunId: nodeRunId + 1 },
+          { ...base, ownerNonce: 'planner', runKind: 'planner' },
+        ];
+      },
+    });
+    await createGraphFirstActivityBinding(h.deps).run(h.graphRunId);
+    expect(h.terminated.map((s) => s.ownerNonce)).toEqual(['nonce']);
+    expect(nodeStatus(h.nodeRunId)).toBe('blocked');
+  });
+
+  it('treats a re-attached session with no run kind as a node session', async () => {
+    const h = fixture({ sessionPatch: { runKind: undefined } });
+    await createGraphFirstActivityBinding(h.deps).run(h.graphRunId);
+    expect(h.terminated).toHaveLength(1);
+    expect(nodeStatus(h.nodeRunId)).toBe('blocked');
+  });
+
+  it('does not terminate a planner session with the same ids', async () => {
+    const h = fixture({ sessionPatch: { runKind: 'planner' } });
+    await createGraphFirstActivityBinding(h.deps).run(h.graphRunId);
+    expect(h.terminated).toHaveLength(0);
     expect(nodeStatus(h.nodeRunId)).toBe('running');
   });
 
@@ -168,5 +239,8 @@ describe('createGraphFirstActivityBinding', () => {
     });
     await expect(binding.run(h.graphRunId)).resolves.toBeUndefined();
     expect(h.errors).toHaveLength(1);
+    expect(h.messages).toEqual([
+      `karst: graph first-activity watchdog failed for run ${h.graphRunId}`,
+    ]);
   });
 });
