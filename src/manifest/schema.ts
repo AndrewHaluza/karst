@@ -21,6 +21,7 @@ import type {
   SubtaskLimits,
   RemoteDef,
 } from './types.js';
+import { homedir } from 'node:os';
 import { ManifestError } from './error.js';
 import { validateAutopilot } from './autopilot.js';
 import { validateOutputs } from '../approaches/outputs.js';
@@ -506,6 +507,7 @@ const BRACKETED_IPV6_PATTERN = /^\[[0-9A-Fa-f:.]+\]$/;
 const REMOTE_USER_PATTERN = /^[a-z_][a-z0-9_-]{0,31}$/;
 const REMOTE_DIR_PATTERN = /^\/[A-Za-z0-9._/-]+$/;
 const REMOTE_KEY_PATH_CHARS = /^[A-Za-z0-9._/-]+$/;
+const TILDE_SSH_DIR = '~/.ssh/';
 const REMOTE_DEF_KEYS = ['host', 'user', 'port', 'keyPath', 'mode', 'remoteDir', 'allowHostServices'] as const;
 
 /** An absolute POSIX path with at least two segments and no empty, `.` or `..` segment. */
@@ -520,15 +522,18 @@ function assertRemoteDir(value: unknown, where: string): string {
   return value;
 }
 
-/** A key file under `~/.ssh/` (or its absolute form); no `..` segment and no shell metacharacter. */
+/**
+ * A key file under `~/.ssh/` or its absolute form (the user's own `<home>/.ssh/`,
+ * never another dir that only has a `.ssh` segment); no `..` segment and no shell
+ * metacharacter.
+ */
 function assertRemoteKeyPath(value: unknown, where: string): string {
   if (typeof value !== 'string') throw new ManifestError(`${where} must be a path under ~/.ssh/`);
-  const fromTilde = value.startsWith('~/.ssh/');
-  const absAt = value.startsWith('/') ? value.indexOf('/.ssh/') : -1;
-  const rest = fromTilde
-    ? value.slice('~/.ssh/'.length)
-    : absAt > 0
-      ? value.slice(absAt + '/.ssh/'.length)
+  const absSshDir = `${homedir()}/.ssh/`;
+  const rest = value.startsWith(TILDE_SSH_DIR)
+    ? value.slice(TILDE_SSH_DIR.length)
+    : value.startsWith(absSshDir)
+      ? value.slice(absSshDir.length)
       : undefined;
   if (rest === undefined || !REMOTE_KEY_PATH_CHARS.test(rest) || value.split('/').includes('..')) {
     throw new ManifestError(`${where} must be a key path under ~/.ssh/ with no .. segment`);

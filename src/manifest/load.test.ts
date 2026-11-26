@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
 import { ManifestError } from './error.js';
@@ -2600,11 +2600,11 @@ ${over}`;
   it('accepts a bracketed IPv6 host and an absolute-form key path', () => {
     const remote = load(REMOTE(`    host: "[::1]"
     user: karst
-    keyPath: /home/karst/.ssh/id_ed25519
+    keyPath: ${homedir()}/.ssh/id_ed25519
     mode: direct
     remoteDir: /srv/karst`)).remotes!.devbox!;
     expect(remote.host).toBe('[::1]');
-    expect(remote.keyPath).toBe('/home/karst/.ssh/id_ed25519');
+    expect(remote.keyPath).toBe(`${homedir()}/.ssh/id_ed25519`);
   });
 
   it.each([
@@ -2676,6 +2676,11 @@ ${over}`;
     ['~/.ssh/../id_ed25519', /remotes\.devbox\.keyPath/],
     ['~/.ssh/id ed25519', /remotes\.devbox\.keyPath/],
     ['~/.ssh/', /remotes\.devbox\.keyPath/],
+    // The absolute form is only the user's own ~/.ssh/, not any dir with a .ssh segment.
+    ['/etc/keys/.ssh/id_ed25519', /remotes\.devbox\.keyPath/],
+    ['/tmp/.ssh/id_ed25519', /remotes\.devbox\.keyPath/],
+    [`${homedir()}-other/.ssh/id_ed25519`, /remotes\.devbox\.keyPath/],
+    [`${homedir()}/x/.ssh/id_ed25519`, /remotes\.devbox\.keyPath/],
   ])('rejects a keyPath of %s', (keyPath, message) => {
     const { path, cleanup } = fixture(`${VALID}\n${REMOTE(`    host: devbox.example.com
     user: karst
