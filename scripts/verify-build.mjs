@@ -101,7 +101,14 @@ const REQUIRED_ARTIFACTS = [
 // Raised 426 → 428 KB for the T1297 review fixes: the quota card's three per-control host
 // mutations (receipt-correlated settling, aria-busy, duplicate guards) and the per-tab candidate
 // validation in the settings context — ~2.1 KB minified; bundle is 436682 bytes (~1.6 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 428 * 1024;
+// Raised 428 → 440 KB for T1372 (Autopilot is one Auto-fix switch, one rules table and one checks
+// chip row): the rebuilt AutopilotSection is ~3 KB of genuine app code on this branch (bundle is
+// 440016 bytes). This branch predates develop's own two raises — 430 KB for T1373's Quality
+// sections and 438 KB for T1374's Approaches drawer — so this cap has to hold the tree the PR
+// ships, not the pre-merge one: develop plus this ticket's Autopilot delta builds to 449185
+// bytes, which the 438 KB cap misses by ~0.7 KB. 440 KB leaves ~1.3 KB headroom there (and the
+// merge resolution keeps this number, not develop's smaller one).
+const APP_BUNDLE_BUDGET_BYTES = 440 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
