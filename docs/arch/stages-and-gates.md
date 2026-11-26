@@ -642,7 +642,7 @@ covers: src/workflow/stages/shipResume.ts, src/workflow/stages/ship.ts, src/exte
 END_DOC_BLOCK: [@arch:SHIP-RESUME]
 
 ## [@arch:GRAPH-AUTORECOVERY] The graph coordinator recovers a blocked run for the safe reasons, three times at most
-covers: src/approaches/graph/coordinator/autoRecovery.ts, src/approaches/graph/coordinator/recovery.ts, src/approaches/graph/coordinator/recoveryGuidance.ts, src/approaches/graph/coordinator/replan.ts, src/approaches/graph/coordinator/replanDrain.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts, src/extension/ops/graphReplanDrain.ts
+covers: src/approaches/graph/coordinator/autoRecovery.ts, src/approaches/graph/coordinator/recovery.ts, src/approaches/graph/coordinator/recoveryGuidance.ts, src/approaches/graph/coordinator/replan.ts, src/approaches/graph/coordinator/replanDrain.ts, src/approaches/graph/coordinator/usageLimitPark.ts, src/extension/ops/graphRecoveryDispatch.ts, src/extension/ops/graphAutoRecoverySweep.ts, src/extension/ops/graphReplanDrain.ts
 
 The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` run when `recoveryCategoryFor(blocked_reason)` is an automatic category. The sweep uses the same entry and the same seams as the Resume and Replan buttons (`dispatchGraphRecovery`). The run claim (`blocked → running`) is a CAS, so two windows cannot both recover one block. The sweep shows no dialog. It writes one graph diagnostic and one bulletin note for each automatic recovery.
 
@@ -657,6 +657,7 @@ The coordinator sweep calls `recoverGraphRun` in mode `resume` for a `blocked` r
 | `explicit-resolution` | `integration-conflict`, `graph-topology-deadlock` | no |
 | `config-then-resume` | `graph-budget-exhausted`, `graph-workspace-deps`, `graph-preserve-failed` | no |
 | `prompt-resnapshot` | `prompt-config-changed` | no |
+| `usage-limit` | `usage-limit` | no |
 | unknown reason | any other text | no |
 
 For `explicit-resolution` and `config-then-resume`, the blocked banner shows Replan as its only action because Resume refuses; the same holds for a `replan` or `compile-new-revision` block whose `replan_count` reached `budgets.maxReplans`. The guidance text comes from `recoveryGuidance.ts` for both the refusal notice and the diagnostic. A refusal names the control the click can actually use. `explicit-resolution` is a shared refusal reason: the true category is Replan-only, but the artifact re-check, the prompt re-snapshot and the bootstrap planner relaunch return the same reason while Resume is the offered action, so the guidance names Resume and the correction it re-probes. For `config-then-resume`, a reached project `limits.maxReplans` is stated before any reparable prefix, because Replan is that category's only exit and the cap refuses it before a repair could be followed.

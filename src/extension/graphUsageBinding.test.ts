@@ -49,6 +49,11 @@ describe('createGraphUsageBinding.hookChannelFor', () => {
     });
   });
 
+  it('gives an opencode launch a channel too (T1380)', () => {
+    const channel = createGraphUsageBinding(harness().deps).hookChannelFor(request('opencode', 'node'));
+    expect(channel?.launchId).toBe(`graph-3-node-7-${GEN}`);
+  });
+
   it('gives a claude launch no channel (its usage comes from the transcript sweep)', () => {
     expect(createGraphUsageBinding(harness().deps).hookChannelFor(request('claude'))).toBeUndefined();
   });
@@ -132,5 +137,105 @@ describe('createGraphUsageBinding.sweep', () => {
       expect(posted).toHaveLength(1);
       expect(posted[0]).toMatchObject({ hook_event_name: 'UsageUpdate', cwd, session_id: sessionId });
     });
+  });
+});
+
+describe('createGraphUsageBinding.sweep — claude usage-limit signal (T1380)', () => {
+  const cwd = '/repo/.karst/worktrees/x';
+  const sessionId = '3f2b6c1e-8a4d-4c2e-9b7a-1d2e3f4a5b6c';
+  const QUOTA = "You've hit your 5-hour limit · resets 4:10am";
+
+  function errorLine(text = QUOTA, uuid = 'err-1'): string {
+    return JSON.stringify({
+      type: 'assistant',
+      isApiErrorMessage: true,
+      uuid,
+      message: { content: [{ type: 'text', text }] },
+    });
+  }
+
+  function append(line: string): void {
+    const projectDir = join(dir, encodeClaudeProjectDir(cwd));
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, `${sessionId}.jsonl`), `${line}\n`, { flag: 'a' });
+  }
+
+  function write(line: string): void {
+    const projectDir = join(dir, encodeClaudeProjectDir(cwd));
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, `${sessionId}.jsonl`), `${line}\n`);
+  }
+
+  function session(): SupervisedAgentSession {
+    return {
+      nodeRunId: 121,
+      ticketId: 1368,
+      graphRunId: 81,
+      runKind: 'planner',
+      cwd,
+      generation: GEN,
+      provider: 'claude',
+      providerSessionId: sessionId,
+    } as unknown as SupervisedAgentSession;
+  }
+
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-graph-usage-limit-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('reports a trailing claude quota error once, with the graph session identity', async () => {
+    write(errorLine());
+    const signals: unknown[] = [];
+    const h = harness({
+      sessions: () => [session()],
+      projectsDirFor: () => dir,
+      onGraphUsageLimit: (signal) => { signals.push(signal); },
+    });
+    const binding = createGraphUsageBinding(h.deps);
+    expect(await binding.sweep()).toBe(1);
+    expect(signals).toEqual([
+      { ticketId: 1368, graphRunId: 81, runId: 121, role: 'planner', provider: 'claude', text: QUOTA },
+    ]);
+  });
+
+  it('reports the same error line once even when a later sweep changes the fingerprint', async () => {
+    write(errorLine());
+    const signals: unknown[] = [];
+    const h = harness({
+      sessions: () => [session()],
+      projectsDirFor: () => dir,
+      onGraphUsageLimit: (signal) => { signals.push(signal); },
+    });
+    const binding = createGraphUsageBinding(h.deps);
+    await binding.sweep();
+    append(JSON.stringify({ type: 'system', subtype: 'turn_duration' }));
+    await binding.sweep();
+    expect(signals).toHaveLength(1);
+  });
+
+  it('reports nothing when a human prompt follows the error', async () => {
+    write(`${errorLine()}\n${JSON.stringify({ type: 'user', origin: { kind: 'human' } })}`);
+    const signals: unknown[] = [];
+    const h = harness({
+      sessions: () => [session()],
+      projectsDirFor: () => dir,
+      onGraphUsageLimit: (signal) => { signals.push(signal); },
+    });
+    await createGraphUsageBinding(h.deps).sweep();
+    expect(signals).toEqual([]);
+  });
+
+  it('reports nothing for a non-quota API error', async () => {
+    write(errorLine('API Error: 500 internal server error'));
+    const signals: unknown[] = [];
+    const h = harness({
+      sessions: () => [session()],
+      projectsDirFor: () => dir,
+      onGraphUsageLimit: (signal) => { signals.push(signal); },
+    });
+    await createGraphUsageBinding(h.deps).sweep();
+    expect(signals).toEqual([]);
   });
 });
