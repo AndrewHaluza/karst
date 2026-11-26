@@ -119,11 +119,22 @@ export interface SettingsAppState {
   readonly implementedProviders: readonly AgentProvider[];
   readonly statuses: StatusFetch;
   readonly lists: ListFetch;
+  /**
+   * The key each ticketing fetch in flight was posted for: the `listId` for the
+   * statuses, the `teamId` for the lists. `null` when nothing is in flight. The
+   * replies carry no key, so this is how a reply for an old key is recognized.
+   */
+  readonly ticketRequests: TicketRequests;
   /** Terminal receipts from `action-result`, keyed by correlation id. */
   readonly receipts: Readonly<Record<string, ActionReceipt>>;
   /** Machine-local Accounts tab (D505): the host's last list, and the last reply to an action. */
   readonly accounts: AccountsAppState;
 }
+
+/** One ticketing fetch kind: the statuses of a list, or the lists of a team. */
+export type TicketFetchKind = 'statuses' | 'lists';
+
+export type TicketRequests = Readonly<Record<TicketFetchKind, string | null>>;
 
 export interface AccountsAppState {
   /** Null until the host answers `accounts-load`. */
@@ -136,6 +147,7 @@ const EMPTY_DRAFT = {} as unknown as Manifest;
 
 const IDLE_STATUSES: StatusFetch = { kind: 'idle' };
 const IDLE_LISTS: ListFetch = { kind: 'idle' };
+const NO_TICKET_REQUESTS: TicketRequests = { statuses: null, lists: null };
 
 /** The state the app starts in: no host facts, nothing dirty. */
 export const INITIAL_SETTINGS_APP_STATE: SettingsAppState = {
@@ -159,6 +171,7 @@ export const INITIAL_SETTINGS_APP_STATE: SettingsAppState = {
   implementedProviders: ['claude'],
   statuses: IDLE_STATUSES,
   lists: IDLE_LISTS,
+  ticketRequests: NO_TICKET_REQUESTS,
   receipts: {},
   accounts: { cores: null, last: null },
 };
@@ -286,6 +299,47 @@ function applyRepoPath(state: SettingsAppState, name: string, path: string): Set
   return { ...next, touched: [...new Set([...state.touched, `${name}.repoPath`])] };
 }
 
+/** The draft key a ticketing fetch belongs to: the list for statuses, the team for lists. */
+function ticketKeyOf(state: SettingsAppState, kind: TicketFetchKind): string {
+  const cfg = state.draft.ticketing;
+  return (kind === 'statuses' ? cfg?.listId : cfg?.teamId) ?? '';
+}
+
+/**
+ * Apply a ticketing reply only to the key it was requested for.
+ *
+ * The reply carries no key, so the key recorded when the fetch was posted is
+ * compared with the draft's key now. When they differ, the draft moved while
+ * the fetch was in flight: the reply describes the OLD board, and applying it
+ * would show (or even write) a status of list A on list B. The data is dropped,
+ * and a NEW idle object lets the component see the drop and fetch again. A
+ * reply with no recorded key (nothing was posted from this app) is applied.
+ */
+function acceptTicketReply(
+  state: SettingsAppState,
+  kind: TicketFetchKind,
+  apply: (state: SettingsAppState) => SettingsAppState,
+): SettingsAppState {
+  const requested = state.ticketRequests[kind];
+  const ticketRequests: TicketRequests = { ...state.ticketRequests, [kind]: null };
+  if (requested !== null && requested !== ticketKeyOf(state, kind)) {
+    return { ...state, [kind]: { kind: 'idle' }, ticketRequests };
+  }
+  return { ...apply(state), ticketRequests };
+}
+
+/**
+ * Record the key a ticketing fetch was posted for. Called only when the request
+ * is really posted, so a no-op activation records nothing.
+ */
+export function recordTicketRequest(
+  state: SettingsAppState,
+  kind: TicketFetchKind,
+  key: string,
+): SettingsAppState {
+  return { ...state, ticketRequests: { ...state.ticketRequests, [kind]: key } };
+}
+
 /**
  * Exhaustive-switch terminator. `tsc` fails to compile the reducer the moment a
  * new `SettingsHostMessage` variant is added without a case here, which is the
@@ -370,16 +424,25 @@ export function settingsAppReducer(
       };
 
     case 'ticket-statuses':
-      return applyTicketStatuses(state, message.statuses);
+      return acceptTicketReply(state, 'statuses', (s) => applyTicketStatuses(s, message.statuses));
 
     case 'ticket-statuses-error':
-      return { ...state, statuses: { kind: 'failed', error: message.message } };
+      return acceptTicketReply(state, 'statuses', (s) => ({
+        ...s,
+        statuses: { kind: 'failed', error: message.message },
+      }));
 
     case 'ticket-lists':
-      return { ...state, lists: { kind: 'ready', lists: message.lists } };
+      return acceptTicketReply(state, 'lists', (s) => ({
+        ...s,
+        lists: { kind: 'ready', lists: message.lists },
+      }));
 
     case 'ticket-lists-error':
-      return { ...state, lists: { kind: 'failed', error: message.message } };
+      return acceptTicketReply(state, 'lists', (s) => ({
+        ...s,
+        lists: { kind: 'failed', error: message.message },
+      }));
 
     case 'token-state':
       return { ...state, tokenConfigured: message.configured };

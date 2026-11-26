@@ -79,12 +79,23 @@ export function TicketingSection() {
   // A settle needs a NEW fetch object: the reducer's state stays `ready` after
   // a reply, so a manual reload (new request id, same `ready` object) must not
   // be settled by the previous reply — it would clear `aria-busy` at once.
+  // The seen refs start at the mount-time state: the reducer outlives this
+  // component, so after a remount its cached reply is not a reply to a new fetch.
   const listState = state.lists;
   const statusState = state.statuses;
-  const seenListState = useRef<ListFetch | null>(null);
-  const seenStatusState = useRef<StatusFetch | null>(null);
+  const seenListState = useRef<ListFetch>(listState);
+  const seenStatusState = useRef<StatusFetch>(statusState);
+  // A reply for a key the draft has left is dropped by the reducer: the fetch is
+  // idle again and no request is recorded. The hook then waits for a reply that
+  // never settles it, so it is reset, and the auto-load asks for the new key.
+  const listsDropped = listState.kind === 'idle' && state.ticketRequests.lists === null;
+  const statusesDropped = statusState.kind === 'idle' && state.ticketRequests.statuses === null;
   useEffect(() => {
     if (lists.requestId === undefined || listState === seenListState.current) return;
+    if (listsDropped && lists.pending) {
+      seenListState.current = listState;
+      lists.reset();
+    }
     if (listState.kind === 'ready') {
       seenListState.current = listState;
       lists.settle({ requestId: current(lists.requestId), result: 'success' });
@@ -93,10 +104,14 @@ export function TicketingSection() {
       seenListState.current = listState;
       lists.settle({ requestId: current(lists.requestId), result: 'failure', message: listState.error });
     }
-  }, [listState, lists]);
+  }, [listState, listsDropped, lists]);
 
   useEffect(() => {
     if (statuses.requestId === undefined || statusState === seenStatusState.current) return;
+    if (statusesDropped && statuses.pending) {
+      seenStatusState.current = statusState;
+      statuses.reset();
+    }
     if (statusState.kind === 'ready') {
       seenStatusState.current = statusState;
       statuses.settle({ requestId: current(statuses.requestId), result: 'success' });
@@ -109,7 +124,7 @@ export function TicketingSection() {
         message: statusState.error,
       });
     }
-  }, [statusState, statuses]);
+  }, [statusState, statusesDropped, statuses]);
 
   const listPrereqsMet = Boolean(cfg.teamId) && tokenConfigured;
   const statusPrereqsMet = Boolean(cfg.listId) && tokenConfigured;
@@ -119,35 +134,40 @@ export function TicketingSection() {
   // edit, so opening the tab twice does not refetch, but fixing a prerequisite
   // does. A ref because it gates an effect rather than rendering anything.
   const listsRequested = useRef(false);
-  useEffect(() => {
-    if (!providerIsClickup || listsRequested.current || !listPrereqsMet) return;
+  // Each fetch is marked requested ONLY when its trigger posts. While a fetch is
+  // in flight the trigger is a no-op (R12), and a mark then would block the
+  // fetch for the new key for good.
+  const loadLists = useCallback((): void => {
+    if (lists.disabled) return;
     listsRequested.current = true;
     lists.trigger(cfg.teamId as string);
-  }, [providerIsClickup, listPrereqsMet, cfg.teamId, lists]);
+  }, [lists, cfg.teamId]);
+  useEffect(() => {
+    if (!providerIsClickup || listsRequested.current || !listPrereqsMet) return;
+    loadLists();
+  }, [providerIsClickup, listPrereqsMet, loadLists]);
 
   // Bug 1: the statuses load on their own too, once per (list, team) pair. A
   // list change drops the cache to idle (the reducer's decision), which re-arms
   // this; the key keeps a re-render from refetching the same pair.
   const statusKey = `${cfg.listId ?? ''}\u0000${cfg.teamId ?? ''}`;
   const statusesRequested = useRef<string | null>(null);
+  const loadStatuses = useCallback((): void => {
+    if (statuses.disabled) return;
+    statusesRequested.current = statusKey;
+    statuses.trigger(cfg.listId as string, cfg.teamId);
+  }, [statuses, statusKey, cfg.listId, cfg.teamId]);
   useEffect(() => {
     if (!providerIsClickup || !statusPrereqsMet || statusState.kind !== 'idle') return;
     if (statusesRequested.current === statusKey) return;
-    statusesRequested.current = statusKey;
-    statuses.trigger(cfg.listId as string, cfg.teamId);
-  }, [providerIsClickup, statusPrereqsMet, statusState.kind, statusKey, cfg.listId, cfg.teamId, statuses]);
+    loadStatuses();
+  }, [providerIsClickup, statusPrereqsMet, statusState.kind, statusKey, loadStatuses]);
 
   /** One button in the Board header reloads both fetches (acceptance 6). */
   const reloadAll = useCallback(() => {
-    if (listPrereqsMet) {
-      listsRequested.current = true;
-      lists.trigger(cfg.teamId as string);
-    }
-    if (statusPrereqsMet) {
-      statusesRequested.current = statusKey;
-      statuses.trigger(cfg.listId as string, cfg.teamId);
-    }
-  }, [listPrereqsMet, statusPrereqsMet, cfg.teamId, cfg.listId, statusKey, lists, statuses]);
+    if (listPrereqsMet) loadLists();
+    if (statusPrereqsMet) loadStatuses();
+  }, [listPrereqsMet, statusPrereqsMet, loadLists, loadStatuses]);
 
   const setCfg = useCallback(
     (patch: Partial<TicketingConfig>) => edit((draft) => ({ ...draft, ticketing: { ...ticketingOf(draft), ...patch } })),
@@ -177,8 +197,11 @@ export function TicketingSection() {
   };
 
   const listView = deriveLists(listState, lists.status, cfg.listId, listPrereqsMet);
-  const startView = deriveStatuses(statusState, statuses.status, cfg.startStatus, statusPrereqsMet);
-  const shipView = deriveStatuses(statusState, statuses.status, cfg.shipStatus, statusPrereqsMet);
+  // A select set to "Don't change" shows no saved status, so it has no stale one.
+  const startSaved = cfg.advanceOnStart ? cfg.startStatus : undefined;
+  const shipSaved = cfg.advanceOnShip ? cfg.shipStatus : undefined;
+  const startView = deriveStatuses(statusState, statuses.status, startSaved, statusPrereqsMet);
+  const shipView = deriveStatuses(statusState, statuses.status, shipSaved, statusPrereqsMet);
   const connection = connectionLine(statusState, statuses.status, listView, statusPrereqsMet);
 
   return (

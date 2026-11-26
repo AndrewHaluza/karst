@@ -16,6 +16,7 @@ import {
   beginSave,
   clearUndo,
   discardWithUndo,
+  recordTicketRequest,
   setDraftManifest,
   settingsAppReducer,
   touchField,
@@ -634,5 +635,58 @@ describe('discardWithUndo / undoDiscard (Q11 / SET-15)', () => {
     expect(cleared.undo).toBeNull();
     expect(cleared.draft).toEqual(discarded.draft);
     expect(clearUndo(cleared)).toBe(cleared);
+  });
+});
+
+describe('settingsAppReducer — a ticketing reply lands only on its own key', () => {
+  const board = () =>
+    withDraftEdit({
+      ...TICKETING_EDITED_MANIFEST,
+      ticketing: { provider: 'clickup', listId: 'L1', teamId: 'T1', advanceOnShip: true },
+    });
+
+  it('records the key a fetch was posted for, and leaves the other alone', () => {
+    const s = recordTicketRequest(board(), 'statuses', 'L1');
+    expect(s.ticketRequests).toEqual({ statuses: 'L1', lists: null });
+    expect(recordTicketRequest(s, 'lists', 'T1').ticketRequests).toEqual({ statuses: 'L1', lists: 'T1' });
+    expect(INITIAL_SETTINGS_APP_STATE.ticketRequests).toEqual({ statuses: null, lists: null });
+  });
+
+  it('applies a status reply for the key it was asked for, and clears the record', () => {
+    const s = push({ type: 'ticket-statuses', statuses: ['open'] }, recordTicketRequest(board(), 'statuses', 'L1'));
+    expect(s.statuses).toEqual({ kind: 'ready', statuses: ['open'] });
+    expect(s.draft.ticketing?.shipStatus).toBe('open');
+    expect(s.ticketRequests).toEqual({ statuses: null, lists: null });
+  });
+
+  it('drops a status reply for a list the draft has left, and writes nothing', () => {
+    const asked = recordTicketRequest(board(), 'statuses', 'L0');
+    const s = push({ type: 'ticket-statuses', statuses: ['open'] }, asked);
+    expect(s.statuses).toEqual({ kind: 'idle' });
+    expect(s.statuses).not.toBe(asked.statuses);
+    expect(s.draft).toBe(asked.draft);
+    expect(s.ticketRequests).toEqual({ statuses: null, lists: null });
+    const failed = push({ type: 'ticket-statuses-error', message: 'no' }, asked);
+    expect(failed.statuses).toEqual({ kind: 'idle' });
+    expect(failed.ticketRequests.statuses).toBeNull();
+  });
+
+  it('drops a list reply for a team the draft has left, and keeps the statuses', () => {
+    const asked = recordTicketRequest(recordTicketRequest(board(), 'lists', 'T0'), 'statuses', 'L1');
+    const s = push({ type: 'ticket-lists', lists: [] }, asked);
+    expect(s.lists).toEqual({ kind: 'idle' });
+    expect(s.statuses).toBe(asked.statuses);
+    expect(s.ticketRequests).toEqual({ statuses: 'L1', lists: null });
+    expect(push({ type: 'ticket-lists-error', message: 'no' }, asked).lists).toEqual({ kind: 'idle' });
+  });
+
+  it('applies list replies for the current team, error included', () => {
+    const asked = recordTicketRequest(board(), 'lists', 'T1');
+    expect(push({ type: 'ticket-lists', lists: [] }, asked).lists).toEqual({ kind: 'ready', lists: [] });
+    const failed = push({ type: 'ticket-lists-error', message: 'no' }, asked);
+    expect(failed.lists).toEqual({ kind: 'failed', error: 'no' });
+    expect(failed.ticketRequests.lists).toBeNull();
+    expect(push({ type: 'ticket-statuses-error', message: 'x' }, recordTicketRequest(board(), 'statuses', 'L1')).statuses)
+      .toEqual({ kind: 'failed', error: 'x' });
   });
 });

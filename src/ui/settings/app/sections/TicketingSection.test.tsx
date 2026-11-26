@@ -651,5 +651,103 @@ describe('TicketingSection — the Behavior rows', () => {
   });
 });
 
+describe('TicketingSection — a reply lands only on the key it was asked for', () => {
+  it('drops the statuses of list A when the list moved to B in flight, then loads B', () => {
+    const { bridge, probe } = mountTicketing(
+      stateWith({ provider: 'clickup', teamId: '9001', listId: 'LA', advanceOnShip: true }),
+    );
+    act(() =>
+      bridge.push({
+        type: 'ticket-lists',
+        lists: [
+          { id: 'LA', name: 'Alpha', space: 'Core' },
+          { id: 'LB', name: 'Beta', space: 'Core' },
+        ],
+      }),
+    );
+    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(1);
+    fireEvent.change(byLabel('List'), { target: { value: 'LB' } });
+    // A's reply arrives after the move: it says nothing about B.
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['a-open', 'a-done'] }));
+    const ship = byLabel('Status when Karst ships') as unknown as HTMLSelectElement;
+    const start = byLabel('Status when work starts') as unknown as HTMLSelectElement;
+    for (const select of [ship, start]) {
+      expect(Array.from(select.options).map((o) => o.value)).not.toContain('a-open');
+    }
+    expect(cfgOf(probe)).not.toHaveProperty('shipStatus');
+    // …and B is asked for once the stale reply is gone.
+    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(2);
+    expect(bridge.last('fetch-ticket-statuses')).toMatchObject({ listId: 'LB' });
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['b-open', 'b-done'] }));
+    expect(Array.from(ship.options).map((o) => o.value)).toEqual(['', 'b-open', 'b-done']);
+    expect(cfgOf(probe)).toMatchObject({ shipStatus: 'b-open' });
+  });
+
+  it('drops the lists of team A when the team moved to B in flight, then loads B', () => {
+    const { bridge } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001' }));
+    expect(bridge.all('fetch-ticket-lists')).toHaveLength(1);
+    fireEvent.change(byLabel('Team ID'), { target: { value: '9002' } });
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'LA', name: 'Alpha', space: 'Core' }] }));
+    const list = byLabel('List') as unknown as HTMLSelectElement;
+    expect(Array.from(list.options).map((o) => o.value)).not.toContain('LA');
+    expect(bridge.all('fetch-ticket-lists')).toHaveLength(2);
+    expect(bridge.last('fetch-ticket-lists')).toMatchObject({ teamId: '9002' });
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'LB', name: 'Beta', space: 'Core' }] }));
+    expect(Array.from(list.options).map((o) => o.value)).toContain('LB');
+  });
+});
+
+describe('TicketingSection — a remount does not settle on the cached reply', () => {
+  it('keeps the reload busy until the NEW reply lands', () => {
+    const bridge = createTestBridge();
+    const tree = (shown: boolean) => (
+      <AnnouncerProvider>
+        <SettingsAppProvider bridge={bridge} initialSection="ticketing">
+          {shown ? <TicketingSection /> : null}
+        </SettingsAppProvider>
+      </AnnouncerProvider>
+    );
+    const view = render(tree(true));
+    act(() =>
+      bridge.push({ type: 'state', state: stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1' }) }),
+    );
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'L1', name: 'Backlog', space: 'Core' }] }));
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open'] }));
+    view.rerender(tree(false));
+    view.rerender(tree(true));
+    const reload = byAriaLabel('Reload lists and statuses from ClickUp');
+    // The remount re-arms the list auto-load: it waits for ITS reply.
+    expect(bridge.all('fetch-ticket-lists')).toHaveLength(2);
+    expect(reload.getAttribute('aria-busy')).toBe('true');
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'L1', name: 'Backlog', space: 'Core' }] }));
+    expect(reload.getAttribute('aria-busy')).toBeNull();
+    // A reload of the cached statuses waits for the NEW status reply too.
+    fireEvent.click(reload);
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'L1', name: 'Backlog', space: 'Core' }] }));
+    expect(reload.getAttribute('aria-busy')).toBe('true');
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open'] }));
+    expect(reload.getAttribute('aria-busy')).toBeNull();
+  });
+});
+
+describe('TicketingSection — a "Don\'t change" select shows no stale hint', () => {
+  it('hides the saved status of a toggle that is off', () => {
+    const { bridge } = mountTicketing(
+      stateWith({
+        provider: 'clickup',
+        teamId: '9001',
+        listId: 'L1',
+        advanceOnShip: false,
+        shipStatus: 'Gone',
+      }),
+    );
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open'] }));
+    const ship = byLabel('Status when Karst ships') as unknown as HTMLSelectElement;
+    expect(ship.value).toBe('');
+    expect(Array.from(ship.options).map((o) => o.value)).toEqual(['', 'open']);
+    expect(document.body.textContent).not.toContain('"Gone" is no longer in this list.');
+  });
+});
+
 /** Keeps the manifest import meaningful for the fixture's block shape. */
 export type TicketingManifest = Pick<Manifest, 'ticketing'>;

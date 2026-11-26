@@ -40,11 +40,13 @@ import {
   clearUndo,
   discardWithUndo,
   invalidateTicketFetchesFor,
+  recordTicketRequest,
   setDraftManifest,
   settingsAppReducer,
   touchField,
   undoDiscard,
   type SettingsAppState,
+  type TicketFetchKind,
 } from './reducer.js';
 import {
   firstSectionWithLocalError,
@@ -68,6 +70,7 @@ type AppAction =
   | { readonly kind: 'host'; readonly message: SettingsHostMessage }
   | { readonly kind: 'edit'; readonly update: (draft: Manifest) => Manifest }
   | { readonly kind: 'touch'; readonly key: string }
+  | { readonly kind: 'ticket-request'; readonly fetch: TicketFetchKind; readonly key: string }
   | { readonly kind: 'begin-save'; readonly section: SettingsSection }
   | { readonly kind: 'discard'; readonly section: SettingsSection }
   | { readonly kind: 'undo-discard' }
@@ -86,6 +89,8 @@ function appReducer(state: SettingsAppState, action: AppAction): SettingsAppStat
     }
     case 'touch':
       return touchField(state, action.key);
+    case 'ticket-request':
+      return recordTicketRequest(state, action.fetch, action.key);
     case 'begin-save':
       return beginSave(state, action.section);
     case 'discard':
@@ -219,7 +224,23 @@ export function SettingsAppProvider({
     dispatch({ kind: 'clear-undo' });
     setInstantApplyState(false);
   }, []);
-  const { send } = host;
+  // The two ticketing fetches record the key they were posted for, so a reply
+  // for a key the draft has left is dropped (see `acceptTicketReply`). The
+  // record sits in the sender, so it happens exactly when a request is posted.
+  const send = useMemo<SettingsHostBridge['send']>(
+    () => ({
+      ...host.send,
+      fetchTicketStatuses: (listId, teamId, requestId) => {
+        dispatch({ kind: 'ticket-request', fetch: 'statuses', key: listId });
+        host.send.fetchTicketStatuses(listId, teamId, requestId);
+      },
+      fetchTicketLists: (teamId, requestId) => {
+        dispatch({ kind: 'ticket-request', fetch: 'lists', key: teamId });
+        host.send.fetchTicketLists(teamId, requestId);
+      },
+    }),
+    [host],
+  );
 
   // The mounted section's leave guard. A ref, not state: registering a guard
   // must not re-render the app, and the guard is read at switch time.
