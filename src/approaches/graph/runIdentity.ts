@@ -12,9 +12,16 @@
  * (`resolveGraphNodeProfile`), so the ticket's `agentPreset` is part of the
  * snapshot and a ticket preset change is detected like a Settings change. A
  * stored `source: 'ticket'` is legacy only: a snapshot written before AC-63.
+ *
+ * T1386: a role may also pin an ACCOUNT of its core (`account?: string`). Only
+ * the user's Pick account at a graph usage-limit park writes it; a quota stop
+ * never switches by itself (@arch:AC-55). An absent field means the active
+ * account, and the field takes no part in `identitiesDiffer`: Settings has no
+ * account per role, so a pick must never raise the Keep/Switch question.
  */
 
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
+import { validateAccountName } from '../../agent/accounts/types.js';
 import {
   NO_TICKET_FIELDS,
   resolveGraphNodeProfile,
@@ -38,6 +45,12 @@ export interface RoleIdentity {
   effort?: string;
   /** The rung that supplied it: a preset slot, the approach's graph profile, or the legacy ticket rung. */
   source: StoredGraphProfileSource;
+  /**
+   * The account this role runs under when the user picked one at a graph
+   * usage-limit park (@arch:AC-55, T1386). Absent = the active account of the
+   * core. Only a user pick writes it; a quota stop never switches by itself.
+   */
+  account?: string;
 }
 
 export interface GraphRunIdentities {
@@ -73,22 +86,33 @@ export function serializeRunIdentities(identities: GraphRunIdentities): string {
   return JSON.stringify(identities);
 }
 
-function parseRole(raw: unknown): RoleIdentity | undefined {
+function parseRole(raw: unknown, role: GraphRole, debug?: (message: string) => void): RoleIdentity | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const r = raw as Record<string, unknown>;
   if (typeof r.provider !== 'string' || !isProfileSource(r.source)) return undefined;
   const out: RoleIdentity = { provider: r.provider, source: r.source };
   if (typeof r.model === 'string') out.model = r.model;
   if (typeof r.effort === 'string') out.effort = r.effort;
+  // Validate the stored JSON: a name that is not a safe account slug (or the
+  // reserved `default`, which means NO override) is dropped, the role is kept.
+  if (r.account !== undefined) {
+    const problem = validateAccountName(r.account);
+    if (problem === null) out.account = r.account as string;
+    else debug?.(`[process] graph run snapshot: role "${role}" has an unsafe account name — dropped (${problem})`);
+  }
   return out;
 }
 
 /**
  * Parse the stored snapshot. `undefined` = no usable snapshot (null column, bad
  * JSON, another version, a wrong shape): the caller resolves live. A role name
- * this version does not know is dropped.
+ * this version does not know is dropped. An unsafe `account` is dropped with
+ * one debug line; the role keeps its provider/model/effort.
  */
-export function parseRunIdentities(text: string | null): GraphRunIdentities | undefined {
+export function parseRunIdentities(
+  text: string | null,
+  debug?: (message: string) => void,
+): GraphRunIdentities | undefined {
   if (text === null) return undefined;
   let raw: unknown;
   try {
@@ -103,7 +127,7 @@ export function parseRunIdentities(text: string | null): GraphRunIdentities | un
   const roles: GraphRunIdentities['roles'] = {};
   for (const role of GRAPH_ROLES) {
     if (rawRoles[role] === undefined) continue;
-    const parsed = parseRole(rawRoles[role]);
+    const parsed = parseRole(rawRoles[role], role, debug);
     if (!parsed) return undefined;
     roles[role] = parsed;
   }
@@ -115,7 +139,9 @@ function sameRole(a: RoleIdentity | undefined, b: RoleIdentity | undefined): boo
   return a.provider === b.provider && a.model === b.model && a.effort === b.effort;
 }
 
-/** True when any role differs in provider, model, effort or presence. The source is not compared. */
+/** True when any role differs in provider, model, effort or presence. The
+ *  source and the pinned account are not compared: Settings has no account per
+ *  role, so a pick must never make the Settings scan ask Keep/Switch. */
 export function identitiesDiffer(a: GraphRunIdentities, b: GraphRunIdentities): boolean {
   return GRAPH_ROLES.some((role) => !sameRole(a.roles[role], b.roles[role]));
 }
@@ -123,7 +149,8 @@ export function identitiesDiffer(a: GraphRunIdentities, b: GraphRunIdentities): 
 function roleText(identity: RoleIdentity | undefined): string {
   if (!identity) return 'none';
   const model = identity.model ? `${identity.provider}/${identity.model}` : identity.provider;
-  return identity.effort ? `${model} (${identity.effort})` : model;
+  const named = identity.account ? `${model}@${identity.account}` : model;
+  return identity.effort ? `${named} (${identity.effort})` : named;
 }
 
 /** One line naming every role: `expert claude/opus (high), worker …`. */

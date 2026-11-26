@@ -8,12 +8,14 @@ import { harness, NOW, testManifest, type Harness } from './driverHarness.js';
 import { createGraphRun, graphRunAgentIdentity, setGraphRunAgentIdentity } from '../../store/graph/graphRuns.js';
 import { parseRunIdentities, resolveRunIdentities, serializeRunIdentities } from './runIdentity.js';
 import { ticketLaunchFields } from './profileResolver.js';
+import type { AccountsConfig } from '../../agent/accounts/types.js';
 import {
   agentSettingsChanged,
   runModelDifference,
   askModelChange,
   findModelChanges,
   modelChangeMessage,
+  switchGraphRunAccount,
   switchGraphRunModels,
 } from './modelChange.js';
 
@@ -175,6 +177,103 @@ describe('switchGraphRunModels', () => {
     const id = runWith(h, null, 'running');
     expect(switchGraphRunModels(depsOf(h, manifestWith('p2')), id)).toBe('switched');
     expect(graphRunAgentIdentity(h.db, id)).not.toBeNull();
+  });
+});
+
+describe('pinned accounts in switchGraphRunModels', () => {
+  const withAccount = (h: Harness, id: number, role: 'expert' | 'worker', account: string): void => {
+    const snapshot = parseRunIdentities(graphRunAgentIdentity(h.db, id))!;
+    snapshot.roles[role] = { ...snapshot.roles[role]!, account };
+    setGraphRunAgentIdentity(h.db, id, serializeRunIdentities(snapshot), NOW);
+  };
+
+  it('keeps the pinned account when the provider does not change', () => {
+    const h = harness();
+    const id = runWith(h, 'p1', 'running');
+    withAccount(h, id, 'expert', 'work');
+    const next = resolveRunIdentities(manifestWith('p1'), h.config);
+    const sameProvider = { v: 1 as const, roles: { ...next.roles, expert: { ...next.roles.expert!, model: 'claude-opus-6' } } };
+    expect(switchGraphRunModels(depsOf(h, manifestWith('p1')), id, sameProvider)).toBe('switched');
+    const stored = parseRunIdentities(graphRunAgentIdentity(h.db, id));
+    expect(stored?.roles.expert).toMatchObject({ provider: 'claude', model: 'claude-opus-6', account: 'work' });
+  });
+
+  it('drops the pinned account when the provider changes', () => {
+    const h = harness();
+    const id = runWith(h, 'p1', 'running');
+    withAccount(h, id, 'expert', 'work');
+    const next = resolveRunIdentities(manifestWith('p2'), h.config);
+    expect(next.roles.expert?.provider).toBe('codex');
+    expect(switchGraphRunModels(depsOf(h, manifestWith('p2')), id, next)).toBe('switched');
+    const stored = parseRunIdentities(graphRunAgentIdentity(h.db, id));
+    expect(stored?.roles.expert).not.toHaveProperty('account');
+  });
+});
+
+describe('switchGraphRunAccount', () => {
+  const ACCOUNTS: AccountsConfig = {
+    claude: {
+      active: 'default',
+      list: {
+        work: { kind: 'subscription', source: 'folder', dir: '/tmp/accounts/work' },
+        personal: { kind: 'subscription', source: 'folder', dir: '/tmp/accounts/personal' },
+      },
+    },
+  };
+
+  const deps = (h: Harness, config: AccountsConfig = ACCOUNTS) => ({
+    db: h.db,
+    transaction: <T,>(fn: () => T): T => fn(),
+    now: () => NOW,
+    debug: vi.fn(),
+    accountsConfig: () => config,
+  });
+
+  it('writes only the named role’s account and logs one line', () => {
+    const h = harness();
+    const id = runWith(h, 'p1', 'running');
+    const before = parseRunIdentities(graphRunAgentIdentity(h.db, id))!;
+    const d = deps(h);
+    expect(switchGraphRunAccount(d, id, 'expert', 'work')).toBe('switched');
+    const after = parseRunIdentities(graphRunAgentIdentity(h.db, id))!;
+    expect(after.roles.expert).toEqual({ ...before.roles.expert!, account: 'work' });
+    expect(after.roles.worker).toEqual(before.roles.worker);
+    expect(d.debug).toHaveBeenCalledTimes(1);
+    expect(String(d.debug.mock.calls[0]![0])).toContain('work');
+  });
+
+  it('refuses an unknown account and writes nothing', () => {
+    const h = harness();
+    const id = runWith(h, 'p1', 'running');
+    const before = graphRunAgentIdentity(h.db, id);
+    const d = deps(h);
+    expect(switchGraphRunAccount(d, id, 'expert', 'nope')).toBe('unknown-account');
+    expect(graphRunAgentIdentity(h.db, id)).toBe(before);
+    expect(d.debug).not.toHaveBeenCalled();
+  });
+
+  it('refuses a run with no snapshot, an unknown run and a missing role without writing', () => {
+    const h = harness();
+    const legacy = runWith(h, null, 'running');
+    const d = deps(h);
+    expect(switchGraphRunAccount(d, legacy, 'expert', 'work')).toBe('no-snapshot');
+    expect(graphRunAgentIdentity(h.db, legacy)).toBeNull();
+    expect(switchGraphRunAccount(d, 9999, 'expert', 'work')).toBe('not-found');
+    const sparse = createGraphRun(h.db, { ticketId: h.ticketId, stageAttempt: ++attempt, approachId: 'karst-graph-engineering', now: NOW });
+    setGraphRunAgentIdentity(h.db, sparse, JSON.stringify({ v: 1, roles: { worker: { provider: 'claude', source: 'approach' } } }), NOW);
+    const snapshot = graphRunAgentIdentity(h.db, sparse);
+    expect(switchGraphRunAccount(d, sparse, 'expert', 'work')).toBe('role-missing');
+    expect(graphRunAgentIdentity(h.db, sparse)).toBe(snapshot);
+  });
+
+  it('removes the override for the name default', () => {
+    const h = harness();
+    const id = runWith(h, 'p1', 'running');
+    const snapshot = parseRunIdentities(graphRunAgentIdentity(h.db, id))!;
+    snapshot.roles.expert = { ...snapshot.roles.expert!, account: 'work' };
+    setGraphRunAgentIdentity(h.db, id, serializeRunIdentities(snapshot), NOW);
+    expect(switchGraphRunAccount(deps(h), id, 'expert', 'default')).toBe('switched');
+    expect(parseRunIdentities(graphRunAgentIdentity(h.db, id))?.roles.expert).not.toHaveProperty('account');
   });
 });
 

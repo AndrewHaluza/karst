@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
 import {
   GRAPH_ROLES,
@@ -68,6 +68,51 @@ describe('serialize and parse', () => {
   it('ignores a role name it does not know', () => {
     const parsed = parseRunIdentities('{"v":1,"roles":{"alien":{"provider":"x","source":"approach"}}}');
     expect(parsed?.roles).toEqual({});
+  });
+});
+
+describe('pinned account', () => {
+  const base = resolveRunIdentities(manifestWith(undefined), config);
+  const withAccount = (account: unknown): string =>
+    JSON.stringify({ v: 1, roles: { ...base.roles, worker: { ...base.roles.worker, account } } });
+
+  it('serializes and parses a pinned account per role', () => {
+    const ids = {
+      v: 1 as const,
+      roles: { ...base.roles, worker: { ...base.roles.worker!, account: 'work' } },
+    };
+    expect(parseRunIdentities(serializeRunIdentities(ids))).toEqual(ids);
+  });
+
+  it('drops an unsafe account name, keeps the role, and logs one debug line', () => {
+    const debug = vi.fn();
+    for (const unsafe of ['../escape', 'Work Account', 'default']) {
+      debug.mockClear();
+      const parsed = parseRunIdentities(withAccount(unsafe), debug);
+      expect(parsed?.roles.worker).toEqual(base.roles.worker);
+      expect(parsed?.roles.worker).not.toHaveProperty('account');
+      expect(debug).toHaveBeenCalledTimes(1);
+      expect(String(debug.mock.calls[0]![0])).toContain('account');
+    }
+  });
+
+  it('parses a pre-change snapshot with no account field exactly as before', () => {
+    const legacy = JSON.stringify({ v: 1, roles: base.roles });
+    expect(parseRunIdentities(legacy)).toEqual({ v: 1, roles: base.roles });
+    expect(parseRunIdentities(legacy, vi.fn())).toEqual({ v: 1, roles: base.roles });
+  });
+
+  it('does not make two snapshots differ when only the account differs', () => {
+    const other = { v: 1 as const, roles: { ...base.roles, worker: { ...base.roles.worker!, account: 'work' } } };
+    expect(identitiesDiffer(base, other)).toBe(false);
+    expect(identityDifference(base, other)).toBe('');
+    expect(identitiesDiffer(other, base)).toBe(false);
+  });
+
+  it('shows the account in the summary as provider/model@account', () => {
+    const ids = { v: 1 as const, roles: { ...base.roles, worker: { ...base.roles.worker!, account: 'work' } } };
+    expect(summarizeRunIdentities(ids)).toContain('worker claude/claude-sonnet-5@work');
+    expect(summarizeRunIdentities(base)).not.toContain('@');
   });
 });
 

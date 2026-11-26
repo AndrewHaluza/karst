@@ -303,10 +303,22 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         offeredChannel !== undefined && request.adapter.surfaces?.hookChannel.supported === true
           ? offeredChannel
           : undefined;
+      // A graph role can be pinned to a named account of its core by the user's
+      // Pick account at a usage-limit park (T1386, @arch:AC-55). The adapter
+      // resolves it through `accountLaunchFor`; absent → the active account.
+      // A pinned account that no longer exists throws `AccountNotFoundError`
+      // there and fails the launch — never a silent fallback.
+      const account = request.identity?.account;
+      if (account !== undefined) {
+        deps.debug?.(
+          `[graph] node ${request.nodeRunId} launch: profile "${request.identity?.profile ?? ''}" under ${request.identity?.provider ?? ''} account ${account}`,
+        );
+      }
       const built = request.adapter.buildInteractiveCommand({
         policy: 'gate',
         ...request.interactive,
         cwd: request.cwd,
+        ...(account !== undefined ? { account } : {}),
         ...(providerSessionId !== null ? { sessionId: providerSessionId } : {}),
         ...(hookChannel !== undefined ? { hookChannel } : {}),
       });
