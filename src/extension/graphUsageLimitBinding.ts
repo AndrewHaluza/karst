@@ -36,12 +36,36 @@ import {
 } from '../approaches/graph/modelChange.js';
 import type { GraphLaunchTicketFields } from '../approaches/graph/profileResolver.js';
 import { parkGraphUsageLimit } from '../approaches/graph/coordinator/usageLimitPark.js';
+import type { RecoveryRefusalReason } from '../approaches/graph/coordinator/recovery.js';
 import { blockGraphStage } from '../workflow/graphMarkerGuard.js';
 import type { SupervisedAgentSession, TerminationProof } from '../approaches/graph/transport/agentTransport.js';
 import { dispatchGraphRecovery, type GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
+import {
+  graphRecoveryRefusalNotice,
+  graphRefusalContext,
+  projectMaxReplans,
+} from './ops/graphRecovery.js';
 import { PICK_LABEL, RETRY_LABEL, DISMISS_LABEL } from './ops/interactiveUsageLimitActions.js';
 import { ask, toast } from './toastSeam.js';
 import { reasonText } from '../model/notifyText.js';
+
+/** The backoff for a lock-contended presentation write: 50+100+200+400+800 ms. */
+const BUSY_RETRY_DELAYS_MS: readonly number[] = [50, 100, 200, 400, 800];
+
+/** A write lock held by another connection (the coordinator has no busy timeout). */
+function isLockContention(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    ((err as { code?: string }).code?.startsWith('SQLITE_BUSY') === true ||
+      /database is (locked|busy)/i.test(err.message))
+  );
+}
+
+function defaultPause(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 /** One usage-limit signal, either source, with the provider when known. */
 export interface GraphUsageLimitSignal {
@@ -84,6 +108,13 @@ export interface GraphUsageLimitBindingDeps {
   ask?(message: string, ...actions: string[]): PromiseLike<string | undefined>;
   /** The failure toast; defaults to `toast.error` from the toast seam. */
   toastError?(message: string): void;
+  /**
+   * The async pause between retries of a lock-contended presentation write.
+   * The coordinator store has no busy timeout (a synchronous wait would block
+   * the extension host), so a post-commit stage write retries here instead of
+   * failing the already-committed park. Defaults to a real timer.
+   */
+  pause?(ms: number): Promise<void>;
 }
 
 export interface GraphUsageLimitBinding {
@@ -166,13 +197,64 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
     );
   };
 
+  /** A failed refresh is presentation only; the park already committed. */
+  const refreshQuietly = (ticketId: number): void => {
+    try {
+      deps.refresh(ticketId);
+    } catch (error) {
+      deps.debug(`[graph] usage-limit: refresh after the park failed: ${reasonText(error)}`);
+    }
+  };
+
+  /** The post-commit stage block: retried on lock contention, never fatal. */
+  const writeStageBlock = async (store: Store, signal: GraphUsageLimitSignal): Promise<void> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        blockGraphStage(store, signal.ticketId, signal.graphRunId, deps.now);
+        return;
+      } catch (error) {
+        const delay = BUSY_RETRY_DELAYS_MS[attempt];
+        if (delay === undefined || !isLockContention(error)) {
+          deps.debug(
+            `[graph] usage-limit: stage block after the park failed (${reasonText(error)}); the run stays blocked`,
+          );
+          return;
+        }
+        await (deps.pause ?? defaultPause)(delay);
+      }
+    }
+  };
+
+  /** The truthful refusal notice every other Resume surface shows. */
+  const refusalNotice = (
+    store: Store,
+    ticketId: number,
+    graphRunId: number,
+    reason: RecoveryRefusalReason,
+  ): string => {
+    const run = graphRunById(store.db, graphRunId);
+    const config = run ? deps.graphConfigOf(run.approach_id) : undefined;
+    return graphRecoveryRefusalNotice(
+      ticketId,
+      'resume',
+      reason,
+      graphRefusalContext(store.db, graphRunId, projectMaxReplans(config?.limits.maxReplans)),
+    );
+  };
+
   const resume = (ticketId: number, graphRunId: number): void => {
     const seams = deps.recovery();
     if (!seams) {
       deps.debug(`[graph] usage-limit: recovery seams not wired, run ${graphRunId} stays blocked`);
       return;
     }
-    dispatchGraphRecovery(seams, { ticketId, graphRunId, mode: 'resume' });
+    const result = dispatchGraphRecovery(seams, { ticketId, graphRunId, mode: 'resume' });
+    // A refusal must not read as a silent no-op: show the same guidance the
+    // blocked banner's Resume shows.
+    if (result.kind !== 'refused') return;
+    const store = deps.store();
+    if (!store) return;
+    void warn(refusalNotice(store, ticketId, graphRunId, result.reason));
   };
 
   const offer = async (input: {
@@ -253,8 +335,12 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
         // Another window won the park, or the run was already blocked: no
         // stage write, no refresh, and (critically) no second prompt.
         if (!result.parked) return;
-        blockGraphStage(store, signal.ticketId, signal.graphRunId, deps.now);
-        deps.refresh(signal.ticketId);
+        // The park is COMMITTED. Everything below is presentation: a
+        // lock-contended stage write or a failed refresh must never turn the
+        // committed park into a reported failure or swallow the one-shot
+        // prompt.
+        await writeStageBlock(store, signal);
+        refreshQuietly(signal.ticketId);
         // A parallel node of the SAME stop parks and is terminated, but the
         // run's first park already asked the user — do not ask twice.
         if (!result.prompt) return;
@@ -272,7 +358,7 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
         deps.logError('karst: graph usage-limit park failed', error);
         toastError(`Karst could not park the graph ${signal.role} on its usage limit (${reasonText(error)}).`);
       } finally {
-        deps.refresh(signal.ticketId);
+        refreshQuietly(signal.ticketId);
       }
     },
     onGraphHookUsageLimit(owner, text) {

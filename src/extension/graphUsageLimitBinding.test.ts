@@ -24,6 +24,7 @@ import { stageBlock } from '../store/stageBlocks.js';
 import { runImmediateTransaction } from '../store/transactions.js';
 import type { GraphApproachConfig, Manifest } from '../manifest/types.js';
 import type { GraphLaunchTicketFields } from '../approaches/graph/profileResolver.js';
+import type { RecoveryRefusalReason } from '../approaches/graph/coordinator/recovery.js';
 import type { GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
 import { PICK_LABEL, RETRY_LABEL, DISMISS_LABEL } from './ops/interactiveUsageLimitActions.js';
 import type { SupervisedAgentSession } from '../approaches/graph/transport/agentTransport.js';
@@ -209,7 +210,7 @@ function harness(
     recovery: () => seams,
     pick,
     manifest: () => ({}) as Manifest,
-    graphConfigOf: () => ({}) as GraphApproachConfig,
+    graphConfigOf: () => ({ limits: { maxReplans: 3 } }) as GraphApproachConfig,
     ticketLaunchFieldsOf: () => ({}) as GraphLaunchTicketFields,
     refresh,
     debug,
@@ -228,6 +229,16 @@ function withSessions(h: Harness, sessions: readonly SupervisedAgentSession[]): 
     terminate: h.terminate as unknown as GraphUsageLimitTransport['terminate'],
   });
   return h;
+}
+
+/** Recovery seams whose Resume is refused (the guidance must surface). */
+function refusedSeams(reason: RecoveryRefusalReason = 'launch-loop'): GraphRecoverySeams {
+  return {
+    recover: vi.fn(() => ({ kind: 'refused', reason })),
+    launchReplan: vi.fn(),
+    launchBootstrap: vi.fn(),
+    onRecovered: vi.fn(),
+  } as unknown as GraphRecoverySeams;
 }
 
 const signal = (fixture: Fixture): GraphUsageLimitSignal => ({
@@ -652,6 +663,120 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     expect(h.ask).toHaveBeenCalledTimes(1);
     expect(nodeRow(second)).toMatchObject({ status: 'blocked', failure_category: 'usage-limit' });
     expect(h.terminate).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed post-commit stage write never drops the prompt or reports a park failure', async () => {
+    const fixture = nodeFixture();
+    let nowCalls = 0;
+    const h = harness(fixture, [DISMISS_LABEL], {
+      now: () => {
+        nowCalls += 1;
+        if (nowCalls === 1) return NOW;
+        throw new Error('clock gone');
+      },
+    });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(h.logError).not.toHaveBeenCalled();
+    expect(h.toastError).not.toHaveBeenCalled();
+    expect(h.debug).toHaveBeenCalledWith(
+      '[graph] usage-limit: stage block after the park failed (clock gone); the run stays blocked',
+    );
+  });
+
+  it('retries a lock-contended stage write and then offers the prompt', async () => {
+    const fixture = nodeFixture();
+    let nowCalls = 0;
+    const pause = vi.fn(async () => undefined);
+    const h = harness(fixture, [DISMISS_LABEL], {
+      pause,
+      now: () => {
+        nowCalls += 1;
+        if (nowCalls === 1) return NOW;
+        if (nowCalls < 4) throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' });
+        return NOW;
+      },
+    });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(pause).toHaveBeenCalledTimes(2);
+    expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(stageBlock(store, ticketId, 'impl')?.reason).toContain('usage-limit:');
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+
+  it('gives up the stage write after the bounded retries and still prompts', async () => {
+    const fixture = nodeFixture();
+    let nowCalls = 0;
+    const pause = vi.fn(async () => undefined);
+    const h = harness(fixture, [DISMISS_LABEL], {
+      pause,
+      now: () => {
+        nowCalls += 1;
+        if (nowCalls === 1) return NOW;
+        throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' });
+      },
+    });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(pause).toHaveBeenCalledTimes(5);
+    expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(h.debug).toHaveBeenCalledWith(expect.stringContaining('stage block after the park failed'));
+  });
+
+  it('a failed refresh never reports a park failure', async () => {
+    const fixture = nodeFixture();
+    const refresh = vi.fn(() => {
+      throw new Error('dashboard gone');
+    });
+    const h = harness(fixture, [DISMISS_LABEL], { refresh });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(h.logError).not.toHaveBeenCalled();
+    expect(h.debug).toHaveBeenCalledWith('[graph] usage-limit: refresh after the park failed: dashboard gone');
+  });
+
+  it('shows the refusal guidance when Retry same is refused', async () => {
+    const fixture = nodeFixture();
+    const h = harness(fixture, [RETRY_LABEL], { recovery: () => refusedSeams() });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(h.ask).toHaveBeenCalledTimes(2);
+    expect(h.ask).toHaveBeenLastCalledWith(expect.stringContaining('cannot resume itself (launch-loop)'));
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+
+  it('shows the refusal guidance when a Pick then Resume is refused', async () => {
+    const fixture = nodeFixture();
+    const h = harness(fixture, [PICK_LABEL], { recovery: () => refusedSeams('explicit-resolution') });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(h.pick).toHaveBeenCalledTimes(1);
+    expect(h.ask).toHaveBeenLastCalledWith(
+      expect.stringContaining('cannot resume itself (explicit-resolution)'),
+    );
+  });
+
+  it('a refused Resume with no store shows no notice', async () => {
+    const fixture = nodeFixture();
+    let calls = 0;
+    const h = harness(fixture, [RETRY_LABEL], {
+      recovery: () => refusedSeams(),
+      store: () => (++calls === 1 ? store : undefined),
+    });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(h.ask).toHaveBeenCalledTimes(1); // only the prompt
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+
+  it('a refusal notice falls back to the default cap when the run is gone', async () => {
+    const fixture = nodeFixture();
+    const seams = refusedSeams();
+    (seams.recover as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      store.db.prepare('DELETE FROM approach_node_runs WHERE id = ?').run(fixture.nodeRunId);
+      store.db.prepare('DELETE FROM approach_graph_revisions WHERE graph_run_id = ?').run(fixture.graphRunId);
+      store.db.prepare('DELETE FROM approach_graph_runs WHERE id = ?').run(fixture.graphRunId);
+      return { kind: 'refused', reason: 'launch-loop' };
+    });
+    const h = harness(fixture, [RETRY_LABEL], { recovery: () => seams });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(h.ask).toHaveBeenLastCalledWith(expect.stringContaining('cannot resume itself (launch-loop)'));
   });
 
   it('the hook entry parks through the same signal', async () => {
