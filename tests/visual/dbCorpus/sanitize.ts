@@ -134,10 +134,30 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Properties whose string value is a person's login (`prs.author` from gh, a
+ * review comment's author). Each distinct login becomes `fixture-user-<n>`.
+ */
+const USERNAME_KEYS: ReadonlySet<string> = new Set(['author', 'login', 'username']);
+/** The prefix of every sanitized login; a value with it is already a fixture value. */
+const FIXTURE_USER_PREFIX = 'fixture-';
+
+function isPrivateUsername(key: string, value: unknown): value is string {
+  return USERNAME_KEYS.has(key) && typeof value === 'string' && value !== '' && !value.startsWith(FIXTURE_USER_PREFIX);
+}
+
+/** A row's `id` is a ticket id when its sibling `idLabel` is that ticket's display form. */
+function isLabelledTicketId(key: string, value: unknown, record: Record<string, unknown>): value is number {
+  return key === 'id' && typeof value === 'number' && Number.isSafeInteger(value) && record['idLabel'] === `T${value}`;
+}
+
 /** `T<n>` in any string: the display form of a ticket id (`formatId('ticket', n)`). */
 const TICKET_REF = /\bT(\d{1,9})\b/g;
 
-export type LeakKind = 'path' | 'email' | 'url' | 'token';
+export type LeakKind = 'path' | 'email' | 'url' | 'token' | 'username';
+
+/** A login-bearing property in JSON text, for the leak scan. */
+const USERNAME_JSON = /"(?:author|login|username)":"((?:[^"\\]|\\.)*)"/g;
 
 /** One value the leak scan rejected. */
 export interface Leak {
@@ -193,7 +213,8 @@ export class CorpusSanitizer {
   private readonly urls = new Set<string>();
   private readonly refs = new Set<string>();
   private readonly instants = new Set<number>();
-  /** External refs the host named (the tickets' provider ids), replaced in all text. */
+  private readonly users = new Set<string>();
+  /** External refs and logins distinctive enough to replace in all text. */
   private readonly textRefs = new Set<string>();
   private textRefRe: RegExp | null = null;
 
@@ -201,6 +222,7 @@ export class CorpusSanitizer {
   private pathMap: Map<string, string> | null = null;
   private urlMap: Map<string, string> | null = null;
   private refMap: Map<string, string> | null = null;
+  private userMap: Map<string, string> | null = null;
   private shift = 0;
 
   constructor(opts: SanitizeOptions = {}) {
@@ -229,8 +251,13 @@ export class CorpusSanitizer {
         if (typeof child === 'number' && isTicketIdKey(key) && Number.isSafeInteger(child)) {
           this.ticketIds.add(child);
         }
+        if (isLabelledTicketId(key, child, record)) this.ticketIds.add(child);
         if (typeof child === 'string' && EXTERNAL_REF_KEYS.has(key) && child !== '') {
           this.refs.add(child);
+        }
+        if (isPrivateUsername(key, child)) {
+          this.users.add(child);
+          if (isTextReplaceableRef(child)) this.textRefs.add(child);
         }
         walk(child);
       }
@@ -247,6 +274,7 @@ export class CorpusSanitizer {
     this.pathMap = null;
     this.urlMap = null;
     this.refMap = null;
+    this.userMap = null;
     this.shift = 0;
   }
 
@@ -265,7 +293,7 @@ export class CorpusSanitizer {
     this.invalidate();
   }
 
-  /** The registered external refs that still appear in a tree, sorted. */
+  /** The registered external refs and collected logins that still appear in a tree, sorted. */
   leftoverRefs(value: unknown): string[] {
     this.freeze();
     const re = this.textRefRe;
@@ -302,7 +330,7 @@ export class CorpusSanitizer {
 
   /** Assign the stable maps once, from the sorted sets collected so far. */
   private freeze(): void {
-    if (this.ticketMap && this.pathMap && this.urlMap && this.refMap) return;
+    if (this.ticketMap && this.pathMap && this.urlMap && this.refMap && this.userMap) return;
     const ticketIds = [...this.ticketIds].sort((a, b) => a - b);
     this.ticketMap = new Map(
       ticketIds.map((id, i) => [id, FIXTURE_TICKET_ID_MIN + i] as const),
@@ -313,6 +341,8 @@ export class CorpusSanitizer {
     this.urlMap = new Map(urls.map((u, i) => [u, `${FIXTURE_URL_PREFIX}${i + 1}`] as const));
     const refs = [...this.refs].sort();
     this.refMap = new Map(refs.map((r, i) => [r, `fixture:ref/${i + 1}`] as const));
+    const users = [...this.users].sort();
+    this.userMap = new Map(users.map((u, i) => [u, `${FIXTURE_USER_PREFIX}user-${i + 1}`] as const));
     // Longest first, so a ref that contains another one wins the match.
     const textRefs = [...this.textRefs].sort((a, b) => b.length - a.length || (a < b ? -1 : 1));
     this.textRefRe =
@@ -385,6 +415,21 @@ export class CorpusSanitizer {
     return next;
   }
 
+  private userFor(user: string): string {
+    const map = this.userMap!;
+    const hit = map.get(user);
+    if (hit !== undefined) return hit;
+    const next = `${FIXTURE_USER_PREFIX}user-${map.size + 1}`;
+    map.set(user, next);
+    return next;
+  }
+
+  /** A text match of the ref/login regex: a provider id wins over a login of the same spelling. */
+  private textRefFor(match: string): string {
+    if (this.refMap!.has(match) || !this.userMap!.has(match)) return this.refFor(match);
+    return this.userFor(match);
+  }
+
   private sanitizeString(text: string): string {
     let out = text;
     // URLs first: their path portion must never be treated as a filesystem path.
@@ -392,7 +437,7 @@ export class CorpusSanitizer {
       const url = trimUrl(match);
       return this.urlFor(url) + match.slice(url.length);
     });
-    if (this.textRefRe !== null) out = out.replace(this.textRefRe, (match) => this.refFor(match));
+    if (this.textRefRe !== null) out = out.replace(this.textRefRe, (match) => this.textRefFor(match));
     // Relative paths before absolute ones: `../../Users/nd` holds `/Users/nd`.
     out = out.replace(REL_PATH, (match, lead: string, path: string) => lead + this.pathFor(path));
     out = out.replace(ABS_PATH, (match, lead: string, path: string) =>
@@ -440,6 +485,14 @@ export class CorpusSanitizer {
         out[outKey] = this.refFor(child);
         continue;
       }
+      if (isLabelledTicketId(key, child, record)) {
+        out[outKey] = this.ticketFor(child);
+        continue;
+      }
+      if (isPrivateUsername(key, child)) {
+        out[outKey] = this.userFor(child);
+        continue;
+      }
       out[outKey] = this.walk(child);
     }
     return out;
@@ -472,6 +525,10 @@ export function scanForLeaks(value: unknown): Leak[] {
   }
   for (const match of text.matchAll(WIN_PATH)) add('path', match[2]!);
   for (const match of text.matchAll(URL_RE)) add('url', trimUrl(match[0]));
+  for (const match of text.matchAll(USERNAME_JSON)) {
+    const user = JSON.parse(`"${match[1]!}"`) as string;
+    if (user !== '' && !user.startsWith(FIXTURE_USER_PREFIX)) add('username', user);
+  }
   for (const match of text.matchAll(EMAIL)) {
     if (!match[0].toLowerCase().endsWith(`@${FIXTURE_EMAIL_DOMAIN}`)) add('email', match[0]);
   }

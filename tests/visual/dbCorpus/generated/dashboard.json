@@ -1308,7 +1308,7 @@
       "done": true,
       "fault": null,
       "glyph": "green",
-      "id": 6,
+      "id": 900006,
       "idLabel": "T900006",
       "key": "FIX-101-s1",
       "pr": {
@@ -1334,7 +1334,7 @@
       "done": false,
       "fault": null,
       "glyph": "blue",
-      "id": 7,
+      "id": 900007,
       "idLabel": "T900007",
       "key": "FIX-101-s2",
       "pr": {
@@ -1355,7 +1355,7 @@
       "done": false,
       "fault": null,
       "glyph": "gray",
-      "id": 8,
+      "id": 900008,
       "idLabel": "T900008",
       "key": "FIX-101-s3",
       "pr": null,

@@ -263,7 +263,7 @@ export function buildCorpus(store: Store, opts: CorpusOptions = {}): Corpus {
     assertNoLeaks(cleaned[view], `export: ${view}`);
     const refs = sanitizer.leftoverRefs(cleaned[view]);
     if (refs.length > 0) {
-      throw new Error(`export: ${view}: sanitized output still carries provider ids: ${refs.slice(0, 5).join(', ')}`);
+      throw new Error(`export: ${view}: sanitized output still carries provider ids or logins: ${refs.slice(0, 5).join(', ')}`);
     }
   }
   return cleaned;

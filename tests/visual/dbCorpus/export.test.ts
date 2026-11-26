@@ -155,6 +155,27 @@ describe('exportCorpusFromDb', () => {
     expect(text).not.toContain(quoted);
   });
 
+  it('replaces PR author logins and keeps no raw store id on a sub-task row', () => {
+    const extra = seedCorpusDatabase(join(tempDir, 'karst-hostile.db'));
+    const writable = openStore(extra.dbPath);
+    try {
+      writable.db.prepare("UPDATE prs SET author = 'alice-gh'").run();
+    } finally {
+      writable.close();
+    }
+
+    const { corpus } = exportCorpusFromDb(extra.dbPath, {
+      outDir: join(tempDir, 'out-hostile'),
+      projectId: extra.projectId,
+      ticketId: extra.dashboardTicketId,
+    });
+    expect(JSON.stringify(corpus)).not.toContain('alice-gh');
+    for (const row of corpus.dashboard.subtasks ?? []) {
+      expect(row.id).toBeGreaterThanOrEqual(FIXTURE_TICKET_ID_MIN);
+      expect(row.idLabel).toBe(`T${row.id}`);
+    }
+  });
+
   it('matches the checked-in fixtures, so a stale corpus fails here', () => {
     const store = openReadonlyStore(seeded.dbPath);
     try {

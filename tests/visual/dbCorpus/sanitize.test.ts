@@ -146,6 +146,35 @@ describe('sanitizeCorpus', () => {
     expect(sanitizer.apply(input)).toEqual(input);
   });
 
+  it('replaces usernames in author fields, consistently, and where text quotes them', () => {
+    const out = sanitizeCorpus({
+      pr: { author: 'alice-gh', comments: [{ author: 'bob-dev', body: 'thanks @alice-gh' }] },
+      other: { author: 'alice-gh' },
+      empty: { author: '' },
+      fixture: { author: 'fixture-author' },
+    });
+
+    expect(out.pr.author).toMatch(/^fixture-user-\d+$/);
+    expect(out.other.author).toBe(out.pr.author);
+    expect(out.pr.comments[0]!.author).not.toBe(out.pr.author);
+    expect(out.pr.comments[0]!.body).toBe(`thanks @${out.pr.author}`);
+    expect(out.empty.author).toBe('');
+    expect(out.fixture.author).toBe('fixture-author');
+    expect(JSON.stringify(out)).not.toMatch(/alice|bob/);
+    expect(sanitizeCorpus(out)).toEqual(out);
+  });
+
+  it('moves a row id into the fixture range when its idLabel names the same ticket', () => {
+    const out = sanitizeCorpus({
+      ticketId: 12,
+      subtasks: [{ id: 1366, idLabel: 'T1366' }, { id: 3, idLabel: 'sha' }],
+    });
+
+    expect(out.subtasks[0]).toEqual({ id: out.subtasks[0]!.id, idLabel: `T${out.subtasks[0]!.id}` });
+    expect(out.subtasks[0]!.id).toBeGreaterThanOrEqual(FIXTURE_TICKET_ID_MIN);
+    expect(out.subtasks[1]).toEqual({ id: 3, idLabel: 'sha' });
+  });
+
   it('leaves a fixture value untouched, so sanitizing twice is a no-op', () => {
     const once = sanitizeCorpus({
       ticketId: 9,
@@ -192,6 +221,12 @@ describe('scanForLeaks', () => {
     });
     const kinds = leaks.map((l) => l.kind).sort();
     expect(kinds).toEqual(['email', 'path', 'token', 'url']);
+  });
+
+  it('reports a username left in an author field', () => {
+    expect(scanForLeaks({ author: 'alice-gh', ok: { author: 'fixture-user-1' }, none: { author: '' } })).toEqual([
+      { kind: 'username', text: 'alice-gh' },
+    ]);
   });
 
   it('reports a relative path that climbs out of the project root', () => {
