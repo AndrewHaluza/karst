@@ -24,9 +24,9 @@ export interface CiFailurePr {
   /** All failing checks the rollup counted; `failing` is capped, so a larger count means the list is cut short. */
   failedTotal?: number;
   /** Names of the failing checks that are known optional (GitHub's required split says so). */
+  optional?: readonly string[];
   /** The PR base branch (`prs.base_ref`), or null when it is not known. */
   base?: string | null;
-  optional?: readonly string[];
 }
 
 export type CiFailureState =

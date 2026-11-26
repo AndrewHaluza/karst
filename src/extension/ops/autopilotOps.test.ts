@@ -5,7 +5,7 @@ import { ensureStage, removeStage, setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt, markAutopilotRerun, markConflictRound, getAutopilotBudget, getAutopilotTicket, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
@@ -2138,5 +2138,85 @@ describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () =
     // An absent seam means "not wired yet", never a failed attempt: no pause and no stop reason.
     expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
     expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
+  });
+});
+
+describe('autopilotTick base red (T1383)', () => {
+  const URL_V = 'https://github.com/o/r/actions/runs/100/job/200';
+  const ID = 'dark pages.visual.ts::a: full-page screenshot';
+  const LOG = `- ${ID}: 3 pixels (ratio 0.01 of all image pixels) are different\n`;
+  const withUrl = (...names: string[]) => ({ ...failing(...names), failing: names.map((name) => ({ name, url: URL_V })) });
+  const GREEN = [{ runId: '2', headSha: 'c'.repeat(40), conclusion: 'success' }, { runId: '1', headSha: 'd'.repeat(40), conclusion: 'failure' }];
+  const RED = [{ runId: '3', headSha: 'e'.repeat(40), conclusion: 'failure' }, { runId: '1', headSha: 'd'.repeat(40), conclusion: 'failure' }];
+
+  function baseRig(runs = GREEN, over: Partial<AutopilotDeps> = {}) {
+    const rebase = vi.fn(async (_repo: string) => true);
+    const r = rig({
+      baseRed: {
+        readJobLog: async () => LOG, readRunHeadSha: async () => 'a'.repeat(40), readRunWorkflowId: async () => '9',
+        listBaseRuns: async () => runs, baseRunIds: async () => [ID], commitInHead: async () => false, rebase,
+      },
+      ...over,
+    });
+    return { ...r, rebase };
+  }
+  const seedBase = (checks: unknown): void => {
+    seedPr(checks);
+    store.db.prepare("UPDATE prs SET base_ref = 'develop' WHERE ticket_id = ?").run(id);
+  };
+
+  it('rebases, starts no ci round, takes no attempt and writes no park', async () => {
+    seedBase(withUrl('build'));
+    const r = baseRig();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'rebased' });
+    expect(r.rebase).toHaveBeenCalledTimes(1);
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+  });
+
+  it('runs before the stale step', async () => {
+    seedBase(withUrl('build'));
+    const staleRebase = { readJobLog: vi.fn(async () => ''), readRunHeadSha: async () => 'a'.repeat(40), regenerate: () => [], rebase: vi.fn(async () => true) };
+    const r = baseRig(GREEN, { staleRebase });
+    await autopilotTick(r.deps);
+    expect(staleRebase.readJobLog).not.toHaveBeenCalled();
+  });
+
+  it('waits on a red develop: nothing, no round, no attempt, and an existing park stays', async () => {
+    seedBase(withUrl('Visual'));
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'awaiting-merge', reason: 'auto-fix not run: ci check Visual is not on the allowlist', runAt: '2026-08-09T10:00:00.000Z', gates: [] });
+    const r = baseRig(RED);
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'nothing' });
+    expect(r.rebase).not.toHaveBeenCalled();
+    expect(r.sendCi).not.toHaveBeenCalled();
+    expect(getAutopilotBudget(store, id, 'r', 'ci').attempts).toBe(0);
+    expect(stageBlock(store, id, 'ship')?.reason).toBe('auto-fix not run: ci check Visual is not on the allowlist');
+    expect(r.notes.map((n) => n[0])).toEqual(['Autopilot: waiting for a green develop: Visual fails there too']);
+  });
+
+  it('skips the step for a graph ticket and a sandboxed ticket', async () => {
+    seedBase(withUrl('build'));
+    const graph = baseRig(GREEN, { isGraphTicket: () => true });
+    await autopilotTick(graph.deps);
+    expect(graph.rebase).not.toHaveBeenCalled();
+    const sandbox = baseRig(GREEN, { placement: async () => 'sandbox' });
+    await autopilotTick(sandbox.deps);
+    expect(sandbox.rebase).not.toHaveBeenCalled();
+  });
+
+  it('ends the park reason with the base-red suffix for a check rebased on an earlier run', async () => {
+    seedBase(withUrl('Visual'));
+    markAutopilotRerun(store, id, { repo: 'r', runId: '99', checkName: 'Visual', headSha: 'a'.repeat(40), pattern: 'base-red:develop', rerunAt: 1 });
+    const r = baseRig();
+    const out = await autopilotTick(r.deps);
+    expect(out).toEqual({ kind: 'parked', reason: 'auto-fix not run: ci check Visual is not on the allowlist (rebased once because develop was red and it failed again)' });
+    expect(r.rebase).not.toHaveBeenCalled();
+  });
+
+  it('applies today\'s rules when the seams are absent', async () => {
+    seedBase(withUrl('build'));
+    const r = rig();
+    expect((await autopilotTick(r.deps)).kind).toBe('armed');
   });
 });
