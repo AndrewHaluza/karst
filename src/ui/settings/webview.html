@@ -769,7 +769,6 @@
      (UI-R30): nothing here carries information motion alone. */
   @media (prefers-reduced-motion:reduce){
     .drawer,.card-toggle .chevron{transition:none}
-    .reload-btn .reload-icon{animation:none}
   }
 
   textarea{
@@ -976,22 +975,6 @@
   /* Identity option: [icon] name (handoff §6.2). */
   .identity{display:inline-flex;align-items:center;gap:var(--k-space-3);min-width:0}
 
-  /* Fixed-size reload icon button (handoff §6.4). */
-  .reload-btn{
-    width:calc(var(--k-space-8) * 1.7);height:calc(var(--k-space-8) * 1.7);flex:0 0 auto;display:grid;place-items:center;
-    padding:var(--k-space-0);border-radius:var(--k-radius-sm);cursor:pointer;
-    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--k-input-edge, var(--vscode-input-border,var(--vscode-panel-border)));
-  }
-  .reload-btn:hover{border-color:var(--k-focus)}
-  .reload-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .reload-btn .reload-icon{
-    width:var(--k-space-6);height:var(--k-space-6);flex:none;
-    animation:reload-spin var(--k-dur-spin) linear infinite;animation-play-state:paused;
-  }
-  .reload-btn.is-pending .reload-icon{animation-play-state:running}
-  @keyframes reload-spin{to{transform:rotate(360deg)}}
-
   .preset-empty{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-3)}
 
 
@@ -1051,24 +1034,86 @@
      section rules above.) */
   .gate-empty{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0);max-width:calc(var(--k-space-8) * 28)}
 
-  /* Ticketing lifecycle rows (handoff §15.3): a toggle with its indented
-     status row beneath it, stacked rows separated by a hairline. The rows sit
-     under a section-head, so separation is the `+` sibling rule — never
-     `:first-of-type`, which a preceding head div would break. */
-  .lifecycle-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;padding:var(--k-space-5) var(--k-space-0)}
-  .lifecycle-row + .lifecycle-row{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .lifecycle-copy{min-width:0}
-  .lifecycle-status{grid-column:1 / -1;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:var(--k-space-3);align-items:center;padding-left:var(--k-space-5);border-left:calc(var(--k-border-w) * 2) solid var(--vscode-panel-border)}
-  .lifecycle-status.off{display:none}
-  .lifecycle-status .full{grid-column:1 / -1}
-  .lifecycle-status label{margin:var(--k-space-0)}
-  .lifecycle-status .row{min-width:0}
-  /* The ClickUp fields are a separate form-grid from the Provider row so the
-     group hides as one unit — but a stacked pair of grids has zero inter-grid
-     gap, which put the Team ID label/input directly against the provider
-     trigger. A group boundary reads at the section-block rhythm, not the
-     intra-grid row gap. */
-  #clickupFields{margin-top:var(--k-space-7)}
+  /* ═══ Ticketing: ONE settings list in two sections (T1371/D831) ═══════════
+     Prototype grammar (P69 settings-ticketing.html, @ui:UI-R39): a head line
+     with the action at the right and a rule under it, then one row per setting
+     — label + ONE help line at the left, the control in a 340px column at the
+     right (UI-R41/R42), and a faint divider between rows (never above the
+     first, which the head line already separates). The gap between the two
+     sections is larger than any gap inside one (UI-R42). Tokens only: the
+     control column is 17 x --k-space-8 = 340px, the column gap 24px. */
+  #section-ticketing .ticketing-section{margin-top:var(--k-space-9)}
+  #section-ticketing .ticketing-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    gap:var(--k-space-1) var(--k-space-6);
+    padding-bottom:var(--k-space-4);
+    border-bottom:var(--k-border-w) solid var(--vscode-panel-border,var(--k-border));
+  }
+  #section-ticketing .ticketing-head h3{margin:var(--k-space-0);min-width:0;font-size:var(--k-text-lg);font-weight:600}
+  #section-ticketing .ticketing-head .k-btn{flex:none;white-space:nowrap;min-height:var(--k-hit-min)}
+  /* Narrow shows the short label; the wide head line shows the full one. */
+  #section-ticketing .ticketing-reload-short{display:none}
+  #section-ticketing .ticketing-row{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,calc(var(--k-space-8) * 17));
+    column-gap:calc(var(--k-space-8) + var(--k-space-2));
+    row-gap:var(--k-space-1);
+    align-items:center;
+    padding:var(--k-space-4) var(--k-space-0);
+  }
+  #section-ticketing .ticketing-row + .ticketing-row{
+    border-top:var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border,var(--k-border)) 45%, transparent);
+  }
+  /* The Field rows keep their label/control wiring; only the grid placement is
+     the ticketing list's. `text-xs` on the help line is the prototype's `.sub`. */
+  #section-ticketing .k-field.ticketing-row > label,
+  #section-ticketing .k-field.ticketing-row > span.field-label{
+    display:block;grid-column:1;grid-row:1;
+    min-height:0;margin:var(--k-space-0);
+    font-size:var(--k-text-md);color:var(--k-text);
+  }
+  #section-ticketing .k-field.ticketing-row > .k-input,
+  #section-ticketing .k-field.ticketing-row > .k-select{
+    grid-column:2;grid-row:1;width:100%;min-width:0;justify-self:stretch;
+  }
+  /* SET-18/Q4: a form setting stays a native checkbox. The row's own label
+     carries the name, so the checkbox's paired label is clipped, not dropped:
+     it is the input's accessible name (UI-R25). */
+  #section-ticketing .k-field.ticketing-row > .k-check{grid-column:2;grid-row:1;justify-self:start}
+  #section-ticketing .k-field.ticketing-row > .k-check > label{
+    position:absolute;width:var(--k-border-w);height:var(--k-border-w);
+    padding:0;margin:calc(var(--k-border-w) * -1);
+    overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+  }
+  #section-ticketing .k-field.ticketing-row > .k-field-help{
+    grid-column:1;grid-row:2;margin-block-start:0;font-size:var(--k-text-xs);
+  }
+  #section-ticketing .k-field.ticketing-row > .k-field-error{grid-column:1;grid-row:3;margin-block-start:0}
+  /* The custom rows: provider listbox and the token action. */
+  #section-ticketing .ticketing-row-text{grid-column:1;grid-row:1;min-width:0}
+  #section-ticketing .ticketing-row-label{display:block;font-size:var(--k-text-md);color:var(--k-text)}
+  #section-ticketing .ticketing-row-text > .k-field-help{margin-block-start:var(--k-space-1);font-size:var(--k-text-xs)}
+  #section-ticketing .ticketing-row-control{grid-column:2;grid-row:1;min-width:0;display:flex;align-items:center;gap:var(--k-space-4)}
+  /* Dot + Set/Not set, then the token action DIRECTLY after it (gap 8px), not
+     pushed to the far edge of the control column (SET-29). The shared `.row`
+     would stretch both; this one stays natural width. */
+  #section-ticketing .ticketing-token{display:inline-flex;align-items:center;gap:var(--k-space-4);min-width:0}
+  #section-ticketing .ticketing-token > *{flex:0 0 auto}
+  /* The connection line: green when the statuses are ready, the warning ink for
+     the hint or fetch error that explains why they are not. */
+  #section-ticketing .ticketing-connection{
+    display:flex;align-items:center;gap:var(--k-space-3);
+    margin-top:var(--k-space-2);min-height:var(--k-space-7);
+    font-size:var(--k-text-xs);color:var(--k-text-dim);
+  }
+  #section-ticketing .ticketing-connection .dot{
+    width:var(--k-space-2);height:var(--k-space-2);flex:none;
+    border-radius:var(--k-radius-circle);background:var(--k-text-faint);
+  }
+  #section-ticketing .ticketing-connection.ok .dot{background:var(--k-success)}
+  #section-ticketing .ticketing-connection.warn{color:var(--k-attention-fg)}
+  #section-ticketing .ticketing-connection.warn .dot{background:var(--k-attention-fg)}
+
 
   /* Drawer/modals: same primitives as before, plus a shared focus ring. */
   .drawer .drawer-body.form label{display:block;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
@@ -1129,6 +1174,36 @@
     .k-field.template-form-row > .label-vars,
     .k-field.template-form-row > .k-field-help,
     .k-field.template-form-row > .k-field-error{grid-column:1}
+    /* T1371: below the 700px container tier every ticketing row stacks —
+       label + help first, then the control at full width (UI-R43,
+       @ui:RD-TIERS) — and the reload action shortens to "↻ Reload" so the
+       section head line keeps one line. */
+    #section-ticketing .ticketing-row,
+    #section-ticketing .k-field.ticketing-row{
+      grid-template-columns:minmax(0,1fr);
+      column-gap:var(--k-space-0);
+      row-gap:var(--k-space-2);
+    }
+    #section-ticketing .k-field.ticketing-row > label,
+    #section-ticketing .k-field.ticketing-row > span.field-label,
+    #section-ticketing .k-field.ticketing-row > .k-input,
+    #section-ticketing .k-field.ticketing-row > .k-select,
+    #section-ticketing .k-field.ticketing-row > .k-check,
+    #section-ticketing .k-field.ticketing-row > .k-field-help,
+    #section-ticketing .k-field.ticketing-row > .k-field-error,
+    #section-ticketing .ticketing-row-text,
+    #section-ticketing .ticketing-row-control{grid-column:1;justify-self:start}
+    #section-ticketing .k-field.ticketing-row > label,
+    #section-ticketing .k-field.ticketing-row > span.field-label,
+    #section-ticketing .ticketing-row-text{grid-row:1}
+    #section-ticketing .k-field.ticketing-row > .k-field-help{grid-row:2}
+    #section-ticketing .k-field.ticketing-row > .k-input,
+    #section-ticketing .k-field.ticketing-row > .k-select,
+    #section-ticketing .k-field.ticketing-row > .k-check,
+    #section-ticketing .ticketing-row-control{grid-row:3;justify-self:stretch;width:100%}
+    #section-ticketing .k-field.ticketing-row > .k-check{justify-self:start;width:auto}
+    #section-ticketing .ticketing-reload-long{display:none}
+    #section-ticketing .ticketing-reload-short{display:inline}
     /* Quality rows stack at the same tier (UI-R43): label + help, then the
        control under them, left-aligned. A gate becomes a card: its header row
        is hidden and its cells stack into labelled lines (UI-R55). */
@@ -1221,7 +1296,6 @@
     .agent-hero{flex-wrap:wrap;gap:var(--k-space-3)}
     .project-info-pop{left:auto;right:var(--k-space-4);top:auto;bottom:calc(var(--k-space-8) * 2.5)}
     .template-meta{flex-direction:column;align-items:flex-start}
-    .lifecycle-status{grid-template-columns:minmax(0,1fr)}
   }
   @media (max-width: 26.875em){
     .content{padding:var(--k-space-4) var(--k-space-4) calc(var(--k-space-8) * 3)}

@@ -1300,13 +1300,17 @@ const settingsVariants = (): Variant[] => [
     }),
     route: { section: 'ticketing' },
   },
-  // T1297 SET-29: a saved ClickUp board with its list in the host's reply; one toggle makes the topbar dirty.
+  // T1297 SET-29 + T1371: a saved ClickUp board with its list and statuses in
+  // the host's replies; one toggle makes the topbar dirty.
   {
     ...variant('settings', 'ticketing-clickup', () => stateMessage(CLICKUP_SETTINGS), {
       themes: DARK_ONLY,
       skipLayout: true,
       click: 'input[name="searchEnabled"]',
-      replies: [{ type: 'ticket-lists', lists: [{ id: '901', name: 'Sprint 41', space: 'Engineering' }] }],
+      replies: [
+        { type: 'ticket-lists', lists: [{ id: '901', name: 'Sprint 41', space: 'Engineering' }] },
+        { type: 'ticket-statuses', statuses: ['backlog', 'in progress', 'in review', 'qa', 'done'] },
+      ],
     }),
     route: { section: 'ticketing' },
   },

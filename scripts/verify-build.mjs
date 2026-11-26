@@ -109,7 +109,10 @@ const REQUIRED_ARTIFACTS = [
 // Dynamic Graph agents, limits and planner prompt sections in that drawer (GraphDrawerSections,
 // graphDrawerDraft), and the number-plus-unit limit inputs with an exact round trip
 // (graphLimitUnits) — ~9 KB of genuine app code; bundle is 446740 bytes after the T1373 merge (~1.7 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 438 * 1024;
+// Raised 438 → 440 KB when T1371 (Ticketing is one settings list, plus its review fix: the ticketing
+// fetches record the key each request was posted for and drop a reply for a key the draft has left)
+// merged with T1373 and T1374: the merged bundle is 448350 bytes, only 0.2 KB under 438 KB (~2.2 KB headroom at 440 KB).
+const APP_BUNDLE_BUDGET_BYTES = 440 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
