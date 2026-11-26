@@ -13,6 +13,7 @@ import type { AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import { autopilotTick } from './autopilotOps.js';
 import type { TransientCiSeams } from './autopilotRerun.js';
 import type { StaleRebaseSeams } from './autopilotStaleRebase.js';
+import type { BaseRedSeams } from '../../integrations/ciRerun.js';
 import { nudgeSurface } from '../../approaches/graph/entryPoints.js';
 import { HOLDS_SLOT_SQL } from '../../store/autostart.js';
 import { resolveConflictRound, type ResolveConflictInput } from './conflictResolveOps.js';
@@ -105,6 +106,8 @@ export interface TicketSeams {
   readonly transientCi?: TransientCiSeams;
   /** Host seams of the one rebase for a stale generated file (T1081). */
   readonly staleRebase?: StaleRebaseSeams;
+  /** gh and host seams of the base-red step (T1383, @arch:AP-12). Absent: today's rules apply. */
+  readonly baseRed?: BaseRedSeams;
   /** The worktree reads of the ship retry after a GitHub server error (@arch:AP-11). Absent: no retry. */
   readonly shipRetry?: ShipRetrySeams;
   /** Re-runs a confirmed ship for the named repos through the Retry ship path (@arch:AP-11). Absent: no retry. */
@@ -201,6 +204,7 @@ export async function autopilotSweep(d: AutopilotSweepDeps): Promise<number> {
         ...(seams.localHead ? { localHead: seams.localHead } : {}),
         ...(seams.transientCi ? { transientCi: seams.transientCi } : {}),
         ...(seams.staleRebase ? { staleRebase: seams.staleRebase } : {}),
+        ...(seams.baseRed ? { baseRed: seams.baseRed } : {}),
         ...(seams.shipRetry ? { shipRetry: seams.shipRetry } : {}),
         ...(seams.retryShip ? { retryShip: seams.retryShip } : {}),
         ...(d.now ? { now: d.now } : {}),

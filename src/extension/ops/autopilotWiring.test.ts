@@ -131,6 +131,29 @@ describe('autopilotSweep', () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
+  it('passes the base-red seam to the tick, and a base-red rebase counts as an action (T1383)', async () => {
+    const { store, projectId } = shipTicket();
+    const id = 'dark pages.visual.ts::a: full-page screenshot';
+    store.db.prepare("UPDATE prs SET base_ref = 'develop', checks = ? WHERE ticket_id = ?").run(JSON.stringify({ state: 'failing', total: 1, passed: 0, failed: 1, pending: 0, failedShown: 1, failing: [{ name: 'build', url: 'https://github.com/o/r/actions/runs/100/job/200' }] }), 1);
+    const rebase = vi.fn(async () => true);
+    const changed = vi.fn();
+    const s = seams({
+      baseRed: {
+        readJobLog: async () => `- ${id}: 3 pixels (ratio 0.01 of all image pixels) are different\n`, readRunHeadSha: async () => 'a'.repeat(40), readRunWorkflowId: async () => '9',
+        listBaseRuns: async () => [{ runId: '2', headSha: 'c'.repeat(40), conclusion: 'success' }, { runId: '1', headSha: 'd'.repeat(40), conclusion: 'failure' }],
+        baseRunIds: async () => [id], commitInHead: async () => false, rebase,
+      },
+    });
+    const acted = await autopilotSweep({
+      store, projectId: () => projectId, manifest: () => ({ autopilot: cfg }) as never,
+      caps: () => ({ perParent: 2, total: 4 }), seamsFor: () => s, debug: () => {}, changed,
+    });
+    expect(rebase).toHaveBeenCalledWith('r');
+    expect(s.sendCi).not.toHaveBeenCalled();
+    expect(acted).toBe(1);
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
   it('passes the ship-retry seams to the tick, and a ship retry counts as an action (T1362)', async () => {
     const { store, projectId, id } = shipTicket();
     const endedAt = '2026-11-25T12:00:00.000Z';

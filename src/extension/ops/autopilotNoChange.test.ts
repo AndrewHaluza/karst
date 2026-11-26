@@ -151,6 +151,14 @@ describe('noChangeStep', () => {
     expect(x.readRunHeadSha).not.toHaveBeenCalled();
   });
 
+  it.each(['base-red:develop', 'base-red-wait:100'])('leaves a check with a base-red marker (%s) to its own step (T1383)', async (pattern) => {
+    setCiRoundHeadSha(store, id, 'r', SHA);
+    markAutopilotRerun(store, id, { repo: 'r', runId: '100', checkName: 'A', headSha: SHA, pattern, rerunAt: clock - RERUN_SETTLE_MS });
+    const x = ctx();
+    expect(await noChangeStep(x.c, [check('A')])).toEqual({ kind: 'none' });
+    expect(x.readRunHeadSha).not.toHaveBeenCalled();
+  });
+
   it('returns the gh reason when the head read fails', async () => {
     setCiRoundHeadSha(store, id, 'r', SHA);
     const x = ctx({ sha: new Error('gh down') });
