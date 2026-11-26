@@ -82,11 +82,10 @@ const LITERAL_BUDGET: Record<string, number> = {
   // (max-width: 699px)` — a container condition cannot read a custom property,
   // the same exemption ticketForm/gettingStarted take (@ui:RD-TIERS).
   settings: 1,
-  // 1, not 0: the ticket row shows its hover tools only from the narrow tier
-  // (`@container (min-width: 400px)`, SB-8/@ui:RD-TIERS). A container condition
-  // cannot read a custom property, so the canonical tier edge is the only
-  // literal form; webview.test.ts pins that one query and the token-only rest.
-  sidebar: 1,
+  // 0: the old hover-tools container tier (`@container (min-width: 400px)`,
+  // SB-8) is gone — the row quick tools show on hover or focus at every width
+  // (D860), so the sidebar has no px literal left and every dimension is a token.
+  sidebar: 0,
   // 2, not 0: the two @container tier conditions (`699px` narrow, `399px`
   // tight, @ui:RD-TIERS). A container condition cannot read a custom property,
   // so the canonical edges are the only literal form; every other dimension
