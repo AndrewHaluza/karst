@@ -1,5 +1,16 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ELEMENT_TOLERANCE, PAGE_TOLERANCE, effectiveAllowance } from './screenshotTolerance.js';
+import {
+  ELEMENT_TOLERANCE,
+  PAGE_KNOWN_DRIFT,
+  PAGE_TOLERANCE,
+  effectiveAllowance,
+  pageToleranceFor,
+} from './screenshotTolerance.js';
+
+const BASELINES = join(dirname(fileURLToPath(import.meta.url)), '__baselines__');
 
 /**
  * T1367 (@ui:VISUAL-TOLERANCE): the allowance arithmetic and the calibration
@@ -30,8 +41,11 @@ const ELEMENT_AREA_LARGEST = 883_300;
 const PAGE_AREA_SMALLEST = 93_600;
 const PAGE_AREA_LARGEST = 7_530_240;
 
-/** The worst full-page difference against an existing baseline, measured by the same sweep at `maxDiffPixels: 0`. */
-const WORST_PAGE_DRIFT_PX = 389;
+/** The old global page allowance: the cap a ledger entry may never exceed. */
+const OLD_PAGE_ALLOWANCE_PX = 400;
+
+/** PAGE_KNOWN_DRIFT is a ratchet: lower this count when an entry goes, never raise it. */
+const KNOWN_DRIFT_ENTRIES = 56;
 
 describe('effectiveAllowance: the smaller of the two limits (@ui:VISUAL-TOLERANCE)', () => {
   it('takes the smaller limit when both are set', () => {
@@ -51,32 +65,50 @@ describe('effectiveAllowance: the smaller of the two limits (@ui:VISUAL-TOLERANC
 });
 
 describe('the page-mode tolerance (@ui:VISUAL-TOLERANCE)', () => {
-  it('binds at maxDiffPixels above 200,000 px and at the ratio below it', () => {
-    expect(effectiveAllowance(PAGE_AREA_LARGEST, PAGE_TOLERANCE)).toBe(400);
-    expect(effectiveAllowance(PAGE_AREA_SMALLEST, PAGE_TOLERANCE)).toBeCloseTo(187.2, 5);
+  it('allows a flat count at every page area, with no ratio', () => {
+    expect(PAGE_TOLERANCE.maxDiffPixelRatio).toBeUndefined();
+    expect(effectiveAllowance(PAGE_AREA_SMALLEST, PAGE_TOLERANCE)).toBe(PAGE_TOLERANCE.maxDiffPixels);
+    expect(effectiveAllowance(PAGE_AREA_LARGEST, PAGE_TOLERANCE)).toBe(PAGE_TOLERANCE.maxDiffPixels);
   });
 
-  it('stays above the worst existing full-page difference, so no recorded baseline turns red', () => {
-    // The sweep at maxDiffPixels: 0 fails 48 existing full-page screenshots (60 tests, 0 element captures); the worst
-    // is sidebar/stage-chip-300 at 389 px (the "accepted" chip now truncates). Re-recording is out of scope
-    // (@ui:RUNNING-SWEEP), so the page allowance must stay above that difference.
-    const area = 300 * 720; // the drifted sidebar page: the ratio would allow 432, so maxDiffPixels binds at 400.
-    expect(effectiveAllowance(area, PAGE_TOLERANCE)).toBeGreaterThan(WORST_PAGE_DRIFT_PX);
-  });
-
-  it('catches the measured tint shift', () => {
-    for (const diffPixels of PAGE_TINT_PX) {
+  it('catches every measured label change and tint shift', () => {
+    for (const diffPixels of [...PAGE_DIGIT_PX, ...PAGE_WORDS_PX, ...PAGE_TINT_PX]) {
       expect(diffPixels).toBeGreaterThan(effectiveAllowance(PAGE_AREA_LARGEST, PAGE_TOLERANCE));
     }
   });
 
-  it('cannot catch a small label change: the named limitation the drift forces', () => {
-    // Nothing measured here fits under 400 px on a full page: a digit costs 12-33 px, a word 27-114 px. A page
-    // allowance low enough to catch them (< 12) would turn the 389 px baseline red, and this ticket may not
-    // re-record it. @ui:VISUAL-TOLERANCE records the gap as @ui:LIMITATIONS.
-    for (const diffPixels of [...PAGE_DIGIT_PX, ...PAGE_WORDS_PX]) {
-      expect(diffPixels).toBeLessThanOrEqual(effectiveAllowance(PAGE_AREA_LARGEST, PAGE_TOLERANCE));
+  it('sits above the noise floor', () => {
+    for (const diffPixels of NOISE_PX) {
+      expect(effectiveAllowance(PAGE_AREA_LARGEST, PAGE_TOLERANCE)).toBeGreaterThan(diffPixels);
     }
+  });
+});
+
+describe('the known drift ledger (@ui:VISUAL-TOLERANCE)', () => {
+  const entries = Object.entries(PAGE_KNOWN_DRIFT);
+
+  it('only shrinks', () => {
+    expect(entries).toHaveLength(KNOWN_DRIFT_ENTRIES);
+  });
+
+  it('names only recorded baselines, so a re-recorded or removed shot leaves no stale entry', () => {
+    const missing = entries.map(([key]) => key).filter((key) => !existsSync(join(BASELINES, key)));
+    expect(missing).toEqual([]);
+  });
+
+  it('holds only drift above the page tolerance and within the old allowance', () => {
+    for (const [key, drift] of entries) {
+      expect(drift, key).toBeGreaterThan(PAGE_TOLERANCE.maxDiffPixels ?? 0);
+      expect(drift, key).toBeLessThanOrEqual(OLD_PAGE_ALLOWANCE_PX);
+    }
+  });
+
+  it('gives a ledger shot exactly its own drift, and every other shot the page tolerance', () => {
+    expect(pageToleranceFor('hc', 'sidebar--stage-chip-300.png')).toEqual({ threshold: 0.2, maxDiffPixels: 389 });
+    expect(pageToleranceFor('dark', 'status-primitives.png').maxDiffPixels).toBe(234);
+    expect(pageToleranceFor('dark', 'dashboard-running.png')).toBe(PAGE_TOLERANCE);
+    // The key is the project AND the file: the light drift of a shot does not leak into its dark twin.
+    expect(pageToleranceFor('dark', 'sidebar--planning-artifacts-300.png')).toBe(PAGE_TOLERANCE);
   });
 });
 

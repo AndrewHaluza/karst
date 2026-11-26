@@ -200,14 +200,14 @@ END_DOC_BLOCK: [@ui:VISUAL-VARIANTS-GRAPH]
 
 | Mode | threshold | maxDiffPixels | maxDiffPixelRatio | Why |
 | --- | --- | --- | --- | --- |
-| page | 0.2 | 400 | 0.002 | UNCHANGED. The same sweep at `maxDiffPixels: 0` fails 48 existing full-page screenshots (60 tests across the projects, 0 element captures); the worst is 389 px (`sidebar/stage-chip-300`, see `ui:VISUAL-DEFECTS`). Re-recording is out of scope (`ui:RUNNING-SWEEP`), so the allowance must stay above 389. 400 catches the measured tint shift (1,661-28,713 px) and leaves 11 px of headroom. |
+| page | 0.2 | 3 | none | The same sweep at `maxDiffPixels: 0` fails 57 full-page tests (54 above 3 px, 0 element captures). Five repeats of the popover pages add two intermittent shots (`inside-review-menu-open-wide`, `-retry-only`: 0 or exactly 312 px). Each of the 56 keeps its measured count in `PAGE_KNOWN_DRIFT` (`tests/visual/screenshotTolerance.ts`, keyed `<project>/<baseline>`, worst 389 px), so it cannot drift further. All other pages get 3 px, below the 12 px digit change. Re-recording is out of scope (`ui:RUNNING-SWEEP`). |
 | element | 0.2 | 3 | none | Every measured element regression is at least 5 px, and all 191 element baselines render pixel-identically (0 px) as do all 45 noise pairs. 3 px stays below 5 px with a margin of 40%, and 3 px above the noise floor. A ratio must stay out: it would allow 1,766 px on the 883,300 px Inside region. |
 
 **What the numbers say.**
 
 1. The noise floor is 0 px: 45 pairs (9 variants x 3 themes x 3 repeats) and 191 recorded element baselines agree with a fresh render. A small allowance is therefore safe for an element capture.
 2. The comparator ignores a colour shift below about 56/255 per channel: the +16 tint changes 0 px in every shot, the +64 tint changes 52-28,713 px. That limit is the `threshold`, not the allowance, and both modes share it. A tint change under it is not a pixel regression, whatever the allowance. A later ticket that wants it must lower `threshold` and prove that the anti-aliasing does not flake.
-3. The element mode now catches a single-digit label change (5-10 px against 3 px). The page mode cannot: see `ui:LIMITATIONS`. A runtime strip shows no numeric label, so the two runtime cases have no digit row.
+3. Both modes now catch a single-digit label change (5-33 px against 3 px). The exception is a page in `PAGE_KNOWN_DRIFT`: see `ui:LIMITATIONS`. A runtime strip shows no numeric label, so the two runtime cases have no digit row.
 
 **Re-run the probe.** `npm run -s test:visual:calibrate:docker`. Add `KARST_VISUAL_FIXTURE_VIEWS=dashboard,sidebar` to write only the two fixture views. Read the table in `tests/visual/.report/calibration/tolerance-<project>.md`, or in the run log. A new capture mode, or a variant family whose smallest regression differs, needs a new case in `CASES` and a new row in the unit test `tests/visual/screenshotTolerance.test.ts`.
 
@@ -217,7 +217,7 @@ END_DOC_BLOCK: [@ui:VISUAL-TOLERANCE]
 
 The rule and the chosen values are in `ui:VISUAL-TOLERANCE`.
 
-**Capture areas** (registry scan, every theme). The 467 full-page baselines are 93,600-7,530,240 px. `maxDiffPixels: 400` binds above 200,000 px; the ratio binds below it (the 93,600 px page gets 187.2). The 191 element baselines are 26,100-883,300 px: under the old global pair the ratio bound below 200,000 px (52-187 px) and `maxDiffPixels` bound above it (400 px), so the same pair allowed a 52 px difference in one element capture and 1,766 px worth of area in another.
+**Capture areas** (registry scan, every theme). The 467 full-page baselines are 93,600-7,530,240 px. Under the old pair, `maxDiffPixels: 400` bound above 200,000 px and the ratio bound below it (the 93,600 px page got 187.2). The 191 element baselines are 26,100-883,300 px: under the old global pair the ratio bound below 200,000 px (52-187 px) and `maxDiffPixels` bound above it (400 px), so the same pair allowed a 52 px difference in one element capture and 1,766 px worth of area in another.
 
 **The probe.** `tests/visual/calibration/tolerance.calibrate.ts` opens each variant as the sweep does (same fixture, viewport and masks), takes an unperturbed shot, then one shot per perturbation, and counts with Playwright's own comparator (`utils.getComparator('image/png')`, `threshold` 0.2). It writes `tests/visual/.report/calibration/tolerance-<project>.json` and `.md` (gitignored). It is a `*.calibrate.ts` file, so the sweep's `testMatch` (`**/*.visual.ts`) never collects it. Perturbations: (a) one colour custom property shifted by 16/255 and 64/255 per channel; (b) a 1-2 word label change and a single-digit change in a visible label (a script or hidden text node is skipped); (c) the same page rendered twice, three times.
 
@@ -236,13 +236,13 @@ The probe is in `ui:VISUAL-TOLERANCE-PROBE`; the chosen values are in `ui:VISUAL
 | dashboard/populated | page | 1346560 | noise x3 | 0 / 0 / 0 | PASS | PASS |
 | dashboard/populated | page | 1346560 | +16 tint | 0 | PASS | PASS |
 | dashboard/populated | page | 1346560 | +64 tint | 26837 | FAIL | FAIL |
-| dashboard/populated | page | 1346560 | words: "Agent default" -> "Agent preset" | 41 | PASS | PASS |
-| dashboard/populated | page | 1346560 | digit: "T942017" -> "T942018" | 12 | PASS | PASS |
+| dashboard/populated | page | 1346560 | words: "Agent default" -> "Agent preset" | 41 | PASS | FAIL |
+| dashboard/populated | page | 1346560 | digit: "T942017" -> "T942018" | 12 | PASS | FAIL |
 | sidebar/populated | page | 216000 | noise x3 | 0 / 0 / 0 | PASS | PASS |
 | sidebar/populated | page | 216000 | +16 tint | 0 | PASS | PASS |
 | sidebar/populated | page | 216000 | +64 tint | 1661 | FAIL | FAIL |
-| sidebar/populated | page | 216000 | words: "Current" -> "Present" | 27 | PASS | PASS |
-| sidebar/populated | page | 216000 | digit: "P90" -> "P91" | 23 | PASS | PASS |
+| sidebar/populated | page | 216000 | words: "Current" -> "Present" | 27 | PASS | FAIL |
+| sidebar/populated | page | 216000 | digit: "P90" -> "P91" | 23 | PASS | FAIL |
 | dashboard/panel-srv-one-wide | element | 63984 | noise x3 | 0 / 0 / 0 | PASS | PASS |
 | dashboard/panel-srv-one-wide | element | 63984 | +16 tint | 0 | PASS | PASS |
 | dashboard/panel-srv-one-wide | element | 63984 | +64 tint | 1720 | FAIL | FAIL |
@@ -293,7 +293,7 @@ END_DOC_BLOCK: [@ui:SWEEP-BUDGET]
 - **Catalog is documentation-only (D15)**: `KARST-UI-CATALOG.html` has its own hard-coded palette and cannot be themed. Baselines prove what the catalog claims, not what ships.
 - **High-contrast-light excluded (C4)**: Not named by any rule; triples cost for no signal.
 - **Corpus ratchet outstanding (C8)**: Seven non-dashboard views use MINIMAL state. FEAT-37 shrinks the ratchet. The standalone `serverLogs` panel is not one of them: it seeds through its own `server-logs` protocol, not the generic `state` message.
-- **A page-mode label change under 400 px passes (T1367)**: an element capture now fails on a 5 px difference, but a full page still allows 400 px, so a one-digit (12-33 px) or one-word (27-114 px) change on a page passes. The blocker is not the measurement but 48 existing full-page screenshots that differ from their PNG, the worst by 389 px (`sidebar/stage-chip-300`, see `ui:VISUAL-DEFECTS`). A value below 389 turns them red, and this ticket may not re-record a baseline (`ui:RUNNING-SWEEP`). The full table and the drift evidence are in `ui:VISUAL-TOLERANCE`.
+- **A drifted page hides a change up to its drift (T1367)**: a page allows 3 px, but the 56 shots in `PAGE_KNOWN_DRIFT` allow their own measured drift (4-389 px; two review-menu popover pages flip between 0 and 312 px), so a label change on one of those pages passes when it stays under that count. The cause is the recorded PNG, not the tolerance (`ui:VISUAL-DEFECTS`), and this ticket may not re-record a baseline (`ui:RUNNING-SWEEP`). Re-record a shot and remove its entry to close its gap.
 END_DOC_BLOCK: [@ui:LIMITATIONS]
 
 ## [@ui:OPEN-RATCHETS] Open ratchets
@@ -305,6 +305,7 @@ END_DOC_BLOCK: [@ui:LIMITATIONS]
 5. **SWEEP_BUDGET** (`sweepBudget.ts`): screenshots and layout tests per view (`@ui:SWEEP-BUDGET`). A raise needs a reason on its line.
 6. **Visual ledger** (`tests/visual/visual-known-failures.json`): red screenshots that the gate excuses (`@ui:RUNNING-SWEEP`). Empty at the start. Shrink-only: the PR gate fails an added entry.
 7. **ALLOWED_BASELINE_COLLISIONS** (`variants.test.ts`, T1357): groups of variants that record the same PNG in one theme folder, each with a reason (`@ui:VISUAL-VARIANTS`). Any other collision fails the test, and so does an entry that no longer collides. Shrink-only.
+8. **PAGE_KNOWN_DRIFT** (`screenshotTolerance.ts`, T1367): full-page shots that already differ from their PNG, each allowed only its measured count (`@ui:VISUAL-TOLERANCE`). Shrink-only: `screenshotTolerance.test.ts` pins the count and fails on an entry with no baseline.
 END_DOC_BLOCK: [@ui:OPEN-RATCHETS]
 
 ## [@ui:RUNNING-SWEEP] Running the sweep
@@ -369,5 +370,5 @@ The following were discovered during Task 8's baseline review and are reported, 
 3. **gettingStarted contrast**: Headings and lede use foreground on sidebar background, falling below WCAG AA 4.5:1 in dark and hc themes.
 4. **settings contrast**: Nav captions and help text fall below WCAG AA in light theme.
 5. **G6** (dark only): The server-logs surface renders SGR-coloured log lines with VS Code's terminal ANSI palette; some hues (red on dark) fall below WCAG AA against the editor background. Reported, not fixed for dark — the palette belongs to the user's terminal theme. T1317 LG-7 fixed the light and high-contrast foregrounds (design-system meaning tokens), so those themes no longer carry the gap.
-6. **Stale chip baselines hide under the page allowance (T1367)**: `sidebar/stage-chip-300`, `-320` and `-460` differ from a fresh render by 389 px in all three themes: the baseline shows `4 | accepted`, the current page truncates it to `4 | accepte...` plus a box. `settings/route-agents-agents-roles-uatTester` (323), `dashboard/inside-review-menu-retry-only` (312) and 44 other screenshots differ as well: 48 full-page screenshots in total, and no element capture. The 400 px allowance kept all of them green. Reported, not re-recorded: a baseline change needs its own ticket. `ui:VISUAL-TOLERANCE` has the measurement.
+6. **Stale baselines hid under the page allowance (T1367)**: `sidebar/stage-chip-300`, `-320` and `-460` differ from a fresh render by 256 (dark), 318 (light) and 389 px (hc): the baseline shows `4 | accepted`, the current page truncates it to `4 | accepte...` plus a box. `settings/route-agents-agents-roles-uatTester` (hc, 323), `settings/discard-undo` (229), `status-primitives.png` (234) and 48 other shots differ as well: 57 full-page tests, no element capture. `dashboard/inside-review-menu-open-wide` and `-retry-only` flip between two renders (0 or 312 px). The old 400 px allowance kept all of them green; each is now pinned at its count in `PAGE_KNOWN_DRIFT` (`ui:VISUAL-TOLERANCE`). Reported, not re-recorded: a baseline change needs its own ticket.
 END_DOC_BLOCK: [@ui:VISUAL-DEFECTS]
