@@ -14,6 +14,12 @@
  * leaves the committed rows exactly as written: the block is the durable truth,
  * and a live terminal whose kill was refused is reconciled later.
  *
+ * Two details the one-shot signal needs: a PARALLEL node of the same stop parks
+ * too (the run keeps the first reason; only the first park prompts), and a
+ * lock-contended transaction is retried with bounded async backoff, because the
+ * coordinator connection runs with `busy_timeout = 0` and no later tick will
+ * re-read this signal.
+ *
  * Never automatic: `'usage-limit'` is not an `AUTOMATIC_CATEGORIES` member, so
  * the coordinator never relaunches on the same exhausted core. The user picks.
  *
@@ -63,6 +69,9 @@ export type GraphUsageLimitParkResult =
       parked: true;
       ticketId: number;
       reason: string;
+      /** This call blocked the RUN, so it is the one that offers the prompt. A
+       *  parallel node of the same stop parks without a second prompt. */
+      prompt: boolean;
       termination?: TerminationProof;
     }
   | { parked: false };
@@ -83,6 +92,32 @@ export interface GraphUsageLimitParkDeps {
     role: 'node' | 'planner';
     runId: number;
   }) => Promise<TerminationProof | undefined>;
+  /**
+   * The async pause between retries of a lock-contended transaction. The
+   * coordinator connection runs with `busy_timeout = 0` (a synchronous wait
+   * would block the extension host), so a park that meets another writer's
+   * lock retries here instead of being dropped (a hook/transcript signal is
+   * one-shot). Defaults to a real timer; tests inject a no-op.
+   */
+  pause?: (ms: number) => Promise<void>;
+}
+
+/** The backoff between lock-contention retries: 50+100+200+400+800 ms total. */
+const BUSY_RETRY_DELAYS_MS: readonly number[] = [50, 100, 200, 400, 800];
+
+/** A write lock held by another connection (the coordinator has no busy timeout). */
+function isLockContention(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    ((err as { code?: string }).code?.startsWith('SQLITE_BUSY') === true ||
+      /database is (locked|busy)/i.test(err.message))
+  );
+}
+
+function defaultPause(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /** The one-line text recorded on the role row: no control characters, capped. */
@@ -106,6 +141,30 @@ function terminationNote(proof: TerminationProof): string | null {
   return null;
 }
 
+/** The rows a winning park wrote: the ticket, and whether THIS call blocked the run. */
+interface ParkedRows {
+  ticketId: number;
+  blockedRun: boolean;
+}
+
+/** Run the park transaction, retrying a lock-contended write (the coordinator
+ *  connection has `busy_timeout = 0`, and the signal is one-shot). */
+async function parkRowsWithBusyRetry(
+  deps: GraphUsageLimitParkDeps,
+  fn: () => ParkedRows | null,
+): Promise<ParkedRows | null> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return deps.transaction(fn);
+    } catch (err) {
+      const delay = BUSY_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !isLockContention(err)) throw err;
+      deps.debug?.(`[graph] usage-limit park: database busy, retrying in ${delay}ms`);
+      await (deps.pause ?? defaultPause)(delay);
+    }
+  }
+}
+
 /**
  * Park a running graph node or planner on its provider usage limit. Returns
  * `{ parked: false }` when either row is not in its active running state (a
@@ -121,55 +180,65 @@ export async function parkGraphUsageLimit(
   const text = sanitizedLine(input.text);
   const reason = blockReason(input, text);
 
-  const parked = deps.transaction((): number | null => {
+  const parked = await parkRowsWithBusyRetry(deps, (): ParkedRows | null => {
     const run = graphRunById(db, input.graphRunId);
     if (!run) return null;
 
     if (input.role === 'node') {
-      if (run.status !== 'running') return null;
       const node = nodeRunById(db, input.runId);
       if (!node || node.graph_run_id !== input.graphRunId || node.status !== 'running') return null;
+      // A PARALLEL node can hit the same provider stop after the first node
+      // already blocked the run. It still parks (blocked + terminated), but
+      // the run keeps the first reason and only the first park asks the user.
+      const sameStop =
+        run.status === 'blocked' && run.blocked_reason?.startsWith('usage-limit') === true;
+      if (run.status !== 'running' && !sameStop) return null;
       if (!transitionNodeRun(db, input.runId, 'running', 'blocked')) return null;
       setNodeRunFailure(db, input.runId, {
         failureCategory: 'usage-limit',
         reason: text,
         now,
       });
-      if (
-        !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, input.graphRunId, 'running', 'blocked')
-      ) {
-        // Structurally unreachable under BEGIN IMMEDIATE (the status was read in
-        // this transaction); throw so a hypothetical race rolls the node write
-        // back instead of committing a half-park.
-        throw new GraphStoreError(`usage-limit park: run ${input.graphRunId} left running mid-transaction`);
+      if (!sameStop) {
+        if (
+          !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, input.graphRunId, 'running', 'blocked')
+        ) {
+          // Structurally unreachable under BEGIN IMMEDIATE (the status was read in
+          // this transaction); throw so a hypothetical race rolls the node write
+          // back instead of committing a half-park.
+          throw new GraphStoreError(`usage-limit park: run ${input.graphRunId} left running mid-transaction`);
+        }
+        markGraphRunBlocked(db, input.graphRunId, reason, now);
       }
-    } else {
-      // A bootstrap planner runs while the graph run is `planning`; a replan
-      // planner runs while it is `draining`. Both are ACTIVE; `blocked`,
-      // `closed`, `cancelled` and `stale` are never a live planner's run.
-      if (run.status !== 'planning' && run.status !== 'draining') return null;
-      const planner = plannerRunById(db, input.runId);
-      if (!planner || planner.graph_run_id !== input.graphRunId || planner.status !== 'running') {
-        return null;
-      }
-      // The planner's rest state is `stale` (the crash matrix's abandoned
-      // planner shape), never `blocked` — `blocked` is compile-repair waiting.
-      if (!transitionPlannerRun(db, input.runId, 'running', 'stale')) return null;
-      setPlannerRunReasonEndedAt(db, input.runId, reason, now);
-      if (
-        !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, input.graphRunId, run.status, 'blocked')
-      ) {
-        throw new GraphStoreError(`usage-limit park: run ${input.graphRunId} left ${run.status} mid-transaction`);
-      }
+      releaseGraphProcessSlot(db, input.graphRunId, now);
+      return { ticketId: run.ticket_id, blockedRun: !sameStop };
+    }
+
+    // A bootstrap planner runs while the graph run is `planning`; a replan
+    // planner runs while it is `draining`. Both are ACTIVE; `blocked`,
+    // `closed`, `cancelled` and `stale` are never a live planner's run.
+    if (run.status !== 'planning' && run.status !== 'draining') return null;
+    const planner = plannerRunById(db, input.runId);
+    if (!planner || planner.graph_run_id !== input.graphRunId || planner.status !== 'running') {
+      return null;
+    }
+    // The planner's rest state is `stale` (the crash matrix's abandoned
+    // planner shape), never `blocked` — `blocked` is compile-repair waiting.
+    if (!transitionPlannerRun(db, input.runId, 'running', 'stale')) return null;
+    setPlannerRunReasonEndedAt(db, input.runId, reason, now);
+    if (
+      !casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, input.graphRunId, run.status, 'blocked')
+    ) {
+      throw new GraphStoreError(`usage-limit park: run ${input.graphRunId} left ${run.status} mid-transaction`);
     }
 
     markGraphRunBlocked(db, input.graphRunId, reason, now);
     releaseGraphProcessSlot(db, input.graphRunId, now);
-    return run.ticket_id;
+    return { ticketId: run.ticket_id, blockedRun: true };
   });
 
   if (parked === null) return { parked: false };
-  const ticketId = parked;
+  const { ticketId } = parked;
 
   // After the commit: terminate through the transport's attributable kill. A
   // refusal or a transport error never undoes the park — the block is truth.
@@ -214,5 +283,5 @@ export async function parkGraphUsageLimit(
     );
   }
 
-  return { parked: true, ticketId, reason, ...(termination ? { termination } : {}) };
+  return { parked: true, ticketId, reason, prompt: parked.blockedRun, ...(termination ? { termination } : {}) };
 }

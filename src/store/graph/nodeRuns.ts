@@ -362,7 +362,13 @@ export function countNodeRunsInStatusesExcludingOutcome(
   /** A `blocked` node run with one of these failure categories is not
    *  counted. The match is NULL-safe: a blocked row with a NULL category is
    *  always counted (a plain `NOT IN` would drop it). */
-  exclude: { blockedCategory?: string; blockedCategories?: readonly string[] } = {},
+  exclude: {
+    blockedCategory?: string;
+    blockedCategories?: readonly string[];
+    /** A blocked category that is dead only once its process run is no longer
+     *  `running` (written BEFORE the termination, unlike `blockedCategories`). */
+    blockedCategoryWithoutRunningProcess?: string;
+  } = {},
 ): number {
   if (statuses.length === 0) return 0;
   const placeholders = statuses.map(() => '?').join(', ');
@@ -374,14 +380,28 @@ export function countNodeRunsInStatusesExcludingOutcome(
     categories.length === 0
       ? ''
       : `AND NOT (status = 'blocked' AND COALESCE(failure_category, '') IN (${categories.map(() => '?').join(', ')}))`;
+  const liveProcessCategory = exclude.blockedCategoryWithoutRunningProcess;
+  const liveProcessClause =
+    liveProcessCategory === undefined
+      ? ''
+      : `AND NOT (status = 'blocked' AND COALESCE(failure_category, '') = ? AND NOT EXISTS (
+           SELECT 1 FROM process_runs pr
+           WHERE pr.id = approach_node_runs.process_run_id AND pr.status = 'running'))`;
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n FROM approach_node_runs
        WHERE graph_run_id = ? AND status IN (${placeholders})
          AND (outcome IS NULL OR outcome <> ?)
-         ${categoryClause}`,
+         ${categoryClause}
+         ${liveProcessClause}`,
     )
-    .get(graphRunId, ...statuses, excludedOutcome, ...categories) as { n: number };
+    .get(
+      graphRunId,
+      ...statuses,
+      excludedOutcome,
+      ...categories,
+      ...(liveProcessCategory === undefined ? [] : [liveProcessCategory]),
+    ) as { n: number };
   return row.n;
 }
 

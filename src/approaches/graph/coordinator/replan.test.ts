@@ -155,6 +155,19 @@ function nodeRun(ctx: Ctx, id: number, nodeId: string, status = 'completed'): vo
     .run(id, ctx.graphRunId, ctx.revisionId, nodeId, status);
 }
 
+/** Give a node run a process_runs row (the replan drain reads whether it still runs). */
+function attachProcessRun(ctx: Ctx, nodeRunId: number, status: 'running' | 'passed'): void {
+  const id = Number(
+    ctx.db
+      .prepare(
+        `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, status, started_at)
+         VALUES (?, 'impl', 'graph-node', 0, ?, '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(ctx.ticketId, status).lastInsertRowid,
+  );
+  ctx.db.prepare('UPDATE approach_node_runs SET process_run_id = ? WHERE id = ?').run(id, nodeRunId);
+}
+
 function claimToken(ctx: Ctx, nodeRunId: number, edgeId: string): void {
   ctx.db
     .prepare(
@@ -671,7 +684,7 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
     expect(result.ok).toBe(true);
   });
 
-  it.each(['graph-budget-exhausted', 'integration-conflict', 'usage-limit'])(
+  it.each(['graph-budget-exhausted', 'integration-conflict'])(
     'does not wait on a dead blocked node with failure category %s',
     (category) => {
       const ctx = electedCtx();
@@ -681,6 +694,24 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
       expect(result.ok).toBe(true);
     },
   );
+
+  it('does not wait on a usage-limit block once its process run is closed', () => {
+    const ctx = electedCtx();
+    nodeRun(ctx, 82, 'a', 'blocked');
+    ctx.db.prepare("UPDATE approach_node_runs SET failure_category = 'usage-limit' WHERE id = 82").run();
+    attachProcessRun(ctx, 82, 'passed');
+    const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(result.ok).toBe(true);
+  });
+
+  it('still waits on a usage-limit block whose process run is live', () => {
+    const ctx = electedCtx();
+    nodeRun(ctx, 83, 'a', 'blocked');
+    ctx.db.prepare("UPDATE approach_node_runs SET failure_category = 'usage-limit' WHERE id = 83").run();
+    attachProcessRun(ctx, 83, 'running');
+    const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(result).toEqual({ ok: false, reason: 'not-quiescent' });
+  });
 
   it.each([['failed-to-launch'], ['artifact-unsafe'], [null]])(
     'still waits on a blocked node with failure category %s (live-process park, other, NULL)',

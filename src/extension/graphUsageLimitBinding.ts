@@ -120,7 +120,10 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
         (s) =>
           s.graphRunId === target.graphRunId &&
           s.nodeRunId === target.runId &&
-          (s.runKind ?? 'node') === target.role,
+          // A re-attached session may omit its kind (the revived terminal's
+          // launch id names the run row, not the role): trust the park's role
+          // rather than reading it as a node.
+          (s.runKind ?? target.role) === target.role,
       );
     if (!session) return undefined;
     return transport.terminate(session);
@@ -252,6 +255,9 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
         if (!result.parked) return;
         blockGraphStage(store, signal.ticketId, signal.graphRunId, deps.now);
         deps.refresh(signal.ticketId);
+        // A parallel node of the SAME stop parks and is terminated, but the
+        // run's first park already asked the user — do not ask twice.
+        if (!result.prompt) return;
 
         const ticket = getTicket(store, signal.ticketId);
         const ticketKey = ticket.key || String(signal.ticketId);

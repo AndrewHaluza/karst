@@ -80,8 +80,10 @@ function resumeRemainsTheExit(ctx: RecoveryGuidanceContext | undefined): boolean
 }
 
 /** The park's graph-run reason: `usage-limit: <role> run <id> on <provider>/<model>: <text>`. */
+// The model may itself contain a colon (`provider/model:variant`); it carries no
+// whitespace, so the non-greedy group stops at the `: ` before the text.
 const USAGE_LIMIT_REASON =
-  /^usage-limit: (?:node|planner) run \d+ on ([^/\s]+)\/([^\s:]+): ([\s\S]*)$/;
+  /^usage-limit: (?:node|planner) run \d+ on ([^/\s]+)\/([^\s]+?): ([\s\S]*)$/;
 
 /** A parsed ISO instant as the provider's local wall-clock form (`4:10am`). */
 function resetClockText(iso: string): string {

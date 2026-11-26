@@ -70,6 +70,19 @@ function nodeFixture(status = 'running'): NodeFixture {
   return { graphRunId, revisionId, nodeRunId };
 }
 
+/** A second running node of the same revision (parallel nodes). */
+function addNodeRun(graphRunId: number, revisionId: number, nodeId: string): number {
+  return Number(
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (graph_run_id, revision_id, node_id, node_kind, visit_number, status, profile, provider, model)
+         VALUES (?, ?, ?, 'agent', 1, 'running', 'worker', 'claude', 'm')`,
+      )
+      .run(graphRunId, revisionId, nodeId).lastInsertRowid,
+  );
+}
+
 function plannerFixture(
   kind: 'bootstrap' | 'replan',
   graphStatus: 'planning' | 'draining',
@@ -235,6 +248,50 @@ describe('parkGraphUsageLimit — node', () => {
     expect(nodeRow(nodeRunId).status).toBe('running');
   });
 
+  it('parks a parallel node when the run is already blocked by the same usage-limit stop', async () => {
+    const { graphRunId, revisionId, nodeRunId } = nodeFixture();
+    store.db.prepare('UPDATE approach_graph_runs SET active_processes = 2 WHERE id = ?').run(graphRunId);
+    const secondId = addNodeRun(graphRunId, revisionId, 'n2');
+    const terminate = vi.fn(async (): Promise<TerminationProof> => ({ kind: 'dead' }));
+    const deps = makeDeps({ terminateSession: terminate });
+    const base = { graphRunId, role: 'node' as const, provider: 'claude', model: 'm' };
+
+    const first = await parkGraphUsageLimit(deps, { ...base, runId: nodeRunId, text: 'limit one' });
+    const second = await parkGraphUsageLimit(deps, { ...base, runId: secondId, text: 'limit two' });
+
+    expect(first).toMatchObject({ parked: true, prompt: true });
+    expect(second).toMatchObject({ parked: true, prompt: false });
+    expect(nodeRow(secondId)).toMatchObject({
+      status: 'blocked',
+      failure_category: 'usage-limit',
+      reason: 'limit two',
+    });
+    // The run keeps the FIRST node's reason: one park, one prompt.
+    expect(runRow(graphRunId).blocked_reason).toContain(`node run ${nodeRunId}`);
+    expect(runRow(graphRunId).active_processes).toBe(0);
+    expect(terminate).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not park a parallel node when the run was blocked for another reason', async () => {
+    const { graphRunId, revisionId, nodeRunId } = nodeFixture();
+    store.db.prepare('UPDATE approach_graph_runs SET active_processes = 2 WHERE id = ?').run(graphRunId);
+    const secondId = addNodeRun(graphRunId, revisionId, 'n2');
+    store.db
+      .prepare("UPDATE approach_graph_runs SET status = 'blocked', blocked_reason = 'node-blocked: node 1' WHERE id = ?")
+      .run(graphRunId);
+    const result = await parkGraphUsageLimit(makeDeps(), {
+      graphRunId,
+      role: 'node',
+      runId: secondId,
+      provider: 'claude',
+      model: 'm',
+      text: 'limit',
+    });
+    expect(result).toEqual({ parked: false });
+    expect(nodeRow(secondId).status).toBe('running');
+    expect(nodeRow(nodeRunId).status).toBe('running');
+  });
+
   it('leaves the rows as written and logs one line when the attributable kill is denied', async () => {
     const { graphRunId, nodeRunId } = nodeFixture();
     const deps = makeDeps({
@@ -341,5 +398,97 @@ describe('parkGraphUsageLimit — planner', () => {
         text: 'limit',
       }),
     ).toEqual({ parked: false });
+  });
+});
+
+describe('parkGraphUsageLimit — lock contention', () => {
+  const inputOf = (fixture: NodeFixture) => ({
+    graphRunId: fixture.graphRunId,
+    role: 'node' as const,
+    runId: fixture.nodeRunId,
+    provider: 'claude',
+    model: 'm',
+    text: 'limit',
+  });
+  const busy = (): Error => Object.assign(new Error('write lock'), { code: 'SQLITE_BUSY' });
+
+  function immediate<T>(fn: () => T): T {
+    return (store.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+      begin: 'immediate',
+    })();
+  }
+
+  it('retries a lock-contended transaction and parks on the next attempt', async () => {
+    const fixture = nodeFixture();
+    let attempts = 0;
+    const pause = vi.fn(async () => undefined);
+    const deps = makeDeps({
+      pause,
+      transaction: <T>(fn: () => T): T => {
+        attempts += 1;
+        if (attempts < 3) throw busy();
+        return immediate(fn);
+      },
+    });
+    const result = await parkGraphUsageLimit(deps, inputOf(fixture));
+    expect(result.parked).toBe(true);
+    expect(attempts).toBe(3);
+    expect(pause).toHaveBeenCalledTimes(2);
+    expect(deps.lines).toContain('[graph] usage-limit park: database busy, retrying in 50ms');
+  });
+
+  it('retries on a locked-message error with no code', async () => {
+    const fixture = nodeFixture();
+    let attempts = 0;
+    const deps = makeDeps({
+      pause: async () => undefined,
+      transaction: <T>(fn: () => T): T => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('database is busy');
+        return immediate(fn);
+      },
+    });
+    expect((await parkGraphUsageLimit(deps, inputOf(fixture))).parked).toBe(true);
+    expect(attempts).toBe(2);
+  });
+
+  it('gives up after the bounded retries and rethrows the lock error', async () => {
+    const fixture = nodeFixture();
+    const pause = vi.fn(async () => undefined);
+    const lock = busy();
+    const deps = makeDeps({
+      pause,
+      transaction: () => {
+        throw lock;
+      },
+    });
+    await expect(parkGraphUsageLimit(deps, inputOf(fixture))).rejects.toBe(lock);
+    expect(pause).toHaveBeenCalledTimes(5);
+  });
+
+  it('does not retry a transaction that failed for another reason', async () => {
+    const fixture = nodeFixture();
+    const pause = vi.fn(async () => undefined);
+    const deps = makeDeps({
+      pause,
+      transaction: () => {
+        throw new Error('disk full');
+      },
+    });
+    await expect(parkGraphUsageLimit(deps, inputOf(fixture))).rejects.toThrow('disk full');
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a non-Error throw', async () => {
+    const fixture = nodeFixture();
+    const pause = vi.fn(async () => undefined);
+    const deps = makeDeps({
+      pause,
+      transaction: () => {
+        throw 'database is locked';
+      },
+    });
+    await expect(parkGraphUsageLimit(deps, inputOf(fixture))).rejects.toBe('database is locked');
+    expect(pause).not.toHaveBeenCalled();
   });
 });

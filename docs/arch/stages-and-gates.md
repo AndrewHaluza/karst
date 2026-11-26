@@ -668,6 +668,8 @@ A `graph-workspace-deps` block means a node clone could not get the dependencies
 
 A `graph-preserve-failed` block means the host could not write the work of a superseded clone to a patch. The clone stays on disk. A retry would repeat the same failure, so a human repairs the cause first.
 
+A `usage-limit` park blocks the role row and the graph run in one transaction, then terminates the session through the graph transport. A PARALLEL node that hits the same provider stop still parks and is terminated, but the run keeps the first node's reason and only the first park offers the prompt. The park retries a lock-contended transaction with bounded asynchronous backoff: the coordinator connection runs with no busy timeout, and a hook or transcript signal arrives once.
+
 An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. When that budget is spent, the recovery refuses with `config-then-resume` before the run claim and changes no row. The run keeps its block reason and the node keeps its failure evidence. A human Replan bypasses the document budget. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file.
 
 A recovery note never carries a forbidden body character. A `resource-conflict` deferral names the canonical worktree path of the domain, not the durable domain key (which joins its halves with NUL), and the coordinator passes every reason through `sanitizeInline` before it posts the note.
@@ -688,6 +690,8 @@ A node run holds a replan drain open in every `ACTIVE_NODE_STATUSES` status, exc
 
 - A `blocked` node run with the failure category `resource-claim-violated`, `integration-conflict` or `graph-budget-exhausted`. Each writer proves termination first: the pipeline, and `recordClaimEvidence` for `resource-claim-violated`. The category is the evidence a replan needs.
 - A node run with the status `output-artifact-missing` or `artifact-unsafe`. The pipeline writes both only after it proves termination, and the replan submit cancels these rows.
+
+A `blocked` node run with the failure category `usage-limit` is a third shape: the park writes the block BEFORE the attributable kill, so the row is dead for the drain only once its `process_runs` row is no longer `running`. A live session, or a denied/unknown kill, keeps the drain waiting; the replan submit then cancels the row with the superseded revision's work.
 
 A held lease does not hold the drain. It is the deferral source for revision N+1.
 

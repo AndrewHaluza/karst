@@ -138,6 +138,20 @@ function plannerFixture(): Fixture {
   return { graphRunId, nodeRunId: plannerRunId };
 }
 
+/** A second running node of the same graph run (parallel nodes). */
+function addNodeRun(fixture: Fixture): number {
+  return Number(
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (graph_run_id, revision_id, node_id, node_kind, visit_number, status, profile, provider, model)
+         VALUES (?, (SELECT id FROM approach_graph_revisions WHERE graph_run_id = ? LIMIT 1),
+                 'n2', 'agent', 1, 'running', 'worker', 'claude', 'claude-sonnet-4-5')`,
+      )
+      .run(fixture.graphRunId, fixture.graphRunId).lastInsertRowid,
+  );
+}
+
 function sessionOf(fixture: Fixture): SupervisedAgentSession {
   return {
     nodeRunId: fixture.nodeRunId,
@@ -603,6 +617,39 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
       'Karst could not park the graph node on its usage limit (db gone).',
     );
+  });
+
+  it('terminates a re-attached planner session that omits its runKind', async () => {
+    const fixture = plannerFixture();
+    const h = withSessions(harness(fixture, [DISMISS_LABEL]), [
+      { ...sessionOf(fixture), runKind: undefined } as unknown as SupervisedAgentSession,
+    ]);
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit({
+      ticketId,
+      graphRunId: fixture.graphRunId,
+      runId: fixture.nodeRunId,
+      role: 'planner',
+      provider: 'claude',
+      text: QUOTA,
+    });
+    expect(h.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('parks a parallel node without a second prompt', async () => {
+    const fixture = nodeFixture();
+    store.db.prepare('UPDATE approach_graph_runs SET active_processes = 2 WHERE id = ?').run(fixture.graphRunId);
+    const second = addNodeRun(fixture);
+    const h = withSessions(harness(fixture, [DISMISS_LABEL]), [
+      sessionOf(fixture),
+      { ...sessionOf(fixture), nodeRunId: second } as unknown as SupervisedAgentSession,
+    ]);
+    const binding = createGraphUsageLimitBinding(h.deps);
+    await binding.onGraphUsageLimit(signal(fixture));
+    await binding.onGraphUsageLimit({ ...signal(fixture), runId: second, text: 'limit two' });
+
+    expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(nodeRow(second)).toMatchObject({ status: 'blocked', failure_category: 'usage-limit' });
+    expect(h.terminate).toHaveBeenCalledTimes(2);
   });
 
   it('the hook entry parks through the same signal', async () => {

@@ -31,7 +31,7 @@ function fixture() {
   add('budget', 'graph-budget-exhausted');
   add('conflict', 'integration-conflict');
   add('launch', 'failed-to-launch');
-  return { db: store.db, runId };
+  return { db: store.db, runId, ticketId };
 }
 
 describe('countNodeRunsInStatusesExcludingOutcome', () => {
@@ -88,6 +88,49 @@ describe('countNodeRunsInStatusesExcludingOutcome', () => {
     expect(
       countNodeRunsInStatusesExcludingOutcome(db, runId, ['blocked', 'stale'], 'replan', {
         blockedCategories: ['integration-conflict'],
+      }),
+    ).toBe(5);
+  });
+
+  it('skips a usage-limit row only while no process run is still running', () => {
+    const { db, runId, ticketId } = fixture();
+    db.prepare(
+      `INSERT INTO approach_node_runs
+         (graph_run_id, revision_id, node_id, node_kind, visit_number, status, failure_category)
+       VALUES (?, 1, 'usage', 'agent', 1, 'blocked', 'usage-limit')`,
+    ).run(runId);
+    const usageId = (db.prepare("SELECT id FROM approach_node_runs WHERE node_id = 'usage'").get() as {
+      id: number;
+    }).id;
+    const count = (): number =>
+      countNodeRunsInStatusesExcludingOutcome(db, runId, ['blocked'], 'replan', {
+        blockedCategoryWithoutRunningProcess: 'usage-limit',
+      });
+    const attach = (status: 'running' | 'passed'): void => {
+      const id = Number(
+        db
+          .prepare(
+            `INSERT INTO process_runs (ticket_id, stage_key, process_id, attempt, status, started_at)
+             VALUES (?, 'impl', 'graph-node', 0, ?, ?)`,
+          )
+          .run(ticketId, status, NOW).lastInsertRowid,
+      );
+      db.prepare('UPDATE approach_node_runs SET process_run_id = ? WHERE id = ?').run(id, usageId);
+    };
+
+    // No process run at all: nothing can be alive, so the park is dead.
+    expect(count()).toBe(5);
+    attach('running');
+    expect(count()).toBe(6);
+    attach('passed');
+    expect(count()).toBe(5);
+  });
+
+  it('leaves every other category counted under the running-process exclusion', () => {
+    const { db, runId } = fixture();
+    expect(
+      countNodeRunsInStatusesExcludingOutcome(db, runId, ['blocked'], 'replan', {
+        blockedCategoryWithoutRunningProcess: 'usage-limit',
       }),
     ).toBe(5);
   });

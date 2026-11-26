@@ -1418,6 +1418,14 @@ describe('recoveryGuidance — usage-limit', () => {
     expect(text).toContain('Resume');
     expect(text).toContain('Pick agent/model…');
   });
+
+  it('keeps a model id that contains a colon', () => {
+    const text = recoveryGuidance('usage-limit', {
+      blockedReason: 'usage-limit: node run 7 on opencode2/big-pickle:beta: quota exceeded',
+      now,
+    });
+    expect(text).toContain('opencode2/big-pickle:beta');
+  });
 });
 
 describe('node overrides (Slice 4 Task 6)', () => {

@@ -4482,6 +4482,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         nodeRunId: identity.nodeRunId,
         ticketId: named.ticketId,
         graphRunId: identity.graphRunId,
+        // The launch id names a run row, not its role: carry the kind the
+        // re-attach read, or a revived planner is later swept/killed as a node
+        // (T1380 usage-limit park, T1370 transcript read).
+        runKind: identity.kind,
         pid: identity.pid,
         cwd: graphTerminalCwd(terminal),
         generation: identity.generation,

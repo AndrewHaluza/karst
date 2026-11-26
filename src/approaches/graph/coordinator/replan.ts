@@ -320,15 +320,15 @@ export type BeginReplanResult =
  *    writers: the completion pipeline and `integration/claimEvidence.ts`. Both
  *    write it only after termination is proven;
  *  - `integration-conflict` — written only after termination is proven;
- *  - `graph-budget-exhausted` — legacy rows a budget refusal clobbered;
- *  - `usage-limit` — the park terminates the session through the graph
- *    transport before the row reads `blocked` (T1380), so a human Replan on a
- *    usage-limit block is not held open as `active-node-runs`. */
+ *  - `graph-budget-exhausted` — legacy rows a budget refusal clobbered.
+ *  A `usage-limit` park is NOT in this set: it writes `blocked` BEFORE it
+ *  terminates the session (the durable block wins a refused kill), so it is
+ *  dead only once its process run is closed — see
+ *  `blockedCategoryWithoutRunningProcess` below. */
 const DEAD_BLOCKED_CATEGORIES: readonly string[] = [
   'resource-claim-violated',
   'graph-budget-exhausted',
   'integration-conflict',
-  'usage-limit',
 ];
 
 /** Active statuses that prove no live process remains: the completion pipeline
@@ -358,9 +358,13 @@ function replanQuiescenceBlockedBy(db: GraphDb, graphRunId: number): string | nu
   // it. The replan submit cancels these rows with the superseded revision's
   // work. `failed-to-launch` is NOT dead: the `graph-live-process` park uses it.
   // A node parked for its output artifacts is dead too (`DEAD_NODE_STATUSES`).
+  // A `usage-limit` row is dead only once its process run is closed: the park
+  // writes the block BEFORE the attributable kill, so a live (or denied-kill)
+  // session must keep the drain waiting.
   if (
     countNodeRunsInStatusesExcludingOutcome(db, graphRunId, DRAIN_HOLDING_STATUSES, 'replan', {
       blockedCategories: DEAD_BLOCKED_CATEGORIES,
+      blockedCategoryWithoutRunningProcess: 'usage-limit',
     }) > 0
   ) {
     return 'active-node-runs';
