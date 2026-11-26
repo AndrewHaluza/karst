@@ -109,6 +109,11 @@ export interface Variant {
   readonly click?: string;
   /** Dashboard panels: a selector hovered after load and after any click. */
   readonly hover?: string;
+  /**
+   * Dashboard panels: blur the focused control after the clicks and the hover. A clicked k-tooltip trigger keeps focus,
+   * and its tooltip (shown on focus) then enters the shot only on some runs.
+   */
+  readonly blur?: true;
   /** Dashboard baseline review: selectors clicked in order after load (open the overlay, then reach a state). */
   readonly clicks?: readonly string[];
   /**
@@ -231,6 +236,7 @@ function variant(
     runtimeOpen?: RuntimeOpen;
     click?: string;
     hover?: string;
+    blur?: true;
     clicks?: readonly string[];
     fill?: { readonly selector: string; readonly text: string };
     replies?: readonly unknown[];
@@ -252,6 +258,7 @@ function variant(
     ...(opts.runtimeOpen === undefined ? {} : { runtimeOpen: opts.runtimeOpen }),
     ...(opts.click === undefined ? {} : { click: opts.click }),
     ...(opts.hover === undefined ? {} : { hover: opts.hover }),
+    ...(opts.blur === undefined ? {} : { blur: opts.blur }),
     ...(opts.clicks === undefined ? {} : { clicks: opts.clicks }),
     ...(opts.fill === undefined ? {} : { fill: opts.fill }),
     ...(opts.replies === undefined ? {} : { replies: opts.replies }),
@@ -743,7 +750,8 @@ const dashboardBottomEdgeVariants = (): Variant[] => [
       if (!c) throw new Error('dashboard: no review/menu-retry-send-back inside case');
       return stateMessage(c.state());
     },
-    { skipLayout: true, width: 800, viewportHeight: BOTTOM_EDGE_HEIGHT, click: '[data-stage-menu="review"]' },
+    // The baseline is the open menu with no k-tooltip: the pointer leaves the trigger and the trigger loses focus.
+    { skipLayout: true, width: 800, viewportHeight: BOTTOM_EDGE_HEIGHT, click: '[data-stage-menu="review"]', hover: '#title', blur: true },
   ),
 ];
 
