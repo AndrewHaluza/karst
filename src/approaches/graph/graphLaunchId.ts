@@ -9,10 +9,13 @@
  * nothing leaves the event indistinguishable from the ticket's own session
  * (a planner runs in the ticket worktree).
  *
- * So a graph session carries an id of its own SHAPE: a fixed `graph-` prefix
- * plus the run it belongs to. `parseGraphLaunchId` is the only reader; a
- * malformed or foreign id parses to null and is treated as not-graph, never as
- * a half-read id.
+ * So a graph session carries an id of its own SHAPE: a fixed `graph-` prefix,
+ * the run it belongs to, and the run's launch `generation` (a UUID). The hook
+ * endpoint treats the launch id as its shared secret, so the run ids alone
+ * (guessable) are not enough: the generation suffix is the secret part, and
+ * dispatch checks it against the run row's persisted `generation`.
+ * `parseGraphLaunchId` is the only reader; a malformed or foreign id parses to
+ * null and is treated as not-graph, never as a half-read id.
  *
  * Host-agnostic and vscode-free: the transport's `hookChannelFor` builds it,
  * dispatch parses it.
@@ -27,13 +30,18 @@ export interface GraphLaunchParts {
    *  sequences, so `role` is what tells them apart. */
   runId: number;
   role: GraphLaunchRole;
+  /** The run's launch generation (a UUID, persisted on the run row). */
+  generation: string;
 }
 
 /** The fixed prefix that marks an id as the graph's (a ticket generation is a
  *  bare UUID, so it can never collide). */
 export const GRAPH_LAUNCH_PREFIX = 'graph-';
 
-const GRAPH_LAUNCH_PATTERN = /^graph-(\d+)-(planner|node)-(\d+)$/;
+/** The UUID form of a launch generation (the ticket launch id has the same form). */
+const UUID_SOURCE = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`);
+const GRAPH_LAUNCH_PATTERN = new RegExp(`^graph-(\\d+)-(planner|node)-(\\d+)-(${UUID_SOURCE})$`);
 
 /** A part a launch id can carry. Refused rather than stringified, because an id
  *  that cannot be parsed back is useless to the reader. */
@@ -48,7 +56,10 @@ function requireRunId(value: number, field: string): number {
 export function graphLaunchId(input: GraphLaunchParts): string {
   const graphRunId = requireRunId(input.graphRunId, 'graphRunId');
   const runId = requireRunId(input.runId, 'runId');
-  return `${GRAPH_LAUNCH_PREFIX}${graphRunId}-${input.role}-${runId}`;
+  if (!UUID_PATTERN.test(input.generation)) {
+    throw new RangeError('graphLaunchId: generation must be a UUID');
+  }
+  return `${GRAPH_LAUNCH_PREFIX}${graphRunId}-${input.role}-${runId}-${input.generation}`;
 }
 
 /**
@@ -60,11 +71,13 @@ export function graphLaunchIdForLaunch(request: {
   graphRunId: number;
   nodeRunId: number;
   runKind?: GraphLaunchRole;
+  generation: string;
 }): string {
   return graphLaunchId({
     graphRunId: request.graphRunId,
     runId: request.nodeRunId,
     role: request.runKind === 'planner' ? 'planner' : 'node',
+    generation: request.generation,
   });
 }
 
@@ -76,7 +89,7 @@ export function parseGraphLaunchId(value: string | null | undefined): GraphLaunc
   const graphRunId = Number(match[1]);
   const runId = Number(match[3]);
   if (!Number.isSafeInteger(graphRunId) || !Number.isSafeInteger(runId)) return null;
-  return { graphRunId, runId, role: match[2] as GraphLaunchRole };
+  return { graphRunId, runId, role: match[2] as GraphLaunchRole, generation: match[4]! };
 }
 
 /** True when the string is a graph launch id. */

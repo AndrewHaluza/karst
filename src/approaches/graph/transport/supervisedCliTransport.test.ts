@@ -1111,6 +1111,20 @@ describe('SupervisedCLITransport graph launch identity (T1370)', () => {
     expect(h.calls.terminal.shellArgs).toEqual(['--session-id', id]);
     expect(session.providerSessionId).toBe(id);
     expect(session.provider).toBe('claude');
+    // Absent runKind is a node launch: the sweep builds the node launch id.
+    expect(session.runKind).toBe('node');
+  });
+
+  it('records the planner runKind on a planner session', async () => {
+    const captured: Captured = { opts: {} };
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const session = await startWith(transport, {
+      runKind: 'planner',
+      identity: { profile: 'planner', provider: 'claude' },
+      adapter: claudeLikeAdapter(captured, CLAUDE_SURFACES),
+    });
+    expect(session.runKind).toBe('planner');
   });
 
   it('keeps a resumed claude session on its own id (no --session-id)', async () => {
@@ -1150,7 +1164,10 @@ describe('SupervisedCLITransport graph launch identity (T1370)', () => {
   it('passes the injected graph hook channel to an opencode2 launch, and the plugin bakes its launch id', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'karst-graph-hook-'));
     const configDir = mkdtempSync(join(tmpdir(), 'karst-graph-cfg-'));
-    const expectedLaunchId = graphLaunchIdForLaunch({ graphRunId: 7, nodeRunId: 31 });
+    // A real launch generation is a UUIDv7; the graph launch id carries it as
+    // its secret suffix (the hook endpoint refuses a guessable id).
+    const generation = '019ab3c2-7d10-7e4f-8a2b-3c4d5e6f7a8b';
+    const expectedLaunchId = graphLaunchIdForLaunch({ graphRunId: 7, nodeRunId: 31, generation });
     const h = harness(4242);
     const seen: string[] = [];
     const transport = createSupervisedCliTransport({
@@ -1166,6 +1183,7 @@ describe('SupervisedCLITransport graph launch identity (T1370)', () => {
     const session = await startWith(transport, {
       nodeRunId: 31,
       graphRunId: 7,
+      generation,
       cwd,
       identity: { profile: 'worker', provider: 'opencode2' },
       adapter: new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 })),
@@ -1177,6 +1195,7 @@ describe('SupervisedCLITransport graph launch identity (T1370)', () => {
       graphRunId: 7,
       runId: 31,
       role: 'node',
+      generation,
     });
     // The bridge plugin is written and carries the graph launch id in its
     // baked endpoint, so the hook payload's `launchId` marks the session as

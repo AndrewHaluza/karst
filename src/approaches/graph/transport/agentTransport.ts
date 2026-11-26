@@ -157,6 +157,13 @@ export interface SupervisedAgentSession {
    */
   providerSessionId: string | null;
   /**
+   * Which run table `nodeRunId` names (the request's `runKind`; absent = a node
+   * run). The usage sweep needs it to build the graph launch id: planner-run
+   * and node-run ids are independent sequences. Optional so a session that was
+   * re-attached, or a fake, still type-checks; absent reads as `node`.
+   */
+  runKind?: 'node' | 'planner';
+  /**
    * The host terminal surface (CLI transport). Absent for a transport with no
    * terminal (ACP drives the session over its protocol instead) — a session
    * without one must never fabricate a terminal it does not own.

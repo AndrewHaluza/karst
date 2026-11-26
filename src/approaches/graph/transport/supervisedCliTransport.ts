@@ -356,6 +356,7 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         processRunId,
         provider,
         providerSessionId,
+        runKind: request.runKind ?? 'node',
         terminal,
       };
       const key = `${request.ticketId}:${request.nodeRunId}`;

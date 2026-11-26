@@ -44,6 +44,10 @@ export const HOOK_DISPATCH_OUTCOMES = [
   'no-signal',
   /** The ticket belongs to another project than this host's; nothing was written. */
   'foreign-project',
+  /** A graph planner/node session's `UsageUpdate`, handed to the ledger (T1370). */
+  'graph-usage',
+  /** Any other event of a graph session: it may not change ticket state (T1370). */
+  'graph-ignored',
 ] as const;
 
 export type HookRequestOutcome = (typeof HOOK_REQUEST_OUTCOMES)[number];

@@ -209,6 +209,8 @@ import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWa
 import { createCodexRolloutWatchLoop, CODEX_ROLLOUT_WATCH_INTERVAL_MS } from './extension/ops/codexRolloutWatchLoop.js';
 import { bridgePaths } from './agent/bridge/bridgeDir.js';
 import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
+import { sweepGraphClaudeSessions } from './agent/graphClaudeSweep.js';
+import { isGraphSessionEnv } from './approaches/graph/transport/env.js';
 import { makeTranscriptReader } from './agent/claudeTranscriptRead.js';
 import { createLiveHeadlessBinding } from './extension/liveHeadlessBinding.js';
 import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
@@ -968,6 +970,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // path, message uuid, and file fingerprint. Ephemeral — rebuilt from the file
   // on every sweep, cleared when the terminal closes.
   const claudeTranscriptStates = new Map<number, ClaudeWatchState>();
+  // T1370: graph planner/node claude sessions, keyed by graph launch id (never
+  // by ticket, so a graph session never shares the ticket session's state).
+  const graphClaudeTranscriptStates = new Map<string, ClaudeWatchState>();
   // Live token reading of running headless Claude calls (@arch:AC-14); read on the watch tick.
   const liveHeadless = createLiveHeadlessBinding({
     debug: (m) => logger.debug(m),
@@ -6428,6 +6433,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const terminals = [...vscode.window.terminals];
       logger.debug(`[claude] sweep tick: ${terminals.length} terminals`);
       for (const terminal of terminals) {
+        // T1370: a graph planner/node terminal has no ticket session; the
+        // graph pass below reads it from its launch-pinned session id.
+        if (isGraphSessionEnv(terminalEnv(terminal))) continue;
         const named = terminalIdentity.identify(terminal);
         if (named?.identity?.provider !== 'claude') continue;
         const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
@@ -6487,6 +6495,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           },
         );
       }
+      // T1370: graph planner and node sessions, through the SAME dispatch seam.
+      // The supervised CLI transport spawns host terminals, so the placement is
+      // the host. The usage-limit read stays with the ticket session.
+      const graphTranscriptReader = makeTranscriptReader();
+      await sweepGraphClaudeSessions(
+        {
+          stat: graphTranscriptReader.stat,
+          readFile: graphTranscriptReader.readFile,
+          debug: (m) => logger.debug(m),
+          onError: (m, e) => logError(m, e),
+          onTranscript: () => undefined,
+          dispatch: (payload) => {
+            dispatchHook(localStore, payload, notifyHook, shouldApplyHookState, sessionProviderFor, hookChannelRecorder, logger.debug);
+          },
+          projectsDirFor: (sessionId) => resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)),
+        },
+        (graphTransport?.sessions() ?? []).map((session) => ({
+          ticketId: session.ticketId,
+          graphRunId: session.graphRunId,
+          runId: session.nodeRunId,
+          role: session.runKind ?? 'node',
+          cwd: session.cwd,
+          provider: session.provider,
+          providerSessionId: session.providerSessionId,
+          generation: session.generation,
+          placement: 'host' as const,
+        })),
+        graphClaudeTranscriptStates,
+      );
     } catch (error) {
       logError('karst: claude transcript usage watch failed', error);
     } finally {
