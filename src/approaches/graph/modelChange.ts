@@ -171,8 +171,9 @@ export type SwitchAccountOutcome =
  * Pin ONE role's account in the run's identity snapshot (T1386). The user picks
  * an account of the SAME core at a graph usage-limit park; nothing else changes
  * and nothing is written to accounts.json, Settings or the ticket (@arch:AC-50).
- * The name `default` removes the override (the role runs under the active
- * account again). A deleted or unknown account is refused, never substituted.
+ * The name `default` pins the built-in default account (it is a real account
+ * of the core, not "the active one"). A deleted or unknown account is refused,
+ * never substituted.
  */
 export function switchGraphRunAccount(
   deps: SwitchAccountDeps,
@@ -196,9 +197,7 @@ export function switchGraphRunAccount(
         return 'unknown-account';
       }
     }
-    const next = { ...current };
-    if (account === DEFAULT_ACCOUNT) delete next.account;
-    else next.account = account;
+    const next = { ...current, account };
     setGraphRunAgentIdentity(
       deps.db,
       graphRunId,
@@ -206,7 +205,7 @@ export function switchGraphRunAccount(
       deps.now(),
     );
     deps.debug(
-      `[process] graph run ${graphRunId} role "${role}" account → ${account === DEFAULT_ACCOUNT ? 'default (no override)' : account}`,
+      `[process] graph run ${graphRunId} role "${role}" account → ${account}`,
     );
     return 'switched';
   });

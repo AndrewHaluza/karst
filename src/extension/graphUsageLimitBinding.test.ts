@@ -417,29 +417,24 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     ]);
   });
 
-  it('hides the default row while another account is active, so a pick never names one account and runs another', async () => {
+  it('offers default while another account is active, and a pick pins default (not the active account)', async () => {
     const fixture = nodeFixture();
-    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work', 'home'], 'home', 'work');
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work'], 'default', 'work');
+    const activity = vi.fn();
+    h.deps.activity = activity;
     await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
 
     expect(h.deps.pickAccount).toHaveBeenCalledWith('claude', [
+      { name: 'default', current: false, status: 'signed-in' },
       { name: 'work', current: true, status: 'signed-in' },
-      { name: 'home', current: false, status: 'signed-in' },
     ]);
-  });
-
-  it('offers no Pick account when default and one other account exist and the other one is active', async () => {
-    const fixture = nodeFixture();
-    const h = withAccounts(harness(fixture, [DISMISS_LABEL]), ['default', 'work'], undefined, 'work');
-    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
-
-    expect(h.ask).toHaveBeenCalledWith(
-      'Graph node of GP-1 hit the claude usage limit',
-      PICK_LABEL,
-      RETRY_LABEL,
-      DISMISS_LABEL,
+    const identity = JSON.parse(graphRunAgentIdentity(store.db, fixture.graphRunId)!);
+    expect(identity.roles.worker.account).toBe('default');
+    expect(activity).toHaveBeenCalledWith(
+      ticketId,
+      'graph worker runs under account default (picked at the usage limit)',
     );
-    expect(h.deps.pickAccount).not.toHaveBeenCalled();
+    expect(h.recover).toHaveBeenCalledWith({ ticketId, graphRunId: fixture.graphRunId, mode: 'resume' });
   });
 
   it('offers no Pick account when the account list is unavailable', async () => {

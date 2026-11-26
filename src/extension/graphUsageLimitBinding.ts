@@ -44,7 +44,7 @@ import type { RecoveryRefusalReason } from '../approaches/graph/coordinator/reco
 import { blockGraphStage } from '../workflow/graphMarkerGuard.js';
 import type { SupervisedAgentSession, TerminationProof } from '../approaches/graph/transport/agentTransport.js';
 import type { AccountStatus } from '../agent/accounts/accountOps.js';
-import { DEFAULT_ACCOUNT, type AccountsConfig } from '../agent/accounts/types.js';
+import type { AccountsConfig } from '../agent/accounts/types.js';
 import { dispatchGraphRecovery, type GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
 import {
   graphRecoveryRefusalNotice,
@@ -292,13 +292,8 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
     pinned: string | undefined,
   ): Promise<GraphAccountChoice[] | undefined> => {
     if (!deps.accountsOf || !deps.pickAccount || !deps.accountsConfig) return undefined;
-    const listed = await deps.accountsOf(provider);
-    if (!listed) return undefined;
-    // A pick of `default` removes the pin, so the role follows the ACTIVE
-    // account. Offer `default` only while it IS the active account; otherwise
-    // the pick would name one account and run under another.
-    const rows = listed.filter((row) => row.name !== DEFAULT_ACCOUNT || row.active);
-    if (rows.length < 2) return undefined;
+    const rows = await deps.accountsOf(provider);
+    if (!rows || rows.length < 2) return undefined;
     const current = pinned ?? rows.find((row) => row.active)?.name;
     const choices: GraphAccountChoice[] = [];
     for (const row of rows) {
