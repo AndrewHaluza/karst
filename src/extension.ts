@@ -231,7 +231,7 @@ import {
 import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook, TurnTracker } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
-import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
+import { buildTicketContext, renderGraphTicketContext, renderTicketContext } from './context/ticketContext.js';
 import { computeDriftNotes } from './context/drift.js';
 import { resolveModelChain } from './agent/models.js';
 import { terminalTicketName } from './store/ticketLabelTemplate.js';
@@ -4509,11 +4509,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const graphPreserve = graphPreserveSeams(() => graphCoordinatorStore?.db, graphArtifactRoot, defaultGitRunner, (message) => logger.debug(message));
 
-  /** A ticket's context with drift precomputed async; the render itself does no git. */
+  /** The GRAPH sessions' ticket context, with drift precomputed async; the render itself does no git. */
   const ticketContextWithDrift = async (ticketId: number): Promise<string> => {
     const ctx = buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath);
     const driftNotes = await computeDriftNotes(ctx, undefined, (m) => logger.debug(m));
-    return renderTicketContext(ctx, undefined, { bounded: false, driftNotes });
+    return renderGraphTicketContext(ctx, undefined, { driftNotes });
   };
 
   /** The graph recovery deps (Slice-4 T6): the atomic claim wrapper plus the
@@ -4575,20 +4575,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         'skills/graph-planner/SKILL.md',
       ticketContext:
         graphRunId > 0
-          ? renderTicketContext(
+          ? renderGraphTicketContext(
               buildTicketContext(
                 localStore,
                 currentManifest(),
                 graphRunTicketId(graphRunId),
                 context.globalStorageUri.fsPath,
               ),
-              undefined,
               // PROMPT-08 bounds the interactive-session launch seed only; the
               // graph-planner prompt is a different surface this ticket never
               // touched, so it keeps its pre-ticket unbounded behavior. This
               // sync seam only signals the launch seams are wired; the launch
               // hosts re-render WITH drift (async), so no git runs here.
-              { bounded: false },
             )
           : undefined,
     };
