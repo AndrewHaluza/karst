@@ -116,6 +116,36 @@ describe('sanitizeCorpus', () => {
     expect(Date.parse(out.startedAt)).toBe(FIXTURE_NOW_MS - 24 * 3_600_000);
   });
 
+  it('replaces a registered external ticket ref wherever it appears, keys and text alike', () => {
+    const sanitizer = new CorpusSanitizer();
+    sanitizer.registerExternalRefs(['869e494q2', '869e48tv6', 'CU-12']);
+    const input = {
+      key: '869e494q2',
+      sourceRef: '869e494q2',
+      label: '869e494q2 — [FEAT] redesign',
+      description: 'see 869e48tv6 ... ↗ clickup: 869e48tv6',
+      untouched: 'a869e494q2b and CU-123',
+    };
+    sanitizer.collect(input);
+    const out = sanitizer.apply<typeof input>(input);
+
+    expect(out.key).toBe(out.sourceRef);
+    expect(out.key.startsWith('fixture:ref/')).toBe(true);
+    expect(out.label).toBe(`${out.key} — [FEAT] redesign`);
+    expect(out.description).not.toContain('869e48tv6');
+    expect(out.untouched).toBe('a869e494q2b and CU-123');
+    expect(sanitizer.leftoverRefs(out)).toEqual([]);
+    expect(sanitizer.leftoverRefs(input)).toEqual(['869e48tv6', '869e494q2']);
+  });
+
+  it('ignores refs too short or too plain to replace safely', () => {
+    const sanitizer = new CorpusSanitizer();
+    sanitizer.registerExternalRefs(['42', '1234', 'ab', '']);
+    const input = { text: 'issue 42 took 1234 ms in ab' };
+    sanitizer.collect(input);
+    expect(sanitizer.apply(input)).toEqual(input);
+  });
+
   it('leaves a fixture value untouched, so sanitizing twice is a no-op', () => {
     const once = sanitizeCorpus({
       ticketId: 9,

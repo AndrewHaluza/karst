@@ -160,7 +160,9 @@ It is opened read-only, so the extension does not need to be stopped first.
   wall clock): ticket ids move into 900001–999999, absolute paths and relative
   paths that climb out of the project root (`../../Users/...`, the relative
   `repoDisplay` of a real repo) become `/fixture/path/<n>`, URLs
-  `fixture:url/<n>`, external refs `fixture:ref/<n>`, emails
+  `fixture:url/<n>`, external refs `fixture:ref/<n>` (every provider id in
+  `tickets.source_ref`/`source_ref_internal`, also where a ticket key, label or
+  description quotes it; the export fails when one survives), emails
   `developer@fixture.invalid`, token shapes `fixture-token-redacted`; every ISO
   and SQLite `datetime()` timestamp is rebased onto `FIXTURE_NOW_MS` (the instant
   `tests/visual/fixtures.ts` pins the page clock to), so relative ages are

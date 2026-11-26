@@ -7,6 +7,7 @@ import { CORPUS_VIEWS, GENERATED_DIR, buildCorpus, corpusFiles, exportCorpusFrom
 import { seedCorpusDatabase, SEED_DASHBOARD_TICKET_KEY, type SeededCorpus } from './seedSpec.js';
 import { FIXTURE_TICKET_ID_MIN, assertNoLeaks } from './sanitize.js';
 import { openReadonlyStore } from '../../../src/cli/readonlyStore.js';
+import { openStore } from '../../../src/store/db.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMMITTED_DIR = resolve(REPO_ROOT, GENERATED_DIR);
@@ -128,6 +129,30 @@ describe('exportCorpusFromDb', () => {
       ticketId: other.dashboardTicketId,
     });
     expect(corpusFiles(second.corpus)).toEqual(corpusFiles(first.corpus));
+  });
+
+  it('replaces provider ticket ids (ClickUp) in keys, labels and descriptions', () => {
+    const extra = seedCorpusDatabase(join(tempDir, 'karst-provider.db'));
+    const ref = '869e494q2';
+    const quoted = '869e48tv6';
+    const writable = openStore(extra.dbPath);
+    try {
+      writable.db
+        .prepare('UPDATE tickets SET key = ?, source_ref = ?, source_ref_internal = ?, description = ? WHERE id = ?')
+        .run(ref, ref, quoted, `see ${quoted} ↗ clickup: ${quoted}`, extra.dashboardTicketId);
+    } finally {
+      writable.close();
+    }
+
+    const { corpus } = exportCorpusFromDb(extra.dbPath, {
+      outDir: join(tempDir, 'out-provider'),
+      projectId: extra.projectId,
+      ticketId: extra.dashboardTicketId,
+    });
+    const text = JSON.stringify(corpus);
+    expect(text).toContain('fixture:ref/');
+    expect(text).not.toContain(ref);
+    expect(text).not.toContain(quoted);
   });
 
   it('matches the checked-in fixtures, so a stale corpus fails here', () => {

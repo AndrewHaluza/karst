@@ -252,14 +252,39 @@ export function buildCorpus(store: Store, opts: CorpusOptions = {}): Corpus {
   );
 
   const sanitizer = new CorpusSanitizer({ nowMs });
+  sanitizer.registerExternalRefs(externalRefsOf(store));
   sanitizer.collect(raw);
   const cleaned: Corpus = {
     dashboard: sanitizer.apply<DashboardState>(raw.dashboard),
     sidebar: sanitizer.apply<SidebarState>(raw.sidebar),
     usage: sanitizer.apply<UsageState>(raw.usage),
   };
-  for (const view of CORPUS_VIEWS) assertNoLeaks(cleaned[view], `export: ${view}`);
+  for (const view of CORPUS_VIEWS) {
+    assertNoLeaks(cleaned[view], `export: ${view}`);
+    const refs = sanitizer.leftoverRefs(cleaned[view]);
+    if (refs.length > 0) {
+      throw new Error(`export: ${view}: sanitized output still carries provider ids: ${refs.slice(0, 5).join(', ')}`);
+    }
+  }
   return cleaned;
+}
+
+/**
+ * Every provider id the database holds (`source_ref`, `source_ref_internal`),
+ * sorted. A provider-sourced ticket's key and its text quote these ids, and
+ * they name records on the operator's board, so the sanitizer replaces them.
+ */
+export function externalRefsOf(store: Store): string[] {
+  const rows = store.db
+    .prepare(
+      `SELECT source_ref AS ref FROM tickets WHERE source_ref IS NOT NULL AND source_ref <> ''
+       UNION
+       SELECT source_ref_internal AS ref FROM tickets
+        WHERE source_ref_internal IS NOT NULL AND source_ref_internal <> ''
+       ORDER BY ref`,
+    )
+    .all() as { ref: unknown }[];
+  return rows.map((r) => r.ref).filter((ref): ref is string => typeof ref === 'string');
 }
 
 /** Sort object keys recursively so two equal corpora serialize to equal bytes. */

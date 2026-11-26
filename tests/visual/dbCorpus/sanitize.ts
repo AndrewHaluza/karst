@@ -118,6 +118,22 @@ const TICKET_ID_KEYS: ReadonlySet<string> = new Set([
  */
 const EXTERNAL_REF_KEYS: ReadonlySet<string> = new Set(['sourceRef']);
 
+/**
+ * The shortest external ref the sanitizer replaces inside free text. A shorter
+ * or digits-only ref (`42`, a GitHub issue number) would rewrite unrelated
+ * words and numbers, so it is replaced only as a `sourceRef` value.
+ */
+const MIN_TEXT_REF_LENGTH = 4;
+
+/** True when an external ref is distinctive enough to replace inside free text. */
+function isTextReplaceableRef(ref: string): boolean {
+  return ref.length >= MIN_TEXT_REF_LENGTH && /[A-Za-z]/.test(ref) && !/\s/.test(ref);
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** `T<n>` in any string: the display form of a ticket id (`formatId('ticket', n)`). */
 const TICKET_REF = /\bT(\d{1,9})\b/g;
 
@@ -177,6 +193,9 @@ export class CorpusSanitizer {
   private readonly urls = new Set<string>();
   private readonly refs = new Set<string>();
   private readonly instants = new Set<number>();
+  /** External refs the host named (the tickets' provider ids), replaced in all text. */
+  private readonly textRefs = new Set<string>();
+  private textRefRe: RegExp | null = null;
 
   private ticketMap: Map<number, number> | null = null;
   private pathMap: Map<string, string> | null = null;
@@ -219,11 +238,42 @@ export class CorpusSanitizer {
     walk(value);
     // Any collection invalidates the previously derived maps: a caller is free
     // to collect several trees before applying, but collection is a closed phase.
+    this.invalidate();
+  }
+
+  private invalidate(): void {
+    this.textRefRe = null;
     this.ticketMap = null;
     this.pathMap = null;
     this.urlMap = null;
     this.refMap = null;
     this.shift = 0;
+  }
+
+  /**
+   * Register the provider ids the database holds (`tickets.source_ref` and
+   * `source_ref_internal`). A provider-sourced ticket's `key` IS that id, and
+   * descriptions and labels quote it, so no shape rule can tell it from a
+   * word: the exporter names the values, and each one is replaced everywhere.
+   */
+  registerExternalRefs(refs: Iterable<string>): void {
+    for (const ref of refs) {
+      if (ref === '') continue;
+      this.refs.add(ref);
+      if (isTextReplaceableRef(ref)) this.textRefs.add(ref);
+    }
+    this.invalidate();
+  }
+
+  /** The registered external refs that still appear in a tree, sorted. */
+  leftoverRefs(value: unknown): string[] {
+    this.freeze();
+    const re = this.textRefRe;
+    if (re === null) return [];
+    const text = JSON.stringify(value) ?? '';
+    const found = new Set<string>();
+    for (const match of text.matchAll(re)) found.add(match[0]);
+    return [...found].sort();
   }
 
   /** Return a sanitized deep copy of a collected tree. */
@@ -263,6 +313,12 @@ export class CorpusSanitizer {
     this.urlMap = new Map(urls.map((u, i) => [u, `${FIXTURE_URL_PREFIX}${i + 1}`] as const));
     const refs = [...this.refs].sort();
     this.refMap = new Map(refs.map((r, i) => [r, `fixture:ref/${i + 1}`] as const));
+    // Longest first, so a ref that contains another one wins the match.
+    const textRefs = [...this.textRefs].sort((a, b) => b.length - a.length || (a < b ? -1 : 1));
+    this.textRefRe =
+      textRefs.length === 0
+        ? null
+        : new RegExp(`(?<![A-Za-z0-9_-])(?:${textRefs.map(escapeRegExp).join('|')})(?![A-Za-z0-9_-])`, 'g');
     this.shift = timestampShift([...this.instants], this.nowMs);
   }
 
@@ -336,6 +392,7 @@ export class CorpusSanitizer {
       const url = trimUrl(match);
       return this.urlFor(url) + match.slice(url.length);
     });
+    if (this.textRefRe !== null) out = out.replace(this.textRefRe, (match) => this.refFor(match));
     // Relative paths before absolute ones: `../../Users/nd` holds `/Users/nd`.
     out = out.replace(REL_PATH, (match, lead: string, path: string) => lead + this.pathFor(path));
     out = out.replace(ABS_PATH, (match, lead: string, path: string) =>
