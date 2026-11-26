@@ -1256,5 +1256,155 @@ describe('graph session binding (Slice-3 T10)', () => {
   });
 });
 
+describe('graph session binding — parallel runs (T1385)', () => {
+  /** One open graph run with a revision; runs are added by the helpers below. */
+  function seedGraphRun(): void {
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs
+           (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (1, ?, 'impl', 1, 'graph', 'running', ?)`,
+      )
+      .run(ticketId, T0);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (1, 1, 1, 'graph: []', 'fp', 'active', ?)`,
+      )
+      .run(T0);
+  }
+
+  function processRun(processId: string, status: 'running' | 'passed' = 'running'): number {
+    const run = openProcessRun(store, {
+      ticketId,
+      stageKey: 'impl',
+      processId,
+      attempt: 1,
+      provider: PROVIDER,
+      model: 'sol',
+      startedAt: T0,
+    });
+    if (status === 'passed') finishProcessRun(store, run.id, 'passed', T0);
+    return run.id;
+  }
+
+  function nodeRun(id: number, status: 'running' | 'passed' = 'running'): number {
+    const processRunId = processRun(`graph-node-${id}`, status);
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number,
+            status, process_run_id, profile, provider, model)
+         VALUES (?, 1, 1, ?, 'agent', 1, 'running', ?, 'default', ?, 'sol')`,
+      )
+      .run(id, `n${id}`, processRunId, PROVIDER);
+    return processRunId;
+  }
+
+  function plannerRun(id: number): number {
+    const processRunId = processRun('graph-planner');
+    store.db
+      .prepare(
+        `INSERT INTO approach_planner_runs
+           (id, graph_run_id, planner_run_number, kind, status, process_run_id,
+            profile, provider, model)
+         VALUES (?, 1, 1, 'bootstrap', 'running', ?, 'planner', ?, 'sol')`,
+      )
+      .run(id, processRunId, PROVIDER);
+    return processRunId;
+  }
+
+  function sampleProcessRuns(): number[] {
+    return (
+      store.db.prepare('SELECT process_run_id FROM interactive_usage_samples ORDER BY id').all() as {
+        process_run_id: number;
+      }[]
+    ).map((r) => r.process_run_id);
+  }
+
+  beforeEach(() => seedGraphRun());
+
+  it('binds a sample of the EARLIER of two parallel nodes to that node, not to the latest', () => {
+    const first = nodeRun(9);
+    nodeRun(10);
+    const result = appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'p1', providerSessionId: 'sess-9' }),
+      graphRun: { role: 'node', runId: 9 },
+    });
+    expect(result).toMatchObject({ kind: 'recorded' });
+    expect(sampleProcessRuns()).toEqual([first]);
+    expect(
+      store.db.prepare('SELECT approach_node_run_id FROM token_usage').all(),
+    ).toEqual([{ approach_node_run_id: 9 }]);
+  });
+
+  it('binds each of two parallel nodes to its own process run', () => {
+    const first = nodeRun(9);
+    const second = nodeRun(10);
+    appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'a', providerSessionId: 'sess-10' }),
+      graphRun: { role: 'node', runId: 10 },
+    });
+    appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'b', providerSessionId: 'sess-9' }),
+      graphRun: { role: 'node', runId: 9 },
+    });
+    expect(sampleProcessRuns()).toEqual([second, first]);
+  });
+
+  it('binds a planner sample to the planner while a node of the same provider runs', () => {
+    nodeRun(9);
+    const planner = plannerRun(3);
+    appendInteractiveUsageSample(store, {
+      ticketId,
+      sample: sample({ eventId: 'p', providerSessionId: 'sess-p' }),
+      graphRun: { role: 'planner', runId: 3 },
+    });
+    expect(sampleProcessRuns()).toEqual([planner]);
+    expect(
+      store.db.prepare('SELECT approach_planner_run_id, approach_node_run_id FROM token_usage').all(),
+    ).toEqual([{ approach_planner_run_id: 3, approach_node_run_id: null }]);
+  });
+
+  it('a named node whose process run closed is unattributed, never moved to another running node', () => {
+    nodeRun(9, 'passed');
+    nodeRun(10);
+    expect(
+      appendInteractiveUsageSample(store, {
+        ticketId,
+        sample: sample({ eventId: 'c' }),
+        graphRun: { role: 'node', runId: 9 },
+      }),
+    ).toEqual({ kind: 'unattributed' });
+    expect(sampleProcessRuns()).toEqual([]);
+  });
+
+  it('a named planner that does not exist is unattributed, never moved to a running node', () => {
+    nodeRun(9);
+    expect(
+      appendInteractiveUsageSample(store, {
+        ticketId,
+        sample: sample({ eventId: 'd' }),
+        graphRun: { role: 'planner', runId: 9 },
+      }),
+    ).toEqual({ kind: 'unattributed' });
+  });
+
+  it('a named node that does not exist is unattributed, never moved to the running planner', () => {
+    plannerRun(3);
+    expect(
+      appendInteractiveUsageSample(store, {
+        ticketId,
+        sample: sample({ eventId: 'e' }),
+        graphRun: { role: 'node', runId: 3 },
+      }),
+    ).toEqual({ kind: 'unattributed' });
+  });
+});
+
 /** Structural check so the row shape is pinned where the plan names it. */
 export type { InteractiveUsageSampleRow };
