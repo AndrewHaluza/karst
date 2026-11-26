@@ -1,23 +1,29 @@
 /**
- * COMPONENT-mode tests for the Ticketing tab (NDL-126 §9.5).
+ * COMPONENT-mode tests for the Ticketing tab (NDL-126 §9.5, T1371).
  *
- * The tab's distinctive rules are its fetch lifecycle and its "never silently
- * drop the saved value" rule, so those carry most of the assertions:
+ * The tab is ONE settings list in two sections — Board and Behavior — with the
+ * same row grammar as the Accounts quota card (D829/@ui:UI-R39): label and one
+ * help line at the left, the control in the right-hand column. Its distinctive
+ * rules are the fetch lifecycle and "never silently drop a saved value":
  *
  * - a saved list / status the provider no longer offers stays VISIBLE and
  *   selected — dropping it would save an empty value away and quietly
- *   un-configure a working board;
+ *   unconfigure a working board;
  * - the prerequisite hints, the loading copy, the empty-list copy and the
  *   stale-value copy are the vanilla strings, because they are what tell a user
- *   which prerequisite is missing;
- * - no fetch is posted until the prerequisites are met, and posting one is the
- *   hook's job (R11/R12), not a hand-rolled pending flag;
- * - the token flag is keychain state: setting or clearing it must never touch the
- *   draft, because the provider itself is chosen during first-time setup;
+ *   which prerequisite is missing (a disabled select always has one);
+ * - the statuses load on their own, once, when the list id and the token are
+ *   set (bug 1), and a list change re-arms them;
+ * - each status select derives its options from ITS OWN saved value (bug 2):
+ *   the start select must show the start status, never the ship status;
+ * - "Don't change" is the first option and maps to `advanceOnX:false`, keeping
+ *   the saved status string;
+ * - the token flag is keychain state: setting or clearing it must never touch
+ *   the draft, because the provider itself is chosen during first-time setup;
  * - leaving ClickUp clears every ClickUp-only key;
- * - the coherence rule (an unset `shipStatus` filled from the first entry, an
- *   unset `startStatus` from the one named "in progress") belongs to the REDUCER
- *   and must not be re-derived here (R-X4) — asserted through the draft.
+ * - the coherence rule (an unset status filled only for a toggle that is ON)
+ *   belongs to the REDUCER and must not be re-derived here (R-X4) — asserted
+ *   through the draft.
  */
 // @vitest-environment jsdom
 import { act } from 'react';
@@ -82,15 +88,51 @@ const byLabel = (label: string): HTMLInputElement => {
   return control as HTMLInputElement;
 };
 
+const byAriaLabel = (label: string): Element => {
+  const node = document.querySelector(`[aria-label="${label}"]`);
+  if (!node) throw new Error(`no control labelled ${label}`);
+  return node;
+};
+
 const cfgOf = (probe: () => AppProbeShape): Record<string, unknown> =>
   (probe().draft as { ticketing?: Record<string, unknown> }).ticketing ?? {};
 
+/** The Board / Behavior section titles, in render order. */
+const sectionTitles = (): string[] =>
+  [...document.querySelectorAll('#section-ticketing [data-region] h3')].map(
+    (n) => n.textContent ?? '',
+  );
+
+/** The connection line's text. */
+function connectionText(): string {
+  return document.querySelector('[data-region="ticketing-connection-status"]')?.textContent ?? '';
+}
+
 describe('TicketingSection — the page', () => {
-  it('gives the page a header and the board-connection block', () => {
+  it('gives the page a header and two titled sections for ClickUp', () => {
     mountTicketing(stateWith({ provider: 'clickup' }));
     expect(document.querySelector('#section-ticketing')).not.toBeNull();
     expect(document.querySelector('.page-title')?.textContent).toBe('Ticketing');
-    expect(document.getElementById('clickupFields')).not.toBeNull();
+    expect(document.querySelector('.page-desc')?.textContent).toBe(
+      'Connect Karst to the board your tickets live on.',
+    );
+    // One list in two sections (the prototype's regions, @ui:UI-R39).
+    expect(document.querySelector('[data-region="ticketing-board"]')).not.toBeNull();
+    expect(document.querySelector('[data-region="ticketing-behavior"]')).not.toBeNull();
+    expect(sectionTitles()).toEqual(['Board', 'Behavior']);
+  });
+
+  it('lays every row out with the shared row grammar (UI-R41)', () => {
+    mountTicketing(stateWith({ provider: 'clickup' }));
+    const rows = [...document.querySelectorAll('#section-ticketing .ticketing-row')];
+    // Provider, Team ID, List, API token, search, sub-tasks, start, ship.
+    expect(rows).toHaveLength(8);
+    for (const row of rows) {
+      const text = row.querySelector('.ticketing-row-text') ?? row.querySelector('label');
+      expect(text, 'row has no label cell').not.toBeNull();
+    }
+    // The provider row keeps the pinned wrap and trigger (SET-30).
+    expect(document.getElementById('provSelectWrap')?.classList.contains('ticketing-row')).toBe(true);
   });
 
   it('offers every provider from the imported vocabulary, in order', () => {
@@ -107,41 +149,26 @@ describe('TicketingSection — the page', () => {
     expect(trigger.querySelector('.provbadge')?.textContent).toBe('badge:manual');
   });
 
-  it('hides every ClickUp-only block for a manual provider, and says why', () => {
+  it('renders only the Provider row for a manual provider, and says why', () => {
     mountTicketing(stateWith({ provider: 'manual' }));
-    expect(document.getElementById('clickupFields')).toBeNull();
-    expect(document.getElementById('advanceCards')).toBeNull();
-    expect(document.getElementById('searchCard')).toBeNull();
-    expect(document.querySelector('.k-empty-hint')?.textContent).toBe(
-      'A manual board needs no connection.',
-    );
+    expect(sectionTitles()).toEqual(['Board']);
+    expect(document.querySelector('[data-region="ticketing-behavior"]')).toBeNull();
+    expect(document.querySelectorAll('#section-ticketing .ticketing-row')).toHaveLength(1);
+    expect(
+      document.querySelector('[data-region="ticketing-board"] .k-field-help')?.textContent,
+    ).toBe('Karst keeps tickets on its own. No board settings.');
+    // No connection line and no reload for a manual board.
+    expect(document.querySelector('[data-region="ticketing-connection-status"]')).toBeNull();
+    expect(() => byAriaLabel('Reload lists and statuses from ClickUp')).toThrow();
   });
 
-  it('shows the search card for ClickUp, defaulting ON', () => {
+  it('defaults the search toggle ON for ClickUp', () => {
     mountTicketing(stateWith({ provider: 'clickup' }));
-    expect(document.getElementById('searchCard')).not.toBeNull();
-    expect(byLabel('Search tickets in the Add/Edit ticket page').checked).toBe(true);
+    expect(byLabel('Search tickets in Add ticket').checked).toBe(true);
   });
 });
 
-describe('TicketingSection — labels and the provider trigger (SET-29, SET-30)', () => {
-  it('puts the ClickUp controls in the form grid with one visible label each', () => {
-    mountTicketing(stateWith({ provider: 'clickup' }));
-    const block = document.getElementById('clickupFields')!;
-    expect(block.classList.contains('form-grid')).toBe(true);
-    expect([...block.querySelectorAll('.field-label')].map((n) => n.textContent)).toEqual([
-      'API token',
-    ]);
-    expect(
-      [...block.querySelectorAll('label')].filter((n) => n.textContent === 'Team ID'),
-    ).toHaveLength(1);
-    expect(
-      [...block.querySelectorAll('label')].filter((n) => n.textContent === 'List'),
-    ).toHaveLength(1);
-    // The token action keeps its natural width in the control track (SET-29).
-    expect(screen.getByRole('button', { name: 'Clear token' }).className).toContain('fixed');
-  });
-
+describe('TicketingSection — the provider trigger (SET-29, SET-30)', () => {
   it('names the trigger with the provider label and keeps one tab stop (SET-30)', () => {
     mountTicketing(stateWith({ provider: 'clickup' }));
     const trigger = document.getElementById('providerTrigger') as HTMLElement;
@@ -214,17 +241,20 @@ describe('TicketingSection — the provider menu is keyboard-operable and dismis
 });
 
 describe('TicketingSection — the token is keychain state, not draft state', () => {
-  it('offers only the action that applies', () => {
+  it('offers only the action that applies, with the state right before it', () => {
     mountTicketing(stateWith({ provider: 'clickup' }, false));
-    expect(document.querySelector('.status-pill')?.textContent).toContain('No token');
-    expect(screen.getByRole('button', { name: 'Set token' })).toBeTruthy();
+    expect(document.querySelector('.ticketing-token .status-pill')?.textContent).toContain('Not set');
+    const button = screen.getByRole('button', { name: 'Set token' });
+    expect(button).toBeTruthy();
+    // Directly after the state, not at the far edge of the control column.
+    expect(document.querySelector('.ticketing-token')?.lastElementChild).toBe(button);
     expect(() => screen.getByRole('button', { name: 'Clear token' })).toThrow();
   });
 
   it('swaps to Clear once the host reports a token', () => {
     const { bridge, probe } = mountTicketing(stateWith({ provider: 'clickup' }, false));
     act(() => bridge.push({ type: 'token-state', configured: true }));
-    expect(document.querySelector('.status-pill')?.textContent).toContain('Token set');
+    expect(document.querySelector('.ticketing-token .status-pill')?.textContent).toContain('Set');
     expect(screen.getByRole('button', { name: 'Clear token' })).toBeTruthy();
     expect(() => screen.getByRole('button', { name: 'Set token' })).toThrow();
     // …and the draft is untouched: the provider is chosen during first-time
@@ -256,7 +286,7 @@ describe('TicketingSection — the token is keychain state, not draft state', ()
     expect(bridge.last('clear-token')).toBeDefined();
     expect(button.getAttribute('aria-busy')).toBe('true');
     act(() => bridge.push({ type: 'token-state', configured: false }));
-    expect(document.querySelector('.status-pill')?.textContent).toContain('No token');
+    expect(document.querySelector('.ticketing-token .status-pill')?.textContent).toContain('Not set');
   });
 
   it('ships the Clear control as secondary, not danger', () => {
@@ -268,7 +298,7 @@ describe('TicketingSection — the token is keychain state, not draft state', ()
 });
 
 describe('TicketingSection — leaving ClickUp clears what only ClickUp means', () => {
-  it('drops the team, the advance rows and the search toggle', () => {
+  it('drops the team, the behavior rows and the search toggle', () => {
     const { probe } = mountTicketing(
       stateWith({
         provider: 'clickup',
@@ -295,7 +325,7 @@ describe('TicketingSection — the list fetch lifecycle', () => {
   it('posts nothing until a team id AND a token exist', () => {
     const { bridge } = mountTicketing(stateWith({ provider: 'clickup' }, false));
     expect(bridge.all('fetch-ticket-lists')).toHaveLength(0);
-    expect(document.querySelector('#listHint, .field-hint')?.textContent).toContain(
+    expect(document.querySelector('[data-region="ticketing-board"]')?.textContent).toContain(
       'Add a Team ID and API token to load lists.',
     );
   });
@@ -308,9 +338,9 @@ describe('TicketingSection — the list fetch lifecycle', () => {
 
   it('shows the loading copy and blocks a duplicate activation while in flight', () => {
     const { bridge } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001' }));
-    const reload = document.querySelector('[aria-label="Reload lists from ClickUp"]') as Element;
+    const reload = byAriaLabel('Reload lists and statuses from ClickUp');
     expect(reload.getAttribute('aria-busy')).toBe('true');
-    expect(hintText()).toContain('Loading lists…');
+    expect(document.body.textContent).toContain('Loading lists…');
     fireEvent.click(reload);
     expect(bridge.all('fetch-ticket-lists')).toHaveLength(1);
   });
@@ -330,7 +360,9 @@ describe('TicketingSection — the list fetch lifecycle', () => {
     expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'L1', 'L2']);
     expect(Array.from(select.options).map((o) => o.label)).toContain('Core / Backlog');
     expect(select.disabled).toBe(false);
-    expect(hintText()).toBe('');
+    expect(document.querySelector('[data-region="ticketing-board"]')?.textContent).toContain(
+      'Karst creates and updates tickets in this list.',
+    );
   });
 
   it('keeps a saved list visible and selected when the provider no longer offers it', () => {
@@ -339,20 +371,24 @@ describe('TicketingSection — the list fetch lifecycle', () => {
     const select = byLabel('List') as unknown as HTMLSelectElement;
     expect(Array.from(select.options).map((o) => o.value)).toEqual(['L9', 'L1']);
     expect(select.value).toBe('L9');
-    expect(hintText()).toContain('"L9" is no longer in this workspace.');
+    expect(document.querySelector('[data-region="ticketing-board"]')?.textContent).toContain(
+      '"L9" is no longer in this workspace.',
+    );
   });
 
   it('says so when the workspace has no lists at all', () => {
     const { bridge } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001' }));
     act(() => bridge.push({ type: 'ticket-lists', lists: [] }));
-    expect(hintText()).toBe('This workspace has no lists.');
+    expect(document.querySelector('[data-region="ticketing-board"]')?.textContent).toContain(
+      'This workspace has no lists.',
+    );
     expect((byLabel('List') as unknown as HTMLSelectElement).disabled).toBe(true);
   });
 
   it('shows the host failure message inline and keeps the control locked', () => {
     const { bridge } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001' }));
     act(() => bridge.push({ type: 'ticket-lists-error', message: 'No token configured' }));
-    expect(hintText()).toContain('No token configured');
+    expect(document.body.textContent).toContain('No token configured');
     expect((byLabel('List') as unknown as HTMLSelectElement).disabled).toBe(true);
   });
 
@@ -365,25 +401,40 @@ describe('TicketingSection — the list fetch lifecycle', () => {
   });
 });
 
-describe('TicketingSection — the status fetch lifecycle and the coherence rule', () => {
-  function onShip(): ReturnType<typeof mountTicketing> {
-    return mountTicketing(
+describe('TicketingSection — the status fetch loads on its own (bug 1)', () => {
+  it('posts both fetches once, without a click, when the prerequisites are set', () => {
+    const { bridge, probe } = mountTicketing(
       stateWith({
         provider: 'clickup',
         teamId: '9001',
         listId: 'L1',
-        advanceOnShip: true,
-        shipStatus: 'Done',
+        advanceOnStart: false,
+        advanceOnShip: false,
       }),
     );
-  }
+    // Acceptance 2: exactly one of each, no click needed.
+    expect(bridge.all('fetch-ticket-lists')).toHaveLength(1);
+    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(1);
+    expect(bridge.last('fetch-ticket-statuses')).toMatchObject({ listId: 'L1', teamId: '9001' });
+    // …and an off toggle needs no status, so the auto-load leaves the draft
+    // clean: the topbar can still say "All changes saved".
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'L1', name: 'Backlog', space: 'Core' }] }));
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open', 'in progress', 'qa'] }));
+    expect(probe().dirtySections).toEqual([]);
+    expect(cfgOf(probe)).not.toHaveProperty('shipStatus');
+    expect(cfgOf(probe)).not.toHaveProperty('startStatus');
+  });
 
   it('does not fetch until a list id AND a token exist', () => {
     const { bridge } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001' }));
     expect(bridge.all('fetch-ticket-statuses')).toHaveLength(0);
+    // …and the disabled select says which prerequisite is missing.
+    const ship = byLabel('Status when Karst ships') as unknown as HTMLSelectElement;
+    expect(ship.disabled).toBe(true);
+    expect(document.body.textContent).toContain('Add a List ID and API token to load statuses.');
   });
 
-  it('fills an unset ship status with the FIRST entry and start with "in progress"', () => {
+  it('fills an unset status only for a toggle that is ON', () => {
     const { bridge, probe } = mountTicketing(
       stateWith({
         provider: 'clickup',
@@ -393,8 +444,6 @@ describe('TicketingSection — the status fetch lifecycle and the coherence rule
         advanceOnStart: true,
       }),
     );
-    const reload = document.querySelector('[aria-label="Reload statuses for this list"]') as Element;
-    fireEvent.click(reload);
     act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open', 'in progress', 'Done'] }));
     // The REDUCER decides this, not the component (R-X4) — the draft proves it.
     expect(cfgOf(probe)).toMatchObject({ shipStatus: 'open', startStatus: 'in progress' });
@@ -412,47 +461,52 @@ describe('TicketingSection — the status fetch lifecycle and the coherence rule
         startStatus: 'Blocked',
       }),
     );
-    const reload = document.querySelector('[aria-label="Reload statuses for this list"]') as Element;
-    fireEvent.click(reload);
     act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open', 'Done', 'Blocked'] }));
     expect(cfgOf(probe)).toMatchObject({ shipStatus: 'Done', startStatus: 'Blocked' });
   });
 
   it('keeps a saved status the provider no longer lists, and says so', () => {
-    const { bridge } = onShip();
-    const reload = document.querySelector('[aria-label="Reload statuses for this list"]') as Element;
-    fireEvent.click(reload);
+    const { bridge } = mountTicketing(
+      stateWith({
+        provider: 'clickup',
+        teamId: '9001',
+        listId: 'L1',
+        advanceOnShip: true,
+        shipStatus: 'Done',
+      }),
+    );
     act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open'] }));
-    const select = byLabel('Status after ship') as unknown as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(['Done', 'open']);
-    expect(statusHint()).toContain('"Done" is no longer in this list.');
+    const select = byLabel('Status when Karst ships') as unknown as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'Done', 'open']);
+    expect(select.value).toBe('Done');
+    expect(document.body.textContent).toContain('"Done" is no longer in this list.');
   });
 
   it('says so when the list has no statuses at all', () => {
-    const { bridge } = onShip();
-    const reload = document.querySelector('[aria-label="Reload statuses for this list"]') as Element;
-    fireEvent.click(reload);
+    const { bridge } = mountTicketing(
+      stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1', advanceOnShip: true }),
+    );
     act(() => bridge.push({ type: 'ticket-statuses', statuses: [] }));
-    expect(statusHint()).toBe('This list has no statuses.');
-    expect((byLabel('Status after ship') as unknown as HTMLSelectElement).disabled).toBe(true);
+    expect(document.body.textContent).toContain('This list has no statuses.');
+    expect((byLabel('Status when Karst ships') as unknown as HTMLSelectElement).disabled).toBe(true);
   });
 
   it('shows the failure inline and settles the fetch as a failure', () => {
-    const { bridge } = onShip();
-    const reload = document.querySelector('[aria-label="Reload statuses for this list"]') as Element;
-    fireEvent.click(reload);
+    const { bridge } = mountTicketing(
+      stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1', advanceOnShip: true }),
+    );
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'L1', name: 'Backlog', space: 'Core' }] }));
     act(() => bridge.push({ type: 'ticket-statuses-error', message: 'ClickUp said no' }));
-    expect(statusHint()).toContain('ClickUp said no');
-    const again = document.querySelector('[aria-label="Reload statuses for this list"]') as Element;
-    expect(again.getAttribute('aria-busy')).toBeNull();
+    expect(document.body.textContent).toContain('ClickUp said no');
+    const reload = byAriaLabel('Reload lists and statuses from ClickUp');
+    expect(reload.getAttribute('aria-busy')).toBeNull();
   });
 
-  it('drops the status cache when the list changes', () => {
-    const { bridge } = onShip();
-    const reload = document.querySelector('[aria-label="Reload statuses for this list"]') as Element;
-    fireEvent.click(reload);
+  it('re-arms the status fetch when the list changes', () => {
+    const { bridge } = mountTicketing(
+      stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1', advanceOnShip: true }),
+    );
     act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open'] }));
-    // Give the workspace a second list so the change below is a real pick.
     act(() =>
       bridge.push({
         type: 'ticket-lists',
@@ -463,83 +517,139 @@ describe('TicketingSection — the status fetch lifecycle and the coherence rule
       }),
     );
     fireEvent.change(byLabel('List'), { target: { value: 'L2' } });
-    // No re-fetch on its own — the statuses belong to the OLD list — but the stale
-    // options are gone, so a status from the old list cannot be saved into the
-    // new one. The REDUCER drops them: only the draft's key moved, and the
-    // fetches belong to the reducer.
-    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(1);
-    // The row stays (the toggle is still on) and the SAVED status stays visible —
-    // it is never silently dropped — but the fetched list belongs to the old list,
-    // so it is gone and the control is locked until the new one is fetched.
-    const select = byLabel('Status after ship') as unknown as HTMLSelectElement;
-    expect(select.disabled).toBe(true);
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(['Done']);
-    expect(statusHint()).toBe('');
+    // A list change drops the old statuses and re-arms the auto-load.
+    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(2);
+    expect(bridge.last('fetch-ticket-statuses')).toMatchObject({ listId: 'L2' });
   });
 });
 
-describe('TicketingSection — the two advance rows', () => {
-  it('hides each status select until its toggle is on', () => {
-    mountTicketing(stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1' }));
-    expect(document.getElementById('advanceStatusRow')).toBeNull();
-    expect(document.getElementById('startAdvanceStatusRow')).toBeNull();
-    fireEvent.click(byLabel('Set the ticket status when Karst ships'));
-    expect(document.getElementById('advanceStatusRow')).not.toBeNull();
-    expect(document.getElementById('startAdvanceStatusRow')).toBeNull();
+describe('TicketingSection — each status select shows its OWN saved value (bug 2)', () => {
+  it('shows "in progress" on start and "qa" on ship before the statuses load', () => {
+    mountTicketing(
+      stateWith({
+        provider: 'clickup',
+        teamId: '9001',
+        listId: 'L1',
+        advanceOnStart: true,
+        startStatus: 'in progress',
+        advanceOnShip: true,
+        shipStatus: 'qa',
+      }),
+    );
+    // Acceptance 3: bug 2 showed the SHIP status in the start select because
+    // both selects shared one derived view built from `cfg.shipStatus`.
+    const start = byLabel('Status when work starts') as unknown as HTMLSelectElement;
+    const ship = byLabel('Status when Karst ships') as unknown as HTMLSelectElement;
+    expect(start.value).toBe('in progress');
+    expect(ship.value).toBe('qa');
   });
 
-  it('labels both reload controls identically, and both drive one fetch', () => {
-    const { bridge } = mountTicketing(
+  it('maps "Don\'t change" to the flag, and a status to flag + value', () => {
+    const { bridge, probe } = mountTicketing(
       stateWith({
         provider: 'clickup',
         teamId: '9001',
         listId: 'L1',
         advanceOnShip: true,
+        shipStatus: 'qa',
         advanceOnStart: true,
+        startStatus: 'in progress',
       }),
     );
-    const reloads = Array.from(
-      document.querySelectorAll('[aria-label="Reload statuses for this list"]'),
-    );
-    expect(reloads).toHaveLength(2);
-    fireEvent.click(reloads[1] as Element);
-    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(1);
-    expect(bridge.last('fetch-ticket-statuses')).toMatchObject({ listId: 'L1', teamId: '9001' });
+    const ship = byLabel('Status when Karst ships') as unknown as HTMLSelectElement;
+    const start = byLabel('Status when work starts') as unknown as HTMLSelectElement;
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['in progress', 'qa'] }));
+    expect(Array.from(ship.options).map((o) => o.value)).toEqual(['', 'in progress', 'qa']);
+    expect(ship.options[0]?.label).toBe("Don't change");
+
+    fireEvent.change(ship, { target: { value: '' } });
+    expect(cfgOf(probe)).toMatchObject({ advanceOnShip: false, shipStatus: 'qa' });
+
+    fireEvent.change(ship, { target: { value: 'qa' } });
+    expect(cfgOf(probe)).toMatchObject({ advanceOnShip: true, shipStatus: 'qa' });
+
+    fireEvent.change(start, { target: { value: '' } });
+    expect(cfgOf(probe)).toMatchObject({ advanceOnStart: false, startStatus: 'in progress' });
+
+    fireEvent.change(start, { target: { value: 'in progress' } });
+    expect(cfgOf(probe)).toMatchObject({ advanceOnStart: true, startStatus: 'in progress' });
   });
 
-  it('writes the picked status onto the draft', () => {
-    const { bridge, probe } = mountTicketing(
-      stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1', advanceOnShip: true }),
-    );
-    const reload = document.querySelector('[aria-label="Reload statuses for this list"]') as Element;
-    fireEvent.click(reload);
-    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open', 'Done'] }));
-    fireEvent.change(byLabel('Status after ship'), { target: { value: 'Done' } });
-    expect(cfgOf(probe)).toMatchObject({ advanceOnShip: true, shipStatus: 'Done' });
+  it('always explains a disabled status select', () => {
+    const { bridge } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001' }));
+    const ship = byLabel('Status when Karst ships') as unknown as HTMLSelectElement;
+    expect(ship.disabled).toBe(true);
+    expect(document.body.textContent).toContain('Add a List ID and API token to load statuses.');
+    act(() => bridge.push({ type: 'ticket-statuses-error', message: 'ClickUp said no' }));
+    expect(document.body.textContent).toContain('ClickUp said no');
   });
 });
 
-describe('TicketingSection — sub-task sync', () => {
-  it('writes the picked mode onto the draft and drops it when leaving ClickUp', () => {
+describe('TicketingSection — one reload control and the connection line', () => {
+  it('renders one reload button that reloads lists AND statuses', () => {
+    const { bridge } = mountTicketing(
+      stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1', advanceOnShip: true }),
+    );
+    // Auto-load has both in flight; answer them, then use the one button.
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'L1', name: 'Backlog', space: 'Core' }] }));
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open'] }));
+    const reloads = [...document.querySelectorAll('#section-ticketing [aria-label*="Reload"]')];
+    expect(reloads).toHaveLength(1);
+    const reload = byAriaLabel('Reload lists and statuses from ClickUp');
+    fireEvent.click(reload);
+    expect(bridge.all('fetch-ticket-lists')).toHaveLength(2);
+    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(2);
+    expect(reload.getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('reports the loaded statuses on the connection line', () => {
+    const { bridge } = mountTicketing(
+      stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1' }),
+    );
+    act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'L1', name: 'Backlog', space: 'Core' }] }));
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['open', 'in progress', 'qa'] }));
+    expect(connectionText()).toBe('Connected · 3 statuses loaded');
+    expect(document.querySelector('[data-region="ticketing-connection-status"]')?.getAttribute('role'))
+      .toBe('status');
+  });
+
+  it('makes a missing prerequisite the connection line', () => {
+    mountTicketing(stateWith({ provider: 'clickup' }, false));
+    expect(connectionText()).toBe('Add a Team ID and API token to load lists.');
+  });
+});
+
+describe('TicketingSection — the Behavior rows', () => {
+  it('writes the segmented sub-task mode and shows only its own meaning', () => {
     const { probe } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1' }));
-    fireEvent.change(byLabel('Sync sub-tasks to the provider'), { target: { value: 'link' } });
+    expect(document.body.textContent).toContain('Sub-tasks stay in Karst.');
+    fireEvent.click(screen.getByRole('radio', { name: 'Link' }));
     expect(cfgOf(probe)).toMatchObject({ syncSubtasks: 'link' });
+    expect(document.body.textContent).toContain(
+      'A sub-task is a child task, and a blocking sub-task blocks its parent.',
+    );
+    expect(document.body.textContent).not.toContain('Sub-tasks stay in Karst.');
+    fireEvent.click(screen.getByRole('radio', { name: 'Full' }));
+    expect(cfgOf(probe)).toMatchObject({ syncSubtasks: 'full' });
+    expect(document.body.textContent).toContain(
+      "Link, plus the sub-task's own status updates.",
+    );
+    fireEvent.click(screen.getByRole('radio', { name: 'Off' }));
+    expect(cfgOf(probe)).toMatchObject({ syncSubtasks: 'off' });
+    // Leaving ClickUp drops it with the rest of the ClickUp-only keys.
     fireEvent.click(document.querySelector('[data-value="manual"]') as Element);
     expect(cfgOf(probe)).not.toHaveProperty('syncSubtasks');
   });
+
+  it('writes the search toggle onto the draft', () => {
+    const { probe } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1' }));
+    fireEvent.click(byLabel('Search tickets in Add ticket'));
+    expect(cfgOf(probe)).toMatchObject({ searchEnabled: false });
+    expect(document.body.textContent).toContain(
+      'The Key field searches this list: TODO tickets first, by priority.',
+    );
+  });
 });
-
-/** The hint under the list row. */
-function hintText(): string {
-  return [...document.querySelectorAll('.field-hint')].map((n) => n.textContent ?? '').join(' | ');
-}
-
-/** The hint under the ship-status row. */
-function statusHint(): string {
-  return document.getElementById('advanceStatusRow')?.textContent?.includes('This list has no statuses.') ?? false
-    ? 'This list has no statuses.'
-    : (document.querySelector('#advanceStatusRow .field-hint')?.textContent ?? '');
-}
 
 /** Keeps the manifest import meaningful for the fixture's block shape. */
 export type TicketingManifest = Pick<Manifest, 'ticketing'>;

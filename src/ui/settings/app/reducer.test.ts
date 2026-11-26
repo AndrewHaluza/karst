@@ -299,15 +299,53 @@ describe('settingsAppReducer — the folder picker', () => {
 });
 
 describe('settingsAppReducer — the ticketing status fetch', () => {
-  const base = () => withDraftEdit(TICKETING_EDITED_MANIFEST);
+  /** A ClickUp draft whose statuses can be made coherent, with both toggles ON. */
+  const base = () =>
+    withDraftEdit({
+      ...TICKETING_EDITED_MANIFEST,
+      ticketing: {
+        provider: 'clickup',
+        listId: 'L1',
+        teamId: 'T1',
+        advanceOnShip: true,
+        advanceOnStart: true,
+      },
+    });
 
-  it('fills both statuses so a toggled-on ticketing config is never invalid', () => {
-    // Statuses arriving with nothing chosen on either side would leave an
+  it('fills both statuses when both toggles are on', () => {
+    // Statuses arriving with a toggle ON and nothing chosen would leave an
     // invalid draft — shipping with an empty shipStatus.
     const s = push({ type: 'ticket-statuses', statuses: ['open', 'in progress'] }, base());
     expect(s.draft.ticketing?.shipStatus).toBe('open');
     expect(s.draft.ticketing?.startStatus).toBe('in progress');
     expect(s.statuses).toEqual({ kind: 'ready', statuses: ['open', 'in progress'] });
+  });
+
+  it('stores only the fetch result when both toggles are off, so it stays clean', () => {
+    // T1371 / bug 1: the page auto-loads the statuses. Filling an OFF toggle's
+    // status here would make the draft dirty on open, and the topbar could
+    // never read "All changes saved".
+    const clean = hydrated();
+    const s = push({ type: 'ticket-statuses', statuses: ['open', 'in progress'] }, clean);
+    expect(s.statuses).toEqual({ kind: 'ready', statuses: ['open', 'in progress'] });
+    expect(s.draft.ticketing?.shipStatus).toBeUndefined();
+    expect(s.draft.ticketing?.startStatus).toBeUndefined();
+    expect(s.dirtySections).toEqual(clean.dirtySections);
+  });
+
+  it('fills only the side whose toggle is on', () => {
+    const shipOnly = withDraftEdit({
+      ...TICKETING_EDITED_MANIFEST,
+      ticketing: {
+        provider: 'clickup',
+        listId: 'L1',
+        teamId: 'T1',
+        advanceOnShip: true,
+      },
+    });
+    const s = push({ type: 'ticket-statuses', statuses: ['open', 'in progress'] }, shipOnly);
+    expect(s.draft.ticketing?.shipStatus).toBe('open');
+    expect(s.draft.ticketing?.startStatus).toBeUndefined();
   });
 
   it('leaves an explicitly chosen status alone', () => {
@@ -317,6 +355,7 @@ describe('settingsAppReducer — the ticketing status fetch', () => {
         provider: 'clickup',
         listId: 'L1',
         teamId: 'T1',
+        advanceOnShip: true,
         shipStatus: 'done',
       },
     });

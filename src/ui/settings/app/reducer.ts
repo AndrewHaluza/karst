@@ -237,10 +237,12 @@ function applyState(state: SettingsAppState, host: SettingsState): SettingsAppSt
 }
 
 /**
- * Coherence rule for the ticketing status fetch: statuses arriving with nothing
- * chosen on either side would leave an invalid draft (toggled-on shipping with an
- * empty `shipStatus`), so the common path is made coherent immediately. Ported
- * verbatim from the inline script's `ticket-statuses` case.
+ * Coherence rule for the ticketing status fetch: a toggle that is ON and has
+ * nothing chosen would leave an invalid draft (shipping with an empty
+ * `shipStatus`), so that side is made coherent immediately. A toggle that is
+ * OFF needs no status at all — filling it anyway would dirty the page on open
+ * now that the statuses load on their own (T1371), so the draft is left alone
+ * there and only the fetch result is stored.
  */
 function applyTicketStatuses(
   state: SettingsAppState,
@@ -250,10 +252,15 @@ function applyTicketStatuses(
   const cfg = state.draft.ticketing;
   if (!cfg) return { ...state, statuses: ready };
   const next = { ...cfg };
-  if (!next.shipStatus && statuses.length > 0) next.shipStatus = statuses[0];
-  if (!next.startStatus && statuses.length > 0) next.startStatus = pickDefaultStartStatus(statuses);
-  // Both are still unset only when the provider returned nothing; in that case
-  // there is nothing to make coherent and the draft must not churn.
+  if (next.advanceOnShip && !next.shipStatus && statuses.length > 0) {
+    next.shipStatus = statuses[0];
+  }
+  if (next.advanceOnStart && !next.startStatus && statuses.length > 0) {
+    next.startStatus = pickDefaultStartStatus(statuses);
+  }
+  // Both are still unset only when the provider returned nothing or both
+  // toggles are off; in that case there is nothing to make coherent and the
+  // draft must not churn.
   if (next.shipStatus === cfg.shipStatus && next.startStatus === cfg.startStatus) {
     return { ...state, statuses: ready };
   }

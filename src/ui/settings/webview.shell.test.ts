@@ -98,14 +98,18 @@ describe('settings width and spacing consistency', () => {
     expect(m![1]).toMatch(/flex:1 1 auto/);
   });
 
-  it('separates the ClickUp fields group from the Provider row', () => {
-    // The provider row and #clickupFields are two stacked form-grids, and a
-    // stacked pair of grids has zero inter-grid gap — the Team ID label used
-    // to sit directly against the provider trigger. A group boundary must
-    // read at the section-block rhythm, not the intra-grid row gap.
-    const m = HTML.match(/#clickupFields\{([^}]*)\}/);
-    expect(m, '#clickupFields rule not found').toBeTruthy();
-    expect(m![1]).toMatch(/margin-top:var\(--k-space-7\)/);
+  it('gives every ticketing row the shared label/control column grammar', () => {
+    // T1371 (@ui:UI-R39/R41/R42): the Provider row and the Board/Behavior
+    // fields are ONE list of rows — label + help at the left, the control in a
+    // 340px column at the right (17 x --k-space-8, so no raw px and the UI-R04
+    // budget keeps its one tier literal). The old split between a Provider row
+    // and a separate #clickupFields form-grid is gone.
+    const m = HTML.match(/#section-ticketing \.ticketing-row\{([^}]*)\}/);
+    expect(m, 'ticketing row rule not found').toBeTruthy();
+    expect(m![1]).toContain(
+      'grid-template-columns:minmax(0,1fr) minmax(0,calc(var(--k-space-8) * 17))',
+    );
+    expect(HTML).not.toContain('#clickupFields');
   });
 
   it('keeps quality policy rows inside their panels', () => {
@@ -169,11 +173,15 @@ describe('settings v7 shared primitives', () => {
     expect(HTML).toContain('.roster .card + .card{border-top:var(--k-border-w) solid var(--vscode-panel-border)}');
   });
 
-  it('implements the fixed-size reload icon button with a pending spin', () => {
-    // The button markup renders in the React app; the shell keeps the spin
-    // keyframes and the reduced-motion opt-out that were pinned here.
-    expect(HTML).toContain('reload-spin');
-    expect(HTML).toMatch(/prefers-reduced-motion[\s\S]*?reload-icon[\s\S]*?animation:none/);
+  it('swaps the ticketing reload text at the narrow tier', () => {
+    // T1371: the three per-row icon reload buttons became ONE text action in
+    // the Board header, so the spin keyframes are gone. The shell keeps the
+    // label swap: the full text at wide/mid, "↻ Reload" below the 700px
+    // container tier (@ui:UI-R43), so the head line never wraps.
+    expect(HTML).toContain('#section-ticketing .ticketing-reload-short{display:none}');
+    expect(HTML).toMatch(
+      /#section-ticketing \.ticketing-reload-long\{display:none\}\s*#section-ticketing \.ticketing-reload-short\{display:inline\}/,
+    );
   });
 
   // Skipped siblings in this describe: 'provides the context menu host and

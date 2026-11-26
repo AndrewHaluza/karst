@@ -136,7 +136,9 @@ function selectedProvider(view: RenderedSettings): string | undefined {
  * The ticketing draft AS THE CONTROLS PROJECT IT — the observable twin of the
  * retired probe's `cfgOf(...)` (`draft.ticketing`), read back out of the DOM.
  * Absent controls read `undefined`, so a config fact that was deleted (the
- * ClickUp-only keys after switching to Manual) is visibly absent too.
+ * ClickUp-only keys after switching to Manual) is visibly absent too. A status
+ * select reads '' for "Don't change" (the flag is off), which is exactly how
+ * the review sees the setting.
  */
 function readTicketing(view: RenderedSettings): Record<string, unknown> {
   const node = root(view);
@@ -152,8 +154,6 @@ function readTicketing(view: RenderedSettings): Record<string, unknown> {
     provider: selectedProvider(view),
     teamId: fieldValue('teamId'),
     listId: fieldValue('listId'),
-    advanceOnShip: fieldChecked('advanceOnShip'),
-    advanceOnStart: fieldChecked('advanceOnStart'),
     searchEnabled: fieldChecked('searchEnabled'),
     shipStatus: fieldValue('shipStatus'),
     startStatus: fieldValue('startStatus'),
@@ -218,38 +218,44 @@ describe('rendered Settings — a ticketing edit drives the dirty markers (R26)'
 });
 
 describe('rendered Settings — the list fetch settles on its own reply (R11–R13)', () => {
-  it('enters pending on activation and exposes aria-busy', async () => {
+  it('loads the lists and the statuses on open, and exposes aria-busy', async () => {
     const { view } = await mountOnTicketing();
-    const reload = byAriaLabel(view, 'Reload lists from ClickUp');
-    expect(reload.getAttribute('aria-busy')).toBe('true');
-    await view.click(reload);
+    // T1371/bug 1: both fetches start on open, with no click.
+    expect(view.all('fetch-ticket-lists')).toHaveLength(1);
+    expect(view.all('fetch-ticket-statuses')).toHaveLength(1);
+    const reload = byAriaLabel(view, 'Reload lists and statuses from ClickUp');
     expect(reload.getAttribute('aria-busy')).toBe('true');
   });
 
   it('refuses a second activation while in flight (R12)', async () => {
     const { view } = await mountOnTicketing();
-    const reload = byAriaLabel(view, 'Reload lists from ClickUp');
+    const reload = byAriaLabel(view, 'Reload lists and statuses from ClickUp');
     await view.click(reload);
     await view.click(reload);
     expect(view.all('fetch-ticket-lists')).toHaveLength(1);
+    expect(view.all('fetch-ticket-statuses')).toHaveLength(1);
   });
 
   it('does NOT settle on action-result — these fetches have their own replies', async () => {
     const { view } = await mountOnTicketing();
-    const reload = byAriaLabel(view, 'Reload lists from ClickUp');
+    const reload = byAriaLabel(view, 'Reload lists and statuses from ClickUp');
     const id = view.posted.find((m) => m.type === 'fetch-ticket-lists')?.requestId;
     await view.receive({ type: 'action-result', requestId: id as string, ok: true });
     expect(reload.getAttribute('aria-busy')).toBe('true');
     await view.receive({ type: 'ticket-lists', lists: [] });
-    expect(reload.getAttribute('aria-busy')).toBeNull();
+    // The statuses are still unanswered, so the ONE reload control is still busy.
+    expect(byAriaLabel(view, 'Reload lists and statuses from ClickUp').getAttribute('aria-busy')).toBe(
+      'true',
+    );
+    await view.receive({ type: 'ticket-statuses', statuses: ['open'] });
+    expect(
+      byAriaLabel(view, 'Reload lists and statuses from ClickUp').getAttribute('aria-busy'),
+    ).toBeNull();
   });
 
   it('shows the failure inline and settles as a failure', async () => {
     const { view } = await mountOnTicketing();
-    const reload = byAriaLabel(view, 'Reload lists from ClickUp');
-    await view.click(reload);
     await view.receive({ type: 'ticket-lists-error', message: 'Workspace unreadable' });
-    expect(byAriaLabel(view, 'Reload lists from ClickUp').getAttribute('aria-busy')).toBeNull();
     expect(root(view).textContent).toContain('Workspace unreadable');
     // The terminal result is announced through the ONE live region (R27).
     expect(root(view).querySelectorAll('.k-live-region')).toHaveLength(1);
@@ -279,13 +285,12 @@ describe('rendered Settings — the reducer coherence rule reaches the file', ()
       advanceOnShip: true,
       advanceOnStart: true,
     });
-    await view.click(byAriaLabel(view, 'Reload statuses for this list'));
+    // No click: the statuses load on their own (bug 1).
     await view.receive({ type: 'ticket-statuses', statuses: ['open', 'in progress', 'Done'] });
     // The REDUCER made this decision (R-X4): the component re-derives nothing.
-    // `cfgOf(probe)` → the rendered status selects show the filled values.
-    const ship = byLabel(view, 'Status after ship') as unknown as HTMLSelectElement;
+    const ship = byLabel(view, 'Status when Karst ships') as unknown as HTMLSelectElement;
     expect(ship.value).toBe('open');
-    const start = byLabel(view, 'Status at start of work') as unknown as HTMLSelectElement;
+    const start = byLabel(view, 'Status when work starts') as unknown as HTMLSelectElement;
     expect(start.value).toBe('in progress');
     await view.click(saveButton(view));
     // And the round trip to the file carries the same decision.
@@ -303,13 +308,11 @@ describe('rendered Settings — the reducer coherence rule reaches the file', ()
       listId: 'L1',
       advanceOnShip: true,
     });
-    await view.click(byAriaLabel(view, 'Reload statuses for this list'));
     await view.receive({ type: 'ticket-statuses', statuses: ['open', 'Done'] });
-    // `cfgOf(probe)` → the status select rendered the reducer's filled value.
-    const select = byLabel(view, 'Status after ship') as unknown as HTMLSelectElement;
+    const select = byLabel(view, 'Status when Karst ships') as unknown as HTMLSelectElement;
     expect(select.value).toBe('open');
     expect(select.disabled).toBe(false);
-    expect(Array.from(select.options).map((o) => o.value)).toEqual(['open', 'Done']);
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'open', 'Done']);
   });
 });
 
@@ -332,7 +335,7 @@ describe('rendered Settings — the token flag never touches the draft', () => {
         ?.getAttribute('aria-busy'),
     ).toBe('true');
     await view.receive({ type: 'token-state', configured: true });
-    expect(root(view).textContent).toContain('Token set');
+    expect(root(view).textContent).toContain('Set');
     // The token flow left the draft alone: the controls still project the same
     // config, and no tab has been marked dirty.
     expect(readTicketing(view)).toEqual(before);
@@ -348,7 +351,7 @@ describe('rendered Settings — the token flag never touches the draft', () => {
 });
 
 describe('rendered Settings — leaving ClickUp clears the ClickUp-only keys', () => {
-  it('drops the advance rows and the search card, and keeps the tab dirty', async () => {
+  it('drops the behavior section and the search row, and keeps the tab dirty', async () => {
     const { view } = await mountOnTicketing({
       provider: 'clickup',
       teamId: '9001',
@@ -362,10 +365,10 @@ describe('rendered Settings — leaving ClickUp clears the ClickUp-only keys', (
     // `cfgOf(probe).provider` → the listbox's selected option.
     expect(selectedProvider(view)).toBe('manual');
     // `cfgOf(probe).advanceOnShip` → the status row is unmounted with the flag
-    // cleared; `not.toHaveProperty('shipStatus')` → the select inside it (the
-    // only control that carried the ship status) is gone with it.
-    expect(root(view).querySelector('[id="advanceStatusRow"]')).toBeNull();
-    expect(root(view).querySelector('[id="searchCard"]')).toBeNull();
+    // cleared; `not.toHaveProperty('shipStatus')` → the status select (the only
+    // control that carried the ship status) is gone with the section.
+    expect(root(view).querySelector('[data-region="ticketing-behavior"]')).toBeNull();
+    expect(root(view).querySelector('[name="shipStatus"]')).toBeNull();
     expect(dirtySections(view)).toEqual(['ticketing']);
   });
 });

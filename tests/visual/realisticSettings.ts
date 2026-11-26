@@ -82,6 +82,19 @@ const MANIFEST: Manifest = manifest(
     defaultModel: 'claude-sonnet-5-5',
     agentPresets: PRESETS,
     activeAgentPreset: ACTIVE_PRESET,
+    // T1371: a connected ClickUp board, so the layout gate opens the REAL
+    // Ticketing list — two sections, eight rows — instead of the manual stub.
+    // The statuses are saved, so nothing depends on a host reply to render.
+    ticketing: {
+      provider: 'clickup',
+      teamId: '90121889250',
+      listId: '901',
+      syncSubtasks: 'link',
+      advanceOnStart: true,
+      startStatus: 'in progress',
+      advanceOnShip: true,
+      shipStatus: 'qa',
+    },
     processes: {
       uatTester: { pinned: true, provider: 'claude', model: 'claude-opus-5-5', effort: 'high' },
       review: { pinned: true, provider: 'opencode', model: LONG_MODEL_ID, effort: 'medium' },
@@ -155,12 +168,22 @@ export const DISCARD_SETTINGS = settingsWithManifest({
 export const MANUAL_SETTINGS = settingsWithManifest({ ticketing: { provider: 'manual' } });
 
 /**
- * T1297 SET-29: a saved ClickUp board whose list is present in the fetched
- * lists. Search starts off so the variant's one click makes the topbar dirty
- * without hiding a field the shot must show.
+ * T1297 SET-29 + T1371: a saved ClickUp board with its list and its statuses in
+ * the host's replies, and search starting off so the variant's one click makes
+ * the topbar dirty without hiding a field the shot must show.
  */
 export const CLICKUP_SETTINGS = settingsWithManifest({
-  ticketing: { provider: 'clickup', teamId: '9001', listId: '901', searchEnabled: false },
+  ticketing: {
+    provider: 'clickup',
+    teamId: '9001',
+    listId: '901',
+    searchEnabled: false,
+    syncSubtasks: 'link',
+    advanceOnStart: true,
+    startStatus: 'in progress',
+    advanceOnShip: true,
+    shipStatus: 'qa',
+  },
 });
 
 /** T1297 SET-26: the graph approach card, with the planner and the three execution profiles. */
