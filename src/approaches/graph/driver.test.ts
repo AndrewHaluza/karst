@@ -36,6 +36,7 @@ import {
   nodePromptWithReporter,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
+import { isPlannerLaunchInFlight } from './coordinator/launchInFlight.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
 import { ticketLaunchFields } from './profileResolver.js';
@@ -209,6 +210,136 @@ describe('bootstrapAndLaunchPlanner', () => {
     expect(planner.status).toBe('launching');
     expect(planner.owner_nonce).not.toBeNull();
     expect(planner.process_run_id).toBeNull();
+  });
+
+  it('a planner that loses launching→running after its spawn stops the spawned session and leaves the row to the winner', async () => {
+    const h = harness();
+    const dispose = vi.fn();
+    const terminate = vi.fn(async (_session: unknown) => ({ kind: 'attributable', kill: 'killed' }) as const);
+    const debug = vi.fn();
+    h.deps.debug = debug;
+    h.deps.transport.terminate = terminate;
+    h.deps.transport.start = async (request) => {
+      // The winning launch moved the row while this one spawned.
+      h.db
+        .prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?")
+        .run(request.nodeRunId);
+      return {
+        ticketId: h.ticketId,
+        nodeRunId: request.nodeRunId,
+        graphRunId: request.graphRunId,
+        cwd: request.cwd,
+        pid: 4242,
+        startedAt: NOW,
+        processRunId: null,
+        provider: null,
+        providerSessionId: null,
+        terminal: { dispose },
+      } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+    };
+    const result = await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      projectSlug: 'acme',
+    });
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.reason).toContain(
+        'already moved (another launch or the reconcile sweep claimed it)',
+      );
+    }
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(terminate.mock.calls[0]![0]).toMatchObject({ pid: 4242 });
+    expect(dispose).toHaveBeenCalledTimes(1);
+    const row = h.db
+      .prepare('SELECT status FROM approach_planner_runs ORDER BY id DESC LIMIT 1')
+      .get() as { status: string };
+    expect(row.status).toBe('stale');
+    const lines = debug.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(lines).toMatch(/planner run \d+ lost its launch claim — stopped the orphan agent \(pid 4242\)/);
+  });
+
+  it('a failed stop after a lost planner claim is logged as a WARN, never swallowed', async () => {
+    const h = harness();
+    const debug = vi.fn();
+    h.deps.debug = debug;
+    h.deps.transport.terminate = async () => {
+      throw new Error('boom');
+    };
+    h.deps.transport.start = async (request) => {
+      h.db
+        .prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?")
+        .run(request.nodeRunId);
+      return {
+        ticketId: h.ticketId,
+        nodeRunId: request.nodeRunId,
+        graphRunId: request.graphRunId,
+        cwd: request.cwd,
+        pid: 4243,
+        startedAt: NOW,
+        processRunId: null,
+        provider: null,
+        providerSessionId: null,
+      } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+    };
+    const result = await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      projectSlug: 'acme',
+    });
+    expect(result.kind).toBe('failed');
+    expect(debug.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(
+      /WARN.*planner run .*stopping.*boom/,
+    );
+  });
+
+  it('registers the planner launch in flight while the spawn is pending and clears it on return', async () => {
+    const h = harness();
+    const seen: boolean[] = [];
+    h.deps.transport.start = async (request) => {
+      seen.push(isPlannerLaunchInFlight(h.db, request.nodeRunId));
+      return {
+        ticketId: h.ticketId,
+        nodeRunId: request.nodeRunId,
+        graphRunId: request.graphRunId,
+        cwd: request.cwd,
+        pid: 4343,
+        startedAt: NOW,
+        processRunId: null,
+        provider: null,
+        providerSessionId: null,
+      } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+    };
+    const result = await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      projectSlug: 'acme',
+    });
+    expect(result.kind).toBe('launched');
+    if (result.kind !== 'launched') return;
+    expect(seen).toEqual([true]);
+    expect(isPlannerLaunchInFlight(h.db, result.plannerRunId)).toBe(false);
+  });
+
+  it('clears the planner launch in-flight mark when the spawn throws', async () => {
+    const h = harness();
+    h.deps.transport.start = async () => {
+      throw new Error('adapter misconfigured');
+    };
+    const result = await bootstrapAndLaunchPlanner(h.deps, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      projectSlug: 'acme',
+    });
+    expect(result.kind).toBe('failed');
+    const planner = h.db
+      .prepare('SELECT id FROM approach_planner_runs ORDER BY id DESC LIMIT 1')
+      .get() as { id: number };
+    expect(isPlannerLaunchInFlight(h.db, planner.id)).toBe(false);
   });
 
   it('returns instructions-missing when the planner prompt cannot be read', async () => {
@@ -2372,6 +2503,103 @@ describe('launchReplanPlanner', () => {
     expect(planner.owner_nonce).not.toBeNull();
     expect(planner.process_run_id).toBeNull();
   });
+
+  it('a replan planner that loses launching→running after its spawn stops the spawned session', async () => {
+    const h = harness();    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 2, 'replan', 'ready')`,
+      )
+      .run(graphRunId);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const dispose = vi.fn();
+    const terminate = vi.fn(async (_session: unknown) => ({ kind: 'attributable', kill: 'killed' }) as const);
+    h.deps.transport.terminate = terminate;
+    h.deps.transport.start = async (request) => {
+      h.db
+        .prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?")
+        .run(request.nodeRunId);
+      return {
+        ticketId: h.ticketId,
+        nodeRunId: request.nodeRunId,
+        graphRunId: request.graphRunId,
+        cwd: request.cwd,
+        pid: 4444,
+        startedAt: NOW,
+        processRunId: null,
+        provider: null,
+        providerSessionId: null,
+        terminal: { dispose },
+      } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+    };
+    const result = await launchReplanPlanner(h.deps, {
+      graphRunId,
+      plannerRunId,
+      generation: '',
+      capability: '',
+      prompt: '# replan',
+      cwd: join(h.root, 'wt'),
+      repo: 'api',
+    });
+    expect(result.kind).toBe('failed');
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(terminate.mock.calls[0]![0]).toMatchObject({ pid: 4444 });
+    expect(dispose).toHaveBeenCalledTimes(1);
+    const row = h.db
+      .prepare('SELECT status FROM approach_planner_runs WHERE id = ?')
+      .get(plannerRunId) as { status: string };
+    expect(row.status).toBe('stale');
+  });
+
+  it('registers the replan planner launch in flight while the spawn is pending', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 2, 'replan', 'ready')`,
+      )
+      .run(graphRunId);
+    const plannerRunId = plannerRunIdFor(h.db, graphRunId);
+    const seen: boolean[] = [];
+    h.deps.transport.start = async (request) => {
+      seen.push(isPlannerLaunchInFlight(h.db, request.nodeRunId));
+      return {
+        ticketId: h.ticketId,
+        nodeRunId: request.nodeRunId,
+        graphRunId: request.graphRunId,
+        cwd: request.cwd,
+        pid: 4445,
+        startedAt: NOW,
+        processRunId: null,
+        provider: null,
+        providerSessionId: null,
+      } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+    };
+    const result = await launchReplanPlanner(h.deps, {
+      graphRunId,
+      plannerRunId,
+      generation: '',
+      capability: '',
+      prompt: '# replan',
+      cwd: join(h.root, 'wt'),
+      repo: 'api',
+    });
+    expect(result.kind).toBe('launched');
+    expect(seen).toEqual([true]);
+    expect(isPlannerLaunchInFlight(h.db, plannerRunId)).toBe(false);
+  });
 });
 
 describe('relaunchBootstrapPlanner', () => {
@@ -2490,6 +2718,89 @@ describe('relaunchBootstrapPlanner', () => {
     expect(planner.status).toBe('launching');
     expect(planner.owner_nonce).not.toBeNull();
     expect(planner.process_run_id).toBeNull();
+  });
+
+  it('a relaunched planner that loses launching→running after its spawn stops the spawned session', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 1, 'bootstrap', 'stale')`,
+      )
+      .run(graphRunId);
+    const dispose = vi.fn();
+    const terminate = vi.fn(async (_session: unknown) => ({ kind: 'attributable', kill: 'killed' }) as const);
+    h.deps.transport.terminate = terminate;
+    h.deps.transport.start = async (request) => {
+      h.db
+        .prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?")
+        .run(request.nodeRunId);
+      return {
+        ticketId: h.ticketId,
+        nodeRunId: request.nodeRunId,
+        graphRunId: request.graphRunId,
+        cwd: request.cwd,
+        pid: 4545,
+        startedAt: NOW,
+        processRunId: null,
+        provider: null,
+        providerSessionId: null,
+        terminal: { dispose },
+      } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+    };
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(result.kind).toBe('failed');
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(terminate.mock.calls[0]![0]).toMatchObject({ pid: 4545 });
+    expect(dispose).toHaveBeenCalledTimes(1);
+    const row = h.db
+      .prepare(
+        'SELECT status FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id DESC LIMIT 1',
+      )
+      .get(graphRunId) as { status: string };
+    expect(row.status).toBe('stale');
+  });
+
+  it('registers the relaunched planner in flight while the spawn is pending', async () => {
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
+         VALUES (?, 1, 'bootstrap', 'stale')`,
+      )
+      .run(graphRunId);
+    const seen: boolean[] = [];
+    h.deps.transport.start = async (request) => {
+      seen.push(isPlannerLaunchInFlight(h.db, request.nodeRunId));
+      return {
+        ticketId: h.ticketId,
+        nodeRunId: request.nodeRunId,
+        graphRunId: request.graphRunId,
+        cwd: request.cwd,
+        pid: 4546,
+        startedAt: NOW,
+        processRunId: null,
+        provider: null,
+        providerSessionId: null,
+      } as unknown as Awaited<ReturnType<Deps['transport']['start']>>;
+    };
+    const result = await relaunchBootstrapPlanner(h.deps, { graphRunId });
+    expect(result.kind).toBe('launched');
+    if (result.kind !== 'launched') return;
+    expect(seen).toEqual([true]);
+    expect(isPlannerLaunchInFlight(h.db, result.plannerRunId)).toBe(false);
   });
 
   it('is a no-op for a run that already left planning', async () => {

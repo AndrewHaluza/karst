@@ -15,7 +15,11 @@ import { acquireLease } from '../../../store/graph/leases.js';
 import { recoverGraphRun, type RecoveryDeps } from './recovery.js';
 import { reconcileGraphRun, type ReconcileGraphRunDeps } from './reconcile.js';
 import { electReplan } from './replan.js';
-import { LAUNCH_PREPARATION_TIMEOUT_MS, markLaunchInFlight } from './launchInFlight.js';
+import {
+  LAUNCH_PREPARATION_TIMEOUT_MS,
+  markLaunchInFlight,
+  markPlannerLaunchInFlight,
+} from './launchInFlight.js';
 import { uuidv7 } from './lineage.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
 import { countNodeRunsInStatusesForGraphRun, formatIntegrationNonce } from '../../../store/graph/nodeRuns.js';
@@ -375,6 +379,19 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
       markLaunchInFlight(ctx.db, 133)();
       await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
       expect(nodeRow(ctx, 133).status).toBe('blocked');
+    });
+
+    it('a planner launch in flight does not protect a node with the same numeric id', async () => {
+      // Planner run ids and node run ids come from different tables and can be
+      // equal, so the two registries must stay separate.
+      claim(134, LAUNCH_PREPARATION_TIMEOUT_MS + 1000);
+      const done = markPlannerLaunchInFlight(ctx.db, 134);
+      try {
+        await reconcileGraphRun(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+      } finally {
+        done();
+      }
+      expect(nodeRow(ctx, 134).status).toBe('blocked');
     });
   });
 
@@ -1222,6 +1239,52 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
       expect(relaunched).toEqual([ctx.graphRunId]);
       expect(runRow(ctx).status).toBe('planning');
       expect(result.transitions).toBe(1);
+    });
+
+    it('a launching planner this window is still starting is not relaunched as crashed before spawn', async () => {
+      // The race T1385 reported: the launch claims the planner row and then
+      // awaits `transport.start`. Without the planner in-flight registry this
+      // window's own reconcile reads the row as a pre-spawn crash and launches
+      // a second planner.
+      toPlanning(ctx);
+      insertPlannerRun(ctx, 240, 'launching', { ownerNonce: 'nonce-1' });
+      const relaunched: number[] = [];
+      const debug: string[] = [];
+      const deps = ctx.makeDeps({
+        debug: (line) => debug.push(line),
+        relaunchPlanner: (graphRunId) => relaunched.push(graphRunId),
+      });
+      const done = markPlannerLaunchInFlight(ctx.db, 240);
+      try {
+        const during = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+        expect(plannerRow(ctx, 240).status).toBe('launching');
+        expect(relaunched).toEqual([]);
+        expect(during.transitions).toBe(0);
+        expect(debug.join('\n')).toMatch(/planner 240 has a launch in flight/);
+      } finally {
+        done();
+      }
+      // Once the launch is no longer in flight, the same row is the shape the
+      // sweep already relaunched: crashed before spawn.
+      const after = await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      expect(plannerRow(ctx, 240).status).toBe('stale');
+      expect(relaunched).toEqual([ctx.graphRunId]);
+      expect(after.transitions).toBe(1);
+    });
+
+    it('a node launch in flight does not protect a planner with the same numeric id', async () => {
+      toPlanning(ctx);
+      insertPlannerRun(ctx, 241, 'launching', { ownerNonce: 'nonce-1' });
+      const relaunched: number[] = [];
+      const deps = ctx.makeDeps({ relaunchPlanner: (graphRunId) => relaunched.push(graphRunId) });
+      const done = markLaunchInFlight(ctx.db, 241);
+      try {
+        await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+      } finally {
+        done();
+      }
+      expect(plannerRow(ctx, 241).status).toBe('stale');
+      expect(relaunched).toEqual([ctx.graphRunId]);
     });
 
     it('a launching planner with a demonstrably dead process is marked stale and relaunched', async () => {
