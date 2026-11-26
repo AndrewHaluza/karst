@@ -60,7 +60,7 @@ flowchart TD
 | An older build meets a newer registry | Graph verbs throw "requires exactly v<N>" | Update that window's extension |
 
 ### Rules
-@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:PLANNING-DEPS · @arch:RELATIONS · @arch:BULLETIN · @arch:EVENTS · @arch:V77 · @arch:V82 · @arch:V89 · @arch:V126 · @arch:V127 · @arch:V121 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
+@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:ST-02 · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:PLANNING-DEPS · @arch:RELATIONS · @arch:BULLETIN · @arch:EVENTS · @arch:V77 · @arch:V82 · @arch:V89 · @arch:V126 · @arch:V127 · @arch:V121 · @arch:CLOUD-01 · @arch:SCHEMA-CHECK
 END_DOC_BLOCK: [@arch:ST-00]
 
 ## [@arch:SQLITE] SQLite is source of truth
@@ -116,7 +116,7 @@ The host names a graph terminal tab from two narrow reads: `nodeRunNamingFacts` 
 
 The host closes a graph terminal tab only after a proven success (`approaches/graph/closeOnSuccess.ts`): a node `runCompletionPipeline` integrated, or a planner whose plan `acceptSubmittedPlan`/`acceptSubmittedReplan` accepted and whose process the transport proved ended (`acceptedBootstrapPlannerRunId`/`acceptedReplanPlannerRunId`). `disposeOnSuccess` marks the session first, so the close is no launch failure. Every failure, block, crash or Stop keeps the tab open; a `block`/`replan` node's process tree is stopped while its tab stays open (`stopNodeProcessOnBlocked`).
 
-The agent identity snapshot is part of the same boundary: `approach_graph_runs.agent_identity` changes only through `setGraphRunAgentIdentity` and is read through `graphRunAgentIdentity`. The bootstrap writes it; a user switch (`approaches/graph/modelChange.ts`) replaces it in one transaction. Every planner, replan, node, retry and autorecovery launch of the run reads it, and a NULL snapshot (a pre-v133 run) resolves live. A switch never stops a running session. The Settings or ticket question calls `switchGraphRunModels`.
+The agent identity snapshot (`approach_graph_runs.agent_identity`) is part of the same boundary: see `arch:ST-02`.
 
 The automatic recovery count is part of the same boundary: `auto_recovery_count` and `auto_recovery_reasons` change only through `recordGraphRunAutoRecovery` and `noteGraphRunAutoRecoveryStopped`, and the sweep reads candidates through `blockedGraphRunsForAutoRecovery` (`@arch:GRAPH-AUTORECOVERY`).
 
@@ -143,7 +143,7 @@ Two deliberate, documented exceptions remain:
   `process_runs`, and the run rows, and reporting observes and never reaches
   back (`docs/arch/diagnostics.md`). They read; they never write state.
 
-Continued in `arch:ST-01` (archived-ticket graph sweeps: end open runs, remove terminal node workspaces).
+Continued in `arch:ST-01` (archived-ticket graph sweeps: end open runs, remove terminal node workspaces) and `arch:ST-02` (the agent identity snapshot).
 END_DOC_BLOCK: [@arch:GRAPHRUN]
 
 ## [@arch:ST-01] An archived ticket's graph node workspaces are swept, its run evidence stays
@@ -153,6 +153,14 @@ Split out of `arch:GRAPHRUN`.
 
 Archive ends an archived ticket's open graph runs and removes their node workspaces (T1342). `graphRunsForArchivedTicketsBefore` finds runs of tickets archived before a cutoff; `archivedSweep.ts` cancels them (`ticket archived`) and cleans terminal ones with `includeStaleNodes` (never a `running` node). The read is state-driven: it returns an open run, or a terminal run that still has a cleanable node with a workspace-ledger row, so the 60-second PR tick never re-scans a cleaned history; a terminal run whose only leftover is a `running` node is left out. Only `workspaces/<node>/` is removed — `<run>/artifacts/` and every other subtree stay as evidence; the server reap runs first (`@arch:ORPHANS`).
 END_DOC_BLOCK: [@arch:ST-01]
+
+## [@arch:ST-02] The graph run agent identity snapshot has one writer
+covers: src/store/graph/graphRuns.ts#setGraphRunAgentIdentity, src/store/graph/graphRuns.ts#graphRunAgentIdentity, src/approaches/graph/modelChange.ts#switchGraphRunAccount
+
+Split out of `arch:GRAPHRUN`.
+
+The agent identity snapshot is part of the same boundary: `approach_graph_runs.agent_identity` changes only through `setGraphRunAgentIdentity` and is read through `graphRunAgentIdentity`. The bootstrap writes it; a user switch (`approaches/graph/modelChange.ts`) replaces it in one transaction. Every planner, replan, node, retry and autorecovery launch of the run reads it, and a NULL snapshot (a pre-v133 run) resolves live. A switch never stops a running session. The Settings or ticket question calls `switchGraphRunModels`. A role may also carry an optional `account` (T1386), the account the user picked for that role at a graph usage-limit park (`switchGraphRunAccount`); an absent field means the active account, and the field takes no part in the Settings difference, so a pick never raises the Keep/Switch question.
+END_DOC_BLOCK: [@arch:ST-02]
 
 ## [@arch:GRAPHDEPS] A graph node workspace gets the dependencies of its ticket worktree, for any language
 covers: src/approaches/graph/workspace/depsPlan.ts, src/approaches/graph/workspace/workspaceDeps.ts

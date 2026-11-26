@@ -81,6 +81,9 @@ export interface LaunchIdentity {
   provider: string;
   model?: string;
   effort?: string;
+  /** The account this role is pinned to (a user pick at a usage-limit park,
+   *  @arch:AC-55). Absent → the active account of the core. */
+  account?: string;
 }
 
 /** One node activation's launch request. */

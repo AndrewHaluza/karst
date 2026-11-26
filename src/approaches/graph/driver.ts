@@ -289,7 +289,7 @@ function launchProfileOfRun(
   profile: string,
   ticketId: number,
 ): RoleIdentity | undefined {
-  const pinned = pinnedProfile(parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId)), profile);
+  const pinned = pinnedProfile(parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId), deps.debug), profile);
   if (!pinned) return resolveLaunchProfile(deps, config, profile, ticketId);
   deps.debug?.(
     `[process] graph run ${graphRunId} profile "${profile}" → ${pinned.provider}${pinned.model ? `/${pinned.model}` : ''} (run snapshot)`,
@@ -299,16 +299,18 @@ function launchProfileOfRun(
 
 /** Read the launching ticket's fields through the narrow dep, then resolve once. */
 /** The identity a launch records and hands the transport: the profile id plus
- *  the resolver's provider, model and effort. */
+ *  the resolver's provider, model, effort and (when the user pinned one) the
+ *  account of the run snapshot. */
 function launchIdentityOf(
   profile: string,
-  resolved: Pick<RoleIdentity, 'provider' | 'model' | 'effort'>,
+  resolved: Pick<RoleIdentity, 'provider' | 'model' | 'effort' | 'account'>,
 ): LaunchIdentity {
   return {
     profile,
     provider: resolved.provider,
     ...(resolved.model !== undefined ? { model: resolved.model } : {}),
     ...(resolved.effort !== undefined ? { effort: resolved.effort } : {}),
+    ...(resolved.account !== undefined ? { account: resolved.account } : {}),
   };
 }
 

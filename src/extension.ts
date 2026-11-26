@@ -263,6 +263,8 @@ import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinat
 import { createSupervisedCliTransport, type SupervisedCliTransport, type SupervisedAgentSession } from './approaches/graph/transport/supervisedCliTransport.js';
 import { createGraphUsageBinding } from './extension/graphUsageBinding.js';
 import { createGraphUsageLimitBinding } from './extension/graphUsageLimitBinding.js';
+import { makeGraphAccountPicker } from './extension/graphAccountPicker.js';
+import { makeGraphAccountSeams } from './extension/ops/graphAccountOps.js';
 import { createGraphFirstActivityBinding } from './extension/graphFirstActivityBinding.js';
 import {
   activeGraphRunFor,
@@ -4169,7 +4171,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const rememberedPort = context.workspaceState.get<number>(HOOK_PORT_KEY) ?? 0;
   const graphUsageLimit = createGraphUsageLimitBinding({ store: () => graphCoordinatorStore, transaction: <T>(fn: () => T): T => runImmediateTransaction(graphCoordinatorStore!.db, fn), now: () => new Date().toISOString(), // T1380
     transport: () => graphTransport, recovery: () => graphRecoverySeams, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), manifest: () => currentManifest(), graphConfigOf: (id) => graphApproachConfigFor(id),
-    ticketLaunchFieldsOf: (id) => ticketLaunchFields(getTicket(graphCoordinatorStore!, id)), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, debug: (m) => logger.debug(m), logError });
+    ticketLaunchFieldsOf: (id) => ticketLaunchFields(getTicket(graphCoordinatorStore!, id)), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, debug: (m) => logger.debug(m), logError,
+    // T1386: Pick account… reads the Accounts menu the settings tab shows and writes only the run snapshot.
+    ...makeGraphAccountSeams(accountsWiring?.ops), pickAccount: makeGraphAccountPicker(), activity: carriedPick.carryActivity });
   const graphFirstActivity = createGraphFirstActivityBinding({ db: () => graphCoordinatorStore?.db, transaction: <T>(fn: () => T): T => runImmediateTransaction(graphCoordinatorStore!.db, fn), now: () => new Date().toISOString(), awakeElapsedMs: defaultSleepLedger.awakeElapsedMs, transport: () => graphTransport, debug: (m) => logger.debug(m), logError });
   const interactiveUsageLimit = createInteractiveUsageLimitBinding({ store: localStore, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), sessionProviderFor, // D160 AC-42
     switchSession: (id, sel) => switchAgentSession(id, sel.provider, sel.model, null), disposeSession: (id) => sessions.disposeSession(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); } });

@@ -296,6 +296,9 @@
   "src/approaches/graph/integration/claimEvidence.ts": [
     "arch:GRAPH-PRESERVE"
   ],
+  "src/approaches/graph/modelChange.ts#switchGraphRunAccount": [
+    "arch:ST-02"
+  ],
   "src/approaches/graph/workspace/depsPlan.ts": [
     "arch:GRAPHDEPS"
   ],
@@ -1146,8 +1149,14 @@
   "src/store/graph/**": [
     "arch:GRAPHRUN"
   ],
+  "src/store/graph/graphRuns.ts#graphRunAgentIdentity": [
+    "arch:ST-02"
+  ],
   "src/store/graph/graphRuns.ts#graphRunsForArchivedTicketsBefore": [
     "arch:ST-01"
+  ],
+  "src/store/graph/graphRuns.ts#setGraphRunAgentIdentity": [
+    "arch:ST-02"
   ],
   "src/store/hookActivity.ts": [
     "arch:HOOK-LIVE"

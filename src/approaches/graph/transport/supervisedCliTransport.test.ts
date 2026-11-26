@@ -11,7 +11,7 @@
  * sweep both see them — the 869ed2n50 detached-process class, by name.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync, readdirSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { ensureClaudeWorkspaceTrusted } from '../../../agent/workspaceTrust.js';
@@ -163,6 +163,55 @@ describe('SupervisedCLITransport', () => {
     const transport = createSupervisedCliTransport(h.deps);
     await transport.start({ ...LAUNCH });
     expect(calls[0]).not.toHaveProperty('identity');
+  });
+
+  it('passes a pinned account to buildInteractiveCommand', async () => {
+    const h = harness(4242);
+    const debug = vi.fn();
+    const seen: Array<Record<string, unknown>> = [];
+    const adapter = {
+      requiredBinary: 'fake',
+      runHeadless: async () => {
+        throw new Error('unused');
+      },
+      buildInteractiveCommand: (o: Record<string, unknown>) => {
+        seen.push(o);
+        return { command: 'claude', args: [], env: {} };
+      },
+    } as unknown as AgentAdapter;
+    const transport = createSupervisedCliTransport({ ...h.deps, debug });
+    const request: SupervisedLaunchRequest = {
+      ...LAUNCH,
+      adapter,
+      identity: { profile: 'worker', provider: 'claude', account: 'work' },
+    };
+    await transport.start(request);
+    expect(seen[0]).toMatchObject({ policy: 'gate', cwd: '/wt/n1', account: 'work' });
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('worker'));
+    expect(String(debug.mock.calls.find((c) => String(c[0]).includes('account'))?.[0])).toContain('work');
+  });
+
+  it('passes no account key when the launch pins none', async () => {
+    const h = harness(4242);
+    const seen: Array<Record<string, unknown>> = [];
+    const adapter = {
+      requiredBinary: 'fake',
+      runHeadless: async () => {
+        throw new Error('unused');
+      },
+      buildInteractiveCommand: (o: Record<string, unknown>) => {
+        seen.push(o);
+        return { command: 'claude', args: [], env: {} };
+      },
+    } as unknown as AgentAdapter;
+    const transport = createSupervisedCliTransport(h.deps);
+    const request: SupervisedLaunchRequest = {
+      ...LAUNCH,
+      adapter,
+      identity: { profile: 'worker', provider: 'claude', model: 'claude-opus-5' },
+    };
+    await transport.start(request);
+    expect(seen[0]).not.toHaveProperty('account');
   });
 
   it('carries the caller-persisted owner nonce onto the session and records identity after spawn', async () => {

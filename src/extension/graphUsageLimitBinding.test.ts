@@ -26,11 +26,14 @@ import type { GraphApproachConfig, Manifest } from '../manifest/types.js';
 import type { GraphLaunchTicketFields } from '../approaches/graph/profileResolver.js';
 import type { RecoveryRefusalReason } from '../approaches/graph/coordinator/recovery.js';
 import type { GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
-import { PICK_LABEL, RETRY_LABEL, DISMISS_LABEL } from './ops/interactiveUsageLimitActions.js';
+import type { AccountsConfig } from '../agent/accounts/types.js';
+import { PICK_LABEL, PICK_ACCOUNT_LABEL, RETRY_LABEL, DISMISS_LABEL } from './ops/interactiveUsageLimitActions.js';
 import type { SupervisedAgentSession } from '../approaches/graph/transport/agentTransport.js';
 import * as vscode from 'vscode';
 import {
   createGraphUsageLimitBinding,
+  graphAccountActivity,
+  graphAccountRefusalNotice,
   parkedGraphRole,
   type GraphUsageLimitBindingDeps,
   type GraphUsageLimitSignal,
@@ -231,6 +234,27 @@ function withSessions(h: Harness, sessions: readonly SupervisedAgentSession[]): 
   return h;
 }
 
+/** The machine-local accounts: `default` plus the stored `work` account. */
+const ACCOUNTS: AccountsConfig = {
+  claude: {
+    active: 'default',
+    list: { work: { kind: 'subscription', source: 'folder', dir: '/accounts/work' } },
+  },
+};
+
+/**
+ * The account seams of the graph park. `names` is the list the parked core
+ * shows (`default` first); `picked` is the QuickPick answer (undefined = the
+ * user closed it).
+ */
+function withAccounts(h: Harness, names: readonly string[], picked?: string, active = names[0]): Harness {
+  h.deps.accountsOf = vi.fn(async () => names.map((name) => ({ name, active: name === active })));
+  h.deps.accountStatus = vi.fn(async () => 'signed-in' as const);
+  h.deps.accountsConfig = () => ACCOUNTS;
+  h.deps.pickAccount = vi.fn(async () => picked);
+  return h;
+}
+
 /** Recovery seams whose Resume is refused (the guidance must surface). */
 function refusedSeams(reason: RecoveryRefusalReason = 'launch-loop'): GraphRecoverySeams {
   return {
@@ -309,6 +333,223 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
 
     expect(h.ask).toHaveBeenCalledTimes(2);
+    expect(h.recover).not.toHaveBeenCalled();
+  });
+
+  it('offers no Pick account when the parked core has one account', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [DISMISS_LABEL]), ['default']);
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.ask).toHaveBeenCalledWith(
+      'Graph node of GP-1 hit the claude usage limit',
+      PICK_LABEL,
+      RETRY_LABEL,
+      DISMISS_LABEL,
+    );
+    expect(h.deps.pickAccount).not.toHaveBeenCalled();
+  });
+
+  it('Pick account pins ONLY the parked role account, then resumes, in that order', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work'], 'work');
+    const activity = vi.fn();
+    h.deps.activity = activity;
+    // The resume must see the pinned account: proving the switch ran first.
+    const atResume: Array<string | undefined> = [];
+    h.recover.mockImplementation(() => {
+      const snapshot = JSON.parse(graphRunAgentIdentity(store.db, fixture.graphRunId)!);
+      atResume.push(snapshot.roles.worker.account);
+      return { kind: 'no-op' as const };
+    });
+
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(h.ask).toHaveBeenCalledWith(
+      'Graph node of GP-1 hit the claude usage limit',
+      PICK_LABEL,
+      PICK_ACCOUNT_LABEL,
+      RETRY_LABEL,
+      DISMISS_LABEL,
+    );
+    expect(h.deps.pickAccount).toHaveBeenCalledWith('claude', [
+      { name: 'default', current: true, status: 'signed-in' },
+      { name: 'work', current: false, status: 'signed-in' },
+    ]);
+    const identity = JSON.parse(graphRunAgentIdentity(store.db, fixture.graphRunId)!);
+    expect(identity.roles).toEqual({
+      expert: { provider: 'claude', model: 'claude-opus-5-5', source: 'approach' },
+      worker: {
+        provider: 'claude',
+        model: 'claude-sonnet-4-5',
+        effort: 'high',
+        source: 'approach',
+        account: 'work',
+      },
+      fast: { provider: 'claude', model: 'claude-haiku-4', source: 'approach' },
+    });
+    expect(atResume).toEqual(['work']);
+    expect(h.recover).toHaveBeenCalledWith({ ticketId, graphRunId: fixture.graphRunId, mode: 'resume' });
+    expect(activity).toHaveBeenCalledWith(
+      ticketId,
+      'graph worker runs under account work (picked at the usage limit)',
+    );
+  });
+
+  it('marks the pinned account of the parked role as the current one', async () => {
+    const fixture = nodeFixture();
+    store.db
+      .prepare('UPDATE approach_graph_runs SET agent_identity = ? WHERE id = ?')
+      .run(
+        JSON.stringify({
+          v: 1,
+          roles: { ...ROLES.roles, worker: { ...ROLES.roles.worker, account: 'work' } },
+        }),
+        fixture.graphRunId,
+      );
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work'], 'work');
+    // No probe wired: the rows still list, with an unknown state.
+    h.deps.accountStatus = undefined;
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.deps.pickAccount).toHaveBeenCalledWith('claude', [
+      { name: 'default', current: false, status: 'unknown' },
+      { name: 'work', current: true, status: 'unknown' },
+    ]);
+  });
+
+  it('a pick of default removes the pin and the Activity names the active account that runs', async () => {
+    const fixture = nodeFixture();
+    store.db
+      .prepare('UPDATE approach_graph_runs SET agent_identity = ? WHERE id = ?')
+      .run(
+        JSON.stringify({
+          v: 1,
+          roles: { ...ROLES.roles, worker: { ...ROLES.roles.worker, account: 'home' } },
+        }),
+        fixture.graphRunId,
+      );
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work', 'home'], 'default', 'work');
+    h.deps.accountsConfig = () => ({
+      claude: {
+        active: 'work',
+        list: {
+          work: { kind: 'subscription', source: 'folder', dir: '/accounts/work' },
+          home: { kind: 'subscription', source: 'folder', dir: '/accounts/home' },
+        },
+      },
+    });
+    const activity = vi.fn();
+    h.deps.activity = activity;
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    const identity = JSON.parse(graphRunAgentIdentity(store.db, fixture.graphRunId)!);
+    expect(identity.roles.worker).not.toHaveProperty('account');
+    expect(activity).toHaveBeenCalledWith(
+      ticketId,
+      'graph worker runs under the active account work (picked default at the usage limit)',
+    );
+    expect(h.recover).toHaveBeenCalledWith({ ticketId, graphRunId: fixture.graphRunId, mode: 'resume' });
+  });
+
+  for (const missing of ['accountsOf', 'pickAccount', 'accountsConfig'] as const) {
+    it(`offers no Pick account when the ${missing} seam is not wired`, async () => {
+      const fixture = nodeFixture();
+      const h = withAccounts(harness(fixture, [DISMISS_LABEL]), ['default', 'work']);
+      h.deps[missing] = undefined;
+      await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+      expect(h.ask).toHaveBeenCalledWith(
+        'Graph node of GP-1 hit the claude usage limit',
+        PICK_LABEL,
+        RETRY_LABEL,
+        DISMISS_LABEL,
+      );
+    });
+  }
+
+  it('lists the accounts with none marked when no row is active and no account is pinned', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work'], 'work', 'none');
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.deps.pickAccount).toHaveBeenCalledWith('claude', [
+      { name: 'default', current: false, status: 'signed-in' },
+      { name: 'work', current: false, status: 'signed-in' },
+    ]);
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+
+  it('a pick with no Activity seam still pins the account and resumes', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work'], 'work');
+    h.deps.activity = undefined;
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(JSON.parse(graphRunAgentIdentity(store.db, fixture.graphRunId)!).roles.worker.account).toBe('work');
+    expect(h.recover).toHaveBeenCalledWith({ ticketId, graphRunId: fixture.graphRunId, mode: 'resume' });
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+
+  it('an account pick after the store is gone writes nothing and does not resume', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work'], 'work');
+    let calls = 0;
+    h.deps.store = () => (++calls === 1 ? store : undefined);
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.deps.pickAccount).toHaveBeenCalledTimes(1);
+    expect(graphRunAgentIdentity(store.db, fixture.graphRunId)).toBe(JSON.stringify(ROLES));
+    expect(h.recover).not.toHaveBeenCalled();
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+
+  it('offers no Pick account when the account list is unavailable', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [DISMISS_LABEL]), ['default', 'work']);
+    h.deps.accountsOf = async () => undefined;
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.ask).toHaveBeenCalledWith(
+      'Graph node of GP-1 hit the claude usage limit',
+      PICK_LABEL,
+      RETRY_LABEL,
+      DISMISS_LABEL,
+    );
+    expect(h.deps.pickAccount).not.toHaveBeenCalled();
+  });
+
+  it('a cancelled account picker asks again and writes nothing', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL, DISMISS_LABEL]), ['default', 'work']);
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.ask).toHaveBeenCalledTimes(2);
+    expect(h.deps.pickAccount).toHaveBeenCalledTimes(1);
+    expect(graphRunAgentIdentity(store.db, fixture.graphRunId)).toBe(JSON.stringify(ROLES));
+    expect(h.recover).not.toHaveBeenCalled();
+  });
+
+  it('an account pick the switch refuses shows a notice and asks again', async () => {
+    const fixture = nodeFixture();
+    const h = withAccounts(
+      harness(fixture, [PICK_ACCOUNT_LABEL, undefined, DISMISS_LABEL]),
+      ['default', 'gone'],
+      'gone',
+    );
+    h.deps.accountsConfig = () => ({ claude: { active: 'default', list: {} } });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+
+    expect(h.ask).toHaveBeenCalledWith(
+      "Karst did not switch the graph worker of this run to the claude account 'gone': it is not a stored claude account.",
+    );
+    expect(h.debug).toHaveBeenCalledWith(
+      `[graph] usage-limit: account "gone" not pinned for run ${fixture.graphRunId} role "worker" (unknown-account)`,
+    );
+    // The notice is not a question: two prompts still reached the user.
+    expect(h.ask.mock.calls.filter((call) => call.length > 1)).toHaveLength(2);
+    expect(graphRunAgentIdentity(store.db, fixture.graphRunId)).toBe(JSON.stringify(ROLES));
     expect(h.recover).not.toHaveBeenCalled();
   });
 
@@ -916,5 +1157,34 @@ describe('parkedGraphRole (T1380)', () => {
 
   it('falls back to worker for a node with no agent name', () => {
     expect(parkedGraphRole('node', null)).toBe('worker');
+  });
+});
+
+describe('graphAccountRefusalNotice', () => {
+  const head = "Karst did not switch the graph expert of this run to the codex account 'work': ";
+  it.each([
+    ['unknown-account', 'it is not a stored codex account.'],
+    ['no-snapshot', 'the graph run has no identity snapshot.'],
+    ['role-missing', 'the expert role is not in the run snapshot.'],
+    ['not-found', 'the graph run no longer exists.'],
+  ] as const)('names the cause of %s', (outcome, cause) => {
+    expect(graphAccountRefusalNotice('codex', 'expert', 'work', outcome)).toBe(head + cause);
+  });
+});
+
+describe('graphAccountActivity', () => {
+  it('names the active account when default is picked while another account is active', () => {
+    expect(graphAccountActivity('worker', 'default', 'work')).toBe(
+      'graph worker runs under the active account work (picked default at the usage limit)',
+    );
+  });
+
+  it.each([
+    ['default', 'default', 'graph worker runs under account default (picked at the usage limit)'],
+    ['default', undefined, 'graph worker runs under account default (picked at the usage limit)'],
+    ['home', 'work', 'graph worker runs under account home (picked at the usage limit)'],
+    ['home', undefined, 'graph worker runs under account home (picked at the usage limit)'],
+  ] as const)('names the picked account %s when the active account is %s', (chosen, active, text) => {
+    expect(graphAccountActivity('worker', chosen, active)).toBe(text);
   });
 });
