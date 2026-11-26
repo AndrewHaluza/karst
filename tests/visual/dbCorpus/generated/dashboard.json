@@ -727,6 +727,7 @@
     "kind": "manual"
   },
   "canAddSubtask": true,
+  "canArchive": true,
   "canClose": true,
   "canDetachSubtask": false,
   "canReopen": false,
