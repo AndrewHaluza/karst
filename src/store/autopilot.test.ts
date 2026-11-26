@@ -1,11 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { openStore } from './db.js';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { setStage } from './stages.js';
 import { stageBlock } from './stageBlocks.js';
 import {
   claimAutopilotTicket,
   decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, grantAutopilotExtra, getAutopilotSessionOwner,
+  baseRedRuns, baseRedWaitStart, markBaseRedStopped, markBaseRedWait, markStaleRebaseStopped, staleRebaseRuns,
   getAutopilotRerun, markAutopilotRerun, repairStaleAutopilotParks, setAutopilotStopped, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
 } from './autopilot.js';
 
@@ -234,5 +235,48 @@ describe('repairStaleAutopilotParks (T1122)', () => {
     expect(t.stoppedHeadSha).toBeNull();
     expect(t.stopAfter).toBe(true);
     expect(stageBlock(store, id, 'ship')?.reason).toBe('blocked: not merged yet');
+  });
+});
+
+describe('base-red markers (T1383)', () => {
+  let store: Store;
+  let id: number;
+  beforeEach(() => { store = openStore(':memory:'); id = createTicket(store, { key: 'BR-1', title: 't' }).id; });
+  const row = (runId: string, pattern: string, at = 1) =>
+    markAutopilotRerun(store, id, { repo: 'r', runId, checkName: 'V', headSha: 'h', pattern, rerunAt: at });
+
+  it('reads only base-red rebase markers, with the base and the stopped flag', () => {
+    row('100', 'base-red:develop', 5);
+    row('101', 'stale-generated:npm run x');
+    row('900', 'base-red-wait:100');
+    expect(baseRedRuns(store, id, 'r', 'V')).toEqual([{ runId: '100', base: 'develop', stopped: false, rerunAt: 5 }]);
+    markBaseRedStopped(store, id, 'r', '100', 'V');
+    markBaseRedStopped(store, id, 'r', '100', 'V');
+    expect(baseRedRuns(store, id, 'r', 'V')).toEqual([{ runId: '100', base: 'develop', stopped: true, rerunAt: 5 }]);
+    expect(getAutopilotRerun(store, id, 'r', '100', 'V')?.pattern).toBe('base-red:develop (stopped)');
+  });
+
+  it('does not let staleRebaseRuns read a base-red row or tag it stopped', () => {
+    row('100', 'base-red:develop');
+    expect(staleRebaseRuns(store, id, 'r', 'V')).toEqual([]);
+    markStaleRebaseStopped(store, id, 'r', '100', 'V');
+    expect(getAutopilotRerun(store, id, 'r', '100', 'V')?.pattern).toBe('base-red:develop');
+  });
+
+  it('writes one wait row per develop run and gives the earliest start of a PR run', () => {
+    const w = { repo: 'r', checkName: 'V', prRunId: '100', headSha: 'h' };
+    expect(markBaseRedWait(store, id, { ...w, baseRunId: '900', at: 10 })).toBe(true);
+    expect(markBaseRedWait(store, id, { ...w, baseRunId: '900', at: 20 })).toBe(false);
+    expect(markBaseRedWait(store, id, { ...w, baseRunId: '901', at: 30 })).toBe(true);
+    expect(baseRedWaitStart(store, id, 'r', 'V', '100')).toBe(10);
+    expect(baseRedWaitStart(store, id, 'r', 'V', '555')).toBeNull();
+    expect(baseRedWaitStart(store, id, 'r', 'other', '100')).toBeNull();
+    expect(getAutopilotRerun(store, id, 'r', '900', 'V')?.pattern).toBe('base-red-wait:100');
+  });
+
+  it('keeps a wait row apart from the rebase marker of the PR run', () => {
+    markBaseRedWait(store, id, { repo: 'r', baseRunId: '900', checkName: 'V', prRunId: '100', headSha: 'h', at: 1 });
+    expect(row('100', 'base-red:develop')).toBe(true);
+    expect(baseRedRuns(store, id, 'r', 'V').map((r) => r.runId)).toEqual(['100']);
   });
 });

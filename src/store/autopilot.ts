@@ -349,6 +349,56 @@ export function markStaleRebaseStopped(store: Store, ticketId: number, repo: str
     .run(STALE_STOPPED_SUFFIX, ticketId, repo, runId, checkName, STALE_STOPPED_SUFFIX);
 }
 
+/** A rebase marker of the base-red step (T1383, @arch:AP-12): its PR run id, the base it named, and whether it stopped with no push. */
+export interface BaseRedRun { readonly runId: string; readonly base: string; readonly stopped: boolean; readonly rerunAt: number }
+
+const BASE_RED_REBASE = 'base-red:';
+
+/** The PR runs on which the base-red step rebased this check. A wait row (`base-red-wait:`) is not read. */
+export function baseRedRuns(store: Store, ticketId: number, repo: string, checkName: string): BaseRedRun[] {
+  const rows = store.db
+    .prepare("SELECT run_id, pattern, rerun_at FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ? AND pattern LIKE 'base-red:%'")
+    .all(ticketId, repo, checkName) as Array<{ run_id: string; pattern: string; rerun_at: number }>;
+  return rows.map((r) => {
+    const stopped = r.pattern.endsWith(STALE_STOPPED_SUFFIX);
+    const base = r.pattern.slice(BASE_RED_REBASE.length, stopped ? -STALE_STOPPED_SUFFIX.length : undefined);
+    return { runId: r.run_id, base, stopped, rerunAt: r.rerun_at };
+  });
+}
+
+/** Tag the marker of a base-red rebase that stopped with no push, so the next tick does not wait on that run. */
+export function markBaseRedStopped(store: Store, ticketId: number, repo: string, runId: string, checkName: string): void {
+  store.db
+    .prepare("UPDATE autopilot_reruns SET pattern = pattern || ? WHERE ticket_id = ? AND repo = ? AND run_id = ? AND check_name = ? AND pattern LIKE 'base-red:%' AND pattern NOT LIKE '%' || ?")
+    .run(STALE_STOPPED_SUFFIX, ticketId, repo, runId, checkName, STALE_STOPPED_SUFFIX);
+}
+
+/** One wait of the base-red step: keyed by the DEVELOP run, so it never takes the key of the rebase marker on the PR run. */
+export interface BaseRedWait {
+  readonly repo: string;
+  readonly baseRunId: string;
+  readonly checkName: string;
+  readonly prRunId: string;
+  readonly headSha: string;
+  readonly at: number;
+}
+
+/** Record a wait for a red base. False when this (check, develop run) already has one: the caller writes no second event. */
+export function markBaseRedWait(store: Store, ticketId: number, w: BaseRedWait): boolean {
+  return markAutopilotRerun(store, ticketId, {
+    repo: w.repo, runId: w.baseRunId, checkName: w.checkName, headSha: w.headSha, pattern: `base-red-wait:${w.prRunId}`, rerunAt: w.at,
+  });
+}
+
+/** When the first wait for this check on this PR run started, or null. */
+export function baseRedWaitStart(store: Store, ticketId: number, repo: string, checkName: string, prRunId: string): number | null {
+  const row = store.db
+    .prepare('SELECT MIN(rerun_at) AS at FROM autopilot_reruns WHERE ticket_id = ? AND repo = ? AND check_name = ? AND pattern = ?')
+    .get(ticketId, repo, checkName, `base-red-wait:${prRunId}`) as { at: number | null };
+  return row.at;
+}
+
+
 /**
  * One-time repair of a stale autopilot park (T1122): a park that landed after a send-back left an `auto-fix` awaiting-merge block
  * on a ship row that is not shipped, and a stop reason its ship block no longer carries. Idempotent. Returns the count repaired.
