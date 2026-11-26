@@ -266,14 +266,14 @@ describe('switchGraphRunAccount', () => {
     expect(graphRunAgentIdentity(h.db, sparse)).toBe(snapshot);
   });
 
-  it('pins the built-in default account, so the role does not run under another active account', () => {
+  it('removes the override for the name default', () => {
     const h = harness();
     const id = runWith(h, 'p1', 'running');
     const snapshot = parseRunIdentities(graphRunAgentIdentity(h.db, id))!;
     snapshot.roles.expert = { ...snapshot.roles.expert!, account: 'work' };
     setGraphRunAgentIdentity(h.db, id, serializeRunIdentities(snapshot), NOW);
     expect(switchGraphRunAccount(deps(h), id, 'expert', 'default')).toBe('switched');
-    expect(parseRunIdentities(graphRunAgentIdentity(h.db, id))?.roles.expert?.account).toBe('default');
+    expect(parseRunIdentities(graphRunAgentIdentity(h.db, id))?.roles.expert).not.toHaveProperty('account');
   });
 });
 
