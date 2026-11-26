@@ -72,9 +72,11 @@ export function ApproachInstallActions({ id, installed }: ApproachInstallActions
             </Button>
           </>
         ) : (
+          // The first step is a quiet danger text button; the confirm step is not.
           <DestructiveButton
             action="uninstall-approach"
             size="sm"
+            data-quiet="true"
             busy={uninstall.busy}
             disabled={uninstall.disabled}
             onClick={() => setConfirming(true)}
@@ -84,9 +86,11 @@ export function ApproachInstallActions({ id, installed }: ApproachInstallActions
         )
       ) : (
         <Button
-          variant="secondary"
+          variant="primary"
           size="sm"
           className="approach-install"
+          // The glyph fills the spinner slot; without it the slot shows as an empty gap.
+          icon="download"
           busy={install.busy}
           spinning={install.spinning}
           disabled={install.disabled}

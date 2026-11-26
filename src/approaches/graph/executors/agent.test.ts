@@ -61,6 +61,7 @@ function fakeTransport(capability: boolean): FakeTransport {
         ownerNonce: 'n',
         startedAt: '2026-08-12T00:00:00.000Z',
         processRunId: null,
+        provider: null,
         providerSessionId: null,
         terminal: {} as never,
       };

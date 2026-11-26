@@ -1,0 +1,5 @@
+{
+  "wide": { "layout": "stacked", "order": ["quality-uat", "quality-review"] },
+  "mid": { "layout": "stacked", "order": ["quality-uat", "quality-review"] },
+  "narrow": { "layout": "stacked", "order": ["quality-uat", "quality-review"] }
+}

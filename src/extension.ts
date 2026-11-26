@@ -209,6 +209,7 @@ import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWa
 import { createCodexRolloutWatchLoop, CODEX_ROLLOUT_WATCH_INTERVAL_MS } from './extension/ops/codexRolloutWatchLoop.js';
 import { bridgePaths } from './agent/bridge/bridgeDir.js';
 import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
+import { isGraphSessionEnv } from './approaches/graph/transport/env.js';
 import { makeTranscriptReader } from './agent/claudeTranscriptRead.js';
 import { createLiveHeadlessBinding } from './extension/liveHeadlessBinding.js';
 import { sandboxCwdFor } from './agent/sandboxTranscriptCwd.js';
@@ -260,6 +261,7 @@ import {
 import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
 import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinator/replan.js';
 import { createSupervisedCliTransport, type SupervisedCliTransport, type SupervisedAgentSession } from './approaches/graph/transport/supervisedCliTransport.js';
+import { createGraphUsageBinding } from './extension/graphUsageBinding.js';
 import {
   activeGraphRunFor,
   graphTicketSurface,
@@ -4481,6 +4483,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ownerNonce: identity.ownerNonce,
         startedAt: identity.startedAt,
         processRunId: identity.processRunId,
+        provider: null, // T1370: a re-attached session does not know its provider; its usage reading does not resume
         providerSessionId: null,
         terminal: wrapRevivedGraphTerminal(terminal),
       };
@@ -4758,6 +4761,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
   };
   const graphClaimEvidence = createGraphClaimEvidence(graphCompletionPipelineDeps, logError);
+  const graphUsage = createGraphUsageBinding({ endpointUrl: () => endpoint?.url, configDir: settingsDir, projectKey: () => projectEndpointKey(currentProject()?.slug), sessions: () => graphTransport?.sessions() ?? [], dispatch: (payload) => { dispatchHook(localStore, payload, notifyHook, shouldApplyHookState, sessionProviderFor, hookChannelRecorder, logger.debug); }, projectsDirFor: (sessionId) => resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)), debug: (m) => logger.debug(m), onError: logError }); // T1370
 
   // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are
   // REAL vscode terminals, remembered in the identity registry so a reload
@@ -4831,6 +4835,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!gs) return undefined;
       return resolveGraphDiagnosticIdentity(gs.db, graphRunId);
     },
+    hookChannelFor: graphUsage.hookChannelFor, // T1370 token accounting
   });
 
   /* ------------------------------------------------------------------ */
@@ -6395,6 +6400,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const terminals = [...vscode.window.terminals];
       logger.debug(`[claude] sweep tick: ${terminals.length} terminals`);
       for (const terminal of terminals) {
+        // T1370: a graph planner/node terminal has no ticket session; the
+        // graph pass below reads it from its launch-pinned session id.
+        if (isGraphSessionEnv(terminalEnv(terminal))) continue;
         const named = terminalIdentity.identify(terminal);
         if (named?.identity?.provider !== 'claude') continue;
         const worktree = listWorktreesByTicket(localStore, named.ticketId)[0];
@@ -6454,6 +6462,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           },
         );
       }
+      await graphUsage.sweep(); // T1370: graph planner and node sessions, same dispatch seam
     } catch (error) {
       logError('karst: claude transcript usage watch failed', error);
     } finally {

@@ -258,11 +258,7 @@ Every `command` named in `workflow` must likewise resolve to a fetched
 Scope `include` narrowly. Pointing at a repository root usually drags in demo
 commands that pollute the materialized plugin.
 
-### Built-in: Dynamic Graph (experimental)
-
-> **Experimental — under active development.** Interfaces, config and behaviour
-> are expected to change. Prefer a conventional approach for work you care
-> about.
+### Built-in: Dynamic Graph
 
 Karst ships one built-in approach that does not hand implementation to a single
 long session. A planner agent decomposes the ticket into a DAG of work nodes,

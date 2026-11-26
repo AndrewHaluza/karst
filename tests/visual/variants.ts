@@ -49,6 +49,7 @@ import {
   LONG_PATH_SETTINGS,
   MANUAL_SETTINGS,
   REALISTIC_SETTINGS,
+  ROSTER_SETTINGS,
 } from './realisticSettings.js';
 import {
   getCorpus,
@@ -944,18 +945,21 @@ function qualityStallVariant(id: string, stallDetection: Record<string, unknown>
       baseline: `settings--${id}`,
       themes: DARK_ONLY,
     }),
-    route: { section: 'quality' },
+    // T1373: the Review section now sits below the UAT rows, below the fixed viewport; scroll to the stall row so the
+    // shot still shows the state this variant exists for (the shell scrolls inside a fixed page).
+    route: { section: 'quality', scrollTo: '[name="reviewStallEnabled"]' },
   };
 }
 
 /** Quality route with UAT gates in one OOM-kill state: default, host-selected, or gate disabled (T853). */
-function qualityKillVariant(id: string, gate: Record<string, unknown>): Variant {
-  const manifest = { ...REALISTIC_SETTINGS.manifest, uat: { ...REALISTIC_SETTINGS.manifest.uat, gates: [{ name: 'unit', command: 'npm', args: ['test'], ...gate }] } };
+function qualityKillVariant(id: string, gate: Record<string, unknown>, width?: number): Variant {
+  const manifest = { ...REALISTIC_SETTINGS.manifest, uat: { ...REALISTIC_SETTINGS.manifest.uat, gates: [{ name: 'unit', kind: 'command', command: 'npm', args: ['test'], ...gate }] } };
   return {
     ...variant('settings', id, () => stateMessage({ ...REALISTIC_SETTINGS, manifest } as never), {
       baseline: `settings--${id}`,
       themes: DARK_ONLY,
       skipLayout: true,
+      ...(width === undefined ? {} : { width }),
     }),
     route: { section: 'quality', scrollTo: '.gate-block' },
   };
@@ -1045,12 +1049,21 @@ const rolesGraphVariants = (): Variant[] =>
     route: { section: 'agents', hash: formatAgentsHash(route) },
   }));
 
-/** T1297 SET-26: the graph approach card at the wide, mid and narrow tiers (@ui:UI-R57). */
+/**
+ * T1297 SET-26: the graph approach card at the wide, mid and narrow tiers (@ui:UI-R57).
+ * T1374: the agents, limits and planner prompt moved off the card into the Edit
+ * drawer, so each shot opens that drawer instead of the roster card.
+ */
 const APPROACHES_GRAPH = [
   ['approaches-graph', 1100],
   ['approaches-graph-mid', 800],
   ['approaches-graph-narrow', 630],
 ] as const;
+
+/** The Edit button of one roster card (`text-is`, so the switch and Install are never matched). */
+const editCard = (id: string): string => `[data-approach="${id}"] button:text-is("Edit")`;
+
+const openGraphDrawer = [editCard('karst-graph-engineering')];
 
 const approachesGraphVariants = (): Variant[] =>
   APPROACHES_GRAPH.map(([id, width]) => ({
@@ -1060,9 +1073,50 @@ const approachesGraphVariants = (): Variant[] =>
       // The approaches route layout run already covers the page at every width.
       skipLayout: true,
       width,
+      // A fixed overlay: the shot is the viewport, not the page height below it.
+      capture: 'viewport',
+      clicks: openGraphDrawer,
     }),
     route: { section: 'approaches' },
   }));
+
+/**
+ * T1374: the roster at the wide and narrow tiers (Installed, Available, Built-in,
+ * with the graph card's one-line summary and no pickers or limit inputs), and the
+ * drawer of a git-sourced approach at the wide tier (@ui:UI-R57).
+ */
+const APPROACHES_ROSTER = [
+  ['approaches-roster', 1100],
+  ['approaches-roster-narrow', 630],
+] as const;
+
+const approachesRosterVariants = (): Variant[] =>
+  APPROACHES_ROSTER.map(([id, width]) => ({
+    ...variant('settings', id, () => stateMessage(ROSTER_SETTINGS), {
+      baseline: `settings--${id}`,
+      themes: DARK_ONLY,
+      // The approaches route layout run already covers the page at every width.
+      skipLayout: true,
+      width,
+    }),
+    route: { section: 'approaches' },
+  }));
+
+const approachesDrawerGitVariants = (): Variant[] => [
+  {
+    ...variant('settings', 'approaches-drawer-git', () => stateMessage(ROSTER_SETTINGS), {
+      baseline: 'settings--approaches-drawer-git',
+      themes: DARK_ONLY,
+      // The approaches route layout run already covers the page at every width.
+      skipLayout: true,
+      width: 1100,
+      // A fixed overlay: the shot is the viewport, not the page height below it.
+      capture: 'viewport',
+      clicks: [editCard('team-review')],
+    }),
+    route: { section: 'approaches' },
+  },
+];
 
 const AUTOPILOT_FAULT = 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1';
 const AUTOPILOT_TIERS = [['mid', 800], ['narrow', 480]] as const;
@@ -1218,11 +1272,16 @@ const settingsVariants = (): Variant[] => [
   qualityKillVariant('quality-oom-default', {}),
   qualityKillVariant('quality-oom-host', { onResourceKill: 'host' }),
   qualityKillVariant('quality-oom-disabled', { enabled: false }),
+  // T1373 (@ui:UI-R55): the same gate at the 400 px tier, where the container is under 700 px and a gate is a card.
+  // skipLayout through `qualityKillVariant`: `route-quality` already opens the page at every settings width.
+  qualityKillVariant('quality-oom-narrow', {}, 400),
   ...autopilotVariants(),
   ...navNarrowVariants(),
   ...rolesNarrowVariants(),
   ...rolesGraphVariants(),
   ...approachesGraphVariants(),
+  ...approachesRosterVariants(),
+  ...approachesDrawerGitVariants(),
   // T1297 Q11: the General tab discarded at once, with the 5 s "Changes discarded · Undo" offer. One
   // click toggles a saved checkbox (the Discard button is disabled while clean), the second discards it.
   {
