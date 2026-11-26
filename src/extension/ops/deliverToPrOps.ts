@@ -106,6 +106,8 @@ export interface DeliverDeps {
   readonly verify?: () => Promise<string | null>;
   /** Ship's push with `deliverToOpenPr`, saga-recorded. */
   readonly runShip: () => Promise<void>;
+  /** Result of the ship run that `runShip` just ran; `pushed` is false when ship parked or failed without throwing. */
+  readonly shipOutcome: () => { readonly pushed: boolean; readonly reason: string | null };
   /** Re-probe the PRs (@arch:GH-03). */
   readonly reprobe: () => Promise<void>;
   readonly info: (message: string) => void;
@@ -162,6 +164,13 @@ async function run(d: DeliverDeps): Promise<DeliverOutcome> {
   if (d.verify && d.agentActive()) return d.error(BUSY), SKIPPED;
   await d.runShip();
   await d.reprobe();
+  // Ship parks or fails WITHOUT throwing: the run it just ran is the only evidence that the push landed (T1379).
+  const outcome = d.shipOutcome();
+  if (!outcome.pushed) {
+    const reason = outcome.reason ?? 'the ship run failed';
+    d.error(`Push refused: ${reason}`);
+    return { kind: 'refused', reason };
+  }
   d.info('Delivered the ticket branch to the open pull request.');
   return { kind: 'delivered' };
 }

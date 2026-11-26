@@ -8,6 +8,7 @@ import { upsertProject } from '../../store/projects.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { armForcePushLease } from '../../store/worktrees.js';
+import { openShipRun, closeShipRun } from '../../store/shipRuns.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
 import { rebaseOnBase } from './rebaseOnBaseOps.js';
 import { checkBaseMoved } from './baseMovedCheck.js';
@@ -481,6 +482,20 @@ describe('autoDeliverAction wiring', () => {
     expect(order).toEqual(['reprobe', 'refresh']);
     expect(vi.mocked(refreshUndelivered).mock.calls[0]![0]).toBe(i.deliver.tracker);
     expect(vi.mocked(refreshUndelivered).mock.calls[0]![1]).toBe(id);
+  });
+
+  it('reads the push outcome from the newest ship run of the ticket (T1379)', async () => {
+    const i = input();
+    await autoDeliverAction(i, extra);
+    const shipOutcome = deps().shipOutcome;
+    expect(shipOutcome()).toEqual({ pushed: false, reason: null }); // no ship run at all
+    const run = openShipRun(store, { ticketId: id, attempt: 1, startedAt: '2026-08-09T10:00:00.000Z' });
+    closeShipRun(store, run.id, 'passed', '2026-08-09T10:05:00.000Z');
+    expect(shipOutcome()).toEqual({ pushed: true, reason: null });
+    const failed = openShipRun(store, { ticketId: id, attempt: 2, startedAt: '2026-08-09T11:00:00.000Z' });
+    closeShipRun(store, failed.id, 'failed', '2026-08-09T11:12:00.000Z');
+    setStage(store, id, 'ship', { blockedKind: 'base-moved-failed', blockedReason: 'R: gate "visual" fails when merged', blockedAt: '2026-08-09T11:12:00.000Z' });
+    expect(shipOutcome()).toEqual({ pushed: false, reason: 'R: gate "visual" fails when merged' });
   });
 });
 
