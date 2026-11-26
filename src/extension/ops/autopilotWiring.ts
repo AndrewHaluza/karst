@@ -3,7 +3,7 @@ import type { ResumeOutcome } from './conflictResumeOps.js';
 import type { CiActionsInput } from './ciActionsWiring.js';
 import { formatId } from '../../model/entityId.js';
 import { sendCiFailureAction, sendGateFailureAction } from './ciActionsWiring.js';
-import { baseMovedFailureState } from '../../workflow/baseMovedFailure.js';
+import { baseMovedFailureState, type BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
@@ -38,8 +38,9 @@ export async function ciOutcome(input: CiActionsInput): Promise<FixOutcome> {
  * Run "Send gate failure to agent" without the click (@arch:AP-00): a failed base-moved run is a CI round. The outcome rules
  * are the ones of `ciOutcome`.
  */
-export async function gateFailureOutcome(input: CiActionsInput): Promise<FixOutcome> {
-  return roundOutcome(input, baseMovedFailureState(input.store, input.ticketId).available, 'ci', 'no failed base-moved gate run to send', sendGateFailureAction);
+export async function gateFailureOutcome(input: CiActionsInput, state?: BaseMovedFailureState): Promise<FixOutcome> {
+  const failure = state ?? baseMovedFailureState(input.store, input.ticketId);
+  return roundOutcome(input, failure.available, 'ci', 'no failed base-moved gate run to send', (i) => sendGateFailureAction(i, state));
 }
 
 async function roundOutcome(
@@ -89,8 +90,8 @@ export interface TicketSeams {
   /** Sandbox tickets only: the blocker reason before a hand-off, or null (arch:AC-46, AC-47). */
   readonly sandboxPreflight?: () => Promise<string | null>;
   readonly sendCi: () => Promise<FixOutcome>;
-  /** "Send gate failure to agent" for a failed base-moved run (@arch:AP-00). Absent: no round for that block. */
-  readonly sendGateFailure?: () => Promise<FixOutcome>;
+  /** "Send gate failure to agent" for a failed base-moved run (@arch:AP-00) or a refused merge (@arch:AP-14). */
+  readonly sendGateFailure?: (state?: BaseMovedFailureState) => Promise<FixOutcome>;
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or its resolved merge is being delivered (arch:AC-39). */
   readonly conflictRoundActive: () => boolean;

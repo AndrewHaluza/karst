@@ -89,13 +89,12 @@ describe('the seams of one ticket', () => {
     await expect(seams.sendGateFailure!()).resolves.toEqual({ kind: 'skipped' });
     await expect(seams.sendConflict('repo-a')).resolves.toEqual({ kind: 'skipped' });
     expect(ciOutcome).toHaveBeenCalledWith({ ticketId: r.id, tag: 'ci' });
-    expect(gateFailureOutcome).toHaveBeenCalledWith({ ticketId: r.id, tag: 'ci' });
+    expect(gateFailureOutcome).toHaveBeenCalledWith({ ticketId: r.id, tag: 'ci' }, undefined);
     expect(conflictOutcome).toHaveBeenCalledWith({ ticketId: r.id, repo: 'repo-a' });
     handle.dispose();
   });
 
-  it('delegate the conflict round state and the drop to the deps', () => {
-    const dropConflictRound = vi.fn();
+  it('delegate the conflict round state and the drop to the deps', () => {    const dropConflictRound = vi.fn();
     const r = rig({ conflictRoundActive: (t) => t === 1, conflictRoundStalled: (t) => t !== 1, dropConflictRound });
     const { handle, seams } = open(r);
     expect(seams.conflictRoundActive()).toBe(r.id === 1);

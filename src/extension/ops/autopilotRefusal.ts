@@ -2,13 +2,14 @@ import { shortSha } from '../../model/inside/deliver.js';
 import type { RoundRefusal } from './autoDeliverOps.js';
 
 /**
- * The parks of a conflict round that ended without a delivery (@arch:AP-01, T1315).
+ * The parks of a conflict round that ended without a delivery (@arch:AP-01, T1315, T1381).
  *
  * Two outcomes looked the same before T1315 and must not: a merge the agent left unfinished, and a merge that PASSED the
  * merge check and was stopped only by a gate or the base check. The first is a round that never delivered (the stall path);
- * the second is a merge commit that is ready in the worktree, so the park names the gate and the manual Deliver pushes it.
- * The agent is already idle after either, so nothing retries the delivery: both parks hold until a person acts or every
- * PR is proven clean.
+ * the second is a merge commit that is ready in the worktree. Since T1381 a refusal whose deliver run has a gate that exited
+ * non-zero starts a gate fix round instead of parking; the parks here are the FALLBACK for a refusal with no failed gate (or
+ * without a readable run or seam): the park names the gate and the manual Deliver pushes the merge. The agent is already idle
+ * after either, so nothing retries the delivery: both parks hold until a person acts or every PR is proven clean.
  */
 
 /** An armed round that never delivered: the agent left the merge unfinished, or the reload killed it. */
@@ -25,7 +26,7 @@ export const refusedMergeReason = (tail: string): string => `${REFUSED_PREFIX} $
 /** The body of that park: the merge commit is in the worktree and the manual Deliver pushes it. */
 export function refusedMergeBody(r: RoundRefusal): string {
   const merge = r.sha === null ? 'the resolved merge' : `the merge commit ${shortSha(r.sha)}`;
-  return `${merge} is ready in the worktree of ${r.repo} and the manual Deliver pushes it. The round is dropped, so nothing retries the delivery.`;
+  return `${merge} is ready in the worktree of ${r.repo} and the manual Deliver pushes it. No failed gate could be sent to the agent, the round is dropped, so nothing retries the delivery.`;
 }
 
 /** A park that holds until a person acts or every PR is proven clean: the round is gone and nothing retries it. */

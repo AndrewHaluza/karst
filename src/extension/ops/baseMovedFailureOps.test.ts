@@ -5,6 +5,7 @@ import { setStage } from '../../store/stages.js';
 import { openDeliverRun, recordDeliverGate, finishDeliverRun } from '../../store/deliverRuns.js';
 import { transition } from '../../workflow/machine.js';
 import { getCiRoundSource } from '../../store/autopilot.js';
+import { deliverRunFailureState } from '../../workflow/baseMovedFailure.js';
 import { baseRefOf, failureReason, sendGateFailureToAgent, type BaseMovedFailureOpsDeps } from './baseMovedFailureOps.js';
 
 let store: Store;
@@ -80,6 +81,20 @@ describe('sendGateFailureToAgent', () => {
     await sendGateFailureToAgent(d);
     expect(d.writeLog).not.toHaveBeenCalled();
     expect(getTicket(store, id).stageCurrent).toBe('ship');
+  });
+
+  it('uses an explicit state, even with no base-moved block, and names its run in the log (T1381)', async () => {
+    setStage(store, id, 'ship', { status: 'pending', verdict: null, endedAt: null });
+    const runId = openDeliverRun(store, { ticketId: id, headSha: 'head1', gates: ['unit'], pid: 1, now: 'T0', kind: 'auto' });
+    recordDeliverGate(store, runId, { gateName: 'unit', repo: 'r', exitCode: 1, summary: 'FAIL a.test.ts > case', startedAt: null, endedAt: null });
+    finishDeliverRun(store, runId, 'failed', 'T1');
+    const state = deliverRunFailureState(store, id, runId, 'develop', '1d1930be8'.padEnd(40, '0'));
+    expect(state.available).toBe(true);
+    const d = deps(state.available ? { state } : {});
+    await sendGateFailureToAgent(d);
+    expect(Object.keys(d.written)).toEqual([`base-moved-failure-${runId}.log`]);
+    expect(Object.values(d.written)[0]).toContain('FAIL a.test.ts > case');
+    expect(getTicket(store, id).stageCurrent).toBe('impl');
   });
 });
 

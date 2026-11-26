@@ -39,6 +39,12 @@ export interface RoundRefusal {
   readonly tail: string;
   /** The merge commit that is ready in the worktree, or null when git could not read it. */
   readonly sha: string | null;
+  /** The deliver run that refused the merge (`auto` or `base-moved`), or null when none opened (T1381). */
+  readonly runId: number | null;
+  /** The PR's base ref, or null when the host has no gate env (T1381). */
+  readonly baseRef: string | null;
+  /** The base head the conflict round resolved against, or null (T1381). */
+  readonly baseSha: string | null;
 }
 
 export interface ConflictRounds {
@@ -115,6 +121,7 @@ export async function verifyMergeResolved(git: Git, cwd: string, round: Resolved
 }
 
 export interface AutoDeliverDeps extends Omit<DeliverDeps, 'verify'> {
+  readonly store: Store;
   readonly ticketId: number;
   /** Ticket label for the log line. */
   readonly key: string;
@@ -125,6 +132,10 @@ export interface AutoDeliverDeps extends Omit<DeliverDeps, 'verify'> {
   readonly runGates: (prs: readonly DeliverPr[], signal: AbortSignal, only?: readonly string[]) => Promise<ShipGateReport>;
   /** The merged HEAD sha of a PR's worktree: the merge commit a refusal names (@arch:AP-01). Absent → no sha in the park. */
   readonly mergeSha?: (pr: DeliverPr) => Promise<string | null>;
+  /** The id of the deliver run opened by the last `runGates` or `checkBase` call, or null when none opened (T1381). */
+  readonly lastRunId?: () => number | null;
+  /** The PR's base branch ref, from the ship gates' env (T1381). Absent → no base ref in the refusal. */
+  readonly baseRef?: (pr: DeliverPr) => string | null;
   /**
    * Runs after the ship gates pass: the branch merged with the moved base, as CI tests it (D541, `baseMovedCheck.ts`).
    * Null = nothing to stop the push (base unchanged, merge passed, or not checkable); else the reason, shown as a ship
@@ -364,16 +375,25 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
         if (entry.takenOver) return TAKEN_OVER;
         if (gates.reason !== null) {
           d.error(`Resolved merge not delivered: a ship-stage gate failed — ${gates.reason}`);
-          // The merge is finished and correct: only a gate stopped the delivery. Name it, so autopilot parks with the gate,
-          // the merge commit and the manual Deliver instead of dropping the round as one that never delivered (T1315).
-          d.rounds.refuse(d.ticketId, { repo: round.repo, tail: shipGateFailureTail(gates), sha: await mergeShaOf(d, pr) });
+          // The FAILING repo names the failure (a fix moves that repo; the reason names its base), but the guard names the
+          // merge the round left at HEAD of the CONFLICTED repo (T1381): that commit is not pushed, so the delivered check
+          // cannot mistake a failing repo's already-pushed branch head for the refused merge.
+          const failedPr = targets.prs.find((p) => p.repo === gates.failed[0]?.repo) ?? pr;
+          const failedBase = getMergeCheck(d.store, d.ticketId, failedPr.repo)?.baseSha ?? round.baseSha;
+          d.rounds.refuse(d.ticketId, {
+            repo: round.repo, tail: shipGateFailureTail(gates), sha: await mergeShaOf(d, pr),
+            runId: d.lastRunId?.() ?? null, baseRef: d.baseRef?.(failedPr) ?? null, baseSha: failedBase,
+          });
           return gates.reason;
         }
         const baseFailure = d.checkBase ? await d.checkBase(pr, entry.controller.signal) : null;
         if (entry.takenOver) return TAKEN_OVER;
         if (baseFailure !== null) {
           d.error(`Resolved merge not delivered: ${baseFailure}`);
-          d.rounds.refuse(d.ticketId, { repo: round.repo, tail: 'the base check failed', sha: await mergeShaOf(d, pr) });
+          d.rounds.refuse(d.ticketId, {
+            repo: round.repo, tail: 'the base check failed', sha: await mergeShaOf(d, pr),
+            runId: d.lastRunId?.() ?? null, baseRef: d.baseRef?.(pr) ?? null, baseSha: round.baseSha,
+          });
           return baseFailure;
         }
         // The gates ran for a while: confirm the tree they checked is still the finished merge.
