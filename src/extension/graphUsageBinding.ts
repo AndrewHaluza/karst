@@ -113,6 +113,7 @@ export function createGraphUsageBinding(deps: GraphUsageBindingDeps): GraphUsage
           onTranscript: () => undefined,
           onGraphTranscript: (session, launchId, text) => {
             const quota = claudeTrailingQuota(text);
+            // Stryker disable next-line StringLiteral: equivalent — analyze() never reads `tool` for the quota verdict, only the provider's error text.
             if (!quota || !isInteractiveQuota('claude', quota.text)) return;
             // The graph launch id isolates this read from the ticket session's
             // transcript watch: the same error reported on several ticks offers

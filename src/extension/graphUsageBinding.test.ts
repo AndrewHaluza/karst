@@ -238,4 +238,10 @@ describe('createGraphUsageBinding.sweep — claude usage-limit signal (T1380)', 
     await createGraphUsageBinding(h.deps).sweep();
     expect(signals).toEqual([]);
   });
+
+  it('reads a quota error without a listener without throwing', async () => {
+    write(errorLine());
+    const h = harness({ sessions: () => [session()], projectsDirFor: () => dir });
+    await expect(createGraphUsageBinding(h.deps).sweep()).resolves.toBe(1);
+  });
 });
