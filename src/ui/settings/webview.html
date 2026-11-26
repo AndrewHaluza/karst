@@ -122,7 +122,6 @@
     accent-color:var(--k-focus);
   }
   .k-check > label{margin:var(--k-space-0);font-size:var(--k-text-md);color:var(--k-text)}
-  .q-row > .k-field > .k-check{grid-column:1 / -1}
   .k-input{padding:var(--k-space-3) var(--k-space-4);font-size:var(--k-text-base)}
   /* SET-20: a placeholder is a hint ("Default: localhost"), never a value. */
   .k-input::placeholder{color:var(--k-text-dim);font-style:italic}
@@ -392,50 +391,111 @@
   }
   .approach-group-header:first-child{margin-top:var(--k-space-0)}
 
+  /* ---- quality tab: stage sections, one setting per row (T1373) ----
+     Rows use the same grammar as the Accounts / Subscription cards: label and
+     one muted help line at the left, the control in a 340px track at the right
+     (UI-R41/R42). A hairline separates consecutive rows; the first row after a
+     section head carries none. Below the 700px container tier every row stacks
+     (UI-R43). */
+  .q-list{display:flex;flex-direction:column}
+  .q-row{padding:var(--k-space-5) var(--k-space-0)}
+  .q-row + .q-row,
+  #uatTesterOptions{border-top:var(--k-border-w) solid color-mix(in srgb,var(--vscode-panel-border,var(--k-border)) 45%,transparent)}
+  .q-row > .k-field{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,calc(var(--k-space-8) * 17));
+    column-gap:calc(var(--k-space-8) + var(--k-space-2));
+    row-gap:var(--k-space-1);
+    align-items:center;
+  }
+  .q-row > .k-field > label{grid-column:1;grid-row:1;margin:var(--k-space-0);min-height:0;font-size:var(--k-text-md);color:var(--k-text)}
+  .q-row > .k-field > .k-input{grid-column:2;grid-row:1;width:100%}
+  .q-row > .k-field > .k-select{grid-column:2;grid-row:1;width:100%;min-width:0}
+  .q-row > .k-field > .k-field-help{grid-column:1;grid-row:2;margin:var(--k-space-0)}
+  .q-row > .k-field > .k-field-error{grid-column:1;grid-row:3;margin:var(--k-space-0)}
+  .q-row > .k-field > .k-input[type=number]{width:9ch;justify-self:start}
+  /* A tall control keeps its help directly under the label: the label, help
+     and error form one copy block, so the control's height cannot push the
+     help to the bottom of the row (T1373, acceptance 3). */
+  .q-row--area > .k-field > .k-field-copy{grid-column:1;grid-row:1;min-width:0}
+  .k-field-copy > label{display:block;margin:var(--k-space-0);min-height:0;font-size:var(--k-text-md);color:var(--k-text)}
+  .k-field-copy > .k-field-help{margin:var(--k-space-1) var(--k-space-0) var(--k-space-0)}
+  .k-field-copy > .k-field-error{margin:var(--k-space-1) var(--k-space-0) var(--k-space-0)}
+  /* A textarea row aligns to the top: the textarea never spans the help line. */
+  .q-row--area > .k-field{align-items:start}
+  /* A checkbox row keeps the native checkbox (SET-18) on the right: the field's
+     own label moves to the left column, the box and its On/Off word sit at the
+     control edge. */
+  .q-row > .k-field > .k-check{
+    grid-column:1 / -1;grid-row:1;
+    display:grid;grid-template-columns:minmax(0,1fr) auto auto;
+    align-items:center;gap:var(--k-space-3);min-width:0;
+  }
+  .q-row > .k-field > .k-check > label{grid-column:1;grid-row:1;margin:var(--k-space-0);font-size:var(--k-text-md);color:var(--k-text)}
+  .q-row > .k-field > .k-check > input[type=checkbox]{grid-column:2;grid-row:1}
+  .q-row > .k-field > .k-check::after{grid-column:3;grid-row:1;content:'Off';font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .q-row > .k-field > .k-check:has(input:checked)::after{content:'On'}
+  /* Child settings indented under their switch; a grandchild one more step. */
+  .q-row--child{padding-left:calc(var(--k-space-6) + var(--k-space-1));border-left:calc(var(--k-border-w) * 2) solid var(--vscode-panel-border,var(--k-border))}
+  .q-row--grandchild{padding-left:calc((var(--k-space-6) + var(--k-space-1)) * 2)}
+
   /* ---- quality tab: shared gate editor (uat.gates / review.gates) ----
-     One block per gate list: a titled panel holding the global list and its
-     repository overrides. Rows are a table — one visible column header, each
-     cell's `Field` label clipped (`.sr-only`) but still its accessible name.
-     The `.k-field` wrappers ARE the grid cells, so they carry the sizing. */
+     One line per gate: the `.k-field` wrappers ARE the grid cells, so they
+     carry the sizing. A header names the columns once; each cell's own label is
+     clipped (`.sr-only`) but stays its accessible name. */
   .gate-block + .gate-block{margin-top:var(--k-space-6)}
-  .gate-block-head{display:flex;align-items:baseline;gap:var(--k-space-4);margin-bottom:var(--k-space-4)}
+  .gate-block-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--k-space-1) var(--k-space-4);margin:var(--k-space-7) var(--k-space-0) var(--k-space-4)}
+  .gate-subhead{font-size:var(--k-text-md);font-weight:600;color:var(--k-text)}
   .gate-count{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .gate-note{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .gate-head,.gate-row{
     display:grid;
-    grid-template-columns:auto minmax(0,1.2fr) calc(var(--k-space-8) * 5) minmax(0,2fr) minmax(0,1.2fr) auto;
-    column-gap:var(--k-space-3);align-items:center;
+    grid-template-columns:calc(var(--k-space-5) * 3) minmax(0,1fr) calc(var(--k-space-9) * 4) minmax(0,2.1fr) calc(var(--k-space-8) * 7.5) calc(var(--k-space-8) * 7.5) var(--k-space-9);
+    column-gap:var(--k-space-5);align-items:center;
+  }
+  .gate-list--override .gate-head,
+  .gate-list--override .gate-row{
+    grid-template-columns:calc(var(--k-space-5) * 3) minmax(0,1fr) calc(var(--k-space-9) * 4) minmax(0,2.1fr) calc(var(--k-space-8) * 7.5) var(--k-space-9);
   }
   .gate-head{
     font-size:var(--k-text-xs);color:var(--k-text-dim);
     padding-bottom:var(--k-space-2);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
   }
   .gate-row{row-gap:var(--k-space-2);padding:var(--k-space-3) var(--k-space-0);border-bottom:var(--k-border-w) solid var(--vscode-panel-border)}
-  .gate-row > .k-field,.gate-target > .k-field{min-width:0}
+  .gate-row > .k-field,.gate-on > .k-field,.gate-runs > .k-field,.gate-repo > .k-field,.gate-oom > .k-field,.gate-runs .k-field{min-width:0}
   .gate-row .k-input{width:100%}
-  .gate-target{display:flex;gap:var(--k-space-3);min-width:0}
-  .gate-target > .k-field{flex:1 1 0}
-  .gate-repo-fixed{font-size:var(--k-text-sm);color:var(--k-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .gate-meta{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:var(--k-space-2) var(--k-space-5)}
-  .gate-summary{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .gate-problem{font-size:var(--k-text-xs);color:var(--k-danger)}
+  .gate-runs{display:flex;align-items:center;gap:var(--k-space-2);min-width:0}
+  .gate-runs-script{display:flex;align-items:center;gap:var(--k-space-2);min-width:0;flex:1 1 auto}
+  .gate-runs-script > .k-field{flex:1 1 auto;min-width:0}
+  .gate-runs-command{display:flex;align-items:center;gap:var(--k-space-2);min-width:0;flex:1 1 auto}
+  .gate-runs-command > .k-field{flex:1 1 auto;min-width:0}
+  .gate-runs-command > .k-field.gate-command{flex:0 0 auto}
+  .gate-runs-command > .k-field.gate-command .k-input{width:9ch}
+  .gate-prefix{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:nowrap;flex:0 0 auto}
+  .gate-problem{
+    padding-left:calc(calc(var(--k-space-5) * 3) + var(--k-space-5));
+    padding-bottom:var(--k-space-2);
+    font-size:var(--k-text-xs);color:var(--k-danger);
+  }
   .gate-row.gate-off{background:var(--k-surface-hover)}
-  .gate-bypass-note{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-3)}
-  .gate-probe{margin-top:var(--k-space-4)}
-  .gate-actions{margin-top:var(--k-space-4)}
+  .gate-row.gate-off .k-input,.gate-row.gate-off .k-select{opacity:.72}
+  .gate-invalid{border-color:var(--k-danger)}
+  .gate-empty{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0);max-width:calc(var(--k-space-8) * 28)}
+  .gate-actions{margin-top:var(--k-space-4);display:flex}
+  .gate-add{border:var(--k-border-w) dashed var(--vscode-panel-border,var(--k-border));border-radius:var(--k-radius-sm);padding:var(--k-space-2) var(--k-space-4)}
 
   /* ---- quality tab: per-repository gate overrides ---- */
-  .override-editor{margin-top:var(--k-space-6)}
-  .override-heading{
-    font-size:var(--k-text-sm);font-weight:600;color:var(--k-text-dim);
-    margin-bottom:var(--k-space-3);
-  }
+  .override-editor{margin-top:var(--k-space-4)}
   .override-card{
-    margin-top:var(--k-space-4);padding:var(--k-space-4);
-    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-sm);
+    margin-top:var(--k-space-5);padding:var(--k-space-4) var(--k-space-5);
+    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);
   }
-  .override-card-head{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-4);margin-bottom:var(--k-space-2)}
+  .override-card-head{display:flex;align-items:baseline;gap:var(--k-space-3);margin-bottom:var(--k-space-2)}
   .override-repo{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm)}
-  .override-add{display:flex;flex-direction:column;gap:var(--k-space-2);margin-top:var(--k-space-5);max-width:calc(var(--k-space-8) * 16)}
+  .override-meta{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .override-meta::before{content:'· '}
+  .override-count{margin-left:auto;font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .override-count::before{content:'· '}
   .roster-card{
     display:flex;border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     margin-bottom:var(--k-space-5);overflow:hidden;
@@ -864,33 +924,10 @@
   .proc-agent-cell{min-width:0}
   .proc-agent-cell .ap{width:100%}
 
-  /* Quality policy panels (handoff §16): UAT policy, Review policy and
-     Findings side by side, each a bordered box whose rows are hairline
-     separated. Every row carries `border-top` — the head above the first
-     row is the separator there, and `:first-of-type` is NEVER used (the
-     panel's section-head div precedes every row, so it would never match). */
-  .quality-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--k-space-7);align-items:start}
-  .quality-grid--two{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .quality-panel{
-    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
-    padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
-  }
-  /* A policy row: the hairline-separated wrapper, and inside it the `Field`
-     laid out as copy | control — label over help on the left, the control
-     in a fixed narrow track on the right. The copy track is minmax(0,1fr)
-     so a half-width panel never pushes the control past its edge (the old
-     two-track q-row held the whole Field in column 1, leaving column 2
-     empty). A switch carries its own name, so it spans the row. */
-  .q-row{padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .q-row > .k-field{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 5);column-gap:var(--k-space-6);row-gap:var(--k-space-1);align-items:center}
-  .q-row > .k-field > label{grid-column:1;margin:var(--k-space-0)}
-  .q-row > .k-field > .k-input{grid-column:2;grid-row:1 / span 2;width:100%}
-  .q-row > .k-field > .k-field-help,.q-row > .k-field > .k-field-error{grid-column:1;margin:var(--k-space-0)}
-  .q-row > .k-field > .k-switch{grid-column:1 / -1}
-  /* Empty gate lists: a muted line instead of a bare "+ Add gate" button, so
-     the fallback that an empty list actually means is stated next to it. */
+  /* Quality gate lists: an empty list states the fallback it actually means
+     next to the "+ Add gate" button. (The rows themselves live in the stage
+     section rules above.) */
   .gate-empty{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0);max-width:calc(var(--k-space-8) * 28)}
-  .override-editor-note{margin-bottom:var(--k-space-5);padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-md);background:var(--k-surface-hover);color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal)}
 
   /* Ticketing lifecycle rows (handoff §15.3): a toggle with its indented
      status row beneath it, stacked rows separated by a hairline. The rows sit
@@ -970,9 +1007,53 @@
     .k-field.template-form-row > .label-vars,
     .k-field.template-form-row > .k-field-help,
     .k-field.template-form-row > .k-field-error{grid-column:1}
+    /* Quality rows stack at the same tier (UI-R43): label + help, then the
+       control under them, left-aligned. A gate becomes a card: its header row
+       is hidden and its cells stack into labelled lines (UI-R55). */
+    .q-row > .k-field{grid-template-columns:minmax(0,1fr);row-gap:var(--k-space-2);align-items:start}
+    .q-row > .k-field > label,
+    .q-row > .k-field > .k-field-help,
+    .q-row > .k-field > .k-field-error{grid-column:1}
+    .q-row > .k-field > .k-field-copy{grid-column:1;grid-row:auto}
+    .q-row > .k-field > .k-field-help{grid-row:auto}
+    .q-row > .k-field > .k-field-error{grid-row:auto}
+    .q-row > .k-field > .k-input,
+    .q-row > .k-field > .k-select,
+    .q-row > .k-field > .k-check{grid-column:1;grid-row:auto}
+    .q-row > .k-field > .k-input[type=number]{justify-self:start}
+    .gate-head{display:none}
+    .gate-list--override .gate-row,
+    .gate-row{
+      grid-template-columns:auto auto minmax(0,1fr) auto;
+      grid-template-areas:
+        'on name name remove'
+        'kl kind runs runs'
+        'repo repo repo repo'
+        'oom oom oom oom';
+      gap:var(--k-space-2) var(--k-space-3);
+      padding:var(--k-space-4) var(--k-space-0);
+    }
+    /* The prototype's narrow card opens the runs line with a muted "Runs"
+       label, then the kind and the run value (T1373, @ui:UI-R39). */
+    .gate-row::before{
+      content:'Runs';grid-area:kl;align-self:center;
+      font-size:var(--k-text-xs);color:var(--k-text-dim);
+    }
+    .gate-row > .gate-on{grid-area:on}
+    .gate-row > .gate-name{grid-area:name}
+    .gate-row > .gate-kind{grid-area:kind}
+    .gate-row > .gate-repo{grid-area:repo}
+    .gate-row > .gate-oom{grid-area:oom}
+    .gate-row > .gate-remove{grid-area:remove}
+    .gate-row > .gate-runs{grid-area:runs}
+    .gate-repo::before,
+    .gate-oom::before{content:attr(data-label);font-size:var(--k-text-xs);color:var(--k-text-dim);display:block;margin-bottom:var(--k-space-1)}
+    .gate-runs-command{flex-wrap:wrap}
+    .gate-runs-command > .k-field.gate-command{flex:1 1 auto}
+    .gate-runs-command > .k-field.gate-command .k-input{width:100%}
+    .gate-problem{padding-left:var(--k-space-0)}
   }
   @media (max-width: 61.25em){
-    .quality-grid,.quality-grid--two{grid-template-columns:minmax(0,1fr)}
     .matrix-head{display:none}
     .matrix-cols{grid-template-columns:minmax(0,1fr)}
     .matrix-row .proc-cell{padding:var(--k-space-2) var(--k-space-0)}
@@ -1023,12 +1104,7 @@
   @media (max-width: 26.875em){
     .content{padding:var(--k-space-4) var(--k-space-4) calc(var(--k-space-8) * 3)}
     .page-title{font-size:var(--k-text-xl)}
-    .q-row > .k-field{grid-template-columns:minmax(0,1fr)}
-    .q-row > .k-field > .k-input{grid-column:1;grid-row:auto}
     .matrix-row .proc-cell{grid-column:1 / -1}
-    .gate-head{display:none}
-    .gate-row{grid-template-columns:minmax(0,1fr)}
-    .gate-target{flex-direction:column}
   }
   @media (max-width: 22.5em){
     /* SET-2: the tight topbar keeps only what acts — the tab name moves into
