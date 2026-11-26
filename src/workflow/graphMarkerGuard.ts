@@ -238,7 +238,14 @@ export function blockGraphStage(
   const run = graphRunFor(store, ticketId, stageAttempt(store, ticketId, 'impl'));
   if (!run || run.id !== graphRunId || run.status !== 'blocked') return;
   const earliest = earliestFaultNodeRun(store.db, graphRunId);
-  const reason = earliest ? faultNodeRunReason(earliest) : (run.blocked_reason ?? 'graph blocked');
+  // T1380: a usage-limit park names its own role run and provider/model in the
+  // RUN's reason. Re-wrapping the parked node as `node-blocked: node <id> (…)`
+  // would hide the attribution the banner must show, so the run reason wins.
+  const reason = run.blocked_reason?.startsWith('usage-limit:')
+    ? run.blocked_reason
+    : earliest
+      ? faultNodeRunReason(earliest)
+      : (run.blocked_reason ?? 'graph blocked');
   parkGateStage(store, {
     ticketId,
     stageKey: 'impl',

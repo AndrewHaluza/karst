@@ -36,6 +36,40 @@ export interface GraphLaunchOwner {
   provider: string | null;
 }
 
+/** The launch identity a graph session's usage-limit text is attributed to. */
+export interface GraphProcessIdentity {
+  provider: string | null;
+  model: string | null;
+  agentName: string | null;
+}
+
+/**
+ * The provider/model/agent a graph (role, run id) launched with — read without
+ * any raw SQL outside this module (@arch:GRAPHRUN). The Claude transcript path
+ * knows only `(role, runId)`, so this is its identity read. A missing run row is
+ * null; a closed process run falls back to the run row's own identity columns.
+ */
+export function graphRunProcessIdentity(
+  db: GraphDb,
+  role: GraphSessionRole,
+  runId: number,
+): GraphProcessIdentity | null {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(pr.provider, ar.provider) AS provider,
+              COALESCE(pr.model, ar.model) AS model,
+              COALESCE(pr.agent_name, ar.profile) AS agent_name
+         FROM ${RUN_TABLE[role]} ar
+         LEFT JOIN process_runs pr
+           ON pr.id = ar.process_run_id
+          AND pr.status = 'running'
+        WHERE ar.id = ?`,
+    )
+    .get(runId) as { provider: string | null; model: string | null; agent_name: string | null } | undefined;
+  if (row === undefined) return null;
+  return { provider: row.provider, model: row.model, agentName: row.agent_name };
+}
+
 /**
  * The owner of a graph launch: the run must exist in the table its role names,
  * belong to the named graph run, and that graph run must be open. With a

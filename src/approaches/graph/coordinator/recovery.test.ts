@@ -25,6 +25,11 @@ import { setStage } from '../../../store/stages.js';
 import { stageBlock } from '../../../store/stageBlocks.js';
 import { writeNodeOverride, clearNodeOverride, nodeOverrideFor } from '../../../store/graph/nodeRuns.js';
 import { sha256Hex } from './plannerRun.js';
+import { switchGraphRunModels } from '../modelChange.js';
+import { NO_TICKET_FIELDS } from '../profileResolver.js';
+import { parseRunIdentities, pinnedProfile, serializeRunIdentities } from '../runIdentity.js';
+import { graphRunAgentIdentity } from '../../../store/graph/graphRuns.js';
+import type { GraphApproachConfig, Manifest } from '../../../manifest/types.js';
 import { GRAPH_HARD_CEILINGS } from '../../../manifest/graphConfig.js';
 import {
   recoverGraphRun,
@@ -1154,6 +1159,173 @@ describe('recoverGraphRun', () => {
     expect(node.status).not.toBe('completed');
     expect(node.outcome).toBeNull();
   });
+
+  it('resumes a usage-limit node block by relaunching the reserved visit', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      "usage-limit: node run 142 on claude/claude-opus-5-5: You've hit your 5-hour limit",
+      [{ id: 142, status: 'blocked' }],
+    );
+    claimToken(142);
+    store.db
+      .prepare(
+        "UPDATE approach_node_runs SET owner_nonce = 'dead', process_run_id = NULL, generation = 'dead-gen' WHERE id = 142",
+      )
+      .run();
+    const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
+    expect(result).toEqual({ kind: 'retried', retried: [142], resnapshotted: [] });
+    expect(runRow(graphRunId)).toEqual({ status: 'running', blocked_reason: null });
+    expect(nodeRow(142).status).toBe('launching');
+    expect(nodeRow(142).launch_attempt).toBe(1);
+    // The dead launch identity goes with the retry, so the driver can launch it.
+    const identity = store.db
+      .prepare('SELECT owner_nonce, process_run_id, generation FROM approach_node_runs WHERE id = 142')
+      .get() as { owner_nonce: string | null; process_run_id: number | null; generation: string | null };
+    expect(identity).toEqual({ owner_nonce: null, process_run_id: null, generation: null });
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  });
+
+  it('a usage-limit Resume after switchGraphRunModels launches with the new provider', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      "usage-limit: node run 142 on claude/claude-opus-5-5: You've hit your 5-hour limit",
+      [{ id: 142, status: 'blocked' }],
+    );
+    claimToken(142);
+    store.db
+      .prepare('UPDATE approach_graph_runs SET agent_identity = ? WHERE id = ?')
+      .run(
+        serializeRunIdentities({
+          v: 1,
+          roles: { worker: { provider: 'claude', model: 'claude-opus-5-5', source: 'preset' } },
+        }),
+        graphRunId,
+      );
+    const switched = switchGraphRunModels(
+      {
+        db: store.db,
+        manifest: {} as Manifest,
+        graphConfigOf: () => ({}) as GraphApproachConfig,
+        ticketLaunchFieldsOf: () => NO_TICKET_FIELDS,
+        transaction: <T>(fn: () => T): T =>
+          (store.db.transaction as unknown as (f: () => T, o: { begin: 'immediate' }) => () => T)(fn, {
+            begin: 'immediate',
+          })(),
+        now: () => '2026-08-12T00:00:00.000Z',
+        debug: () => {},
+      },
+      graphRunId,
+      { v: 1, roles: { worker: { provider: 'codex', model: 'gpt-5.6-sol', source: 'preset' } } },
+    );
+    expect(switched).toBe('switched');
+    expect(recoverGraphRun(makeDeps(), { ticketId, graphRunId }).kind).toBe('retried');
+    // The retry re-reads the snapshot at launch (it never rewrites it).
+    const snapshot = parseRunIdentities(graphRunAgentIdentity(store.db, graphRunId));
+    expect(pinnedProfile(snapshot, 'worker')).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+    expect(nodeRow(142).status).toBe('launching');
+  });
+
+  it('resumes a usage-limit bootstrap planner block by relaunching the bootstrap planner', () => {
+    const { ticketId, graphRunId } = blockedBootstrapGraph(
+      'usage-limit: planner run 7 on claude/claude-opus-5-5: You\'ve hit your 5-hour limit',
+    );
+    const result = recoverGraphRun(
+      makeDeps({
+        readPrompt: () => new TextEncoder().encode('planner prompt'),
+        writeSnapshot: vi.fn() as unknown as RecoveryDeps['writeSnapshot'],
+        plannerPromptPath: '/pkg/graph-planner/SKILL.md',
+        ticketContext: 'ticket context',
+      }),
+      { ticketId, graphRunId },
+    );
+    expect(result.kind).toBe('relaunched');
+    expect(runRow(graphRunId)).toEqual({ status: 'planning', blocked_reason: null });
+    expect(plannerRunsOf(graphRunId)).toMatchObject([{ kind: 'bootstrap', status: 'ready' }]);
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  });
+
+  /** A blocked run whose newest revision is `draining` (a replan planner was
+   *  compiling N+1 when it hit the usage limit) with its parked planner stale. */
+  function blockedReplanPlannerGraph(reason: string): { ticketId: number; graphRunId: number } {
+    const ticketId = createTicket(store, { key: 'RC-4', title: 'thing' }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
+    store.db
+      .prepare("UPDATE stages SET status = 'running' WHERE ticket_id = ? AND stage_key = 'impl'")
+      .run(ticketId);
+    const graphRunId = Number(
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (ticket_id, stage_key, stage_attempt, approach_id, status, blocked_reason, replan_count, created_at)
+           VALUES (?, 'impl', 0, 'x', 'blocked', ?, 1, '2026-08-12T00:00:00.000Z')`,
+        )
+        .run(ticketId, reason).lastInsertRowid,
+    );
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 1, ?, 'fp', 'draining', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(graphRunId, validGraph(2));
+    // The parked replan planner: STALE, as the usage-limit park leaves it.
+    store.db
+      .prepare(
+        `INSERT INTO approach_planner_runs
+           (graph_run_id, planner_run_number, kind, target_revision_number, status, reason, ended_at)
+         VALUES (?, 1, 'replan', 2, 'stale', 'usage-limit park', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run(graphRunId);
+    setStage(store, ticketId, 'impl', {
+      status: 'running',
+      blockedKind: 'approach-graph-failed',
+      blockedReason: `approach-graph-failed: ${reason} (graph run ${graphRunId})`,
+      blockedAt: '2026-08-12T00:00:00.000Z',
+    });
+    return { ticketId, graphRunId };
+  }
+
+  it('resumes a usage-limit replan planner block into its draining revision without a second replan count', () => {
+    const { ticketId, graphRunId } = blockedReplanPlannerGraph(
+      "usage-limit: planner run 9 on claude/claude-opus-5-5: You've hit your 5-hour limit",
+    );
+    const result = recoverGraphRun(
+      makeDeps({
+        readPrompt: () => new TextEncoder().encode('planner prompt'),
+        writeSnapshot: vi.fn() as unknown as RecoveryDeps['writeSnapshot'],
+        plannerPromptPath: '/pkg/graph-planner/SKILL.md',
+        ticketContext: 'ticket context',
+      }),
+      { ticketId, graphRunId },
+    );
+    expect(result.kind).toBe('replanned');
+    if (result.kind !== 'replanned') return;
+    expect(result.plannerRunId).not.toBeNull();
+    // The SAME target revision: a replacement run, never a second election.
+    expect(plannerRunsOf(graphRunId)).toMatchObject([
+      { kind: 'replan', status: 'stale' },
+      { kind: 'replan', status: 'ready' },
+    ]);
+    const count = store.db
+      .prepare('SELECT replan_count FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { replan_count: number };
+    expect(count.replan_count).toBe(1);
+    expect(runRow(graphRunId)).toEqual({ status: 'draining', blocked_reason: null });
+    expect(stageBlock(store, ticketId, 'impl')).toBeNull();
+  });
+
+  it('a human Replan on a usage-limit block still elects and quiesces cleanly', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      "usage-limit: node run 142 on claude/claude-opus-5-5: You've hit your 5-hour limit",
+      [{ id: 142, status: 'blocked' }],
+      validGraph(2),
+    );
+    setNodeFailure(142, 'usage-limit', 'hit the limit');
+    const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId, mode: 'replan' });
+    expect(result.kind).toBe('replanned');
+    expect(runRow(graphRunId).status).toBe('draining');
+  });
 });
 
 describe('recoveryCategoryFor — the total function over the closed category set', () => {
@@ -1184,6 +1356,10 @@ describe('recoveryCategoryFor — the total function over the closed category se
       // deletes; the cause is corrected out of band, then a human resumes.
       ['graph-preserve-failed: node run 31 (disk full)', 'config-then-resume'],
       ['graph-budget-exhausted: node run 3 (1 bytes over the 1 workspace ceiling)', 'config-then-resume'],
+      // T1380: a provider usage limit is MANUAL — never relaunch on the same
+      // exhausted core. Checked before `node-blocked`.
+      ['usage-limit: node run 142 on claude/claude-opus-5-5: hit the 5-hour limit', 'usage-limit'],
+      ['usage-limit: planner run 7 on opencode2/big-pickle: quota', 'usage-limit'],
       [null, 'explicit-resolution'],
       ['completely-unrecognized', 'explicit-resolution'],
     ];
@@ -1203,10 +1379,44 @@ describe('recoveryCategoryFor — the total function over the closed category se
       'config-then-resume',
       'artifact-recheck',
       'explicit-resolution',
+      'usage-limit',
     ]);
     for (const reason of ['x', '', 'node-blocked: a', 'launch-unknown: b', 'graph-budget-exhausted']) {
       expect(union.has(recoveryCategoryFor(reason))).toBe(true);
     }
+  });
+});
+
+describe('recoveryGuidance — usage-limit', () => {
+  const now = new Date('2026-11-26T10:00:00.000Z');
+
+  it('names the provider and model, the parsed reset time, Resume and Pick', () => {
+    const text = recoveryGuidance('usage-limit', {
+      blockedReason:
+        "usage-limit: node run 142 on claude/claude-opus-5-5: You've hit your 5-hour limit · resets 4:10am",
+      now,
+    });
+    expect(text).toContain('claude/claude-opus-5-5');
+    expect(text).toContain('4:10am');
+    expect(text).toContain('Resume');
+    expect(text).toContain('current models');
+    expect(text).toContain('Pick agent/model…');
+  });
+
+  it('omits the reset time when the text names none', () => {
+    const text = recoveryGuidance('usage-limit', {
+      blockedReason: "usage-limit: node run 142 on claude/claude-opus-5-5: You've hit your limit",
+      now,
+    });
+    expect(text).toContain('claude/claude-opus-5-5');
+    expect(text).not.toContain('resets at');
+  });
+
+  it('falls back gracefully without a block reason', () => {
+    const text = recoveryGuidance('usage-limit', { blockedReason: null, now });
+    expect(text).toContain('usage limit');
+    expect(text).toContain('Resume');
+    expect(text).toContain('Pick agent/model…');
   });
 });
 

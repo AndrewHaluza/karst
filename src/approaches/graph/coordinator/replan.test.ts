@@ -671,7 +671,7 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
     expect(result.ok).toBe(true);
   });
 
-  it.each(['graph-budget-exhausted', 'integration-conflict'])(
+  it.each(['graph-budget-exhausted', 'integration-conflict', 'usage-limit'])(
     'does not wait on a dead blocked node with failure category %s',
     (category) => {
       const ctx = electedCtx();

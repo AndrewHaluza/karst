@@ -320,11 +320,15 @@ export type BeginReplanResult =
  *    writers: the completion pipeline and `integration/claimEvidence.ts`. Both
  *    write it only after termination is proven;
  *  - `integration-conflict` — written only after termination is proven;
- *  - `graph-budget-exhausted` — legacy rows a budget refusal clobbered. */
+ *  - `graph-budget-exhausted` — legacy rows a budget refusal clobbered;
+ *  - `usage-limit` — the park terminates the session through the graph
+ *    transport before the row reads `blocked` (T1380), so a human Replan on a
+ *    usage-limit block is not held open as `active-node-runs`. */
 const DEAD_BLOCKED_CATEGORIES: readonly string[] = [
   'resource-claim-violated',
   'graph-budget-exhausted',
   'integration-conflict',
+  'usage-limit',
 ];
 
 /** Active statuses that prove no live process remains: the completion pipeline

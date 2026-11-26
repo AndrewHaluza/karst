@@ -89,6 +89,8 @@ describe('which reasons recover by themselves', () => {
     'prompt-config-changed: n1',
     'something new',
     '',
+    // T1380: a usage limit is MANUAL — never relaunch on the same exhausted core.
+    "usage-limit: node run 142 on claude/claude-opus-5-5: You've hit your 5-hour limit",
   ])('%s stays manual', (reason) => {
     expect(isAutoRecoverableReason(reason)).toBe(false);
   });
@@ -128,6 +130,7 @@ describe('autoRecoverBlockedRuns', () => {
     'graph-topology-deadlock: x',
     'graph-budget-exhausted: maxNodeRuns',
     'weird unknown reason',
+    "usage-limit: node run 142 on claude/claude-opus-5-5: You've hit your 5-hour limit",
   ])('never calls recovery for the manual reason %s', async (reason) => {
     const f = fixture(reason);
     const recover = vi.fn(async () => retried);

@@ -34,6 +34,10 @@
 
 import type { RecoveryCategory, RecoveryRefusalReason } from './recovery.js';
 import { GRAPH_HARD_CEILINGS } from '../../../manifest/graphConfig.js';
+import { parseUsageLimitResetAt } from '../../../agent/cliFailure.js';
+
+/** The first parameter: every refusal reason, plus the manual usage-limit stop. */
+export type GuidanceCategory = RecoveryRefusalReason | 'usage-limit';
 
 /** What the caller knows about the refusal besides its category: the run's
  *  recorded block reason, the recovery category that block mapped to, and —
@@ -48,6 +52,8 @@ export interface RecoveryGuidanceContext {
   recoveryCategory?: RecoveryCategory;
   replanCount?: number;
   projectMaxReplans?: number;
+  /** The clock a usage-limit reset is parsed against; defaults to now. */
+  now?: Date;
 }
 
 /**
@@ -67,13 +73,28 @@ function resumeRemainsTheExit(ctx: RecoveryGuidanceContext | undefined): boolean
     reason.startsWith('output-artifact-missing') ||
     reason.startsWith('artifact-unsafe') ||
     reason.startsWith('prompt-config-changed') ||
-    reason.startsWith('planner-stale')
+    reason.startsWith('planner-stale') ||
+    // A usage-limit park is resumed on the run's current models.
+    reason.startsWith('usage-limit')
   );
+}
+
+/** The park's graph-run reason: `usage-limit: <role> run <id> on <provider>/<model>: <text>`. */
+const USAGE_LIMIT_REASON =
+  /^usage-limit: (?:node|planner) run \d+ on ([^/\s]+)\/([^\s:]+): ([\s\S]*)$/;
+
+/** A parsed ISO instant as the provider's local wall-clock form (`4:10am`). */
+function resetClockText(iso: string): string {
+  const at = new Date(iso);
+  const hour24 = at.getHours();
+  const suffix = hour24 >= 12 ? 'pm' : 'am';
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour12}:${String(at.getMinutes()).padStart(2, '0')}${suffix}`;
 }
 
 /** The next step a user can actually take after a graph-recovery refusal. */
 export function recoveryGuidance(
-  category: RecoveryRefusalReason,
+  category: GuidanceCategory,
   ctx?: RecoveryGuidanceContext,
 ): string {
   switch (category) {
@@ -142,5 +163,20 @@ export function recoveryGuidance(
         'The same node launched twice and exited before starting — the agent CLI ' +
         'is probably not trusting this folder; check its folder trust, then Replan.'
       );
+    case 'usage-limit': {
+      const reason = ctx?.blockedReason ?? '';
+      const match = USAGE_LIMIT_REASON.exec(reason);
+      const provider = match?.[1];
+      const model = match?.[2];
+      const text = match?.[3] ?? reason;
+      const who = provider ? `${provider}/${model ?? 'default'}` : 'The agent';
+      const resetIso = parseUsageLimitResetAt(text, ctx?.now ?? new Date());
+      const reset = resetIso ? ` The limit resets at ${resetClockText(resetIso)}.` : '';
+      return (
+        `${who} hit its provider usage limit.${reset} ` +
+        `Click Resume to retry on the run's current models, or use Pick agent/model… ` +
+        'to switch this role first.'
+      );
+    }
   }
 }
