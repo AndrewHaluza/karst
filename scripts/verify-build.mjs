@@ -101,7 +101,11 @@ const REQUIRED_ARTIFACTS = [
 // Raised 426 → 428 KB for the T1297 review fixes: the quota card's three per-control host
 // mutations (receipt-correlated settling, aria-busy, duplicate guards) and the per-tab candidate
 // validation in the settings context — ~2.1 KB minified; bundle is 436682 bytes (~1.6 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 428 * 1024;
+// Raised 428 → 430 KB for T1373 (Quality is one UAT and one Review section): the per-stage
+// QualityGates table (one line per gate, OOM column, "npm run" prefix), the Field row primitive
+// and the disabled child rows under Agent findings, merged with the D829 quota card rework;
+// bundle is 438575 bytes (~1.7 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 430 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
