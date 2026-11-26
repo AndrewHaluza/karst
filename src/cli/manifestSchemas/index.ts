@@ -66,6 +66,7 @@ export const VALIDATOR_ONLY_RULES: readonly string[] = [
   'An approach graph block has no hoisted planner, profiles, commands or limits key beside it; maxExpertRuns >= maxReplans + 1; planner.profile is a declared profile or expert, worker or fast.',
   'Output globs are safe repo-relative paths (globFault).',
   'activeAgentPreset and defaultAgentPreset are not both set; every preset reference names a defined preset.',
+  'An agentBackends ssh:<name> value names a declared remotes entry, and a docker-mode remote is used only by opencode/opencode2.',
   'review.repositories keys and uat.repositories keys name declared repositories; review.stallDetection.repeatedFindingRounds <= review.maxFixAttempts.',
   'uat.origins entries parse as absolute URLs with an origin.',
   'A uat harness evidence path sits under .karst/uat-scratch/out/<harness name>/.',

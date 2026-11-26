@@ -1002,6 +1002,24 @@ export interface ResilienceConfig {
 /** `Manifest.agentBackend` values (arch:AC-32). */
 export type AgentBackend = CoreBackend;
 
+/** How an SSH remote runs the agent: directly, or inside a container on the remote (T1387). */
+export type RemoteMode = 'direct' | 'docker';
+
+/**
+ * One named SSH target (`Manifest.remotes.<name>`), referred to as
+ * `agentBackends.<core>: ssh:<name>`. Every field here changes what leaves the
+ * host, so the patterns in `validateRemotes` are a security boundary.
+ */
+export interface RemoteDef {
+  readonly host: string;
+  readonly user: string;
+  readonly port?: number;
+  readonly keyPath?: string;
+  readonly mode: RemoteMode;
+  readonly remoteDir: string;
+  readonly allowHostServices?: boolean;
+}
+
 export interface Manifest {
   /**
    * Stable project identity (§ projects / multi-window). Scopes tickets to a
@@ -1158,6 +1176,13 @@ export interface Manifest {
    * Independent of `agentSandbox`.
    */
   agentBackends?: AgentBackends;
+  /**
+   * Named SSH targets (T1387). `agentBackends.<core>: ssh:<name>` refers to one
+   * of these; an inline connection string is refused. A setup proposal never
+   * changes it: `remotes` belongs to the protected Agents section
+   * (@arch:FIELDCHK).
+   */
+  remotes?: Readonly<Record<string, RemoteDef>>;
   /**
    * Overrides for the docker sandbox's container memory (`--memory` /
    * `--memory-reservation`), in Docker's `512m` / `2g` form. Absent keys scale

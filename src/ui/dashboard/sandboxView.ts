@@ -86,5 +86,5 @@ export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView 
   if (input.ticketOverride === 'host') return onHost(true, 'ticket opted out of the sandbox backend');
   const cores: readonly string[] = project === 'sbx' ? SBX_CORES : DOCKER_CORES;
   if (!cores.includes(core)) return onHost(false, `${core}: ${project} backend unsupported`);
-  return { backend: project, core, workspace: 'clone', network: NETWORK[project], actions: true, carry: input.rewritten === true, shell };
+  return { backend: project, core, workspace: 'clone', network: NETWORK[project] ?? NETWORK.host, actions: true, carry: input.rewritten === true, shell };
 }

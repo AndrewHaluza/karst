@@ -5,7 +5,7 @@
 import type { AgentProvider } from '../manifest/types.js';
 import { DOCKER_CORES, SBX_CORES } from './sandboxCores.js';
 
-export type CoreBackend = 'host' | 'sbx' | 'docker';
+export type CoreBackend = 'host' | 'sbx' | 'docker' | `ssh:${string}`;
 
 /** Every core a backend can be chosen for; agy is host only until it gets a sandbox (arch:AC-31). */
 export const BACKEND_CORES = ['claude', 'codex', 'opencode', 'opencode2', 'agy'] as const;
