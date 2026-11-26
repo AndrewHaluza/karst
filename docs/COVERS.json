@@ -79,6 +79,9 @@
   "scripts/gateState.mjs": [
     "arch:GATE-REPEAT"
   ],
+  "scripts/gateState.mjs#snapshotTree": [
+    "arch:GATE-TREE"
+  ],
   "scripts/install-local.sh": [
     "arch:ABI-00",
     "arch:ABI-01"

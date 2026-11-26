@@ -134,7 +134,9 @@ export async function gitDirOf(cwd) {
 
 /**
  * The tree object of the whole working tree (tracked and untracked, ignored files left out), made with a
- * temporary index so the real index stays as it is. Null when git fails.
+ * temporary index so the real index stays as it is. The temporary index starts from HEAD (`git read-tree HEAD`),
+ * so a tracked file that an ignore or exclude rule matches stays in the snapshot, and an untracked ignored file
+ * stays out. With no HEAD (an unborn branch) it starts empty. Null when git fails.
  */
 export async function snapshotTree(cwd) {
   const dir = await gitDirOf(cwd);
@@ -142,6 +144,8 @@ export async function snapshotTree(cwd) {
   const index = join(dir, `karst-gate-index-${process.pid}-${Date.now()}`);
   const env = { ...process.env, GIT_INDEX_FILE: index };
   try {
+    // No HEAD (an unborn branch) leaves the index empty: every file is then untracked.
+    await exec('git', ['read-tree', 'HEAD'], { cwd, env }).catch(() => undefined);
     await exec('git', ['add', '-A'], { cwd, env, maxBuffer: 1 << 26 });
     const { stdout } = await exec('git', ['write-tree'], { cwd, env });
     return stdout.trim() || null;
