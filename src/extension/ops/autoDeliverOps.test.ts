@@ -54,6 +54,7 @@ function rig(over: Partial<AutoDeliverDeps> = {}) {
     runGates: async () => ({ reason: null, failed: [] }),
     blocked: async () => undefined,
     runShip: async () => { log.push('ship'); },
+    shipRunMark: () => null,
     shipOutcome: () => ({ pushed: true, reason: null }),
     reprobe: async () => undefined,
     status: (m) => log.push(`status:${m}`),

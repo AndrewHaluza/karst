@@ -67,6 +67,7 @@ describe('deliver to PR (real git)', () => {
       ensureSynced: async () => { git(wt, 'merge', '--ff-only', 'FETCH_HEAD'); return { ok: true }; },
       blocked: vi.fn(async () => {}),
       runShip: async () => { git(wt, 'push', 'origin', 'feat/x'); },
+      shipRunMark: () => null,
       shipOutcome: () => ({ pushed: true, reason: null }),
       reprobe: vi.fn(async () => {}),
       info: vi.fn(), error: vi.fn(), logError: vi.fn(), afterServerChange: vi.fn(),
@@ -93,6 +94,7 @@ describe('deliver to PR (real git)', () => {
     const runShip = vi.fn(async () => {});
     await deliverToPr({
       targets, agentActive: () => false, blocked, runShip, reprobe: vi.fn(async () => {}),
+      shipRunMark: () => null,
       shipOutcome: () => ({ pushed: true, reason: null }),
       ensureSynced: async () => {
         try { git(wt, 'fetch', clone, 'feat/x'); git(wt, 'merge', '--ff-only', 'FETCH_HEAD'); return { ok: true }; }

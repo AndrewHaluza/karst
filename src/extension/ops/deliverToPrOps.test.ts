@@ -77,6 +77,7 @@ function deliverRig(over: Partial<DeliverDeps> = {}) {
     ensureSynced: async () => { calls.push('sync'); return { ok: true }; },
     blocked: async (reason, rewritten, cliUnknown) => { calls.push(`blocked:${reason}:${rewritten}${cliUnknown ? ':cli' : ''}`); },
     runShip: async () => { calls.push('ship'); },
+    shipRunMark: () => null,
     shipOutcome: () => ({ pushed: true, reason: null }),
     reprobe: async () => { calls.push('reprobe'); },
     info: (m) => infos.push(m),
@@ -169,6 +170,18 @@ describe('deliverToPr: a ship run that pushed nothing (T1379)', () => {
     expect(r.infos).toEqual([DELIVERED]);
     expect(r.errors).toEqual([]);
   });
+
+  it('reads the run this click started before the re-probe, and only a run newer than the mark', async () => {
+    const seen: Array<string | number> = [];
+    const r = deliverRig({
+      shipRunMark: () => { seen.push('mark'); return 7; },
+      runShip: async () => { seen.push('ship'); },
+      shipOutcome: (mark) => { seen.push(`outcome:${mark}`); return { pushed: true, reason: null }; },
+      reprobe: async () => { seen.push('reprobe'); },
+    });
+    expect(await deliverToPr(r.deps)).toEqual({ kind: 'delivered' });
+    expect(seen).toEqual(['mark', 'ship', 'outcome:7', 'reprobe']);
+  });
 });
 
 describe('deliverToPr verify step', () => {
@@ -178,6 +191,7 @@ describe('deliverToPr verify step', () => {
     ensureSynced: async () => ({ ok: true }),
     blocked: async () => undefined,
     runShip: async () => undefined,
+    shipRunMark: () => null,
     shipOutcome: () => ({ pushed: true, reason: null }),
     reprobe: async () => undefined,
     info: () => undefined,

@@ -488,14 +488,20 @@ describe('autoDeliverAction wiring', () => {
     const i = input();
     await autoDeliverAction(i, extra);
     const shipOutcome = deps().shipOutcome;
-    expect(shipOutcome()).toEqual({ pushed: false, reason: null }); // no ship run at all
+    const shipRunMark = deps().shipRunMark;
+    expect(shipRunMark()).toBeNull(); // no ship run at all
+    expect(shipOutcome(null)).toEqual({ pushed: false, reason: null }); // no ship run at all
     const run = openShipRun(store, { ticketId: id, attempt: 1, startedAt: '2026-08-09T10:00:00.000Z' });
     closeShipRun(store, run.id, 'passed', '2026-08-09T10:05:00.000Z');
-    expect(shipOutcome()).toEqual({ pushed: true, reason: null });
+    expect(shipRunMark()).toBe(run.id);
+    expect(shipOutcome(null)).toEqual({ pushed: true, reason: null });
+    // That same passed row is NOT this click's delivery when the mark was taken before it: an early park opens no row (T1379).
+    expect(shipOutcome(run.id)).toEqual({ pushed: false, reason: null });
     const failed = openShipRun(store, { ticketId: id, attempt: 2, startedAt: '2026-08-09T11:00:00.000Z' });
     closeShipRun(store, failed.id, 'failed', '2026-08-09T11:12:00.000Z');
+    expect(shipRunMark()).toBe(failed.id);
     setStage(store, id, 'ship', { blockedKind: 'base-moved-failed', blockedReason: 'R: gate "visual" fails when merged', blockedAt: '2026-08-09T11:12:00.000Z' });
-    expect(shipOutcome()).toEqual({ pushed: false, reason: 'R: gate "visual" fails when merged' });
+    expect(shipOutcome(run.id)).toEqual({ pushed: false, reason: 'R: gate "visual" fails when merged' });
   });
 });
 

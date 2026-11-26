@@ -336,7 +336,7 @@ describe('deliverToPrAction takes over an auto-deliver (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'r: gate run was stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'r: gate run was stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: autoShip, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: autoShip, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const i = input();
@@ -387,7 +387,7 @@ describe('deliverToPrAction re-runs the skipped gates after a take-over push (D5
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const cwd = mkdtempSync(join(tmpdir(), 'rerun-'));
@@ -424,7 +424,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const cwd = mkdtempSync(join(tmpdir(), 'rerun-'));
@@ -574,7 +574,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const base = input();
@@ -661,7 +661,7 @@ describe('the re-run after a take-over: edges (D540)', () => {
       ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
-      runGates: async () => ({ reason: null, failed: [] }), blocked: async () => {}, runShip: () => hold, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      runGates: async () => ({ reason: null, failed: [] }), blocked: async () => {}, runShip: () => hold, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await vi.waitFor(() => expect(autoDeliverPhase(id)).toBe('pushing'));
@@ -752,7 +752,7 @@ describe('takeover note limits (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: async () => ({ reason: null, failed: [] }),
-      blocked: async () => {}, runShip: async () => { started(); await pushing; }, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => { started(); await pushing; }, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await inPush;
@@ -775,7 +775,7 @@ describe('takeover note limits (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await deliverToPrAction(input());
@@ -795,7 +795,7 @@ describe('takeover note limits (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await deliverToPrAction(input());
@@ -815,7 +815,7 @@ describe('takeover note limits (T1018)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     await deliverToPrAction(input());
@@ -884,12 +884,23 @@ describe('deliverToPrAction reports a refused ship push (T1379)', () => {
     expect(i.info).not.toHaveBeenCalledWith(DELIVERED);
   });
 
-  it('treats a ship run that left no ship_runs row at all as refused', async () => {
+  it('does not read an earlier passed run as this click’s delivery when ship opens no new run', async () => {
     seedPr();
+    recordShipRun('passed'); // an older push of this ticket DID land
     const i = input({ deliver: { runShip: vi.fn(async () => {}), blocked: vi.fn(async () => {}), tracker: createUndeliveredTracker() } });
     await deliverToPrAction(i);
     expect(i.error).toHaveBeenCalledWith('Push refused: the ship run failed');
     expect(i.info).not.toHaveBeenCalledWith(DELIVERED);
+  });
+
+  it('a second ship run that starts during the re-probe does not turn a landed push into a refusal', async () => {
+    seedPr();
+    const i = input();
+    // This click's run lands; the re-probe then sees a different ship run open and fail.
+    (i.reprobe as ReturnType<typeof vi.fn>).mockImplementation(async () => { recordShipRun('failed'); });
+    await deliverToPrAction(i);
+    expect(i.info).toHaveBeenCalledWith(DELIVERED);
+    expect(i.error).not.toHaveBeenCalled();
   });
 
   it('starts no after-take-over re-run when the push is refused', async () => {
@@ -901,7 +912,7 @@ describe('deliverToPrAction reports a refused ship push (T1379)', () => {
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),
-      blocked: async () => {}, runShip: async () => {}, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
+      blocked: async () => {}, runShip: async () => {}, shipRunMark: () => null, shipOutcome: pushedNow, reprobe: async () => {}, status: () => {}, log: () => {},
       info: () => {}, error: () => {}, logError: () => {}, afterServerChange: () => {},
     });
     const shipGates = vi.fn(() => ({ deps: {} as never }));

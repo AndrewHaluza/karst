@@ -336,7 +336,8 @@ function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
     ensureSynced: () => i.sandbox.ensureSynced(i.ticketId),
     blocked: h.blocked,
     runShip: h.runShip,
-    shipOutcome: () => shipOutcomeFor(i.store, i.ticketId),
+    shipRunMark: () => newestShipRunId(i.store, i.ticketId),
+    shipOutcome: (mark) => shipOutcomeFor(i.store, i.ticketId, mark),
     reprobe: async () => {
       await i.reprobe();
       await refreshUndeliveredFor(i, h.tracker);
@@ -345,10 +346,23 @@ function pushToPr(i: CiActionsInput): ReturnType<typeof deliverToPr> {
   });
 }
 
-/** Result of the newest ship run of a ticket: `pushed` is true only when it ended `passed` (T1379). */
-function shipOutcomeFor(store: Store, ticketId: number): { readonly pushed: boolean; readonly reason: string | null } {
+/** The id of a ticket's newest ship run, read before a push (T1379). */
+function newestShipRunId(store: Store, ticketId: number): number | null {
+  return listShipRuns(store, ticketId, 1)[0]?.id ?? null;
+}
+
+/**
+ * Result of the ship run a push just ran: `pushed` is true only when a run NEWER than `mark` ended `passed`. A ship that
+ * parks before its saga opens a run leaves the newest row as an earlier push that DID land, so the mark is what stops that
+ * prior run reading as this click's delivery (T1379).
+ */
+function shipOutcomeFor(
+  store: Store, ticketId: number, mark: number | null,
+): { readonly pushed: boolean; readonly reason: string | null } {
   const latest = listShipRuns(store, ticketId, 1)[0];
-  if (latest?.status === 'passed') return { pushed: true, reason: null };
+  if (latest !== undefined && latest.id > (mark ?? 0) && latest.status === 'passed') {
+    return { pushed: true, reason: null };
+  }
   const reason = stageBlock(store, ticketId, 'ship')?.reason;
   return { pushed: false, reason: reason || null };
 }
@@ -476,7 +490,8 @@ export function autoDeliverAction(
     verifyMerge: (pr, round) => verifyMergeResolved(gitFor(i), pr.cwd, round),
     blocked: h.blocked,
     runShip: h.runShip,
-    shipOutcome: () => shipOutcomeFor(i.store, i.ticketId),
+    shipRunMark: () => newestShipRunId(i.store, i.ticketId),
+    shipOutcome: (mark) => shipOutcomeFor(i.store, i.ticketId, mark),
     reprobe: async () => {
       await i.reprobe();
       await refreshUndeliveredFor(i, h.tracker);

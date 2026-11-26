@@ -106,8 +106,14 @@ export interface DeliverDeps {
   readonly verify?: () => Promise<string | null>;
   /** Ship's push with `deliverToOpenPr`, saga-recorded. */
   readonly runShip: () => Promise<void>;
-  /** Result of the ship run that `runShip` just ran; `pushed` is false when ship parked or failed without throwing. */
-  readonly shipOutcome: () => { readonly pushed: boolean; readonly reason: string | null };
+  /** The id of the ticket's newest ship run, read immediately before `runShip`; null when it never shipped. */
+  readonly shipRunMark: () => number | null;
+  /**
+   * Result of the ship run that `runShip` just ran, identified by the `mark` taken before it: `pushed` is true only when
+   * a run NEWER than the mark ended `passed`. A ship that parks before its saga opens a run leaves the newest row as an
+   * earlier push that DID land, so the mark is what stops that prior run reading as this click's delivery (T1379).
+   */
+  readonly shipOutcome: (mark: number | null) => { readonly pushed: boolean; readonly reason: string | null };
   /** Re-probe the PRs (@arch:GH-03). */
   readonly reprobe: () => Promise<void>;
   readonly info: (message: string) => void;
@@ -162,10 +168,12 @@ async function run(d: DeliverDeps): Promise<DeliverOutcome> {
   if (refusal !== null) return { kind: 'refused', reason: refusal };
   // The gates can take minutes: a turn may have started, and what they checked is no longer what would be pushed.
   if (d.verify && d.agentActive()) return d.error(BUSY), SKIPPED;
+  const mark = d.shipRunMark();
   await d.runShip();
-  await d.reprobe();
   // Ship parks or fails WITHOUT throwing: the run it just ran is the only evidence that the push landed (T1379).
-  const outcome = d.shipOutcome();
+  // Read it BEFORE the re-probe: a second ship run may start meanwhile and record a newer row of its own.
+  const outcome = d.shipOutcome(mark);
+  await d.reprobe();
   if (!outcome.pushed) {
     const reason = outcome.reason ?? 'the ship run failed';
     d.error(`Push refused: ${reason}`);
