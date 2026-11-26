@@ -12,7 +12,7 @@ import { recordFindings } from '../store/reviewFindings.js';
 import { setStage } from '../store/stages.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
 import { openStageRun, closeStageRun } from '../store/stageRuns.js';
-import { buildTicketContext, renderTicketContext } from './ticketContext.js';
+import { buildTicketContext, renderGraphTicketContext, renderTicketContext } from './ticketContext.js';
 import { openDeliverRun, recordDeliverGate, takeOverDeliverRun } from '../store/deliverRuns.js';
 import { computeDriftNotes } from './drift.js';
 import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
@@ -1438,6 +1438,74 @@ describe('renderTicketContext', () => {
       expect(md).not.toContain('DISTINCTIVE-SECRET-BODY-XYZ');
     });
 
+    it('keeps the note count and titles but no command hint when the reader cannot run the CLI', () => {
+      const reader = ticketIn('PROJ-R8', 'frontend');
+      const poster = ticketIn('PROJ-P8', 'frontend');
+      postNote(poster, 'Relevant learning');
+      const md = renderTicketContext(buildTicketContext(store, undefined, reader), undefined, {
+        commandHints: false,
+      });
+      expect(md).toContain('## Project notes');
+      expect(md).toContain('1 unread project note');
+      expect(md).toContain('- Relevant learning');
+      expect(md).not.toContain('run `notes`');
+      expect(md).not.toContain('karst notes');
+    });
+
+    it('keeps the other-merge count without a notes command', () => {
+      const reader = ticketIn('PROJ-R9', 'frontend');
+      updateTicketFields(store, reader, { codePointers: '- src/context/ticketContext.ts — shapes ticket context' });
+      const unrelated = ticketIn('PROJ-P9', 'frontend');
+      recordTicketMerged(store, {
+        ticketId: unrelated,
+        repo: 'frontend',
+        mergeSha: 'unrelated',
+        changedPaths: ['src/ui/dashboard/state.ts'],
+      });
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, reader), undefined, {
+        commandHints: false,
+      });
+      expect(md).toContain('1 other merges since');
+      expect(md).not.toContain('karst notes');
+    });
+
+    it('keeps the shown-earlier count without a notes command', () => {
+      const reader = ticketIn('PROJ-R9B', 'frontend');
+      const shown = ticketIn('PROJ-P9B', 'frontend');
+      postNote(shown, 'Shown earlier');
+
+      renderTicketContext(
+        buildTicketContext(store, undefined, reader, undefined, { markNotesShown: true }),
+      );
+      const noteId = (
+        store.db.prepare('SELECT id FROM bulletin_notes WHERE title = ?').get('Shown earlier') as { id: number }
+      ).id;
+      markNotesRead(store, reader, [noteId]);
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, reader), undefined, {
+        commandHints: false,
+      });
+      expect(md).toContain('1 notes shown earlier');
+      expect(md).not.toContain('karst notes');
+    });
+
+    it('keeps the repo-level count without a notes command', () => {
+      const reader = createTicket(store, { key: 'PROJ-R10', title: 'No paths' });
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'frontend', '/wt/r10', 'feat/x', 'main', 'inherited')",
+        )
+        .run(reader.id);
+      const poster = ticketIn('PROJ-P10', 'frontend');
+      postNote(poster, 'Repo-wide learning');
+      const md = renderTicketContext(buildTicketContext(store, undefined, reader.id), undefined, {
+        commandHints: false,
+      });
+      expect(md).toContain('1 project note in this project');
+      expect(md).not.toContain('karst notes');
+    });
+
     it('sanitizes control characters and newlines from a stored title', () => {
       const reader = ticketIn('PROJ-R2', 'frontend');
       const poster = ticketIn('PROJ-P2', 'frontend');
@@ -1603,6 +1671,29 @@ describe('renderTicketContext', () => {
       expect(md).toContain('karst inbox');
       // The count is a pointer, never the bodies.
       expect(md).not.toContain('\nb\n');
+    });
+
+    it('keeps the unread count but no command hint when the reader cannot run the CLI', () => {
+      const parent = createTicket(store, { key: 'PROJ-2', title: 'Root work' });
+      const child = createTicket(store, {
+        key: 'PROJ-2-s1',
+        title: 'Piece',
+        subtaskParentId: parent.id,
+      });
+      postMessage(store, {
+        projectId: null,
+        fromTicketId: child.id,
+        toTicketId: parent.id,
+        kind: 'message',
+        body: 'a',
+      });
+      const md = renderTicketContext(buildTicketContext(store, undefined, parent.id), undefined, {
+        commandHints: false,
+      });
+      expect(md).toContain('## Inbox');
+      expect(md).toContain('1 unread message');
+      expect(md).not.toContain('karst inbox');
+      expect(md).not.toContain('`karst inbox`');
     });
   });
 
@@ -2038,6 +2129,66 @@ describe('ticket context — auto-deliver of a resolved merge (T1018)', () => {
     expect(md).toContain('- delivery: Delivery taken over by a manual Deliver; failed: unit; skipped: docs');
     expect(md).toContain(`- delivery failure: Gate unit failed (exit 2) on ${'a'.repeat(9)} — boom`);
     expect(md).not.toContain('clean locally');
+  });
+});
+
+describe('renderGraphTicketContext', () => {
+  it('keeps the mailbox counts and note titles but names no CLI command a graph node cannot run', () => {
+    const store = openStore(':memory:');
+    const parent = createTicket(store, { key: 'G-1', title: 'graph work' });
+    const child = createTicket(store, { key: 'G-1-s1', title: 'child', subtaskParentId: parent.id });
+    const poster = createTicket(store, { key: 'G-2', title: 'poster' });
+    for (const id of [parent.id, poster.id]) {
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'frontend', ?, 'feat/x', 'main', 'inherited')",
+        )
+        .run(id, `/wt/${id}`);
+    }
+    updateTicketFields(store, parent.id, { codePointers: '- src/a.ts:1 — entry' });
+    postMessage(store, {
+      projectId: null,
+      fromTicketId: child.id,
+      toTicketId: parent.id,
+      kind: 'message',
+      body: 'hi',
+    });
+    postAgentNote(store, { projectId: null, fromTicketId: poster.id, title: 'A learning', body: 'b' });
+
+    const md = renderGraphTicketContext(buildTicketContext(store, undefined, parent.id));
+    expect(md).toContain('1 unread message');
+    expect(md).toContain('1 unread project note');
+    expect(md).toContain('- A learning');
+    expect(md).not.toContain('karst inbox');
+    expect(md).not.toContain('run `notes`');
+    expect(md).not.toContain('karst notes');
+    store.close();
+  });
+
+  it('stays unbounded', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'G-3', title: 'graph work' });
+    const hugePrompt = 'x'.repeat(SEED_BUDGETS.ticketPrompt + 5_000);
+    updateTicketFields(store, t.id, { description: hugePrompt });
+    const md = renderGraphTicketContext(buildTicketContext(store, undefined, t.id));
+    expect(md).toContain(hugePrompt);
+    expect(md).not.toContain('truncated --');
+    store.close();
+  });
+
+  it('passes the precomputed drift notes through', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'G-4', title: 'graph work' });
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'frontend', '/wt/g4', 'feat/x', 'main', 'inherited')",
+      )
+      .run(t.id);
+    const md = renderGraphTicketContext(buildTicketContext(store, undefined, t.id), undefined, {
+      driftNotes: new Map([['/wt/g4', 'develop moved 2 commits since']]),
+    });
+    expect(md).toContain('develop moved 2 commits since');
+    store.close();
   });
 });
 

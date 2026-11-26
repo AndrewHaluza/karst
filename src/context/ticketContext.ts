@@ -710,24 +710,36 @@ const NOTE_REMINDER_STAGES: readonly string[] = ['scope', 'impl'];
 const NOTE_REMINDER =
   'Read these before you start: unread notes may change your plan.';
 
-/** The `## Project notes` index: titles only; bodies are read with `karst notes`. */
-function renderNotesSection(ctx: TicketContext): string {
+/**
+ * The `## Project notes` index: titles only; bodies are read with `karst notes`.
+ * `commandHints` is false for a reader that cannot invoke the CLI (a graph
+ * node): the counts and titles stay, every `karst notes` ask goes.
+ */
+function renderNotesSection(ctx: TicketContext, commandHints: boolean): string {
   const { unread, titles, otherMerges, otherMergesSince, shownEarlier, repoOnly } = ctx.notes;
   const lines = [`## Project notes`];
   if (unread > 0 && repoOnly === true) {
     const repos = ctx.repos.map((r) => r.name).join(', ') || 'this project';
-    lines.push(`${unread} project note${unread === 1 ? '' : 's'} in ${repos} — karst notes to list`);
+    lines.push(
+      `${unread} project note${unread === 1 ? '' : 's'} in ${repos}${commandHints ? ' — karst notes to list' : '.'}`,
+    );
   } else if (unread > 0) {
     lines.push(
-      `${unread} unread project note${unread === 1 ? '' : 's'} match this ticket — run \`notes\` to list them.`,
+      `${unread} unread project note${unread === 1 ? '' : 's'} match this ticket${
+        commandHints ? ' — run `notes` to list them.' : '.'
+      }`,
       ...titles.slice(0, NOTE_INDEX_TITLE_MAX).map((title) => `- ${title}`),
     );
   }
   if (repoOnly !== true && unread > titles.length) lines.push(`- … and ${unread - titles.length} more`);
   if (otherMerges > 0) {
-    lines.push(`${otherMerges} other merges since ${otherMergesSince ?? 'an unknown time'} (karst notes --all)`);
+    lines.push(
+      `${otherMerges} other merges since ${otherMergesSince ?? 'an unknown time'}${
+        commandHints ? ' (karst notes --all)' : ''
+      }`,
+    );
   }
-  if (shownEarlier > 0) lines.push(`${shownEarlier} notes shown earlier - karst notes`);
+  if (shownEarlier > 0) lines.push(`${shownEarlier} notes shown earlier${commandHints ? ' - karst notes' : ''}`);
   if (unread > 0 && repoOnly !== true && ctx.stageCurrent !== null && NOTE_REMINDER_STAGES.includes(ctx.stageCurrent)) {
     lines.push(NOTE_REMINDER);
   }
@@ -760,6 +772,13 @@ export function renderTicketContext(
      * fail-soft outcome as a git failure.
      */
     driftNotes?: ReadonlyMap<string, string>;
+    /**
+     * Emit the `run \`karst inbox\`` / `run \`notes\`` hints. Default true.
+     * False for a reader that cannot invoke the CLI (a graph node has no
+     * `karst` wrapper on PATH and no `KARST_TICKET`): the counts and titles
+     * stay, the unrunnable commands go. See `renderGraphTicketContext`.
+     */
+    commandHints?: boolean;
   },
 ): string {
   if (opts?.audience === 'tester') return renderTesterContext(ctx, opts);
@@ -769,6 +788,7 @@ export function renderTicketContext(
   // kickoff, structured facts ride the instruction layer. `all` renders both.
   const authored = sections === 'all' || sections === 'narrative';
   const operational = sections === 'all' || sections === 'facts';
+  const commandHints = opts?.commandHints ?? true;
   const parts: string[] = authored ? [`# Ticket: ${ticketHeading(ctx, opts?.headingId ?? sections === 'all')}`] : [];
   // The facts-only render has no heading, so the instruction layer states the
   // session's own id once; the other renders carry it in the heading.
@@ -986,12 +1006,12 @@ export function renderTicketContext(
   if (authored && ctx.inbox.unread > 0) {
     const n = ctx.inbox.unread;
     parts.push(
-      `## Inbox\n${n} unread message${n === 1 ? '' : 's'} — run \`karst inbox\` to read them.`,
+      `## Inbox\n${n} unread message${n === 1 ? '' : 's'}${commandHints ? ' — run `karst inbox` to read them.' : '.'}`,
     );
   }
 
   if (authored && (ctx.notes.unread > 0 || ctx.notes.otherMerges > 0 || ctx.notes.shownEarlier > 0)) {
-    parts.push(renderNotesSection(ctx));
+    parts.push(renderNotesSection(ctx, commandHints));
   }
 
   // What the blockers that already landed delivered. Bounded per blocker (the
@@ -1125,7 +1145,25 @@ export function renderTicketContext(
   return parts.join('\n\n');
 }
 
-
+/**
+ * The ticket context a GRAPH session reads (planner or node). A graph node has
+ * no `karst` wrapper on PATH and its env sets `KARST_TICKET_ID`, never
+ * `KARST_TICKET` (`@arch:CLI-12`), so a `run \`karst inbox\`` or `run \`notes\``
+ * hint is a command the reader cannot execute. This render keeps the counts and
+ * titles and drops every CLI command hint; it stays unbounded because a graph
+ * prompt is machine-facing (the seed-shape rule, `@arch:AC-19`).
+ */
+export function renderGraphTicketContext(
+  ctx: TicketContext,
+  debug?: (msg: string) => void,
+  opts?: { driftNotes?: ReadonlyMap<string, string> },
+): string {
+  return renderTicketContext(ctx, debug, {
+    bounded: false,
+    commandHints: false,
+    ...(opts?.driftNotes ? { driftNotes: opts.driftNotes } : {}),
+  });
+}
 
 /** Section subset of the tester-safe view; see `renderTicketContext`'s `audience`. */
 function renderTesterContext(
