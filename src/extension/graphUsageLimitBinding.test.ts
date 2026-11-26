@@ -320,6 +320,8 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     expect(h.pick).not.toHaveBeenCalled();
     expect(graphRunAgentIdentity(store.db, fixture.graphRunId)).toBe(JSON.stringify(ROLES));
     expect(h.recover).toHaveBeenCalledWith({ ticketId, graphRunId: fixture.graphRunId, mode: 'resume' });
+    // A no-op recovery is not a refusal: no second notice.
+    expect(h.ask).toHaveBeenCalledTimes(1);
   });
 
   it('Dismiss leaves the run blocked and never prompts again on a reload', async () => {
@@ -668,7 +670,9 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
   it('a failed post-commit stage write never drops the prompt or reports a park failure', async () => {
     const fixture = nodeFixture();
     let nowCalls = 0;
+    const pause = vi.fn(async () => undefined);
     const h = harness(fixture, [DISMISS_LABEL], {
+      pause,
       now: () => {
         nowCalls += 1;
         if (nowCalls === 1) return NOW;
@@ -677,11 +681,114 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     });
     await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
     expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(pause).not.toHaveBeenCalled();
     expect(h.logError).not.toHaveBeenCalled();
     expect(h.toastError).not.toHaveBeenCalled();
     expect(h.debug).toHaveBeenCalledWith(
       '[graph] usage-limit: stage block after the park failed (clock gone); the run stays blocked',
     );
+  });
+
+  it('retries a stage write whose error only names the lock in its message', async () => {
+    const fixture = nodeFixture();
+    let nowCalls = 0;
+    const pause = vi.fn(async () => undefined);
+    const h = harness(fixture, [DISMISS_LABEL], {
+      pause,
+      now: () => {
+        nowCalls += 1;
+        if (nowCalls === 1) return NOW;
+        if (nowCalls === 2) throw new Error('database is busy');
+        return NOW;
+      },
+    });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(h.ask).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a snapshot lock code that only starts with SQLITE_BUSY', async () => {
+    const fixture = nodeFixture();
+    let nowCalls = 0;
+    const pause = vi.fn(async () => undefined);
+    const h = harness(fixture, [DISMISS_LABEL], {
+      pause,
+      now: () => {
+        nowCalls += 1;
+        if (nowCalls === 1) return NOW;
+        if (nowCalls === 2) throw Object.assign(new Error('snapshot'), { code: 'SQLITE_BUSY_SNAPSHOT' });
+        return NOW;
+      },
+    });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(h.ask).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry another SQLite code', async () => {
+    const fixture = nodeFixture();
+    let nowCalls = 0;
+    const pause = vi.fn(async () => undefined);
+    const h = harness(fixture, [DISMISS_LABEL], {
+      pause,
+      now: () => {
+        nowCalls += 1;
+        if (nowCalls === 1) return NOW;
+        throw Object.assign(new Error('nope'), { code: 'SQLITE_CORRUPT' });
+      },
+    });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(pause).not.toHaveBeenCalled();
+    expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a non-Error throw as lock contention', async () => {
+    const fixture = nodeFixture();
+    let nowCalls = 0;
+    const pause = vi.fn(async () => undefined);
+    const h = harness(fixture, [DISMISS_LABEL], {
+      pause,
+      now: () => {
+        nowCalls += 1;
+        if (nowCalls === 1) return NOW;
+        throw { code: 'SQLITE_BUSY' };
+      },
+    });
+    await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
+    expect(pause).not.toHaveBeenCalled();
+    expect(h.ask).toHaveBeenCalledTimes(1);
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+
+  it('the default pause waits before retrying a lock-contended stage write', async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = nodeFixture();
+      let nowCalls = 0;
+      const h = harness(fixture, [DISMISS_LABEL], {
+        now: () => {
+          nowCalls += 1;
+          if (nowCalls === 1) return NOW;
+          if (nowCalls === 2) throw Object.assign(new Error('busy'), { code: 'SQLITE_BUSY' });
+          return NOW;
+        },
+      });
+      let settled = false;
+      const pending = createGraphUsageLimitBinding(h.deps)
+        .onGraphUsageLimit(signal(fixture))
+        .finally(() => {
+          settled = true;
+        });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(50);
+      await pending;
+      expect(settled).toBe(true);
+      expect(h.ask).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('retries a lock-contended stage write and then offers the prompt', async () => {
