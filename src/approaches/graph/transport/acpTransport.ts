@@ -313,6 +313,7 @@ export function createAcpTransport(deps: AcpTransportDeps): AcpTransport {
         ownerNonce,
         startedAt,
         processRunId,
+        provider: request.identity?.provider ?? null,
         providerSessionId: handle.sessionId,
         terminal: undefined,
       };

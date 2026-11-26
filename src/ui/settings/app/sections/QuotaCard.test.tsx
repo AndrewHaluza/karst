@@ -58,7 +58,13 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
     expect(field.getAttribute('max')).toBe('100');
     expect(field.value).toBe('');
     expect(field.placeholder).toBe('80');
-    expect(screen.getByText('Warn at % used')).toBeTruthy();
+    // T1368 (D829): the row label reads "Warn at"; the unit follows the control
+    // so the input and the visible suffix read as one control group.
+    expect(screen.getByRole('spinbutton', { name: /Warn at % used/ })).toBe(field);
+    const suffix = document.querySelector('.accounts-quota-suffix') as HTMLElement;
+    expect(suffix.getAttribute('aria-hidden')).toBe('true');
+    expect(suffix.textContent).toBe('% used');
+    expect(suffix.previousElementSibling).toBe(field);
   });
 
   it('typing alone posts nothing and leaves the draft alone', () => {
@@ -149,7 +155,7 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
 
   it('places "Saved" beside the control whose own write was acknowledged (UI-R15)', () => {
     const { bridge } = mount();
-    fireEvent.click(screen.getByLabelText('Install for all Claude sessions'));
+    fireEvent.click(screen.getByLabelText('Show quota in all Claude sessions'));
     fireEvent.click(screen.getByLabelText('Use the Claude usage API'));
     const [statusline, usage] = bridge.all('set-quota') as unknown as Array<{
       patch: Record<string, unknown>;
@@ -162,7 +168,10 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
       bridge.push({ type: 'action-result', requestId: statusline!.requestId!, ok: true });
     });
     const note = screen.getByText('Saved');
-    expect(note.previousElementSibling?.textContent).toContain('Install for all Claude sessions');
+    // The note lands in the row of the control whose write it acknowledges (UI-R15).
+    const row = note.closest('.accounts-quota-row');
+    expect(row?.textContent).toContain('Show quota in all Claude sessions');
+    expect(row?.textContent).not.toContain('Use the Claude usage API');
   });
 
   it('shows the resolved default after clearing, not a blank that snaps back later', () => {
@@ -181,7 +190,7 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
 
   it('never claims "Saved" when the host refuses the write', () => {
     const { bridge } = mount();
-    fireEvent.click(screen.getByLabelText('Install for all Claude sessions'));
+    fireEvent.click(screen.getByLabelText('Show quota in all Claude sessions'));
     const sent = bridge.last('set-quota')!;
     act(() => bridge.push({ type: 'action-result', requestId: sent.requestId!, ok: false, message: 'refused' }));
     expect(screen.queryByText('Saved')).toBeNull();
@@ -210,7 +219,7 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
   it('does not claim "Saved" on a control whose request timed out', () => {
     vi.useFakeTimers();
     const { bridge } = mount();
-    const toggle = screen.getByLabelText('Install for all Claude sessions') as HTMLInputElement;
+    const toggle = screen.getByLabelText('Show quota in all Claude sessions') as HTMLInputElement;
     fireEvent.click(toggle);
     const sent = bridge.last('set-quota')!;
     act(() => vi.advanceTimersByTime(30_000)); // useHostMutation default timeout → unknown
@@ -232,7 +241,7 @@ describe('Subscription quota card — the threshold saves on change (Q4-SAVE)', 
 describe('Subscription quota card — the two opt-ins save at once (Q4-SAVE)', () => {
   it('posts the statusline flag in onChange, with no Save step', () => {
     const { bridge } = mount();
-    fireEvent.click(screen.getByLabelText('Install for all Claude sessions'));
+    fireEvent.click(screen.getByLabelText('Show quota in all Claude sessions'));
     expect(lastQuota(bridge)?.patch).toEqual({ claudeGlobalStatusline: true });
   });
 
@@ -246,7 +255,7 @@ describe('Subscription quota card — the two opt-ins save at once (Q4-SAVE)', (
 
   it('renders a form checkbox, not a list-item switch', () => {
     mount();
-    for (const label of ['Install for all Claude sessions', 'Use the Claude usage API']) {
+    for (const label of ['Show quota in all Claude sessions', 'Use the Claude usage API']) {
       const toggle = screen.getByLabelText(label) as HTMLInputElement;
       expect(toggle.getAttribute('type')).toBe('checkbox');
       expect(toggle.closest('.k-check')).not.toBeNull();
@@ -254,14 +263,17 @@ describe('Subscription quota card — the two opt-ins save at once (Q4-SAVE)', (
   });
 });
 
-describe('Subscription quota card — copy and links (SET-45, US-30-QC)', () => {
-  it('never claims the quota needs Save Agents, and explains the commit gesture', () => {
+describe('Subscription quota card — copy and links (SET-45, US-30-QC, T1368)', () => {
+  it('never claims the quota needs Save Agents and keeps the facts in the short help texts', () => {
     mount();
     const card = document.querySelector('[data-region="accounts-quota"]') as HTMLElement;
     expect(card.textContent).not.toContain('Saved with Save Agents.');
-    expect(card.textContent).toContain('Blank = 80.');
-    expect(card.textContent).toContain('Saves when you leave the field or press Enter.');
-    expect(card.textContent).toContain("Karst compares the tightest window");
+    expect(card.textContent).toContain('Warnings only. Karst never blocks a launch or switches the agent.');
+    expect(card.textContent).toContain('The tightest quota window of the agent. Blank = 80.');
+    expect(card.textContent).toContain('Adds the Karst statusline to your global Claude settings. Your own statusline still runs.');
+    expect(card.textContent).toContain('The token is not stored or logged.');
+    // The commit gesture is now a control affordance, not a help paragraph (D829).
+    expect(card.textContent).not.toContain('Saves when you leave the field or press Enter.');
   });
 
   it('links to the current quota through the host', () => {
@@ -270,8 +282,26 @@ describe('Subscription quota card — copy and links (SET-45, US-30-QC)', () => 
     expect(bridge.last('open-quota')).toBeTruthy();
   });
 
+  it('keeps the title, the link and the lead line out of the setting rows (T1368, @ui:UI-R39)', () => {
+    mount();
+    const card = document.querySelector('[data-region="accounts-quota"]') as HTMLElement;
+    const head = card.querySelector(':scope > .accounts-quota-head');
+    expect(head?.querySelector('h3')?.textContent).toBe('Subscription quota');
+    expect(head?.querySelector('button')?.textContent).toBe('See current quota');
+    // The link is in the head line, never in a paragraph of its own.
+    expect([...card.querySelectorAll('p')].some((p) => p.querySelector('button'))).toBe(false);
+    const rows = card.querySelectorAll('.accounts-quota-row');
+    expect(rows).toHaveLength(3);
+    expect([...rows].map((row) => row.querySelector('label, .k-check > label')?.textContent)).toEqual([
+      'Warn at % used',
+      'Show quota in all Claude sessions',
+      'Use the Claude usage API',
+    ]);
+    for (const row of rows) expect(row.querySelector('.k-field-help'), row.textContent ?? '').not.toBeNull();
+  });
+
   it('capitalizes Karst in the statusline help (SET-11)', () => {
     mount();
-    expect(screen.getByText(/Adds Karst's statusline wrapper/)).toBeTruthy();
+    expect(screen.getByText(/Adds the Karst statusline/)).toBeTruthy();
   });
 });

@@ -13,6 +13,7 @@ import { connect, type Socket } from 'node:net';
 import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
 import { listTokenUsage } from '../store/tokenUsage.js';
+import { openProcessRun } from '../store/processRuns.js';
 
 const DEFAULT_LAUNCH = '00000000-0000-4000-8000-000000000001';
 
@@ -187,6 +188,57 @@ describe('startHookEndpoint', () => {
     const entries = listTokenUsage(store, { ticketId: id });
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ callSite: 'implementation', inputTokens: 1_000 });
+  });
+
+  it('meters a graph node UsageUpdate posted with a graph launch id, and drops a wrong generation (T1370)', async () => {
+    const id = ticketAt();
+    setAgentState(store, id, 'idle');
+    const gen = '019ab3c2-7d10-7e4f-8a2b-3c4d5e6f7a8b';
+    const t0 = '2026-11-26T10:00:00.000Z';
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs
+           (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (7, ?, 'impl', 1, 'graph', 'running', ?)`,
+      )
+      .run(id, t0);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (1, 7, 1, 'graph: []', 'fp', 'active', ?)`,
+      )
+      .run(t0);
+    const processRunId = openProcessRun(store, {
+      ticketId: id, stageKey: 'impl', processId: 'graph-node', attempt: 1,
+      provider: 'opencode2', model: 'm', startedAt: t0,
+    }).id;
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number,
+            status, process_run_id, profile, provider, model, generation)
+         VALUES (31, 7, 1, 'n1', 'agent', 1, 'running', ?, 'worker', 'opencode2', 'm', ?)`,
+      )
+      .run(processRunId, gen);
+    // The cwd is no ticket worktree and no node workspace: only the launch id
+    // in the URL can route this event.
+    const event = (eventId: string): Record<string, unknown> => ({
+      hook_event_name: 'UsageUpdate',
+      cwd: '/elsewhere',
+      session_id: 'oc-1',
+      usage: { event_id: eventId, input: 1_000, output: 200 },
+    });
+    const base = ep.url;
+    expect(await post(`${base}?karstLaunch=graph-7-node-31-${gen}`, event('e1'))).toBe(204);
+    const wrong = '019ab3c2-0000-7e4f-8a2b-3c4d5e6f7a8b';
+    await post(`${base}?karstLaunch=graph-7-node-31-${wrong}`, event('e2'));
+    expect(await post(`${base}?karstLaunch=graph-7-node-31`, event('e3'))).toBe(400);
+    const rows = store.db
+      .prepare('SELECT provider, approach_node_run_id, input_tokens FROM token_usage')
+      .all();
+    expect(rows).toEqual([{ provider: 'opencode2', approach_node_run_id: 31, input_tokens: 1_000 }]);
+    expect(getTicket(store, id).agentState).toBe('idle');
   });
 
   it('rejects malformed request targets without dispatching', async () => {

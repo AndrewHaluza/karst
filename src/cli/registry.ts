@@ -72,6 +72,13 @@ const dependsOnRef: JsonSchema = {
   ],
 };
 const dependsOnArray: JsonSchema = { type: 'array', items: dependsOnRef };
+/** A planning session reference (`P<n>`, or a bare positive integer) for `plan-artifacts`. */
+const planSessionRef: JsonSchema = {
+  anyOf: [
+    { type: 'integer', minimum: 1 },
+    { type: 'string', pattern: '^[Pp]?[1-9][0-9]*$' },
+  ],
+};
 
 function obj(
   properties: Readonly<Record<string, JsonSchema>>,
@@ -422,6 +429,42 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     // `draft propose` consumes the object on stdin, so the encoder only names
     // the verb; the caller feeds the validated object back as stdin.
     toArgv: () => ['draft', 'propose'],
+  },
+  {
+    name: 'plan-artifacts',
+    summary:
+      "Planning-only: list a session's scratch files or copy one into your own artifacts dir.",
+    input: obj(
+      {
+        action: { type: 'string', enum: ['list', 'import'] },
+        session: planSessionRef,
+        path: str,
+        as: str,
+        force: bool,
+        json: bool,
+      },
+      ['action'],
+    ),
+    globals: { db: true },
+    // `import` writes into the session's own artifacts dir; `list` only reads.
+    // The registry is one entry per verb, so the verb is marked as writing.
+    writes: true,
+    toArgv: (input) => {
+      const action = requireString(input, 'action');
+      const argv = ['plan-artifacts', action];
+      pushFlag(argv, '--session', input.session);
+      if (action === 'import' && input.path === undefined) {
+        throw new Error("'path' is required for import");
+      }
+      if (action === 'list' && input.path !== undefined) {
+        throw new Error("'path' is for import only");
+      }
+      pushFlag(argv, '--path', input.path);
+      pushFlag(argv, '--as', input.as);
+      pushFlag(argv, '--json', input.json);
+      pushFlag(argv, '--force', input.force);
+      return argv;
+    },
   },
   {
     name: 'message',

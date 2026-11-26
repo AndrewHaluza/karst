@@ -247,6 +247,7 @@ export class TestTransport {
       ownerNonce: request.ownerNonce,
       startedAt: this.h.startedAt(),
       processRunId: null,
+      provider: null,
       providerSessionId: null,
     };
     this.sessionsByNode.set(request.nodeRunId, session);

@@ -437,6 +437,9 @@
   "src/cli/phase.ts#parsePhaseArgs": [
     "arch:CLI-02"
   ],
+  "src/cli/planArtifactsCommand.ts#runPlanArtifactsCommand": [
+    "arch:CLI-25"
+  ],
   "src/cli/readonlyStore.ts#openReadonlyStore": [
     "arch:CLI-05"
   ],
@@ -526,7 +529,8 @@
   ],
   "src/extension/autopilotBinding.ts": [
     "arch:AP-00",
-    "arch:AP-04"
+    "arch:AP-04",
+    "arch:AP-11"
   ],
   "src/extension/graphClaimEvidenceBinding.ts": [
     "arch:GRAPH-PRESERVE"
@@ -554,7 +558,8 @@
     "arch:AP-00",
     "arch:AP-01",
     "arch:AP-04",
-    "arch:AP-07"
+    "arch:AP-07",
+    "arch:AP-11"
   ],
   "src/extension/ops/autopilotOps.ts#runBaseMovedRound": [
     "arch:AP-06"
@@ -564,6 +569,12 @@
   ],
   "src/extension/ops/autopilotRerun.ts": [
     "arch:AP-03"
+  ],
+  "src/extension/ops/autopilotShipRetry.ts#isHostTicket": [
+    "arch:AP-11"
+  ],
+  "src/extension/ops/autopilotShipRetry.ts#shipRetryDecision": [
+    "arch:AP-11"
   ],
   "src/extension/ops/autopilotStaleRebase.ts": [
     "arch:AP-05"
@@ -690,6 +701,9 @@
   "src/extension/ops/shipGatesOps.ts": [
     "arch:AP-01",
     "arch:GATE-BASE-MOVED"
+  ],
+  "src/extension/ops/shipRetryOps.ts": [
+    "arch:AP-11"
   ],
   "src/extension/ops/storedArtifactOps.ts": [
     "arch:APP-00"
@@ -1100,6 +1114,9 @@
   "src/store/karstEvents.ts#KARST_EVENTS_DDL": [
     "arch:EVENTS"
   ],
+  "src/store/karstEvents.ts#hasTicketEvent": [
+    "arch:AP-11"
+  ],
   "src/store/karstEvents.ts#recordEvent": [
     "arch:EVENTS"
   ],
@@ -1183,8 +1200,20 @@
   "src/store/shipRuns.ts": [
     "arch:GH-00"
   ],
+  "src/store/shipRuns.ts#hasAttendedShipRun": [
+    "arch:AP-11"
+  ],
   "src/store/shipRuns.ts#lastPushedHead": [
     "arch:GH-08"
+  ],
+  "src/store/shipRuns.ts#listShipRepoSteps": [
+    "arch:AP-11"
+  ],
+  "src/store/shipRuns.ts#listShipRuns": [
+    "arch:AP-11"
+  ],
+  "src/store/shipRuns.ts#newestPushIntentHead": [
+    "arch:AP-11"
   ],
   "src/store/shipRuns.ts#openShipRun": [
     "arch:V126"

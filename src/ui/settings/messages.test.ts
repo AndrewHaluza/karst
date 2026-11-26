@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { parseSettingsMessage, routeSettingsAction, type SettingsActions } from './messages.js';
+import type { AccountsWebviewMessage } from './accountsMessages.js';
 
 const draft = { host: 'x', portRange: [1, 2], baselineBranch: 'b', services: {} };
 
@@ -457,11 +458,21 @@ describe('parseSettingsMessage — accounts (D505)', () => {
       .toEqual({ type: 'accounts-delete', core: 'claude', name: 'w', removeFolder: false });
     expect(parseSettingsMessage({ type: 'accounts-copy-seed', core: 'claude', name: 'w', items: ['skills'] }))
       .toEqual({ type: 'accounts-copy-seed', core: 'claude', name: 'w', items: ['skills'] });
+    // T1360: the row's Reset and the ⋯ "Make machine default" are accounts messages too;
+    // the host drops anything this parser does not name, so both must be accepted.
+    expect(parseSettingsMessage({ type: 'accounts-set-machine-default', core: 'claude', name: 'w' }))
+      .toEqual({ type: 'accounts-set-machine-default', core: 'claude', name: 'w' });
+    expect(parseSettingsMessage({ type: 'accounts-clear-project-choice', core: 'claude' }))
+      .toEqual({ type: 'accounts-clear-project-choice', core: 'claude' });
   });
 
   it('drops an unknown core, a missing name and a bad spec', () => {
     expect(parseSettingsMessage({ type: 'accounts-set-active', core: 'nope', name: 'w' })).toBeNull();
     expect(parseSettingsMessage({ type: 'accounts-set-active', core: 'claude', name: '' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-set-machine-default', core: 'claude', name: '' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-set-machine-default', core: 'nope', name: 'w' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-clear-project-choice', core: 'nope' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'accounts-clear-project-choice' })).toBeNull();
     expect(parseSettingsMessage({ type: 'accounts-add', core: 'claude', name: 'w', spec: { source: 'folder' } })).toBeNull();
     expect(parseSettingsMessage({ type: 'accounts-add', core: 'claude', name: 'w', spec: { source: 'command', command: 'c', args: [1] } })).toBeNull();
     expect(parseSettingsMessage({ type: 'accounts-delete', core: 'claude', name: 'w' })).toBeNull();
@@ -483,5 +494,29 @@ describe('parseSettingsMessage — accounts (D505)', () => {
     const actions = { accounts: (m: unknown) => seen.push(m) } as unknown as SettingsActions;
     routeSettingsAction({ type: 'accounts-set-active', core: 'claude', name: 'w' }, actions);
     expect(seen).toEqual([{ type: 'accounts-set-active', core: 'claude', name: 'w' }]);
+  });
+
+  it('names every message the accounts tab can send (an unnamed type is dropped)', () => {
+    // A new member of the union fails the typecheck until it has a payload here, and
+    // a payload that parses to null is exactly the bug this test exists to stop: the
+    // host handles the type, but routeSettingsAction drops the webview's message.
+    const payloads: { [T in AccountsWebviewMessage['type']]: Record<string, unknown> } = {
+      'accounts-load': { type: 'accounts-load' },
+      'accounts-add': { type: 'accounts-add', core: 'claude', name: 'w', spec: { source: 'managed' } },
+      'accounts-import-alias': { type: 'accounts-import-alias', core: 'claude', alias: 'w' },
+      'accounts-set-active': { type: 'accounts-set-active', core: 'claude', name: 'w' },
+      'accounts-set-machine-default': { type: 'accounts-set-machine-default', core: 'claude', name: 'w' },
+      'accounts-clear-project-choice': { type: 'accounts-clear-project-choice', core: 'claude' },
+      'accounts-delete': { type: 'accounts-delete', core: 'claude', name: 'w', removeFolder: false },
+      'accounts-seed-items': { type: 'accounts-seed-items', core: 'claude', name: 'w' },
+      'accounts-copy-seed': { type: 'accounts-copy-seed', core: 'claude', name: 'w', items: [] },
+      'accounts-login': { type: 'accounts-login', core: 'claude', name: 'w' },
+      'accounts-pick-folder': { type: 'accounts-pick-folder' },
+      'accounts-set-sbx-token': { type: 'accounts-set-sbx-token', core: 'claude', name: 'w' },
+      'accounts-remove-sbx-token': { type: 'accounts-remove-sbx-token', core: 'claude', name: 'w' },
+    };
+    for (const [type, payload] of Object.entries(payloads)) {
+      expect(parseSettingsMessage(payload), type).not.toBeNull();
+    }
   });
 });

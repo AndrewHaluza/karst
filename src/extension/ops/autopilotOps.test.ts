@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, getTicket, pauseTicket, setStageCurrent } from '../../store/tickets.js';
-import { setStage } from '../../store/stages.js';
+import { createTicket, getTicket, pauseTicket, setAgentState, setStageCurrent } from '../../store/tickets.js';
+import { ensureStage, removeStage, setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
@@ -9,6 +9,10 @@ import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { allChecksAllowed, approveOneMore, autopilotTick, clearParkBlock, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
+import { AUTO_SHIP_RETRY_STOP_REASON } from './autopilotShipRetry.js';
+import { recordEvent } from '../../store/karstEvents.js';
+import { upsertProject } from '../../store/projects.js';
+import { beginShipOperationPreparation, closeShipRun, finishShipRepoStep, openShipRepoStep, openShipRun } from '../../store/shipRuns.js';
 import { conflictRounds, conflictRoundEnded, createConflictRounds } from './autoDeliverOps.js';
 import { UNFINISHED_BODY } from './autopilotRefusal.js';
 import { makePlacementCheck } from '../autopilotBinding.js';
@@ -1833,5 +1837,306 @@ describe('a hand-merge resume whose deliver fails (T1162, @arch:AP-01)', () => {
     expect(drop).toHaveBeenCalled();
     expect(getConflictRoundAt(store, id)).toBeNull();
     expect(getAutopilotTicket(store, id).stoppedReason).toContain('did not deliver');
+  });
+});
+
+describe('the ship retry after a GitHub server error (T1362, @arch:AP-11)', () => {
+  const ENDED = '2026-11-25T12:00:00.000Z';
+  const AT = Date.parse('2026-11-25T12:10:00.000Z');
+  const HEAD = 'a'.repeat(40);
+
+  /** One failed run of `r` whose `pr` step carries a GitHub server error. */
+  function failedServerErrorShip(runs = 1, endedAt = ENDED, forId = id): number {
+    let last = 0;
+    setStage(store, forId, 'ship', { status: 'failed', startedAt: '2026-11-25T11:00:00.000Z', endedAt, blockedKind: null, blockedReason: null, blockedAt: null });
+    for (let i = 0; i < runs; i += 1) {
+      const r = openShipRun(store, { ticketId: forId, attempt: i + 1, startedAt: '2026-11-25T11:59:00.000Z' });
+      const s = openShipRepoStep(store, { shipRunId: r.id, repo: 'r', step: 'pr', detail: 'run', startedAt: '2026-11-25T11:59:00.000Z' });
+      finishShipRepoStep(store, s.id, { status: 'failed', detail: 'gh: HTTP 502 Bad Gateway', endedAt });
+      beginShipOperationPreparation(store, {
+        shipRunId: r.id, repo: 'r', step: 'push', operationKey: `push-${forId}-${r.id}`, createdAt: '2026-11-25T11:59:00.000Z',
+        preState: { step: 'push', localHead: HEAD, remote: 'origin', ref: 'b', preRemoteHead: null },
+      });
+      closeShipRun(store, r.id, 'failed', endedAt);
+      if (i === runs - 1) last = r.id;
+    }
+    return last;
+  }
+  /** A passed run with no steps: it resets the consecutive-failure count without changing the repo evidence. */
+  function passedRun(at: string, forId = id): void {
+    const r = openShipRun(store, { ticketId: forId, attempt: 99, startedAt: '2026-11-25T12:59:00.000Z' });
+    closeShipRun(store, r.id, 'passed', at);
+  }
+  const retrySeams = { shipRetry: { worktreeClean: async () => ({ ok: true as const, clean: true }), localHead: async () => HEAD } };
+  const retry = (over: Partial<AutopilotDeps> = {}) => {
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    return { ...rig({ now: () => AT, retryShip, ...retrySeams, ...over }), retryShip: over.retryShip ?? retryShip };
+  };
+
+  it('retries the confirmed ship after the backoff and records one event', async () => {
+    failedServerErrorShip();
+    const r = retry();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'shipRetried' });
+    expect(r.retryShip).toHaveBeenCalledWith(['r']);
+    expect(r.notes).toEqual([[
+      'Autopilot: retried ship after a GitHub server error (1/5)',
+      'AP-1: ran Retry ship for r after a GitHub server error (retry 1/5).',
+    ]]);
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: retried ship after a GitHub server error (1/5) for r');
+  });
+
+  it('retries every repo Retry ship names, joined with a comma', async () => {
+    const runId = failedServerErrorShip();
+    const step = openShipRepoStep(store, { shipRunId: runId, repo: 'z', step: 'pr', detail: 'run', startedAt: '2026-11-25T11:59:00.000Z' });
+    finishShipRepoStep(store, step.id, { status: 'failed', detail: 'HTTP 503 Service Unavailable', endedAt: ENDED });
+    beginShipOperationPreparation(store, {
+      shipRunId: runId, repo: 'z', step: 'push', operationKey: `push-z-${runId}`, createdAt: '2026-11-25T11:59:00.000Z',
+      preState: { step: 'push', localHead: HEAD, remote: 'origin', ref: 'b', preRemoteHead: null },
+    });
+    const r = retry();
+    expect(await autopilotTick(r.deps)).toEqual({ kind: 'shipRetried' });
+    expect(r.retryShip).toHaveBeenCalledTimes(1);
+    expect(r.notes[0]![1]).toMatch(/for (r, z|z, r) after a GitHub server error \(retry 1\/5\)\.$/);
+    expect(r.debug).toHaveBeenCalledWith(expect.stringMatching(/\(1\/5\) for (r, z|z, r)$/));
+  });
+
+  it('reads no worktree and writes no stop for a sandboxed ticket, even at the bound', async () => {
+    failedServerErrorShip(6);
+    const worktreeClean = vi.fn(async () => ({ ok: true as const, clean: true }));
+    const localHead = vi.fn(async () => HEAD);
+    const r = retry({ placement: async () => 'sandbox' as const, shipRetry: { worktreeClean, localHead } });
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect(worktreeClean).not.toHaveBeenCalled();
+    expect(localHead).not.toHaveBeenCalled();
+    expect(r.notes).toEqual([]);
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ticket does not run on the host');
+  });
+
+  const changedWhileDeciding: Array<readonly [string, (ticketId: number) => void]> = [
+    ['the ticket left ship', (tid) => { store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(tid); }],
+    ['the ticket paused', (tid) => { pauseTicket(store, tid); }],
+    ['autopilot stopped after this round', (tid) => { setAutopilotStopAfter(store, tid); }],
+    ['autopilot paused', (tid) => { setAutopilotPaused(store, tid, 'auto-fix paused: sandbox read-only'); }],
+    ['autopilot stopped', (tid) => { setAutopilotStopped(store, tid, 'auto-fix stopped: ci 3/3'); }],
+    ['the ship stage started running', (tid) => { setStage(store, tid, 'ship', { status: 'running' }); }],
+    ['a block landed on the ship stage', (tid) => {
+      parkGateStage(store, { ticketId: tid, stageKey: 'ship', kind: 'push-diverged', reason: 'diverged', runAt: ENDED, gates: [] });
+    }],
+    ['a newer ship run exists', (tid) => {
+      const run = openShipRun(store, { ticketId: tid, attempt: 2, startedAt: '2026-11-25T11:59:30.000Z' });
+      closeShipRun(store, run.id, 'interrupted', '2026-11-25T11:59:45.000Z');
+    }],
+    ['the ship stage row is gone', (tid) => { removeStage(store, tid, 'ship'); }],
+    ['autopilot turned off', (tid) => { setAutopilotOverride(store, tid, 'off'); }],
+    ['a session started', (tid) => { setAgentState(store, tid, 'running'); }],
+  ];
+  for (const [what, change] of changedWhileDeciding) {
+    it(`keeps the retry off when ${what} while the decision awaits git`, async () => {
+      failedServerErrorShip();
+      const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+      const r = retry({
+        retryShip,
+        shipRetry: {
+          worktreeClean: async () => { change(id); return { ok: true as const, clean: true }; },
+          localHead: async () => HEAD,
+        },
+      });
+      expect((await autopilotTick(r.deps)).kind).toBe('idle');
+      expect(retryShip).not.toHaveBeenCalled();
+      expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ticket changed while the decision awaited git');
+    });
+  }
+
+  it('keeps the retry off when a session starts or the host drains while the decision awaits git', async () => {
+    for (const change of ['session', 'drain'] as const) {
+      failedServerErrorShip();
+      let live = false;
+      const worktreeClean = async (): Promise<{ ok: true; clean: boolean }> => {
+        live = true;
+        return { ok: true, clean: true };
+      };
+      const r = retry({
+        ...(change === 'session' ? { sessionRunning: () => live } : {}),
+        ...(change === 'drain' ? { isDraining: () => live } : {}),
+        shipRetry: { worktreeClean, localHead: async () => HEAD },
+      });
+      expect((await autopilotTick(r.deps)).kind).toBe('idle');
+      expect(r.retryShip).not.toHaveBeenCalled();
+    }
+  });
+
+  it('never retries a ticket that does not run on the host: its ship would pull sandbox commits', async () => {
+    failedServerErrorShip();
+    const sandboxed = retry({ placement: async () => 'sandbox' as const });
+    expect((await autopilotTick(sandboxed.deps)).kind).toBe('idle');
+    expect((await autopilotTick(sandboxed.deps)).kind).toBe('idle');
+    expect(sandboxed.retryShip).not.toHaveBeenCalled();
+    expect(sandboxed.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ticket does not run on the host');
+    expect(sandboxed.debug.mock.calls.filter(([m]) => String(m).includes('does not run on the host')).length).toBe(1);
+    const unknown = retry({ placement: async () => { throw new Error('no placement is recorded'); } });
+    expect((await autopilotTick(unknown.deps)).kind).toBe('idle');
+    expect(unknown.retryShip).not.toHaveBeenCalled();
+  });
+
+  it('waits before the backoff, with one debug line per armed wait', async () => {
+    failedServerErrorShip();
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const r = rig({ now: () => Date.parse('2026-11-25T12:00:30.000Z'), retryShip, ...retrySeams });
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect(retryShip).not.toHaveBeenCalled();
+    expect(r.debug).toHaveBeenCalledWith(`[ship] autopilot ticket AP-1: the ship retry waits until ${new Date(Date.parse(ENDED) + 120_000).toISOString()}`);
+    expect(r.debug.mock.calls.filter(([m]) => String(m).includes('the ship retry waits')).length).toBe(1);
+  });
+
+  it('waits once per ticket, even when two tickets share a store and one wait time', async () => {
+    const id2 = createTicket(store, { key: 'AP-2', title: 't2' }).id;
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id2, from, { kind: 'passed' });
+    failedServerErrorShip();
+    failedServerErrorShip(1, ENDED, id2);
+    const now = (): number => Date.parse('2026-11-25T12:00:30.000Z');
+    const first = rig({ now, retryShip: vi.fn(), ...retrySeams });
+    const second = rig({ ticketId: id2, key: 'AP-2', now, retryShip: vi.fn(), ...retrySeams });
+    await autopilotTick(first.deps);
+    await autopilotTick(second.deps);
+    const waits = (r: Rig) => r.debug.mock.calls.filter(([m]) => String(m).includes('the ship retry waits')).length;
+    expect([waits(first), waits(second)]).toEqual([1, 1]);
+    expect(second.debug).toHaveBeenCalledWith(expect.stringContaining('ticket AP-2: the ship retry waits'));
+  });
+
+  it('stops after 5 retries: one persisted event per failed run, no block, no sixth retry', async () => {
+    // The stop line is deduped from the STORE, so the note must really write an event: this ticket lives in a project.
+    const project = upsertProject(store, { slug: 'ap-stop' });
+    store.db.prepare('UPDATE tickets SET project_id = ? WHERE id = ?').run(project.id, id);
+    const events = (): number => (store.db.prepare('SELECT COUNT(*) AS n FROM karst_events WHERE ticket_id = ?').get(id) as { n: number }).n;
+    const note = (title: string, body: string): void => {
+      recordEvent(store, { projectId: project.id, ticketId: id, level: 'error', source: 'autopilot', title, body }, () => {});
+    };
+    failedServerErrorShip(6);
+    const at = Date.parse('2026-11-25T12:59:00.000Z');
+    const first = retry({ now: () => at, note });
+    expect((await autopilotTick(first.deps)).kind).toBe('idle');
+    expect((await autopilotTick(retry({ now: () => at, note }).deps)).kind).toBe('idle');
+    expect(first.retryShip).not.toHaveBeenCalled();
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(events()).toBe(1);
+    expect(first.debug).toHaveBeenCalledWith(`[ship] autopilot ticket AP-1: ${AUTO_SHIP_RETRY_STOP_REASON}; no block, Retry ship stays`);
+    expect((store.db.prepare('SELECT body FROM karst_events WHERE ticket_id = ?').get(id) as { body: string }).body)
+      .toContain('(ship run ');
+    // A newer run exists (a person's ship): a later series of failures writes its own stop event.
+    passedRun('2026-11-25T13:00:00.000Z');
+    failedServerErrorShip(6, '2026-11-25T13:10:00.000Z');
+    const later = retry({ now: () => Date.parse('2026-11-25T13:20:00.000Z'), note });
+    expect((await autopilotTick(later.deps)).kind).toBe('idle');
+    expect((await autopilotTick(later.deps)).kind).toBe('idle');
+    expect(events()).toBe(2);
+  });
+
+  it('records the decision refusal once, not on every tick', async () => {
+    failedServerErrorShip();
+    const r = retry({ shipRetry: { worktreeClean: async () => ({ ok: true as const, clean: false }), localHead: async () => HEAD } });
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect(r.retryShip).not.toHaveBeenCalled();
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry (the worktree of r has uncommitted changes)');
+    expect(r.debug.mock.calls.filter(([m]) => String(m).includes('no ship retry')).length).toBe(1);
+  });
+
+  it('throttles the refusal per ticket: two tickets each report their own reason', async () => {
+    const id2 = createTicket(store, { key: 'AP-3', title: 't3' }).id;
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, id2, from, { kind: 'passed' });
+    failedServerErrorShip();
+    failedServerErrorShip(1, ENDED, id2);
+    const dirty = { worktreeClean: async () => ({ ok: true as const, clean: false }), localHead: async () => HEAD };
+    const first = rig({ now: () => AT, retryShip: vi.fn(), shipRetry: dirty });
+    const second = rig({ ticketId: id2, key: 'AP-3', now: () => AT, retryShip: vi.fn(), shipRetry: dirty });
+    await autopilotTick(first.deps);
+    await autopilotTick(second.deps);
+    expect(first.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry (the worktree of r has uncommitted changes)');
+    expect(second.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-3: no ship retry (the worktree of r has uncommitted changes)');
+  });
+
+  it('keeps the retry off while any stop reason is on record', async () => {
+    failedServerErrorShip();
+    setAutopilotStopped(store, id, 'auto-fix stopped: ci 3/3');
+    const r = retry();
+    expect((await autopilotTick(r.deps)).kind).toBe('idle');
+    expect(r.retryShip).not.toHaveBeenCalled();
+    expect(r.debug.mock.calls.filter(([m]) => String(m).includes('ship retry')).length).toBe(0);
+  });
+
+  it('pauses when the retry opens no run, so a throwing saga never repeats every tick', async () => {
+    failedServerErrorShip();
+    const retryShip = vi.fn(async () => ({ kind: 'failed' as const, reason: 'the sandbox is out of sync' }));
+    const r = retry({ retryShip });
+    expect((await autopilotTick(r.deps)).kind).toBe('parked');
+    expect(getAutopilotTicket(store, id).pausedReason).toBe('auto-fix stopped: ship retry could not run (the sandbox is out of sync)');
+    expect(getAutopilotTicket(store, id).stoppedReason).toBe('auto-fix stopped: ship retry could not run (the sandbox is out of sync)');
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: auto-fix stopped: ship retry could not run (the sandbox is out of sync); paused');
+    expect(stageBlock(store, id, 'ship')).toBeNull();
+    expect(r.notes).toEqual([[
+      'Autopilot: auto-fix stopped: ship retry could not run (the sandbox is out of sync)',
+      'AP-1: the ship retry did not open a run; the failed ship keeps its Retry ship. Start it by hand, then set the auto-fix mode again.',
+    ]]);
+    // Paused: the next tick does not touch it again.
+    await autopilotTick(r.deps);
+    expect(retryShip).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts a retry that failed after opening its run as sent', async () => {
+    failedServerErrorShip();
+    const retryShip = vi.fn(async () => {
+      // The saga opened its run and then failed: the run history bounds the next attempt.
+      const run = openShipRun(store, { ticketId: id, attempt: 2, startedAt: '2026-11-25T12:09:00.000Z' });
+      const step = openShipRepoStep(store, { shipRunId: run.id, repo: 'r', step: 'pr', detail: 'run', startedAt: '2026-11-25T12:09:00.000Z' });
+      finishShipRepoStep(store, step.id, { status: 'failed', detail: 'gh: HTTP 502 Bad Gateway', endedAt: '2026-11-25T12:09:30.000Z' });
+      closeShipRun(store, run.id, 'failed', '2026-11-25T12:09:30.000Z');
+      return { kind: 'failed' as const, reason: 'ship failed for 1 repo(s)' };
+    });
+    const r = retry({ retryShip });
+    expect((await autopilotTick(r.deps)).kind).toBe('shipRetried');
+    expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
+    expect(r.notes[0]![0]).toBe('Autopilot: retried ship after a GitHub server error (1/5)');
+  });
+
+  it('reports busy when the host drains, and records no event', async () => {
+    failedServerErrorShip();
+    const r = retry({ retryShip: vi.fn(async () => ({ kind: 'busy' as const })) });
+    expect((await autopilotTick(r.deps)).kind).toBe('busy');
+    expect(r.notes).toEqual([]);
+    expect(r.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: no ship retry, the ship could not start (the host drains or another window holds the ticket)');
+  });
+
+  it('works only a failed, unblocked stage: a passed stage and a blocked failed stage stay quiet', async () => {
+    setStage(store, id, 'ship', { status: 'passed', blockedKind: null, blockedReason: null, blockedAt: null });
+    const passed = retry();
+    expect((await autopilotTick(passed.deps)).kind).toBe('idle');
+    expect(passed.debug).not.toHaveBeenCalled();
+    failedServerErrorShip();
+    parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'push-diverged', reason: 'diverged', runAt: ENDED, gates: [] });
+    const blocked = retry();
+    expect((await autopilotTick(blocked.deps)).kind).toBe('idle');
+    expect(blocked.debug.mock.calls.filter(([m]) => String(m).includes('ship retry')).length).toBe(0);
+  });
+
+  it('does not retry when the stage row or the seams are missing, with the off mode, another controller, a session, or a pause', async () => {
+    failedServerErrorShip();
+    const retryShip = vi.fn(async () => ({ kind: 'sent' as const }));
+    const base = { now: () => AT, retryShip, ...retrySeams };
+    removeStage(store, id, 'ship');
+    expect((await autopilotTick(rig(base).deps)).kind).toBe('idle');
+    ensureStage(store, id, 'ship');
+    failedServerErrorShip();
+    expect((await autopilotTick(rig({ ...base, config: () => ({ ...CFG, enabled: false }) }).deps)).kind).toBe('off');
+    expect((await autopilotTick(rig({ ...base, controls: () => false }).deps)).kind).toBe('not-controller');
+    expect((await autopilotTick(rig({ ...base, sessionRunning: () => true }).deps)).kind).toBe('busy');
+    setAutopilotPaused(store, id, 'auto-fix paused: sandbox read-only');
+    expect((await autopilotTick(rig(base).deps)).kind).toBe('idle');
+    setAutopilotOverride(store, id, 'on');
+    expect((await autopilotTick(rig({ now: () => AT, retryShip }).deps)).kind).toBe('idle');
+    expect(retryShip).not.toHaveBeenCalled();
+    // An absent seam means "not wired yet", never a failed attempt: no pause and no stop reason.
+    expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
+    expect(getAutopilotTicket(store, id).stoppedReason).toBeNull();
   });
 });

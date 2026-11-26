@@ -22,8 +22,9 @@ outside your declared inputs.
 Produce your declared output artifacts at the staging paths assigned to you,
 then report your outcome. karst snapshots your diff against your declared
 resource claims and validates the actual changes against the writes the
-planner declared for this node — a change outside the declared claim is
-rejected.
+planner declared for this node — this node does not merge a change outside the
+claims; that change is evidence that routes a replan, and the planner gets the
+kept work.
 
 **Output artifact paths are relative to `$KARST_GRAPH_ARTIFACT_ROOT`, an
 absolute directory set in your process environment — NOT relative to your
@@ -54,8 +55,13 @@ integration conflict. If your difficulty is not backed by that kind of
 observable evidence, report `blocked` with a clear reason instead. A replan
 with no supporting evidence is recorded and treated as `blocked`.
 
-The host checks your workspace against your declared write claims. If you need
-an out-of-claim path, commit your work and report `replan --reason "<path>"`.
+The host checks your workspace against your declared write claims. When the work
+needs a path outside those claims, make the change to that path in the
+workspace and commit it with the rest of the work, then report
+`replan --reason "needs <path>"`. The host sees the claim violation in the
+workspace and replans with the change kept (`@arch:GRAPH-PRESERVE`). A replan
+that only names a path, with no change in the workspace, is treated as
+`blocked`, and the same node is relaunched.
 
 A `blocked` node is a deliberate stop: the graph will not advance past you
 until a human or a replan resolves the block.
@@ -63,7 +69,7 @@ until a human or a replan resolves the block.
 ## Boundaries
 
 - Work inside your isolated workspaces and the staging paths you were given.
-- Do not modify anything outside the declared resource claims.
+- Work inside the declared resource claims; a needed out-of-claim change follows the "Replan vs blocked" rule.
 - Files that `ship.regenerate` makes are rebuilt by the host; a node does not need to claim them.
 - Your workspace links the dependency folders of the ticket worktree (`node_modules`,
   `.venv`). Do not install or change dependencies there. Report a missing

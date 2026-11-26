@@ -189,6 +189,7 @@ export async function runAgentNode(
   const naming = deps.sessionNamingOf(input.graphRunId, input.nodeRunId, 'node');
   const launch: SupervisedLaunchRequest = {
     nodeRunId: input.nodeRunId,
+    runKind: 'node',
     ticketId: input.ticketId,
     graphRunId: input.graphRunId,
     repo: input.repo,

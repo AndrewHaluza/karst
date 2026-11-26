@@ -45,6 +45,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isPathUnder, canonicalPath } from '../../../runtime/pathScope.js';
 import { attributeServer, type ProcessFactsSource } from '../../../runtime/serverIdentity.js';
+import { ensureCloneKarstExcluded } from '../../../runtime/karstExcludes.js';
 import { workspaceRootDir } from '../artifacts/snapshot.js';
 import { domainKeyOf } from '../integration/domains.js';
 import { describeGitFailure, type GitRunner } from '../../../integrations/git.js';
@@ -339,6 +340,9 @@ export async function createNodeWorkspace(
       if (clone.exitCode !== 0) {
         throw new Error(describeGitFailure(`git clone of ${domain.repoName} into ${dest}`, clone));
       }
+      // Karst's own generated files (an adapter plugin in the node cwd) stay out
+      // of claim validation, as in a ticket worktree (T1370).
+      await ensureCloneKarstExcluded(dest);
       const co = await git(['checkout', '-q', '--detach', domain.baseCommit], dest);
       if (co.exitCode !== 0) {
         throw new Error(

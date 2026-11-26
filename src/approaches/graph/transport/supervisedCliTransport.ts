@@ -46,13 +46,16 @@ import type {
   TransportTerminal,
   TransportTerminalHost,
 } from './agentTransport.js';
-import type { AgentAdapter, InteractiveCommandOpts } from '../../../agent/adapter.js';
+import type { AgentAdapter, HookChannel, InteractiveCommandOpts } from '../../../agent/adapter.js';
+import { randomUUID } from 'node:crypto';
+import { cleanupOwnedPaths } from '../../../agent/materializedCleanup.js';
 import { killTree as systemKillTree, type KillOutcome } from '../../../runtime/processTree.js';
 import { attributeServer, type ProcessFactsSource } from '../../../runtime/serverIdentity.js';
 import { emitGraphDiagnostic, type GraphDiagnosticIdentity } from '../diagnostics.js';
 
 export type {
   AgentAdapter,
+  HookChannel,
   InteractiveCommandOpts,
 } from '../../../agent/adapter.js';
 export type {
@@ -139,6 +142,20 @@ export interface SupervisedTransportDeps {
    *  attempt) for the structured launch diagnostic. Absent → the launch line
    *  is skipped (an unattributed run is not keyed). */
   graphIdentityOf?: (graphRunId: number) => GraphDiagnosticIdentity | undefined;
+  /**
+   * The hook channel a graph launch carries (T1370). ONE seam for the planner
+   * and the node: the host wires it for the cores whose usage arrives as a
+   * hook (`opencode2`'s bridge plugin), with a graph launch id
+   * (`graphLaunchId`) so dispatch can tell a graph session from the ticket's
+   * own. Absent → no channel is offered, and the launch is unchanged.
+   *
+   * It is passed to `buildInteractiveCommand` ONLY when the adapter declares
+   * `surfaces.hookChannel` supported. A claude planner therefore gets none
+   * even if the dep offers one: claude usage comes from the transcript sweep,
+   * and a claude hook channel would carry lifecycle events for a ticket that
+   * has no session.
+   */
+  hookChannelFor?: (request: SupervisedLaunchRequest) => HookChannel | undefined;
 }
 
 /** The launch request this transport accepts: the adapter it bridges FROM,
@@ -267,10 +284,31 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       );
       // Every graph launch is unattended (D170): the karst-owned gate sandbox is
       // the default, scoped to the node workspace. A caller may pass its own.
+      // T1370: the launch identity is decided HERE, once for the planner and the
+      // node. A claude launch gets a karst-chosen id at spawn so its transcript
+      // is locatable while it runs (the usage sweep reads it); a resume keeps
+      // its own id. Any other core records none.
+      const provider = request.identity?.provider ?? null;
+      const providerSessionId =
+        provider === 'claude' && !request.interactive.resume ? randomUUID() : null;
+      // The graph hook channel comes from the host, and only reaches a core
+      // that declares the surface supported — a channel a core would ignore
+      // (or misread) is worse than none. claude is refused here as well as at
+      // the host wire: its usage comes from the transcript sweep, and a claude
+      // hook channel on a graph session would carry lifecycle events for a
+      // ticket that has no session of its own.
+      const offeredChannel =
+        provider === 'claude' ? undefined : (request.interactive.hookChannel ?? deps.hookChannelFor?.(request));
+      const hookChannel =
+        offeredChannel !== undefined && request.adapter.surfaces?.hookChannel.supported === true
+          ? offeredChannel
+          : undefined;
       const built = request.adapter.buildInteractiveCommand({
         policy: 'gate',
         ...request.interactive,
         cwd: request.cwd,
+        ...(providerSessionId !== null ? { sessionId: providerSessionId } : {}),
+        ...(hookChannel !== undefined ? { hookChannel } : {}),
       });
       const terminal = deps.terminalHost.createTerminal({
         name: request.sessionName ?? `Karst node ${request.nodeRunId}`,
@@ -317,7 +355,9 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         ownerNonce,
         startedAt,
         processRunId,
-        providerSessionId: null,
+        provider,
+        providerSessionId,
+        runKind: request.runKind ?? 'node',
         terminal,
       };
       const key = `${request.ticketId}:${request.nodeRunId}`;
@@ -361,6 +401,11 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         // registry makes reconcile treat a dead node as owned by this window
         // forever, so the graph remains stuck at `running`.
         if (sessions.get(key) === session) sessions.delete(key);
+        // The adapter-owned files the launch wrote into the node cwd (the
+        // opencode2 bridge plugin) leave with the session, as in a ticket
+        // session (T1370). The clone's exclude rules keep them out of claim
+        // validation while the session runs.
+        removeOwnedPaths(request.cwd, built.ownedPaths, deps.debug);
         // The Stop marker is scoped to the session that just ended — a later
         // launch of the same reserved visit must report its own failures. Read
         // it BEFORE clearing: this close is the Stop when it is set.
@@ -515,4 +560,18 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       }
     },
   };
+}
+
+/** Remove the adapter-owned paths of a closed graph session; a failure is logged, never thrown. */
+export function removeOwnedPaths(
+  cwd: string,
+  ownedPaths: readonly string[] | undefined,
+  debug: ((message: string) => void) | undefined,
+): void {
+  if (ownedPaths === undefined || ownedPaths.length === 0) return;
+  try {
+    cleanupOwnedPaths(cwd, ownedPaths);
+  } catch (error) {
+    debug?.(`[graph] removing the adapter-owned paths in ${cwd} failed (${String(error)})`);
+  }
 }

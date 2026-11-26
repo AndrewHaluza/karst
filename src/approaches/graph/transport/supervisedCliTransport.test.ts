@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { ensureClaudeWorkspaceTrusted } from '../../../agent/workspaceTrust.js';
 import { join, dirname } from 'node:path';
@@ -21,12 +21,19 @@ import { stopServersUnder, reapStaleServers } from '../../../runtime/worktreeSer
 import {
   createSupervisedCliTransport,
   LAUNCH_EXIT_WINDOW_MS,
+  removeOwnedPaths,
   type LaunchFailure,
   type SupervisedLaunchRequest,
   type SupervisedTransportDeps,
 } from './supervisedCliTransport.js';
 import type { TransportTerminal, TransportTerminalHost, SupervisedAgentSession } from './agentTransport.js';
-import type { AgentAdapter, InteractiveCommand } from '../../../agent/adapter.js';
+import type {
+  AgentAdapter,
+  InteractiveCommand,
+  InteractiveCommandOpts,
+} from '../../../agent/adapter.js';
+import { Opencode2Adapter } from '../../../agent/opencode2.js';
+import { graphLaunchIdForLaunch, parseGraphLaunchId } from '../graphLaunchId.js';
 
 /** A terminal fake that resolves a configured pid immediately after spawn. */
 function fakeTerminal(pid: number | undefined): TransportTerminal & { disposed: boolean } {
@@ -172,6 +179,7 @@ describe('SupervisedCLITransport', () => {
       cwd: '/wt/n1',
       generation: 'gen-1',
       startedAt: '2026-08-12T00:00:00.000Z',
+      provider: null,
       providerSessionId: null,
     });
     // The nonce is the CLAIM transaction's — the transport never mints one,
@@ -279,6 +287,7 @@ describe('SupervisedCLITransport', () => {
       ownerNonce: 'nonce-adopted',
       startedAt: '2026-08-12T00:00:00.000Z',
       processRunId: null,
+      provider: null,
       providerSessionId: null,
       terminal: fakeTerminal(4242),
     };
@@ -301,6 +310,7 @@ describe('SupervisedCLITransport', () => {
       ownerNonce: 'nonce-a',
       startedAt: '2026-08-12T00:00:00.000Z',
       processRunId: null,
+      provider: null,
       providerSessionId: null,
       terminal: fakeTerminal(4242),
     };
@@ -335,6 +345,7 @@ describe('SupervisedCLITransport', () => {
       ownerNonce: 'nonce',
       startedAt: '2026-08-12T00:00:00.000Z',
       processRunId: 77,
+      provider: null,
       providerSessionId: null,
       terminal,
     };
@@ -908,6 +919,7 @@ describe('SupervisedCLITransport disposeOnSuccess', () => {
     ownerNonce: 'nonce',
     startedAt: '2026-08-12T00:00:00.000Z',
     processRunId: 77,
+    provider: null,
     providerSessionId: null,
   };
 
@@ -1037,5 +1049,247 @@ describe('SupervisedCLITransport disposeOnSuccess', () => {
     const session = await transport.start(LAUNCH);
     expect(() => transport.disposeOnSuccess(session)).not.toThrow();
     expect(logs.some((l) => l.includes('disposing the terminal after success failed'))).toBe(true);
+  });
+});
+
+/**
+ * T1370: a graph session must be able to reach the token ledger.
+ *
+ * The transport is the ONE seam both planner and node launches pass through, so
+ * the launch identity (`provider`) and the provider session id (claude
+ * `--session-id`) are decided here, and the graph hook channel is injected
+ * here. The extension wires `hookChannelFor` for opencode2 only: a claude graph
+ * session reads its usage from the transcript sweep, and claude hooks would
+ * carry lifecycle events into a ticket that has no session of its own.
+ */
+describe('SupervisedCLITransport graph launch identity (T1370)', () => {
+  interface Captured {
+    opts: Record<string, unknown>;
+  }
+
+  /** The claude adapter's own translation, without touching the operator's
+   *  home dir: records the opts and mirrors a valid `sessionId` into argv. */
+  function claudeLikeAdapter(captured: Captured, surfaces: unknown): AgentAdapter {
+    return {
+      requiredBinary: 'fake',
+      runHeadless: async () => {
+        throw new Error('unused');
+      },
+      surfaces,
+      buildInteractiveCommand: (opts: InteractiveCommandOpts) => {
+        captured.opts = opts as unknown as Record<string, unknown>;
+        const args: string[] = [];
+        if (opts.sessionId && !opts.resume) args.push('--session-id', opts.sessionId);
+        if (opts.resume) args.push('--resume', opts.resume);
+        return { command: 'claude', args, env: {} };
+      },
+    } as unknown as AgentAdapter;
+  }
+
+  const CLAUDE_SURFACES = { hookChannel: { supported: true } };
+
+  /** Start from the shared LAUNCH fixture with the case's overrides. The
+   *  transport's own `start` takes the strict request, so the spread is typed
+   *  here once instead of at every call site. */
+  function startWith(
+    transport: ReturnType<typeof createSupervisedCliTransport>,
+    over: Partial<SupervisedLaunchRequest>,
+  ) {
+    return transport.start({ ...LAUNCH, ...over } as SupervisedLaunchRequest);
+  }
+
+  it('pins a claude launch to a karst-chosen UUID and records it on the session', async () => {
+    const captured: Captured = { opts: {} };
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const session = await startWith(transport, {
+      identity: { profile: 'planner', provider: 'claude' },
+      adapter: claudeLikeAdapter(captured, CLAUDE_SURFACES),
+    });
+    const id = captured.opts.sessionId as string;
+    // A UUID v4-shaped id: the CLI refuses anything else with a launch error.
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(h.calls.terminal.shellArgs).toEqual(['--session-id', id]);
+    expect(session.providerSessionId).toBe(id);
+    expect(session.provider).toBe('claude');
+    // Absent runKind is a node launch: the sweep builds the node launch id.
+    expect(session.runKind).toBe('node');
+  });
+
+  it('records the planner runKind on a planner session', async () => {
+    const captured: Captured = { opts: {} };
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const session = await startWith(transport, {
+      runKind: 'planner',
+      identity: { profile: 'planner', provider: 'claude' },
+      adapter: claudeLikeAdapter(captured, CLAUDE_SURFACES),
+    });
+    expect(session.runKind).toBe('planner');
+  });
+
+  it('keeps a resumed claude session on its own id (no --session-id)', async () => {
+    const captured: Captured = { opts: {} };
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const session = await startWith(transport, {
+      identity: { profile: 'node', provider: 'claude' },
+      interactive: { cwd: '/wt/n1', resume: 'existing-session' },
+      adapter: claudeLikeAdapter(captured, CLAUDE_SURFACES),
+    });
+    expect(captured.opts.sessionId).toBeUndefined();
+    expect(h.calls.terminal.shellArgs).toEqual(['--resume', 'existing-session']);
+    expect(session.providerSessionId).toBeNull();
+    expect(session.provider).toBe('claude');
+  });
+
+  it('records no provider session id for a core that cannot pin one', async () => {
+    const captured: Captured = { opts: {} };
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport(h.deps);
+    const session = await startWith(transport, {
+      identity: { profile: 'node', provider: 'opencode2' },
+      adapter: claudeLikeAdapter(captured, { hookChannel: { supported: true } }),
+    });
+    expect(captured.opts.sessionId).toBeUndefined();
+    expect(session.providerSessionId).toBeNull();
+    expect(session.provider).toBe('opencode2');
+  });
+
+  it('records a null provider when the launch resolved no identity', async () => {
+    const h = harness(4242);
+    const session = await createSupervisedCliTransport(h.deps).start(LAUNCH);
+    expect(session.provider).toBeNull();
+  });
+
+  it('passes the injected graph hook channel to an opencode2 launch, and the plugin bakes its launch id', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'karst-graph-hook-'));
+    const configDir = mkdtempSync(join(tmpdir(), 'karst-graph-cfg-'));
+    // A real launch generation is a UUIDv7; the graph launch id carries it as
+    // its secret suffix (the hook endpoint refuses a guessable id).
+    const generation = '019ab3c2-7d10-7e4f-8a2b-3c4d5e6f7a8b';
+    const expectedLaunchId = graphLaunchIdForLaunch({ graphRunId: 7, nodeRunId: 31, generation });
+    const h = harness(4242);
+    const seen: string[] = [];
+    const transport = createSupervisedCliTransport({
+      ...h.deps,
+      hookChannelFor: (request) => {
+        const launchId = graphLaunchIdForLaunch(request);
+        const url = new URL('http://127.0.0.1:4567/hooks');
+        url.searchParams.set('karstLaunch', launchId);
+        seen.push(launchId);
+        return { endpointUrl: url.toString(), configDir, launchId };
+      },
+    });
+    const session = await startWith(transport, {
+      nodeRunId: 31,
+      graphRunId: 7,
+      generation,
+      cwd,
+      identity: { profile: 'worker', provider: 'opencode2' },
+      adapter: new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 })),
+      interactive: { cwd, initialPrompt: 'go' },
+    });
+    expect(session.providerSessionId).toBeNull();
+    expect(seen).toEqual([expectedLaunchId]);
+    expect(parseGraphLaunchId(expectedLaunchId)).toEqual({
+      graphRunId: 7,
+      runId: 31,
+      role: 'node',
+      generation,
+    });
+    // The bridge plugin is written and carries the graph launch id in its
+    // baked endpoint, so the hook payload's `launchId` marks the session as
+    // the graph's rather than as a ticket generation.
+    const pluginPath = join(cwd, '.opencode', 'plugins', 'karst-bridge.js');
+    expect(existsSync(pluginPath)).toBe(true);
+    expect(readFileSync(pluginPath, 'utf8')).toContain(`karstLaunch=${expectedLaunchId}`);
+  });
+
+  it('gives a claude graph launch no hook channel even when the dep offers one', async () => {
+    const captured: Captured = { opts: {} };
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport({
+      ...h.deps,
+      hookChannelFor: () => ({ endpointUrl: 'http://127.0.0.1:4567/hooks', configDir: '/cfg' }),
+    });
+    await startWith(transport, {
+      identity: { profile: 'planner', provider: 'claude' },
+      adapter: claudeLikeAdapter(captured, CLAUDE_SURFACES),
+    });
+    expect(captured.opts.hookChannel).toBeUndefined();
+  });
+
+  it('refuses a hook channel to a core that declares the surface unsupported', async () => {
+    const captured: Captured = { opts: {} };
+    const h = harness(4242);
+    const transport = createSupervisedCliTransport({
+      ...h.deps,
+      hookChannelFor: () => ({ endpointUrl: 'http://127.0.0.1:4567/hooks', configDir: '/cfg' }),
+    });
+    await startWith(transport, {
+      identity: { profile: 'node', provider: 'antigravity' },
+      adapter: claudeLikeAdapter(captured, {
+        hookChannel: { supported: false, reason: 'agy watches its own conversation DB' },
+      }),
+    });
+    expect(captured.opts.hookChannel).toBeUndefined();
+  });
+});
+
+describe('adapter-owned paths of a graph session (T1370)', () => {
+  const PLUGIN = join('.opencode', 'plugins', 'karst-bridge.js');
+
+  function workspaceWithPlugin(): string {
+    const cwd = mkdtempSync(join(tmpdir(), 'karst-graph-owned-'));
+    mkdirSync(join(cwd, '.opencode', 'plugins'), { recursive: true });
+    writeFileSync(join(cwd, PLUGIN), '// plugin');
+    return cwd;
+  }
+
+  it('removes the paths the adapter owns when the session terminal closes', async () => {
+    const cwd = workspaceWithPlugin();
+    try {
+      const terminal = fakeTerminal(4242);
+      let closeHandler: ((exitCode?: number) => void) | undefined;
+      terminal.onDidClose = (handler) => {
+        closeHandler = handler;
+      };
+      const transport = createSupervisedCliTransport({
+        ...harness(4242).deps,
+        terminalHost: { createTerminal: () => terminal },
+      });
+      const adapter = adapterFor({ command: 'opencode', args: [], env: {}, ownedPaths: [PLUGIN] } as InteractiveCommand);
+      await transport.start({ ...LAUNCH, cwd, interactive: { cwd }, adapter } as SupervisedLaunchRequest);
+      expect(existsSync(join(cwd, PLUGIN))).toBe(true);
+      closeHandler?.(0);
+      expect(existsSync(join(cwd, PLUGIN))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('logs a refused path and does not throw', () => {
+    const debug: string[] = [];
+    expect(() => removeOwnedPaths('/wt/n1', ['../outside'], (m) => debug.push(m))).not.toThrow();
+    expect(debug).toHaveLength(1);
+    expect(debug[0]).toContain('[graph] removing the adapter-owned paths in /wt/n1 failed');
+  });
+
+  it('does nothing when the adapter owns no path', () => {
+    const debug: string[] = [];
+    removeOwnedPaths('/wt/n1', undefined, (m) => debug.push(m));
+    removeOwnedPaths('/wt/n1', [], (m) => debug.push(m));
+    expect(debug).toEqual([]);
+  });
+
+  it('removes each owned path in the cwd', () => {
+    const cwd = workspaceWithPlugin();
+    try {
+      removeOwnedPaths(cwd, [PLUGIN], undefined);
+      expect(existsSync(join(cwd, PLUGIN))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

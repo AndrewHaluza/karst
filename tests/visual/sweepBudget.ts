@@ -89,7 +89,15 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1297 new variants, @ui:UI-R57: discard-undo, ticketing-manual, ticketing-clickup, repositories-long-path,
   //   roles-no-presets, roles-mid, approaches-graph(-mid/-narrow) — 9 x 1 theme (dark) (+9 screenshots); all skipLayout.
   // T1297 SET-1 the settings routes also open 399 and 320 px (16 routes x 2 widths, +32 layout runs).
-  settings: { screenshots: 115, layout: 156 },
+  // T1360 accounts-not-signed-in / accounts-narrow (the flat table's row states, and its stacked cards at 480 px),
+  //   @ui:UI-R57: 2 x 1 theme (dark) (+2 screenshots); skipLayout, because accounts-several already runs the route.
+  // T1360 review accounts-long-name (one 50-char unbroken name, the UI-R44 wrapping case), @ui:UI-R57: 1 theme
+  //   (dark) (+1 screenshot); skipLayout, because accounts-several already runs the route.
+  // T1368 accounts-quota-narrow (the compact quota list at 400 px: label, help, control under them), @ui:UI-R57:
+  //   1 theme (dark) (+1 screenshot); skipLayout, because the wide accounts-quota shot already covers the route.
+  // T1373 quality-oom-narrow (a gate as a card at 400 px), @ui:UI-R55, @ui:UI-R57: 1 theme (dark) (+1 screenshot);
+  //   skipLayout, because the quality route layout runs already cover every width.
+  settings: { screenshots: 120, layout: 156 },
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
   // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).

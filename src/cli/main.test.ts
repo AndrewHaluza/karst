@@ -9,6 +9,7 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
 import { upsertProject } from '../store/projects.js';
+import { createPlanningSession } from '../store/planningSessions.js';
 import { setStage } from '../store/stages.js';
 import { runNotesCommand } from './notesCommand.js';
 import { transition } from '../workflow/machine.js';
@@ -1012,6 +1013,35 @@ describe('runCli — planning session read path (KARST_DB_READONLY)', () => {
     expect(() => runCli(['notes', 'post', '--repos', 'api', '--title', 't', '--body', 'b', '--db', dbPath], planning)).toThrow(
       /not available in a planning session/,
     );
+  });
+
+  it('allows plan-artifacts list and import, and reads it all through the read-only env', () => {
+    const seed = openStore(dbPath);
+    const project = upsertProject(seed, { slug: 'a' });
+    const own = createPlanningSession(seed, { projectId: project.id, title: 'own', core: 'claude', model: null });
+    const other = createPlanningSession(seed, { projectId: project.id, title: 'other', core: 'claude', model: null });
+    seed.close();
+    const scratch = join(dir, 'planning-scratch');
+    const ownArtifacts = join(scratch, String(own.id), 'artifacts');
+    const otherChip = join(scratch, String(other.id), 'ref-chip');
+    mkdirSync(ownArtifacts, { recursive: true });
+    mkdirSync(otherChip, { recursive: true });
+    writeFileSync(join(otherChip, 'ref-chip.html'), '<html>chip</html>');
+    const planning = {
+      KARST_DB_READONLY: dbPath,
+      KARST_PROJECT: String(project.id),
+      KARST_PLANNING_SESSION: String(own.id),
+      KARST_ARTIFACTS: ownArtifacts,
+    };
+    expect(() => assertPlanningVerbAllowed(planning, ['plan-artifacts', 'list'])).not.toThrow();
+    const listed = JSON.parse(runCli(['plan-artifacts', 'list', '--session', `P${other.id}`, '--json'], planning)) as {
+      path: string;
+    }[];
+    expect(listed.map((r) => r.path)).toContain('ref-chip/ref-chip.html');
+    expect(JSON.parse(runCli(['plan-artifacts', 'import', '--session', `P${other.id}`, '--path', 'ref-chip/ref-chip.html'], planning))).toEqual({
+      ok: true,
+      path: 'ref-chip.html',
+    });
   });
 
   it('scopes blocked to KARST_PROJECT and reads KARST_REVIEW_FLOOR', () => {

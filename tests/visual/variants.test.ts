@@ -6,7 +6,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 import { baselineCollisions, type AllowedCollision } from './baselineDistinct.js';
 import { settingsRoutes } from './settingsRoutes.js';
-import { INSIDE_CASE_CLICK, INSIDE_CASE_CLICKS, layoutIdentity, layoutPlan, MANDATORY_VARIANTS, screenshotFullPage, VARIANTS } from './variants.js';
+import {
+  CAPTURE_TARGET_FAMILIES,
+  INSIDE_CASE_CLICK,
+  INSIDE_CASE_CLICKS,
+  layoutIdentity,
+  layoutPlan,
+  MANDATORY_VARIANTS,
+  screenshotFullPage,
+  screenshotTarget,
+  VARIANTS,
+} from './variants.js';
 
 const BASELINES = join(dirname(fileURLToPath(import.meta.url)), '__baselines__');
 /**
@@ -30,10 +40,6 @@ const allVariants = WEBVIEW_NAMES.flatMap((view) => VARIANTS[view].map((variant)
  * (@ui:VISUAL-VARIANTS). An entry that stops colliding fails the distinctness test, so remove it when its fix lands.
  */
 const ALLOWED_BASELINE_COLLISIONS: readonly AllowedCollision[] = [
-  {
-    baselines: ['dashboard--inside-ship-running', 'dashboard-waiting'],
-    reason: 'The waiting scenario is the populated ship stage; the 10- and 2-repository fixtures draw the same page.',
-  },
   {
     baselines: ['settings--populated', 'settings--route-general'],
     reason: 'The mandatory populated id and the route sweep both open the General route on the realistic settings.',
@@ -221,9 +227,79 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     for (const r of settingsRoutes()) expect(covered.has(r.id), r.id).toBe(true);
   });
 
-  it('maps the capture option to the Playwright fullPage flag', () => {
+  it('maps the capture option to the Playwright fullPage flag and keeps element shots out of it', () => {
     expect(screenshotFullPage({ capture: 'viewport' })).toBe(false);
     expect(screenshotFullPage({})).toBe(true);
+    // An element target is a locator shot; a kept page capture still records the full page.
+    const element = VARIANTS.dashboard.find((v) => v.id === 'panel-srv-running-wide')!;
+    expect(screenshotTarget(element)).toBe('[data-region="servers"]');
+    expect(screenshotFullPage(element)).toBe(true);
+    expect(screenshotTarget(VARIANTS.dashboard.find((v) => v.id === 'panel-wt-base-wide')!)).toBeUndefined();
+  });
+
+  it('maps the component families to one capture target each (T1364)', () => {
+    expect(CAPTURE_TARGET_FAMILIES).toEqual([
+      { prefix: 'panel-srv-', selector: '[data-region="servers"]' },
+      { prefix: 'panel-wt-', selector: '[data-region="worktrees"]' },
+      { prefix: 'panel-pr-', selector: '[data-region="prs"]' },
+      { prefix: 'runtime-', selector: '[data-region="runtime"]' },
+      { prefix: 'inside-', selector: '#inside' },
+    ]);
+  });
+
+  it('screenshots a component variant as its target element, and a kept variant as the page (T1364)', () => {
+    const dash = new Map(VARIANTS.dashboard.map((v) => [v.id, v]));
+    for (const [id, selector] of [
+      ['panel-srv-running-wide', '[data-region="servers"]'],
+      ['panel-wt-ext-wide', '[data-region="worktrees"]'],
+      ['panel-pr-mixed-wide', '[data-region="prs"]'],
+      ['runtime-docker-wide', '[data-region="runtime"]'],
+      ['inside-impl-running', '#inside'],
+      ['inside-impl-running-mid', '#inside'],
+    ] as const) {
+      expect(screenshotTarget(dash.get(id)!), id).toBe(selector);
+    }
+    for (const id of ['panel-wt-base-wide', 'panel-pr-ready-info-wide', 'runtime-sandbox-open-wide', 'inside-ship-menu-open-wide']) {
+      expect(screenshotTarget(dash.get(id)!), id).toBeUndefined();
+    }
+  });
+
+  it('keeps every fixed popover, menu and header-changing variant as a page capture (T1364)', () => {
+    const dash = new Map(VARIANTS.dashboard.map((v) => [v.id, v]));
+    for (const id of [
+      'panel-wt-base-wide',
+      'panel-wt-base-bottom-edge',
+      'panel-pr-ready-info-mid',
+      'runtime-shell-off-wide',
+      'runtime-sandbox-open-wide',
+      'runtime-more-open-bottom-edge',
+      'inside-ship-menu-open-wide',
+      'inside-review-menu-retry-only',
+      'inside-impl-interrupted',
+      'inside-done-closed',
+      'inside-scope-needs-you',
+      // T1364: kept because their inside crop collided (their diff is the rail outside #inside).
+      'inside-ship-failed',
+      'inside-ship-merge-blocked',
+      'inside-ship-passed',
+      'inside-uat-fix-parked-gate',
+      'inside-uat-fix-parked-tester',
+    ]) {
+      const v = dash.get(id);
+      expect(v, `${id} is not registered`).toBeDefined();
+      expect(v!.captureTarget, id).toBeUndefined();
+    }
+    for (const v of VARIANTS.dashboard) {
+      if (v.capture === 'viewport' || v.runtimeOpen !== undefined || v.agentPopover !== undefined || v.ticketDetails !== undefined) {
+        expect(screenshotTarget(v), v.id).toBeUndefined();
+      }
+    }
+  });
+
+  it('never combines an element target with a viewport capture (T1364)', () => {
+    for (const v of Object.values(VARIANTS).flat()) {
+      if (v.captureTarget !== undefined) expect(v.capture, v.id).not.toBe('viewport');
+    }
   });
 
   it('captures the viewport for the ticket-details drawer variants only', () => {

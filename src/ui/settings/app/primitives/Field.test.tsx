@@ -113,6 +113,49 @@ describe('Field', () => {
     expect(screen.getByLabelText('Enabled')).toBeTruthy();
   });
 
+  it('renders the label, help and error as one copy block before the control (copyBlock)', () => {
+    const { container } = render(
+      <Field
+        label="Required when changed"
+        help="One glob per line"
+        error="Glob is invalid"
+        copyBlock
+        control={{ kind: 'textarea', value: '', rows: 3, onChange: () => {} }}
+      />,
+    );
+    const copy = container.querySelector('.k-field-copy');
+    expect(copy).not.toBeNull();
+    const label = copy!.querySelector('label');
+    expect(label?.textContent).toBe('Required when changed');
+    expect(copy!.querySelector('.k-field-help')?.textContent).toBe('One glob per line');
+    expect(copy!.querySelector('.k-field-error')?.textContent).toBe('Glob is invalid');
+    // The control stays a sibling of the copy block, not inside it.
+    const textarea = screen.getByLabelText('Required when changed') as HTMLTextAreaElement;
+    expect(copy!.contains(textarea)).toBe(false);
+    // The label still points at the control and the description wiring is unchanged.
+    expect(label?.getAttribute('for')).toBe(textarea.id);
+    expect(textarea.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = textarea.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!.split(' ')[0]!)?.textContent).toBe('Glob is invalid');
+    expect(document.getElementById(describedBy!.split(' ')[1]!)?.textContent).toBe('One glob per line');
+  });
+
+  it('copyBlock has no effect on a checkbox row (SET-18)', () => {
+    const { container } = render(
+      <Field
+        label="Tester observations"
+        help="Keeps the observed facts"
+        copyBlock
+        control={{ kind: 'checkbox', checked: false, onChange: () => {} }}
+      />,
+    );
+    expect(container.querySelector('.k-field-copy')).toBeNull();
+    expect(container.querySelector('.k-check input[type="checkbox"]')).not.toBeNull();
+    expect(container.querySelector('.field-label')?.textContent).toBe('Tester observations');
+    expect(container.querySelector('.k-field-help')?.textContent).toBe('Keeps the observed facts');
+  });
+
   it('marks a required field without depending on the label text', () => {
     render(
       <Field

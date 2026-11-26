@@ -392,39 +392,248 @@
   #section-agents .agents-back { display: inline-flex; }
 }
 
-/* Accounts tab (D505): one block per core; the table stacks into cards at <=699px. */
-#section-agents .accounts-core { border: 1px solid var(--vscode-panel-border, transparent); border-radius: var(--k-radius-2, 4px); padding: var(--k-space-4, 12px); margin-block: var(--k-space-4, 12px); }
-#section-agents .accounts-core.is-selected { border-color: var(--vscode-focusBorder, currentColor); }
-#section-agents .accounts-core-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--k-space-4, 12px); }
-/* The select sits under its label, so the row aligns on the bottom edge: the title, the select box and the button share one control height and centre their text in it. */
-#section-agents .accounts-core-head h3 { margin: 0; display: flex; align-items: center; min-height: var(--k-control-h-md); }
-#section-agents .accounts-core-head .k-btn { min-height: var(--k-control-h-md); }
-#section-agents .accounts-core-head select { min-height: var(--k-control-h-md); box-sizing: border-box; }
-#section-agents .accounts-table { width: 100%; border-collapse: collapse; margin-block: var(--k-space-3, 8px); }
-#section-agents .accounts-table { font-size: var(--k-text-sm, 12px); }
-#section-agents .accounts-table th, #section-agents .accounts-table td { text-align: left; padding: var(--k-space-2, 4px) var(--k-space-3, 8px); word-break: normal; overflow-wrap: break-word; font-size: inherit; vertical-align: top; }
-#section-agents .accounts-table th { font-weight: 600; }
-#section-agents .accounts-row-actions { display: flex; flex-wrap: wrap; gap: var(--k-space-2, 4px); }
+/* Accounts tab (D505, T1360): ONE flat table; the rows stack into cards when the
+   tab's own container is narrow (@ui:RD-TIERS). Tokens only. */
+#section-agents .accounts-tab { container: accounts-tab / inline-size; }
+#section-agents .accounts-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--k-space-4);
+  margin-bottom: var(--k-space-4);
+}
+#section-agents .accounts-toolbar .accounts-note { margin: 0; color: var(--k-text-dim); min-width: 0; }
+#section-agents .accounts-toolbar .k-btn { flex: none; white-space: nowrap; }
+/* Content-independent tracks (UI-R41): the minimum sum stays under the 700px
+   container floor, so the table never overflows at the mid tier. */
+#section-agents .accounts-table {
+  --accounts-cols: minmax(120px, 1.15fr) var(--k-space-8) minmax(90px, 1.15fr) minmax(90px, 1.3fr) minmax(108px, 1.1fr) minmax(84px, 0.9fr) 56px var(--k-hit-min);
+  width: 100%;
+  border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
+  border-radius: var(--k-radius-md);
+  margin-block: var(--k-space-3);
+  font-size: var(--k-text-sm);
+}
+#section-agents .accounts-head,
+#section-agents .accounts-row {
+  display: grid;
+  grid-template-columns: var(--accounts-cols);
+  column-gap: var(--k-space-3);
+  align-items: center;
+  padding: var(--k-space-2) var(--k-space-4);
+}
+#section-agents .accounts-head { font-weight: 600; color: var(--k-text-dim); border-bottom: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border)); }
+#section-agents .accounts-row > [role="cell"],
+#section-agents .accounts-head > [role="columnheader"] { min-width: 0; }
+/* Inline text controls keep the compact row while still clearing the 20px text-control floor. */
+#section-agents .accounts-table .k-btn--link { min-height: var(--k-hit-min); }
+#section-agents .accounts-core-group + .accounts-core-group { border-top: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border)); }
+#section-agents .accounts-row { min-height: 38px; transition: background-color var(--k-dur-fast) var(--k-ease-standard); }
+#section-agents .accounts-row + .accounts-row { border-top: var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border, var(--k-border)) 45%, transparent); }
+/* Row surfaces (UI-R29): a rule that paints a row also sets that surface's paired
+   foreground in the same rule. The tint uses the INACTIVE selection token on
+   purpose (`--k-surface-selected`), and its pair is the theme's
+   inactiveSelectionForeground, falling back to `--k-text`. Every ink the row can
+   carry (the dim cells, the separator, the "this project" line and the inline
+   text buttons) then inherits that pair, so a grey or a link tone is never
+   measured against the page while the wash is under it; links stay identifiable
+   through the shared `.k-btn--link:hover` underline. */
+#section-agents .accounts-row:hover,
+#section-agents .accounts-row:focus-within {
+  background: var(--vscode-list-hoverBackground, var(--k-surface-hover));
+  color: var(--k-text);
+}
+/* Only a core with more than one account needs the "which one runs" tint + accent bar. */
+#section-agents .accounts-core-group.is-multi .accounts-row.is-active {
+  background: var(--vscode-list-inactiveSelectionBackground, color-mix(in srgb, var(--vscode-focusBorder, var(--k-link)) 10%, transparent));
+  color: var(--vscode-list-inactiveSelectionForeground, var(--k-text));
+  box-shadow: inset 2px 0 0 var(--vscode-focusBorder, var(--k-link));
+}
+#section-agents .accounts-row:hover :is(.accounts-muted, .accounts-loc-text, .accounts-loc-mono, .accounts-project-choice, .accounts-sep, .k-btn--link),
+#section-agents .accounts-row:focus-within :is(.accounts-muted, .accounts-loc-text, .accounts-loc-mono, .accounts-project-choice, .accounts-sep, .k-btn--link),
+#section-agents .accounts-core-group.is-multi .accounts-row.is-active :is(.accounts-muted, .accounts-loc-text, .accounts-loc-mono, .accounts-project-choice, .accounts-sep, .k-btn--link) {
+  color: inherit;
+}
+/* The painted rows give up the link tone for the pair, so the underline is what
+   still marks Reset / Log in / Set as actions there. */
+#section-agents .accounts-row:hover .k-btn--link,
+#section-agents .accounts-row:focus-within .k-btn--link,
+#section-agents .accounts-core-group.is-multi .accounts-row.is-active .k-btn--link {
+  text-decoration: underline;
+}
+/* The active row's hover used to lay a 16% accent mix over the tint: the lowest
+   surface of the three (4.30:1 for the light foreground, 2.85:1 for an hc link).
+   The row is already selected, so hover deepens the accent bar instead of
+   painting a second wash under the same ink. */
+#section-agents .accounts-core-group.is-multi .accounts-row.is-active:hover,
+#section-agents .accounts-core-group.is-multi .accounts-row.is-active:focus-within {
+  box-shadow: inset 3px 0 0 var(--vscode-focusBorder, var(--k-link));
+}
+@media (prefers-reduced-motion: reduce) {
+  #section-agents .accounts-row { transition: none; }
+}
+/* Cells that hold more than one inline run. */
+#section-agents .accounts-row > [data-col="name"],
+#section-agents .accounts-row > [data-col="status"],
+#section-agents .accounts-row > [data-col="sbx-token"] { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-1); }
+#section-agents .accounts-agent { display: inline-flex; align-items: center; gap: var(--k-space-2); min-width: 0; font-weight: 600; }
+#section-agents .accounts-agent .agenticon { display: inline-flex; flex: none; }
+#section-agents .accounts-name {
+  /* A flex item's automatic minimum is its min-content width, which for one long
+     unbroken account name is the whole name: the cell then overflows instead of
+     wrapping (UI-R44). min-width lets it shrink; break-word then breaks the token. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+#section-agents .accounts-project-choice { display: inline-flex; align-items: center; gap: var(--k-space-1); margin-inline-start: var(--k-space-2); color: var(--k-text-dim); }
+#section-agents .accounts-loc-mono {
+  font-family: var(--k-font-mono);
+  font-size: var(--k-text-sm);
+  color: var(--k-text-dim);
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+#section-agents .accounts-loc-text,
+#section-agents .accounts-muted { color: var(--k-text-dim); }
+#section-agents .accounts-sep { color: var(--k-text-faint); }
+#section-agents .accounts-status-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--k-radius-circle);
+  margin-inline-end: var(--k-space-1);
+}
+#section-agents .accounts-status-dot.is-signed-in { background: var(--k-success); }
+/* UI-R29: a chart hue is a fill colour, not small text. The warning text uses the
+   readable attention tone (palette STATUS_FG.attention: 7.5:1 in light, 10:1 in
+   dark, 12.6:1 in hc) and the dot keeps the same hue so the pair reads together. */
+#section-agents .accounts-status-dot.is-not-signed-in { background: var(--k-attention-fg); }
+#section-agents .accounts-status-dot.is-unknown { width: 7px; height: 7px; background: transparent; border: 1.5px solid var(--k-text-faint); }
+#section-agents .accounts-status-warn { color: var(--k-attention-fg); }
+#section-agents .accounts-mark { display: inline-flex; color: var(--vscode-focusBorder, var(--k-link)); }
+#section-agents .accounts-hint { color: var(--k-text-dim); font-size: var(--k-text-sm); margin-block: var(--k-space-2); }
 #section-agents .accounts-token { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-2, 4px); }
 #section-agents .accounts-error { color: var(--vscode-errorForeground, inherit); }
 #section-agents .accounts-wizard, #section-agents .accounts-delete { border-top: 1px solid var(--vscode-panel-border, transparent); padding-top: var(--k-space-3, 8px); }
 #section-agents .accounts-steps { display: flex; gap: var(--k-space-4, 12px); list-style: none; padding: 0; }
 #section-agents .accounts-steps [aria-current="step"] { font-weight: 600; }
 #section-agents .accounts-checklist { list-style: none; padding: 0; }
-#section-agents .accounts-quota { border: 1px solid var(--vscode-panel-border, transparent); border-radius: var(--k-radius-2, 4px); padding: var(--k-space-4, 12px); margin-block: var(--k-space-4, 12px); }
-#section-agents .accounts-quota h3 { margin: 0; }
-#section-agents .accounts-quota .k-field { margin-block-end: var(--k-space-5, 16px); }
-#section-agents .accounts-quota .k-field:last-child { margin-block-end: 0; }
-#section-agents .accounts-quota .k-field .k-field-help { display: block; margin-block-start: var(--k-space-1, 2px); }
-#section-agents .accounts-quota .field-label, #section-agents .accounts-quota .k-switch label { color: var(--vscode-foreground); }
+/* Quota section (D707/Q4-SAVE, T1368/D829): the prototype's grammar below the
+   table (P69 settings-accounts.html, @ui:UI-R39) — a head line with the link at
+   the right edge and a rule under it, one muted lead line, then one
+   divider-separated row per setting: label + short help at the left, control at
+   the right (UI-R41/R42). Below the 700px container tier every row stacks
+   (@ui:RD-LADDERS2): label, help, then the control under them, left-aligned
+   (UI-R43). The card border/radius of the old block is gone: the prototype draws
+   the section on the page surface, not in a card. */
+#section-agents .accounts-quota { margin-block: var(--k-space-7) 0; }
+#section-agents .accounts-quota-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--k-space-1) var(--k-space-4);
+  padding-bottom: var(--k-space-4);
+  border-bottom: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
+}
+#section-agents .accounts-quota-head h3 { margin: 0; min-width: 0; }
+#section-agents .accounts-quota-head .k-btn { flex: none; white-space: nowrap; min-height: var(--k-hit-min); }
+#section-agents .accounts-quota-intro { margin: var(--k-space-3) 0 var(--k-space-5); }
+#section-agents .accounts-quota .k-field.accounts-quota-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--k-space-7);
+  row-gap: var(--k-space-1);
+  align-items: center;
+  padding-block: var(--k-space-4);
+}
+/* The prototype draws the first row under the lead line with no rule above it;
+   only the rows after it carry the faint divider (UI-R42). */
+#section-agents .accounts-quota .k-field.accounts-quota-row + .k-field.accounts-quota-row {
+  border-top: var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border, var(--k-border)) 45%, transparent);
+}
+#section-agents .accounts-quota .accounts-quota-row > label {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  margin: 0;
+  font-size: var(--k-text-md);
+  color: var(--k-text);
+}
+/* The toggle keeps its native checkbox + label pair (SET-18/Q4) on ONE line. The
+   pair spans the row and puts the label on the left edge and the box on the
+   right one, so the two toggles share the input's and the link's right edge
+   (UI-R41). The pair stays a real flex box of its own: agentsCss.test.ts pins a
+   roles-table lesson against the grid-flattening tricks, so none is used. */
+#section-agents .accounts-quota .accounts-quota-row > .k-check {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  flex-direction: row-reverse;
+  justify-content: space-between;
+}
+#section-agents .accounts-quota .accounts-quota-row > .k-check > label {
+  min-width: 0;
+  font-size: var(--k-text-md);
+  color: var(--k-text);
+}
+#section-agents .accounts-quota .accounts-quota-row > .k-input {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+}
+/* T1368: the threshold row adds the unit as a third track, so "% used" sits
+   directly after the input with the row's 16px gap (prototype `.qctl`). */
+#section-agents .accounts-quota .k-field.accounts-quota-threshold { grid-template-columns: minmax(0, 1fr) auto auto; }
+#section-agents .accounts-quota .accounts-quota-threshold > .accounts-quota-suffix {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  white-space: nowrap;
+  color: var(--k-text-dim);
+  font-size: var(--k-text-md);
+}
+#section-agents .accounts-quota .accounts-quota-row > .k-field-help { grid-column: 1; grid-row: 2; margin-block-start: 0; }
+#section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved { grid-column: 2; grid-row: 2; justify-self: end; }
+/* The threshold acknowledges under its own unit, on the line the help already
+   occupies: the ack never adds a row, so the control does not jump (UI-R15). */
+#section-agents .accounts-quota .accounts-quota-threshold > .accounts-quota-saved { grid-column: 3; grid-row: 2; }
+#section-agents .accounts-quota .accounts-quota-row > .k-field-error { grid-column: 1 / -1; grid-row: 3; }
 #section-agents .accounts-quota-threshold input { width: 10ch; min-width: 0; box-sizing: border-box; } /* 6 digits of text plus the padding and the number spinner */
+@container accounts-tab (max-width: 699px) {
+  /* Narrow: label, then help, then the control under them, all left-aligned
+     (UI-R43). The toggle keeps its label + box pair on ONE line (SET-18); its
+     help sits under that line. */
+  #section-agents .accounts-quota .k-field.accounts-quota-row { grid-template-columns: minmax(0, 1fr); }
+  #section-agents .accounts-quota .accounts-quota-row > label,
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-help,
+  #section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved,
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-error {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  #section-agents .accounts-quota .accounts-quota-row > label { grid-row: 1; }
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-help { grid-row: 2; }
+  #section-agents .accounts-quota .accounts-quota-row > .k-check { grid-column: 1 / -1; grid-row: 1; }
+  #section-agents .accounts-quota .accounts-quota-row > .accounts-quota-saved,
+  #section-agents .accounts-quota .accounts-quota-row > .k-field-error { grid-row: auto; }
+  /* The threshold's control group is the third line: input, then its unit. */
+  #section-agents .accounts-quota .k-field.accounts-quota-threshold { grid-template-columns: auto auto; }
+  #section-agents .accounts-quota .accounts-quota-threshold > .k-input { grid-column: 1; grid-row: 3; justify-self: start; }
+  #section-agents .accounts-quota .accounts-quota-threshold > .accounts-quota-suffix { grid-column: 2; grid-row: 3; justify-self: start; }
+  #section-agents .accounts-quota .accounts-quota-threshold > .accounts-quota-saved,
+  #section-agents .accounts-quota .accounts-quota-threshold > .k-field-error { grid-column: 1 / -1; grid-row: auto; }
+}
 #section-agents .accounts-actions { display: flex; gap: var(--k-space-3, 8px); }
 
 /* Accounts row actions (SET-41): ONE row that never wraps into a ragged second
-   line (UI-R54). The lower-priority actions live behind the ⋯ menu. These base
-   rules sit BEFORE the narrow-tier block so that block's overrides win by
-   source order (UI-R49). */
-#section-agents .accounts-row-actions { flex-wrap: nowrap; align-items: center; }
+   line (UI-R54). The lower-priority actions live behind the ⋯ menu. The ⋯ slot
+   is the table's last track, i.e. the right edge at every tier, so the menu
+   opens inward from there (UI-R43/R45). */
+#section-agents .accounts-delete { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-2); padding-inline: var(--k-space-4); padding-bottom: var(--k-space-3); }
+#section-agents .accounts-delete p { margin: 0; }
 #section-agents .accounts-menu { position: relative; display: inline-flex; }
 #section-agents .accounts-menu-list {
   position: absolute;
@@ -435,6 +644,7 @@
   flex-direction: column;
   align-items: stretch;
   min-width: calc(var(--k-space-9) * 5);
+  max-width: calc(100vw - var(--k-space-8));
   padding: var(--k-space-1);
   background: var(--vscode-menu-background, var(--k-surface));
   border: var(--k-border-w) solid var(--vscode-menu-border, var(--k-border));
@@ -443,17 +653,70 @@
 }
 #section-agents .accounts-menu-list .k-btn { justify-content: flex-start; text-align: start; }
 
-@media (max-width: 699px) {
-  #section-agents .accounts-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  #section-agents .accounts-table, #section-agents .accounts-table tbody, #section-agents .accounts-table tr, #section-agents .accounts-table td { display: block; }
-  #section-agents .accounts-table tr { border: 1px solid var(--vscode-panel-border, transparent); margin-block: var(--k-space-3, 8px); }
-  #section-agents .accounts-table td::before { content: attr(data-label) ': '; font-weight: 600; }
-  #section-agents .accounts-table td:has(> .accounts-empty) { display: none; }
-  /* UI-R43/R45: in the stacked card the ⋯ trigger sits near the card's left
-     edge, so a right-anchored 130px+ menu would run off the viewport's left
-     side and clip its first items. Anchor the menu to the trigger's start at
-     this tier so it opens inward. */
-  #section-agents .accounts-menu-list { inset-inline-start: 0; inset-inline-end: auto; max-width: calc(100vw - var(--k-space-8)); }
+/* Narrow: every core becomes its own card. The head is hidden (the card's first
+   line names the core), and each account is two lines: (check) name Use ⋯, then
+   sign-in + location, with the sbx token on its own line when the row has one.
+   The named areas fix the line of every cell: DOM order alone would put the
+   location (before the status in the source) on line 2 and push the status,
+   Use and ⋯ onto a third line. */
+@container accounts-tab (max-width: 699px) {
+  #section-agents .accounts-head { display: none; }
+  #section-agents .accounts-table { border: 0; border-radius: 0; margin-block: 0; }
+  #section-agents .accounts-core-group {
+    border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
+    border-radius: var(--k-radius-md);
+    margin-bottom: var(--k-space-4);
+  }
+  #section-agents .accounts-row {
+    grid-template-columns: var(--k-space-8) auto minmax(0, 1fr) auto var(--k-hit-min);
+    grid-template-areas:
+      'mark name name use menu'
+      '. stat loc loc loc'
+      '. token token token token';
+    column-gap: var(--k-space-4);
+    row-gap: var(--k-space-1);
+    padding: var(--k-space-3) var(--k-space-4);
+  }
+  #section-agents .accounts-row.is-first {
+    grid-template-areas:
+      'agent agent agent agent agent'
+      'mark name name use menu'
+      '. stat loc loc loc'
+      '. token token token token';
+  }
+  #section-agents .accounts-row.is-first > [data-col="agent"] {
+    padding-bottom: var(--k-space-2);
+    margin-bottom: var(--k-space-1);
+    border-bottom: var(--k-border-w) solid color-mix(in srgb, var(--vscode-panel-border, var(--k-border)) 45%, transparent);
+  }
+  #section-agents .accounts-row:not(.is-first) > [data-col="agent"] { display: none; }
+  #section-agents .accounts-row > [data-col="agent"] { grid-area: agent; }
+  #section-agents .accounts-row > [data-col="mark"] { grid-area: mark; }
+  #section-agents .accounts-row > [data-col="name"] { grid-area: name; }
+  #section-agents .accounts-row > [data-col="use"] { grid-area: use; }
+  #section-agents .accounts-row > [data-col="menu"] { grid-area: menu; }
+  #section-agents .accounts-row > [data-col="status"] { grid-area: stat; }
+  #section-agents .accounts-row > [data-col="location"] { grid-area: loc; }
+  #section-agents .accounts-row > [data-col="sbx-token"] { grid-area: token; }
+  #section-agents .accounts-row > [data-col="sbx-token"]:has(> .accounts-empty) { display: none; }
+}
+@container accounts-tab (max-width: 399px) {
+  /* 320px: "Not signed in · Log in" and a long path each take a full line of their own. */
+  #section-agents .accounts-row {
+    grid-template-areas:
+      'mark name name use menu'
+      '. stat stat stat stat'
+      '. loc loc loc loc'
+      '. token token token token';
+  }
+  #section-agents .accounts-row.is-first {
+    grid-template-areas:
+      'agent agent agent agent agent'
+      'mark name name use menu'
+      '. stat stat stat stat'
+      '. loc loc loc loc'
+      '. token token token token';
+  }
 }
 
 /* Sandbox tab (SET-46..48): one form-grid row per core — the display name and

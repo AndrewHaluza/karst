@@ -1,7 +1,8 @@
 import { expect, type Page } from '@playwright/test';
 import { test as karstTest } from './fixtures.js';
 import { outsideTags } from './projectFilter.js';
-import { screenshotFullPage, VARIANTS } from './variants.js';
+import { ELEMENT_TOLERANCE, pageToleranceFor } from './screenshotTolerance.js';
+import { screenshotFullPage, screenshotTarget, VARIANTS } from './variants.js';
 import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 
 const SETTLE_MAX_FRAMES = 120;
@@ -41,10 +42,12 @@ async function waitForPopoversSettled(page: Page): Promise<void> {
 }
 
 /**
- * Full-page screenshot baselines: every registered variant of every webview
+ * Screenshot baselines: every registered variant of every webview
  * (tests/visual/variants.ts, ui:UI-R57), in the theme projects the variant
- * declares. Each test carries a `@NOT-<PROJECT>` tag for every project outside
- * its themes, and that project's `grepInvert` drops it before any fixture setup
+ * declares. A component variant with a `captureTarget` records only that
+ * element (T1364); every other variant records the page. Each test carries a
+ * `@NOT-<PROJECT>` tag for every project outside its themes, and that
+ * project's `grepInvert` drops it before any fixture setup
  * (tests/visual/projectFilter.ts). So the matrix is: populated variants in
  * dark/light/hc, every other variant in dark (split documented in
  * ui:VISUAL-VARIANTS). variants.test.ts fails when a
@@ -117,10 +120,18 @@ karstTest.describe('full-page screenshots', () => {
             el.classList.remove = () => {};
           });
         }
-        await expect(page).toHaveScreenshot(`${v.baseline}.png`, {
-          fullPage: screenshotFullPage(v),
-          mask: [page.locator(TIME_MASKS)],
-        });
+        const target = screenshotTarget(v);
+        const mask = [page.locator(TIME_MASKS)];
+        if (target !== undefined) {
+          // T1364 (@ui:VISUAL-VARIANTS): a component variant records only its target element, not the page.
+          // T1367 (@ui:VISUAL-TOLERANCE): an element capture gets the element-mode allowance, a flat pixel count:
+          // the page-mode ratio would allow 1,766 px on the largest Inside region.
+          await expect(page.locator(target)).toHaveScreenshot(`${v.baseline}.png`, { mask, ...ELEMENT_TOLERANCE });
+        } else {
+          // T1367 (@ui:VISUAL-TOLERANCE): a page gets 3 px, or its own measured drift from PAGE_KNOWN_DRIFT.
+          const tolerance = pageToleranceFor(testInfo.project.name, `${v.baseline}.png`);
+          await expect(page).toHaveScreenshot(`${v.baseline}.png`, { fullPage: screenshotFullPage(v), mask, ...tolerance });
+        }
       });
     }
   }

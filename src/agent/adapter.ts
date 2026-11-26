@@ -210,6 +210,15 @@ export interface InteractiveCommandOpts {
    */
   runtimeDir?: string;
   resume?: string; // session_id to --resume an interrupted interactive session (§5.3)
+  /**
+   * A provider session id that KARST chose at launch (T1370). A core that
+   * supports it pins the NEW session to it, so the transcript of this exact
+   * session is locatable while it runs — the graph planner and node sessions
+   * need that to report their token use. Ignored with `resume`: the resumed
+   * session keeps its own id, and a core that cannot pin one declares
+   * `AdapterSurfaces` otherwise and ignores the field.
+   */
+  sessionId?: string;
   initialPrompt?: string; // seed prompt for the session (e.g. an approach entrypoint)
   model?: string; // resolved launch model id (§ model selection); omitted → agent CLI default
   /**
