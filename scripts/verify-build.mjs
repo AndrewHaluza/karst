@@ -112,7 +112,10 @@ const REQUIRED_ARTIFACTS = [
 // Raised 438 → 440 KB when T1371 (Ticketing is one settings list, plus its review fix: the ticketing
 // fetches record the key each request was posted for and drop a reply for a key the draft has left)
 // merged with T1373 and T1374: the merged bundle is 448350 bytes, only 0.2 KB under 438 KB (~2.2 KB headroom at 440 KB).
-const APP_BUNDLE_BUDGET_BYTES = 440 * 1024;
+// Raised 440 → 442 KB for T1372 (Autopilot is one Auto-fix switch, one rules table and one checks
+// chip row): the rebuilt AutopilotSection adds ~2.4 KB of genuine app code on develop's tree, which
+// already carries T1371/T1373/T1374; bundle is 450802 bytes (~1.8 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 442 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
