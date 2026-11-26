@@ -60,6 +60,12 @@ async function statOrUndefined(deps: SshControlDeps, path: string): Promise<SshC
   }
 }
 
+/** `/a/b/` → `/a/b`; the root `/` stays `/`. */
+function withoutTrailingSlash(dir: string): string {
+  const trimmed = dir.replace(/\/+$/, '');
+  return trimmed === '' ? dir : trimmed;
+}
+
 /** Real directory, no symlink, our uid: the ownership part of "private". */
 function ownedDirectory(st: SshControlStat, uid: number): boolean {
   return st.isDirectory() && !st.isSymbolicLink() && st.uid === uid;
@@ -75,24 +81,27 @@ export async function ensureSshControlDir(
   deps: SshControlDeps = NODE_SSH_CONTROL_DEPS,
 ): Promise<SshControlResult> {
   const notPrivate: SshControlResult = { ok: false, reason: `ssh: control dir ${dir} is not private` };
-  let st = await statOrUndefined(deps, dir);
+  // `lstat("link/")` resolves the link, so a trailing slash would hide a planted
+  // symlink. Every fs call uses the path without it; the reason keeps `dir`.
+  const path = withoutTrailingSlash(dir);
+  let st = await statOrUndefined(deps, path);
   if (st === undefined) {
     try {
-      await deps.mkdir(dir, { recursive: true, mode: 0o700 });
+      await deps.mkdir(path, { recursive: true, mode: 0o700 });
     } catch {
       // The check below reports a directory we could not create.
     }
-    st = await statOrUndefined(deps, dir);
+    st = await statOrUndefined(deps, path);
     if (st === undefined) return notPrivate;
     // Verify before chmod: never chmod through a symlink another user planted.
     if (!ownedDirectory(st, deps.uid)) return notPrivate;
     if ((st.mode & 0o777) !== 0o700) {
       try {
-        await deps.chmod(dir, 0o700);
+        await deps.chmod(path, 0o700);
       } catch {
         return notPrivate;
       }
-      st = await statOrUndefined(deps, dir);
+      st = await statOrUndefined(deps, path);
     }
   }
   if (st === undefined || !ownedDirectory(st, deps.uid) || (st.mode & 0o777) !== 0o700) return notPrivate;

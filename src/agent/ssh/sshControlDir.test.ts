@@ -95,7 +95,7 @@ describe('ensureSshControlDir', () => {
   it('creates a missing directory with mode 0700', async () => {
     const deps = fakeDeps(null);
     await expect(ensureSshControlDir(DIR, deps)).resolves.toEqual({ ok: true });
-    expect(deps.made).toEqual([{ path: DIR, mode: 0o700, recursive: true }]);
+    expect(deps.made).toEqual([{ path: '/tmp/karst-ssh-501', mode: 0o700, recursive: true }]);
     expect(deps.chmods).toEqual([]);
   });
 
@@ -109,7 +109,7 @@ describe('ensureSshControlDir', () => {
   it('tightens the mode of a directory it just created', async () => {
     const deps = fakeDeps(null, { created: state({ mode: 0o40755 }) });
     await expect(ensureSshControlDir(DIR, deps)).resolves.toEqual({ ok: true });
-    expect(deps.chmods).toEqual([{ path: DIR, mode: 0o700 }]);
+    expect(deps.chmods).toEqual([{ path: '/tmp/karst-ssh-501', mode: 0o700 }]);
   });
 
   it('fails closed when another uid owns the directory', async () => {
@@ -140,6 +140,20 @@ describe('ensureSshControlDir', () => {
     });
     // An existing loose directory is refused, not silently chmodded.
     expect(deps.chmods).toEqual([]);
+  });
+
+  it('runs every fs call on the path without the trailing slash', async () => {
+    const seen: string[] = [];
+    const base = fakeDeps(null, { created: state({ mode: 0o40755 }) });
+    const deps: SshControlDeps = {
+      ...base,
+      lstat: (path) => { seen.push(path); return base.lstat(path); },
+    };
+    await expect(ensureSshControlDir(DIR, deps)).resolves.toEqual({ ok: true });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((path) => path === '/tmp/karst-ssh-501')).toBe(true);
+    expect(base.made).toEqual([{ path: '/tmp/karst-ssh-501', mode: 0o700, recursive: true }]);
+    expect(base.chmods).toEqual([{ path: '/tmp/karst-ssh-501', mode: 0o700 }]);
   });
 
   it('fails closed when the directory cannot be created', async () => {
@@ -173,6 +187,12 @@ describe('ensureSshControlDir over the real fs', () => {
     await expect(ensureSshControlDir(link, NODE_SSH_CONTROL_DEPS)).resolves.toEqual({
       ok: false,
       reason: `ssh: control dir ${link} is not private`,
+    });
+    // The default path ends in "/", and lstat of "link/" follows the link.
+    await chmod(target, 0o700);
+    await expect(ensureSshControlDir(`${link}/`, NODE_SSH_CONTROL_DEPS)).resolves.toEqual({
+      ok: false,
+      reason: `ssh: control dir ${link}/ is not private`,
     });
     const file = join(base, 'file');
     writeFileSync(file, '');
