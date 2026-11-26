@@ -1,0 +1,1389 @@
+{
+  "agentSession": {
+    "canSwitch": true,
+    "effort": null,
+    "modelId": null,
+    "modelLabel": "Agent default",
+    "provider": "claude",
+    "providerLabel": "Claude Code"
+  },
+  "agentState": "none",
+  "agentSwitch": {
+    "cores": [
+      {
+        "id": "claude",
+        "label": "Claude Code"
+      },
+      {
+        "id": "codex",
+        "label": "Codex"
+      },
+      {
+        "id": "antigravity",
+        "label": "Antigravity CLI"
+      },
+      {
+        "id": "opencode",
+        "label": "OpenCode"
+      },
+      {
+        "id": "opencode2",
+        "label": "OpenCode v2"
+      }
+    ],
+    "effort": null,
+    "effortInheritLabel": "No effort (agent picks)",
+    "inheritCore": null,
+    "modelInheritLabel": "No default (agent picks)",
+    "models": {
+      "antigravity": [
+        {
+          "label": "Agent default",
+          "model": null
+        },
+        {
+          "label": "Gemini 4 Argon (High)",
+          "model": "gemini-4-argon-high"
+        },
+        {
+          "label": "Gemini 4 Argon (Medium)",
+          "model": "gemini-4-argon-medium"
+        },
+        {
+          "label": "Gemini 4 Argon (Low)",
+          "model": "gemini-4-argon-low"
+        },
+        {
+          "label": "Gemini 3.8 Flash (High)",
+          "model": "gemini-3.8-flash-high"
+        },
+        {
+          "label": "Gemini 3.8 Flash (Medium)",
+          "model": "gemini-3.8-flash-medium"
+        },
+        {
+          "label": "Gemini 3.8 Flash (Low)",
+          "model": "gemini-3.8-flash-low"
+        },
+        {
+          "label": "Claude Opus 5.5 (High)",
+          "model": "claude-opus-5-5-high"
+        },
+        {
+          "label": "Claude Opus 5.5 (Medium)",
+          "model": "claude-opus-5-5-medium"
+        },
+        {
+          "label": "Claude Opus 5.5 (Low)",
+          "model": "claude-opus-5-5-low"
+        },
+        {
+          "label": "Claude Sonnet 5.5 (High)",
+          "model": "claude-sonnet-5-5-high"
+        },
+        {
+          "label": "Claude Sonnet 5.5 (Medium)",
+          "model": "claude-sonnet-5-5-medium"
+        },
+        {
+          "label": "Claude Sonnet 5.5 (Low)",
+          "model": "claude-sonnet-5-5-low"
+        },
+        {
+          "label": "GPT-OSS 120B (Medium)",
+          "model": "gpt-oss-120b-medium"
+        }
+      ],
+      "claude": [
+        {
+          "label": "Agent default",
+          "model": null
+        },
+        {
+          "label": "Opus 5.5",
+          "model": "claude-opus-5-5"
+        },
+        {
+          "label": "Opus 5",
+          "model": "claude-opus-5"
+        },
+        {
+          "label": "Opus 4.8",
+          "model": "claude-opus-4-8"
+        },
+        {
+          "label": "Sonnet 5",
+          "model": "claude-sonnet-5"
+        },
+        {
+          "label": "Sonnet 5.5",
+          "model": "claude-sonnet-5-5"
+        },
+        {
+          "label": "Fable 5.1",
+          "model": "claude-fable-5-1"
+        },
+        {
+          "label": "Fable 5",
+          "model": "claude-fable-5"
+        },
+        {
+          "label": "Haiku 5.5",
+          "model": "claude-haiku-5-5"
+        },
+        {
+          "label": "Haiku 4.5",
+          "model": "claude-haiku-4-5"
+        }
+      ],
+      "codex": [
+        {
+          "label": "Agent default",
+          "model": null
+        },
+        {
+          "label": "GPT-5.6 Terra",
+          "model": "gpt-5.6-terra"
+        },
+        {
+          "label": "GPT-5.6 Luna",
+          "model": "gpt-5.6-luna"
+        },
+        {
+          "label": "GPT-5.5",
+          "model": "gpt-5.5"
+        },
+        {
+          "label": "GPT-5.6 Sol",
+          "model": "gpt-5.6-sol"
+        }
+      ],
+      "opencode": [
+        {
+          "label": "Agent default",
+          "model": null
+        }
+      ],
+      "opencode2": [
+        {
+          "label": "Agent default",
+          "model": null
+        },
+        {
+          "label": "OpenCode Go · MiMo v2.5",
+          "model": "opencode-go/mimo-v2.5"
+        },
+        {
+          "label": "OpenCode Go · Space Bunny",
+          "model": "opencode-go/space-bunny"
+        },
+        {
+          "label": "OpenCode Go · DeepSeek v4.1 Flash",
+          "model": "opencode-go/deepseek-v4.1-flash"
+        }
+      ]
+    },
+    "modelsByCore": {
+      "antigravity": [
+        {
+          "id": "gemini-4-argon-high",
+          "label": "Gemini 4 Argon (High)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "gemini-4-argon-medium",
+          "label": "Gemini 4 Argon (Medium)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "gemini-4-argon-low",
+          "label": "Gemini 4 Argon (Low)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "gemini-3.8-flash-high",
+          "label": "Gemini 3.8 Flash (High)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "gemini-3.8-flash-medium",
+          "label": "Gemini 3.8 Flash (Medium)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "gemini-3.8-flash-low",
+          "label": "Gemini 3.8 Flash (Low)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision",
+            "audio"
+          ]
+        },
+        {
+          "id": "claude-opus-5-5-high",
+          "label": "Claude Opus 5.5 (High)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-opus-5-5-medium",
+          "label": "Claude Opus 5.5 (Medium)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-opus-5-5-low",
+          "label": "Claude Opus 5.5 (Low)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-sonnet-5-5-high",
+          "label": "Claude Sonnet 5.5 (High)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-sonnet-5-5-medium",
+          "label": "Claude Sonnet 5.5 (Medium)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "claude-sonnet-5-5-low",
+          "label": "Claude Sonnet 5.5 (Low)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "id": "gpt-oss-120b-medium",
+          "label": "GPT-OSS 120B (Medium)",
+          "providers": [
+            "antigravity"
+          ],
+          "tags": [
+            "text-only"
+          ]
+        }
+      ],
+      "claude": [
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ],
+          "id": "claude-opus-5-5",
+          "label": "Opus 5.5",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ],
+          "id": "claude-opus-5",
+          "label": "Opus 5",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "claude-opus-4-8",
+          "label": "Opus 4.8",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "claude-sonnet-5",
+          "label": "Sonnet 5",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "claude-sonnet-5-5",
+          "label": "Sonnet 5.5",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "claude-fable-5-1",
+          "label": "Fable 5.1",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "claude-fable-5",
+          "label": "Fable 5",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "claude-haiku-5-5",
+          "label": "Haiku 5.5",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "claude-haiku-4-5",
+          "label": "Haiku 4.5",
+          "providers": [
+            "claude"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        }
+      ],
+      "codex": [
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "id": "gpt-5.6-terra",
+          "label": "GPT-5.6 Terra",
+          "providers": [
+            "codex"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "id": "gpt-5.6-luna",
+          "label": "GPT-5.6 Luna",
+          "providers": [
+            "codex"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "id": "gpt-5.5",
+          "label": "GPT-5.5",
+          "providers": [
+            "codex"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        },
+        {
+          "efforts": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "id": "gpt-5.6-sol",
+          "label": "GPT-5.6 Sol",
+          "providers": [
+            "codex"
+          ],
+          "tags": [
+            "multimodal",
+            "vision"
+          ]
+        }
+      ],
+      "opencode": [],
+      "opencode2": [
+        {
+          "id": "opencode-go/mimo-v2.5",
+          "label": "OpenCode Go · MiMo v2.5",
+          "providers": [
+            "opencode2"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "id": "opencode-go/space-bunny",
+          "label": "OpenCode Go · Space Bunny",
+          "providers": [
+            "opencode2"
+          ]
+        },
+        {
+          "efforts": [
+            "low",
+            "high",
+            "max"
+          ],
+          "id": "opencode-go/deepseek-v4.1-flash",
+          "label": "OpenCode Go · DeepSeek v4.1 Flash",
+          "providers": [
+            "opencode2"
+          ]
+        }
+      ]
+    },
+    "recentByCore": {
+      "claude": [
+        "claude-haiku-4",
+        "claude-opus-5",
+        "claude-sonnet-5"
+      ],
+      "codex": [
+        "gpt-5.6-sol"
+      ],
+      "opencode": [
+        "opencode-go/kimi-k2",
+        "opencode-go/deepseek-v4-flash"
+      ]
+    }
+  },
+  "approach": null,
+  "artifacts": [
+    {
+      "agentConsole": null,
+      "commits": [],
+      "createdAt": "2026-10-26T16:00:00.000Z",
+      "currentVersionLabel": "v1",
+      "detail": null,
+      "findings": [],
+      "freshness": "current",
+      "gates": [
+        {
+          "exitCode": 0,
+          "name": "test"
+        },
+        {
+          "exitCode": 0,
+          "name": "typecheck"
+        }
+      ],
+      "id": "uat-report",
+      "kind": "uat-report",
+      "metrics": [
+        {
+          "label": "passed",
+          "value": "2"
+        },
+        {
+          "label": "failed",
+          "value": "0"
+        }
+      ],
+      "origin": {
+        "core": null,
+        "kind": "karst"
+      },
+      "prs": [],
+      "resources": [],
+      "scope": null,
+      "stage": "uat",
+      "status": "passed",
+      "summary": "2 passed · 0 failed",
+      "tasks": [],
+      "title": "UAT report",
+      "versionCount": 1
+    },
+    {
+      "agentConsole": "review",
+      "commits": [],
+      "createdAt": "2026-10-27T17:00:00.000Z",
+      "currentVersionLabel": "v1",
+      "detail": null,
+      "findings": [],
+      "freshness": "current",
+      "gates": [
+        {
+          "exitCode": 0,
+          "name": "test"
+        }
+      ],
+      "id": "review",
+      "kind": "review",
+      "metrics": [
+        {
+          "label": "passed",
+          "value": "1"
+        },
+        {
+          "label": "failed",
+          "value": "0"
+        }
+      ],
+      "origin": {
+        "core": null,
+        "kind": "karst"
+      },
+      "prs": [],
+      "resources": [],
+      "scope": null,
+      "stage": "review",
+      "status": "passed",
+      "summary": "1 passed · 0 failed",
+      "tasks": [],
+      "title": "Review",
+      "versionCount": 1
+    }
+  ],
+  "autopilot": {
+    "banner": null,
+    "effective": false,
+    "override": "inherit",
+    "projectDefault": false,
+    "roundActive": false,
+    "roundRunning": false
+  },
+  "blockers": [],
+  "brief": null,
+  "briefSource": {
+    "kind": "manual"
+  },
+  "canAddSubtask": true,
+  "canClose": true,
+  "canDetachSubtask": false,
+  "canReopen": false,
+  "capabilityIdentity": {
+    "graphExpert": null,
+    "graphFast": null,
+    "graphWorker": null,
+    "implementation": null,
+    "planning": null,
+    "prDescription": null,
+    "review": null,
+    "reviewFix": null,
+    "stallSuggestion": null,
+    "ticketAnalysis": null,
+    "uatFix": null,
+    "uatTester": null
+  },
+  "ciFailure": {
+    "available": false,
+    "repos": []
+  },
+  "currentStage": {
+    "attempt": 0,
+    "stageKey": "review",
+    "startedAt": "2026-10-27T17:00:00.000Z",
+    "status": "running"
+  },
+  "deliver": {
+    "available": false,
+    "inSandbox": 0,
+    "notOnPr": 0
+  },
+  "description": "Show every registered service with its port, health and last error, and let the operator restart one from the tab.",
+  "drain": {
+    "draining": false,
+    "held": [],
+    "live": []
+  },
+  "envOverrides": {
+    "services": [],
+    "values": {}
+  },
+  "fixPark": null,
+  "gateFailure": {
+    "available": false
+  },
+  "hasRunnableRepos": false,
+  "idLabel": "T900001",
+  "insideViews": {
+    "done": {
+      "blurb": "Terminal. Nothing runs here — arriving is completing.",
+      "clock": "has not run yet",
+      "dot": "pend",
+      "live": {
+        "label": "Delivery receipt",
+        "status": "wait"
+      },
+      "processes": [
+        {
+          "detail": "Available after every current pull request is merged",
+          "evidence": {
+            "kind": "receipt",
+            "rows": []
+          },
+          "id": "delivery-receipt",
+          "kind": "delivery-receipt",
+          "label": "Delivery receipt",
+          "status": "wait"
+        }
+      ],
+      "stageKey": "done",
+      "title": "Done"
+    },
+    "impl": {
+      "blurb": "The interactive agent session. Advances only on the explicit done marker — a session ending is not a verdict.",
+      "clock": "",
+      "dot": "done",
+      "processes": [
+        {
+          "detail": "implementation marked done",
+          "evidence": {
+            "kind": "timeline",
+            "rows": []
+          },
+          "id": "session",
+          "kind": "session",
+          "label": "Session",
+          "status": "pass",
+          "statusLabel": "Completed"
+        }
+      ],
+      "stageKey": "impl",
+      "title": "Implementation"
+    },
+    "review": {
+      "attempts": [
+        {
+          "key": "ra:2026-10-27T20:00:00.000Z",
+          "label": "R1",
+          "latest": false,
+          "status": "pass",
+          "statusLabel": "passed",
+          "tail": "of 2"
+        },
+        {
+          "key": "sr:1",
+          "label": "R2",
+          "latest": true,
+          "status": "run",
+          "statusLabel": "running",
+          "tail": "of 2 · live"
+        }
+      ],
+      "blurb": "Runs lint, typecheck and test. Every gate the repo can answer must exit 0. The diff opens for you either way.",
+      "clock": "started 5:00:00 PM · 5h 0m elapsed",
+      "console": true,
+      "dot": "run",
+      "live": {
+        "label": "Gates",
+        "status": "run"
+      },
+      "processes": [
+        {
+          "detail": "running the first gate — each result lands here as it finishes",
+          "evidence": {
+            "failed": 0,
+            "kind": "gates",
+            "passed": 0,
+            "rows": [],
+            "skipped": 0
+          },
+          "id": "gates",
+          "kind": "gates",
+          "label": "Gates",
+          "status": "run"
+        },
+        {
+          "evidence": {
+            "blocking": 0,
+            "kind": "findings",
+            "rows": [
+              {
+                "detail": "Restart action ignores a failed health probe",
+                "label": "medium",
+                "location": "src/serverInventory.ts:84",
+                "repo": "/fixture/workspace/api",
+                "severity": "medium",
+                "status": "note"
+              }
+            ]
+          },
+          "id": "review",
+          "kind": "review",
+          "label": "Review",
+          "status": "note"
+        }
+      ],
+      "selectedAttempt": "sr:1",
+      "stageKey": "review",
+      "title": "Review"
+    },
+    "scope": {
+      "blurb": "Validates the hot repo set against the manifest, then creates one worktree per hot repo off the baseline branch. Nothing is created until you confirm.",
+      "clock": "",
+      "dot": "done",
+      "processes": [
+        {
+          "detail": "1 service validated against the manifest",
+          "evidence": {
+            "kind": "rows",
+            "rows": [
+              {
+                "detail": "selected",
+                "label": "api",
+                "status": "pass",
+                "time": "4:00:00 PM"
+              }
+            ]
+          },
+          "id": "hot-set",
+          "kind": "hot-set",
+          "label": "Hot set",
+          "status": "pass",
+          "time": "4:00:00 PM"
+        },
+        {
+          "detail": "1 worktree created",
+          "evidence": {
+            "kind": "rows",
+            "rows": [
+              {
+                "detail": "./api · fixture/branch-1",
+                "label": "worktree",
+                "status": "pass",
+                "time": "8:00:00 PM"
+              }
+            ]
+          },
+          "id": "worktrees",
+          "kind": "worktrees",
+          "label": "Worktrees",
+          "status": "pass",
+          "time": "4:00:00 PM"
+        }
+      ],
+      "stageKey": "scope",
+      "title": "Scope"
+    },
+    "ship": {
+      "blurb": "Commits, pushes, and opens one PR per hot repo with an agent-written description, then waits until every one of them is merged. karst never merges on its own — you click Merge on each PR, or a teammate lands it and the PR sweep notices. A branch that stops merging cleanly is reported here, and the ticket is not done until they all land.",
+      "clock": "has not run yet",
+      "dot": "pend",
+      "live": {
+        "label": "Merge",
+        "status": "wait"
+      },
+      "processes": [
+        {
+          "detail": "resolved when ship runs",
+          "evidence": {
+            "kind": "commits",
+            "rows": [],
+            "total": 0
+          },
+          "id": "commit",
+          "kind": "commit",
+          "label": "Commit",
+          "status": "pending"
+        },
+        {
+          "detail": "resolved when ship runs",
+          "evidence": {
+            "kind": "rows",
+            "rows": []
+          },
+          "id": "push",
+          "kind": "push",
+          "label": "Push",
+          "status": "pending"
+        },
+        {
+          "detail": "resolved when ship runs",
+          "evidence": {
+            "kind": "prs",
+            "merged": 0,
+            "open": 1,
+            "rows": []
+          },
+          "id": "pr",
+          "kind": "pr",
+          "label": "Pull request",
+          "status": "pending"
+        },
+        {
+          "count": "0/1",
+          "detail": "waits on CI",
+          "evidence": {
+            "kind": "rows",
+            "rows": [
+              {
+                "detail": "#128 · not merged yet",
+                "label": "api · open",
+                "prState": "open",
+                "status": "wait",
+                "time": "8:00:00 PM"
+              }
+            ]
+          },
+          "id": "merge",
+          "kind": "merge",
+          "label": "Merge",
+          "status": "wait",
+          "time": "8:00:00 PM"
+        }
+      ],
+      "stageKey": "ship",
+      "title": "Ship"
+    },
+    "uat": {
+      "blurb": "Runs the repo's own test script in the ticket's worktree. The exit code is the verdict; nothing self-reported counts.",
+      "clock": "",
+      "console": false,
+      "dot": "done",
+      "processes": [
+        {
+          "count": "2",
+          "detail": "2/2 command gates passed",
+          "evidence": {
+            "failed": 0,
+            "kind": "gates",
+            "passed": 2,
+            "rows": [
+              {
+                "detail": "exit 0",
+                "duration": "",
+                "label": "test",
+                "status": "pass"
+              },
+              {
+                "detail": "exit 0",
+                "duration": "",
+                "label": "typecheck",
+                "status": "pass"
+              }
+            ],
+            "skipped": 0
+          },
+          "id": "gates",
+          "kind": "gates",
+          "label": "Gates",
+          "status": "pass"
+        },
+        {
+          "detail": "no services — nothing to spin",
+          "evidence": {
+            "kind": "rows",
+            "rows": []
+          },
+          "id": "services",
+          "kind": "services",
+          "label": "Services",
+          "status": "note"
+        },
+        {
+          "detail": "has not run",
+          "evidence": {
+            "blocking": 0,
+            "kind": "findings",
+            "rows": []
+          },
+          "id": "tester",
+          "kind": "tester",
+          "label": "Tester",
+          "status": "note"
+        }
+      ],
+      "stageKey": "uat",
+      "title": "UAT"
+    }
+  },
+  "key": "FIX-101",
+  "mergeChecks": [
+    {
+      "checkedTitle": "10/27/2026, 8:00:00 PM",
+      "detailsLabel": "",
+      "files": [],
+      "headline": "clean locally on 000000000 (GitHub head unknown) · vs develop · 2h ago",
+      "reason": "",
+      "repo": "/fixture/workspace/api",
+      "state": "clean"
+    }
+  ],
+  "openPrFeedback": 0,
+  "origin": null,
+  "parent": null,
+  "paused": false,
+  "pausedAt": null,
+  "prFeedbackFix": {
+    "available": false,
+    "reason": "in-flight"
+  },
+  "presentedStage": "review",
+  "priority": null,
+  "provider": "manual",
+  "prs": [
+    {
+      "author": "",
+      "baseRef": "develop",
+      "branches": "fixture/branch-5 → develop",
+      "canDismiss": true,
+      "canMerge": true,
+      "changes": null,
+      "checks": {
+        "cue": "",
+        "detailsLabel": "",
+        "failing": [],
+        "label": "",
+        "stale": false,
+        "state": "none",
+        "title": ""
+      },
+      "comments": [],
+      "commentsLabel": "",
+      "dismissed": false,
+      "dismissedLabel": "",
+      "mergeBlockLabel": "",
+      "mergeBlockedReason": "",
+      "merged": "",
+      "mergedTitle": "",
+      "number": 128,
+      "opened": "",
+      "openedTitle": "",
+      "readiness": {
+        "facts": "GitHub: no answer yet",
+        "headline": "Merge not confirmed",
+        "ready": false,
+        "reasons": []
+      },
+      "repo": "/fixture/workspace/api",
+      "repoDisplay": "api",
+      "review": {
+        "approvals": 0,
+        "decision": null,
+        "requested": [],
+        "required": null
+      },
+      "status": "open",
+      "title": "",
+      "url": "fixture:url/1"
+    }
+  ],
+  "rail": {
+    "main": [
+      {
+        "cell": {
+          "attempt": 0,
+          "endedAt": "2026-10-26T16:00:00.000Z",
+          "stageKey": "scope",
+          "status": "passed"
+        },
+        "current": false,
+        "needs": null,
+        "needsUser": false,
+        "retry": null,
+        "status": "passed"
+      },
+      {
+        "cell": {
+          "attempt": 0,
+          "endedAt": "2026-10-26T16:00:00.000Z",
+          "stageKey": "impl",
+          "status": "passed"
+        },
+        "current": false,
+        "needs": null,
+        "needsUser": false,
+        "retry": null,
+        "status": "passed"
+      },
+      {
+        "cell": {
+          "attempt": 0,
+          "endedAt": "2026-10-26T16:00:00.000Z",
+          "stageKey": "uat",
+          "status": "passed"
+        },
+        "current": false,
+        "needs": null,
+        "needsUser": false,
+        "retry": null,
+        "status": "passed"
+      },
+      {
+        "cell": {
+          "attempt": 0,
+          "stageKey": "review",
+          "startedAt": "2026-10-27T17:00:00.000Z",
+          "status": "running"
+        },
+        "current": true,
+        "needs": null,
+        "needsUser": false,
+        "retry": null,
+        "status": "running"
+      },
+      {
+        "cell": {
+          "attempt": 0,
+          "stageKey": "ship",
+          "status": "pending"
+        },
+        "current": false,
+        "needs": null,
+        "needsUser": false,
+        "retry": null,
+        "status": "pending"
+      },
+      {
+        "cell": {
+          "attempt": 0,
+          "stageKey": "done",
+          "status": "pending"
+        },
+        "current": false,
+        "needs": null,
+        "needsUser": false,
+        "retry": null,
+        "status": "pending"
+      }
+    ]
+  },
+  "rebase": {
+    "available": false
+  },
+  "rerunGate": {
+    "available": false,
+    "reason": "in-flight"
+  },
+  "resetStage": {
+    "available": false,
+    "reason": "stage"
+  },
+  "sandbox": {
+    "actions": false,
+    "backend": "host",
+    "carry": false,
+    "core": "claude",
+    "hostProtection": "prompted",
+    "network": "none (host)",
+    "shell": {
+      "available": false,
+      "why": "No sandbox yet"
+    },
+    "workspace": "worktree"
+  },
+  "sendBack": {
+    "available": false,
+    "reason": "in-flight"
+  },
+  "servers": [],
+  "sharedServers": [],
+  "ship": {
+    "kind": "none"
+  },
+  "sourceRef": null,
+  "stageCurrent": "review",
+  "stall": null,
+  "stepper": [
+    {
+      "attempt": 0,
+      "endedAt": "2026-10-26T16:00:00.000Z",
+      "stageKey": "scope",
+      "status": "passed"
+    },
+    {
+      "attempt": 0,
+      "endedAt": "2026-10-26T16:00:00.000Z",
+      "stageKey": "impl",
+      "status": "passed"
+    },
+    {
+      "attempt": 0,
+      "endedAt": "2026-10-26T16:00:00.000Z",
+      "stageKey": "uat",
+      "status": "passed"
+    },
+    {
+      "attempt": 0,
+      "stageKey": "review",
+      "startedAt": "2026-10-27T17:00:00.000Z",
+      "status": "running"
+    },
+    {
+      "attempt": 0,
+      "stageKey": "fix",
+      "status": "pending"
+    },
+    {
+      "attempt": 0,
+      "stageKey": "ship",
+      "status": "pending"
+    },
+    {
+      "attempt": 0,
+      "stageKey": "done",
+      "status": "pending"
+    }
+  ],
+  "subtaskParent": null,
+  "subtaskProgress": {
+    "done": 1,
+    "total": 3
+  },
+  "subtasks": [
+    {
+      "agent": null,
+      "autostart": null,
+      "blocking": false,
+      "done": true,
+      "fault": null,
+      "glyph": "green",
+      "id": 900006,
+      "idLabel": "T900006",
+      "key": "FIX-101-s1",
+      "pr": {
+        "more": 0,
+        "number": 131,
+        "state": "merged"
+      },
+      "queuePos": null,
+      "stage": "done",
+      "stageClass": "stg-done",
+      "stageSince": "2026-10-26T16:00:00.000Z",
+      "title": "Extract the inventory probe"
+    },
+    {
+      "agent": {
+        "core": "claude",
+        "coreLabel": "Claude Code",
+        "model": "claude-opus-5",
+        "modelShort": "Opus 5"
+      },
+      "autostart": null,
+      "blocking": true,
+      "done": false,
+      "fault": null,
+      "glyph": "blue",
+      "id": 900007,
+      "idLabel": "T900007",
+      "key": "FIX-101-s2",
+      "pr": {
+        "more": 0,
+        "number": 132,
+        "state": "open"
+      },
+      "queuePos": null,
+      "stage": "impl",
+      "stageClass": "stg-impl",
+      "stageSince": "2026-10-27T16:00:00.000Z",
+      "title": "Add the restart action to the tab"
+    },
+    {
+      "agent": null,
+      "autostart": "queued",
+      "blocking": false,
+      "done": false,
+      "fault": null,
+      "glyph": "gray",
+      "id": 900008,
+      "idLabel": "T900008",
+      "key": "FIX-101-s3",
+      "pr": null,
+      "queuePos": 1,
+      "stage": "scope",
+      "stageClass": "stg-scope",
+      "stageSince": null,
+      "title": "Queue the health-poll backoff"
+    }
+  ],
+  "ticketId": 900001,
+  "ticketUrl": null,
+  "title": "Add the server inventory tab",
+  "unblocks": [],
+  "worktrees": [
+    {
+      "baseCandidates": [],
+      "baseDefault": "",
+      "baseRef": "develop",
+      "branch": "fixture/branch-1",
+      "createdAt": "2026-10-26T20:00:00.000Z",
+      "depsMode": "inherited",
+      "launchable": false,
+      "path": "/fixture/workspace/api/.karst/worktrees/FIX-101",
+      "repo": "/fixture/workspace/api",
+      "repoDisplay": "./api",
+      "serviceName": "api",
+      "ticketId": 900001
+    }
+  ]
+}

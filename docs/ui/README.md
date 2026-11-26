@@ -107,27 +107,81 @@ END_DOC_BLOCK: [@ui:README-VOCAB]
 
 Question this answers: does a store ordering/query change touch a fixture or a
 visual baseline? Only through the ONE runtime coupling below. No fixture opens
-SQLite (`openStore`) or reads the store; all are hand-written data typed by the
-view's production state shape. The visual sweep seeds from them via
-`tests/visual/corpora.ts`.
+SQLite (`openStore`) or reads the store while a page renders: every checked-in
+state is either hand-written data typed by the view's production state shape, or
+JSON the exporter built OFFLINE from a database (the `populated` showcases
+below, T1365). The visual sweep seeds from them via `tests/visual/corpora.ts`
+and `tests/visual/dbCorpus/showcase.ts`.
 
 | Fixture file | Kind | Note |
 |---|---|---|
-| `src/ui/sidebar/renderFixtures.ts` | hand-written state | `SidebarState` rows/PRs/planning literals; no store import |
-| `src/ui/dashboard/renderFixtures.ts` | hand-written state | Literals; reuses model helpers (`buildStageRail`, `boundedEvidenceRows`), type-only store imports |
+| `tests/visual/dbCorpus/generated/{dashboard,sidebar,usage}.json` | built from store (offline) | The `populated` showcase variants of those three views. Built by `npm run -s visual:corpus:export` through the production state builders, sanitized, deterministic; see the exporter section below |
+| `src/ui/sidebar/renderFixtures.ts` | hand-written state | `SidebarState` rows/PRs/planning literals; no store import. Seeds every sidebar variant except `populated` |
+| `src/ui/dashboard/renderFixtures.ts` | hand-written state | Literals; reuses model helpers (`buildStageRail`, `boundedEvidenceRows`), type-only store imports. Seeds every dashboard variant except `populated`, and the pinned clock (`FIXTURE_NOW_MS`) the exporter rebases onto |
 | `src/ui/dashboard/app/fixtures/artifactFixtures.ts` | hand-written state | `ArtifactSummary` literals (plus `*Kit.tsx`/`persistTrace.ts` test kits in that folder) |
 | `src/ui/resources/renderFixtures.ts` | hand-written state | Hand-written inventory fed to the pure `buildServersState`; type-only store imports |
-| `src/ui/usage/renderFixtures.ts` | hand-written state | Imports the `USAGE_SORTS` constant from `store/tokenUsageQuery.ts`: changing sort ids or their order changes the sort control and baselines. Rows are literals, so query ordering changes do not |
+| `src/ui/usage/renderFixtures.ts` | hand-written state | Imports the `USAGE_SORTS` constant from `store/tokenUsageQuery.ts`: changing sort ids or their order changes the sort control and baselines. Rows are literals, so query ordering changes do not. Seeds every usage variant except `populated` (and its tiers) |
 | `src/ui/gettingStarted/renderFixtures.ts` | hand-written state | Uses `TUTORIAL_STEPS` from `./state.js` (not store) |
 | `src/ui/diffs/renderFixtures.ts` | hand-written state | Pure data, reserved ticket ids 900001–999999 |
 | `src/ui/settings/app/testFixtures.ts` | hand-written state | `buildSettingsState` over `manifest/fixtures.ts` literals |
 | `tests/visual/corpora.ts` MINIMAL_SETTINGS / MINIMAL_TICKET_FORM, `tests/visual/realisticTicketForm.ts` | hand-written state | Inline seeds for `settings` and `ticketForm` (no renderFixtures module); the ticketForm populated page merges REALISTIC_TICKET_FORM over MINIMAL_TICKET_FORM |
 
-Built from store: none among UI fixtures. Store-seeded fixtures are non-UI:
-`src/uatHost/fixtures.ts` (seeds for UAT host stores) and
-`src/store/fixtures/fixDeliveryHarness.ts`. A store change that alters
-displayed order or query results reaches a baseline only after the
-state-builder (`state.ts`) changes; the fixture literals stay as written.
+### DB-built showcase fixtures (T1365)
+
+`tests/visual/dbCorpus/generated/{dashboard,sidebar,usage}.json` are built from a
+Karst SQLite database by `scripts/export-visual-corpus.mjs`, which calls
+`buildDashboardState` / `buildSidebarState` / `buildUsageState`
+(`tests/visual/dbCorpus/export.ts`) with explicit stubbed host inputs (manifest,
+path context, approach phases, quota) and a pinned clock, then sanitizes the
+result (`sanitize.ts`). Only the `populated` variant of those three views reads
+them; usage `populated-narrow` / `populated-tight` share that corpus. `diffs` is
+NOT exported: it inspects git worktrees (`src/ui/diffs/snapshot.ts`), not the
+store.
+
+```bash
+npm run -s visual:corpus:export -- --db <globalStorage>/karst.db   # a real local database
+npm run -s visual:corpus:export -- --seed                          # the checked-in default
+```
+
+The extension's database is `<globalStorage>/karst.karst/karst.db` (macOS
+Cursor: `~/Library/Application Support/Cursor/User/globalStorage/karst.karst/karst.db`).
+It is opened read-only, so the extension does not need to be stopped first.
+
+- **Read-only, `node:sqlite`** (`src/cli/readonlyStore.ts`, @arch:CLI-05): never
+  better-sqlite3, and the export never writes to the database.
+- **`--seed` needs no user database**: a rich deterministic database from
+  `tests/visual/dbCorpus/seedSpec.ts` (five tickets across stages with their PRs,
+  gate runs and review findings; three sub-tasks under the dashboard ticket; a
+  token ledger; a pinned sidebar order) is built in a temp directory and
+  exported. That path
+  alone loads `openStore`/better-sqlite3. `export.test.ts` fails when the
+  committed JSON is stale, so regenerate after a `state.ts` or seed change.
+- **Sanitizer guarantees** (deterministic, independent of traversal order or the
+  wall clock): ticket ids (also a row `id` whose `idLabel` names it) move into 900001–999999, absolute paths and relative
+  paths that climb out of the project root (`../../Users/...`, the relative
+  `repoDisplay` of a real repo) become `/fixture/path/<n>`, URLs
+  `fixture:url/<n>`, external refs `fixture:ref/<n>` (every provider id in
+  `tickets.source_ref`/`source_ref_internal`, also where a ticket key, label or
+  description quotes it; the export fails when one survives), logins in
+  `author`/`login`/`username` fields `fixture-user-<n>` (also where text quotes
+  them; the leak scan fails on one left), branch names other than `main`/`develop`-style
+  bases `fixture/branch-<n>` (also in text; the export fails on one left), emails
+  `developer@fixture.invalid`, token shapes `fixture-token-redacted`. Timestamps
+  are rebased onto `FIXTURE_NOW_MS` (the page clock) in a DATABASE copy before
+  the builders run (`rebase.ts`): the newest past-event row (`ANCHOR_COLUMNS`)
+  sets the delta, and every ISO, SQLite `datetime()` and INTEGER `*_at` epoch-ms
+  cell moves by it. Builder ages agree with the raw instants, and the stubbed
+  quota never steers the delta. A final leak scan **fails the export** on any leftover absolute or
+  climbing relative path, email, http(s) URL or token shape; `npm run -s gate:secrets` sees only
+  placeholders.
+
+Built from store: the three showcase JSON files above. Store-seeded fixtures are
+otherwise non-UI: `src/uatHost/fixtures.ts` (seeds for UAT host stores) and
+`src/store/fixtures/fixDeliveryHarness.ts`. A store change that alters displayed
+order or query results reaches a hand-written fixture baseline only after the
+state-builder (`state.ts`) changes; the fixture literals stay as written. It
+reaches a SHOWCASE baseline only after the exporter is re-run, and
+`export.test.ts` fails until it is.
 END_DOC_BLOCK: [@ui:README-FIXTURES]
 
 ## [@ui:README-GAPS] Known gaps
