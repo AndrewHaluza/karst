@@ -1164,6 +1164,7 @@ describe('graph session binding (Slice-3 T10)', () => {
     const { processRunId } = seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: PROVIDER });
     const result = appendInteractiveUsageSample(store, {
       ticketId,
+      graphRun: { role: 'node', runId: 9 },
       sample: sample({ eventId: 'g1', input: 2_000, output: 300 }),
     });
     expect(result).toMatchObject({ kind: 'recorded' });
@@ -1190,6 +1191,7 @@ describe('graph session binding (Slice-3 T10)', () => {
     const { processRunId } = seedGraphProcess({ kind: 'planner', processId: 'graph-planner', provider: PROVIDER });
     const result = appendInteractiveUsageSample(store, {
       ticketId,
+      graphRun: { role: 'planner', runId: 3 },
       sample: sample({ eventId: 'g1', input: 900, output: 80 }),
     });
     expect(result).toMatchObject({ kind: 'recorded' });
@@ -1210,7 +1212,11 @@ describe('graph session binding (Slice-3 T10)', () => {
   it('a graph session whose process run closed is unattributed — never an invented owner', () => {
     seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: PROVIDER, status: 'passed' });
     expect(
-      appendInteractiveUsageSample(store, { ticketId, sample: sample({ eventId: 'g1' }) }),
+      appendInteractiveUsageSample(store, {
+        ticketId,
+        graphRun: { role: 'node', runId: 9 },
+        sample: sample({ eventId: 'g1' }),
+      }),
     ).toEqual({ kind: 'unattributed' });
     expect(
       store.db.prepare('SELECT COUNT(*) AS n FROM token_usage').get(),
@@ -1227,6 +1233,7 @@ describe('graph session binding (Slice-3 T10)', () => {
     seedGraphProcess({ kind: 'planner', processId: 'graph-planner', provider: PROVIDER });
     appendInteractiveUsageSample(store, {
       ticketId,
+      graphRun: { role: 'planner', runId: 3 },
       sample: sample({ eventId: 'p1', input: 52_800, output: 5_000 }),
     });
     const rows = store.db
@@ -1240,6 +1247,7 @@ describe('graph session binding (Slice-3 T10)', () => {
     seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: PROVIDER });
     appendInteractiveUsageSample(store, {
       ticketId,
+      graphRun: { role: 'node', runId: 9 },
       sample: sample({ eventId: 'n1', input: 1_000, output: 50 }),
     });
     const rows = store.db
@@ -1248,10 +1256,34 @@ describe('graph session binding (Slice-3 T10)', () => {
     expect(rows).toEqual([{ approach_planner_run_id: null, approach_node_run_id: 9 }]);
   });
 
+  it('T1385: a sample with no graph owner never binds to a running graph node', () => {
+    // The ticket path (no graph identity) must not file its spend under the
+    // newest graph node: that sample would exempt a hung node from the
+    // first-activity watchdog.
+    seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: PROVIDER });
+    expect(
+      appendInteractiveUsageSample(store, { ticketId, sample: sample({ eventId: 'g1' }) }),
+    ).toEqual({ kind: 'unattributed' });
+    expect(
+      store.db.prepare('SELECT COUNT(*) AS n FROM interactive_usage_samples').get(),
+    ).toEqual({ n: 0 });
+  });
+
+  it('T1385: a sample with no graph owner never binds to a running graph planner', () => {
+    seedGraphProcess({ kind: 'planner', processId: 'graph-planner', provider: PROVIDER });
+    expect(
+      appendInteractiveUsageSample(store, { ticketId, sample: sample({ eventId: 'g1' }) }),
+    ).toEqual({ kind: 'unattributed' });
+  });
+
   it('a graph session of a different provider binds nothing', () => {
     seedGraphProcess({ kind: 'node', processId: 'graph-node', provider: 'claude' });
     expect(
-      appendInteractiveUsageSample(store, { ticketId, sample: sample({ eventId: 'g1' }) }),
+      appendInteractiveUsageSample(store, {
+        ticketId,
+        graphRun: { role: 'node', runId: 9 },
+        sample: sample({ eventId: 'g1' }),
+      }),
     ).toEqual({ kind: 'unattributed' });
   });
 });

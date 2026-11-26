@@ -27,6 +27,6 @@ The token count grows with the prompt size, so the full prompt reached the model
 
 **Result.** The size hypothesis is not confirmed for opencode 2.2.7. No `maxBytes` TUI limit is added, and the kickoff spill threshold stays at `KICKOFF_ARGV_MAX_BYTES` (100 KiB). The first-activity watchdog (`arch:GRAPH-FIRST-ACTIVITY`) still catches a node whose prompt does not start a session, for any cause.
 
-**Limits.** The measurement used the user's default opencode home, not the karst launch environment (`OPENCODE_CONFIG_CONTENT`, the isolated XDG home, the hook plugin). The binary version on the night of T1371 and T1372 is not known.
+**Limits.** The measurement used the user's default opencode home, not the karst launch environment (`OPENCODE_CONFIG_CONTENT`, the isolated XDG home, the hook plugin). The opencode2 log shows version 2.2.7 for the launches near 00:56 CET on 2026-11-26 (the night of T1371 and T1372), so the measured version is the same.
 
 END_DOC_BLOCK: [@issue:TUI-PROMPT-01]
