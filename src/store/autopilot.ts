@@ -108,6 +108,33 @@ export function clearConflictRound(store: Store, ticketId: number): void {
   store.db.prepare('UPDATE autopilot_tickets SET conflict_round_at = NULL WHERE ticket_id = ?').run(ticketId);
 }
 
+/** The merge a refused auto-deliver left at HEAD (T1381): its repo and sha, while a gate fix round repairs it. */
+export interface RefusedMerge {
+  readonly repo: string;
+  readonly sha: string;
+}
+
+/**
+ * v140: remember the refused merge in the store, not in memory (T1381). A reload or a second window taking the lease must
+ * not deliver that merge again: SQLite is the source of truth and the guard outlives the process.
+ */
+export function setRefusedMerge(store: Store, ticketId: number, refused: RefusedMerge): void {
+  ensureRow(store, ticketId);
+  store.db.prepare('UPDATE autopilot_tickets SET refused_merge_repo = ?, refused_merge_sha = ? WHERE ticket_id = ?').run(refused.repo, refused.sha, ticketId);
+}
+
+/** The refused merge a gate fix round is repairing, or null. A half-written row (one field null) reads as none. */
+export function getRefusedMerge(store: Store, ticketId: number): RefusedMerge | null {
+  const row = store.db.prepare('SELECT refused_merge_repo AS repo, refused_merge_sha AS sha FROM autopilot_tickets WHERE ticket_id = ?').get(ticketId) as { repo: string | null; sha: string | null } | undefined;
+  if (row?.repo == null || row.sha == null) return null;
+  return { repo: row.repo, sha: row.sha };
+}
+
+/** The agent's fix moved the local head (or a new conflict round replaced the merge): the refused merge is history. */
+export function clearRefusedMerge(store: Store, ticketId: number): void {
+  store.db.prepare('UPDATE autopilot_tickets SET refused_merge_repo = NULL, refused_merge_sha = NULL WHERE ticket_id = ?').run(ticketId);
+}
+
 /**
  * An Autopilot CI round was sent at `atMs` (v118, T1095): the ticket may re-ship to its open PRs without the Confirm click
  * (`autoReship`). Cleared when ship starts, on a park, a pause, a change of the override and on Stop.

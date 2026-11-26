@@ -559,6 +559,35 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'source')).toHaveLength(1);
   });
 
+  it('migrates a pre-v140 database by adding the refused-merge guard columns as NULL, idempotently', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`CREATE TABLE autopilot_tickets (
+      ticket_id INTEGER PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'inherit', stop_after INTEGER NOT NULL DEFAULT 0,
+      paused_reason TEXT, stopped_reason TEXT, stopped_head_sha TEXT, claim_owner TEXT, claim_until INTEGER,
+      session_owner TEXT, ci_round_manual INTEGER NOT NULL DEFAULT 0, ci_round_at INTEGER, conflict_round_at INTEGER
+    )`);
+    legacy.exec("INSERT INTO autopilot_tickets (ticket_id, mode) VALUES (7, 'on')");
+    legacy.pragma('user_version = 139');
+    legacy.close();
+
+    const colsOf = (s: ReturnType<typeof openStore>) =>
+      (s.db.prepare("PRAGMA table_info('autopilot_tickets')").all() as { name: string }[]).map((c) => c.name);
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(colsOf(migrated)).toEqual(expect.arrayContaining(['refused_merge_repo', 'refused_merge_sha']));
+    expect(migrated.db.prepare('SELECT mode AS m, refused_merge_repo AS repo, refused_merge_sha AS sha FROM autopilot_tickets WHERE ticket_id = 7').get())
+      .toEqual({ m: 'on', repo: null, sha: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    migrated.close();
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(colsOf(reopened).filter((c) => c === 'refused_merge_repo')).toHaveLength(1);
+  });
+
   it('a fresh database defaults phase_marks.source to agent', () => {
     const fresh = openStore(':memory:');
     cleanups.push(() => fresh.close());

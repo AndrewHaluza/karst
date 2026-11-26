@@ -3155,5 +3155,13 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 140) {
+    // v140: `autopilot_tickets.refused_merge_repo` and `refused_merge_sha` — the merge a refused auto-deliver left at HEAD while a gate fix round repairs it (T1381, @arch:AP-06). Store state: a reload or a second window must not deliver that merge again. Additive; NULL = no refused merge (no backfill).
+    const autoCols140 = tableColumns(db, 'autopilot_tickets');
+    for (const col of ['refused_merge_repo', 'refused_merge_sha']) {
+      if (autoCols140.size > 0 && !autoCols140.has(col)) db.exec(`ALTER TABLE autopilot_tickets ADD COLUMN ${col} TEXT`);
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

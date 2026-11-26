@@ -5,8 +5,8 @@ import { setStage } from './stages.js';
 import { stageBlock } from './stageBlocks.js';
 import {
   claimAutopilotTicket,
-  decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, grantAutopilotExtra, getAutopilotSessionOwner,
-  getAutopilotRerun, markAutopilotRerun, repairStaleAutopilotParks, setAutopilotStopped, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
+  clearRefusedMerge, decideBudget, effectiveAutopilot, getAutopilotBudget, getAutopilotTicket, getRefusedMerge, grantAutopilotExtra, getAutopilotSessionOwner,
+  getAutopilotRerun, markAutopilotRerun, repairStaleAutopilotParks, setAutopilotStopped, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setRefusedMerge, stoppedReason, syncAutopilotSessionOwner, takeAutopilotAttempt,
 } from './autopilot.js';
 
 describe('decideBudget', () => {
@@ -172,6 +172,29 @@ describe('stopped head sha', () => {
     setAutopilotStopped(store, t.id, 'auto-fix stopped: x', 'abc1234');
     setAutopilotOverride(store, t.id, 'on');
     expect(getAutopilotTicket(store, t.id)).toMatchObject({ stoppedReason: null, stoppedHeadSha: null });
+    store.close();
+  });
+});
+
+describe('refused merge guard (T1381)', () => {
+  it('stores the refused merge and clears it', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    expect(getRefusedMerge(store, t.id)).toBeNull();
+    setRefusedMerge(store, t.id, { repo: 'api', sha: '952a97b54aaa' });
+    expect(getRefusedMerge(store, t.id)).toEqual({ repo: 'api', sha: '952a97b54aaa' });
+    clearRefusedMerge(store, t.id);
+    expect(getRefusedMerge(store, t.id)).toBeNull();
+    store.close();
+  });
+
+  it('reads a half-written row and a missing ticket row as no guard', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    setAutopilotOverride(store, t.id, 'inherit');
+    store.db.prepare('UPDATE autopilot_tickets SET refused_merge_repo = ? WHERE ticket_id = ?').run('api', t.id);
+    expect(getRefusedMerge(store, t.id)).toBeNull();
+    expect(getRefusedMerge(store, 999)).toBeNull();
     store.close();
   });
 });

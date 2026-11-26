@@ -399,6 +399,8 @@ END_DOC_BLOCK: [@arch:V121]
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
+**v140:** `autopilot_tickets.refused_merge_repo` and `refused_merge_sha` (the merge a refused auto-deliver left at HEAD while a gate fix round repairs it; store state so a reload or a second window never delivers it again, `@arch:AP-06`). Additive, NULL = no refused merge, no backfill.
+
 **v139:** `phase_marks.source` (TEXT NOT NULL DEFAULT `'agent'` CHECK `'agent'|'host'` — WHO wrote the mark: the agent's `karst phase` or the host's evidence; `@arch:RESULTS`, `@arch:APP-09`). Additive, every existing row is an `'agent'` row (the only writer before this version), no backfill. Reads: `listPhaseMarks` (model, stepper) and diagnostics' `readPhaseMarks`, which reports `source`.
 
 **v137:** `servers.last_error` (TEXT, the short reason a `failed` row failed: a start failure from `recordFailedStart`, or a crash from `markServerCrashed`; `@arch:SERVERS-PANEL`). Additive, NULL = no failure or a pre-v137 row, no backfill. A crash keeps the `failed` status; it is never written as `stopped`.
