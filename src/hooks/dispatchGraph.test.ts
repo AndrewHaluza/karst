@@ -192,6 +192,56 @@ describe('dispatchHook — graph node workspace (T1370)', () => {
   });
 });
 
+describe('dispatchHook — parallel graph nodes (T1385)', () => {
+  /** A second running opencode2 node (32) in the same graph run, newer than 31. */
+  function seedParallelNode(): string {
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs
+           (id, graph_run_id, revision_id, node_id, node_kind, visit_number,
+            status, process_run_id, profile, provider, model, generation)
+         VALUES (32, 7, 1, 'n2', 'agent', 1, 'running', ?, 'worker', 'opencode2', 'm', ?)`,
+      )
+      .run(processRun('opencode2', 'graph-node-32'), GEN);
+    return graphLaunchId({ graphRunId: 7, runId: 32, role: 'node', generation: GEN });
+  }
+
+  it('files the usage of the older node under that node while a newer node of the same provider runs', () => {
+    seedParallelNode();
+    dispatchHook(store, {
+      hook_event_name: 'UsageUpdate',
+      cwd: WS,
+      session_id: 'oc-31',
+      launchId: NODE_LAUNCH,
+      usage: usage('e31'),
+    });
+    expect(ledger()).toMatchObject([{ approach_node_run_id: 31 }]);
+    const nodeProcess = store.db
+      .prepare('SELECT process_run_id FROM approach_node_runs WHERE id = 31')
+      .get() as { process_run_id: number };
+    expect(
+      store.db.prepare('SELECT process_run_id FROM interactive_usage_samples').all(),
+    ).toEqual([{ process_run_id: nodeProcess.process_run_id }]);
+  });
+
+  it('files each parallel node session under its own node run', () => {
+    const second = seedParallelNode();
+    dispatchHook(store, {
+      hook_event_name: 'UsageUpdate',
+      session_id: 'oc-32',
+      launchId: second,
+      usage: usage('e32'),
+    });
+    dispatchHook(store, {
+      hook_event_name: 'UsageUpdate',
+      cwd: WS,
+      session_id: 'oc-31',
+      usage: usage('e31'),
+    });
+    expect(ledger()).toMatchObject([{ approach_node_run_id: 32 }, { approach_node_run_id: 31 }]);
+  });
+});
+
 describe('dispatchHook — graph planner launch id (T1370)', () => {
   it('records a planner UsageUpdate from the ticket worktree, also when the generation check refuses it', () => {
     const shouldApply = vi.fn(() => false);

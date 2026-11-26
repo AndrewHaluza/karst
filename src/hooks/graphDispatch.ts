@@ -104,6 +104,8 @@ function ingestGraphUsage(
       provider: owner.provider,
       providerSessionId: payload.session_id,
       usage: payload.usage,
+      // T1385: the session's OWN run, so parallel nodes never share a binding.
+      graphRun: { role: owner.role, runId: owner.runId },
     },
     deps.debug,
   );

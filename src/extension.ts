@@ -263,6 +263,7 @@ import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinat
 import { createSupervisedCliTransport, type SupervisedCliTransport, type SupervisedAgentSession } from './approaches/graph/transport/supervisedCliTransport.js';
 import { createGraphUsageBinding } from './extension/graphUsageBinding.js';
 import { createGraphUsageLimitBinding } from './extension/graphUsageLimitBinding.js';
+import { createGraphFirstActivityBinding } from './extension/graphFirstActivityBinding.js';
 import {
   activeGraphRunFor,
   graphTicketSurface,
@@ -4169,6 +4170,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const graphUsageLimit = createGraphUsageLimitBinding({ store: () => graphCoordinatorStore, transaction: <T>(fn: () => T): T => runImmediateTransaction(graphCoordinatorStore!.db, fn), now: () => new Date().toISOString(), // T1380
     transport: () => graphTransport, recovery: () => graphRecoverySeams, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), manifest: () => currentManifest(), graphConfigOf: (id) => graphApproachConfigFor(id),
     ticketLaunchFieldsOf: (id) => ticketLaunchFields(getTicket(graphCoordinatorStore!, id)), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, debug: (m) => logger.debug(m), logError });
+  const graphFirstActivity = createGraphFirstActivityBinding({ db: () => graphCoordinatorStore?.db, transaction: <T>(fn: () => T): T => runImmediateTransaction(graphCoordinatorStore!.db, fn), now: () => new Date().toISOString(), awakeElapsedMs: defaultSleepLedger.awakeElapsedMs, transport: () => graphTransport, debug: (m) => logger.debug(m), logError });
   const interactiveUsageLimit = createInteractiveUsageLimitBinding({ store: localStore, pick: makeUsageLimitAgentModelPicker(() => modelCatalog), sessionProviderFor, // D160 AC-42
     switchSession: (id, sel) => switchAgentSession(id, sel.provider, sel.model, null), disposeSession: (id) => sessions.disposeSession(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); } });
   endpoint = await startHookEndpoint(
@@ -4296,6 +4298,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Bookkeeping over state that is already stored: the next tick retries.
       logError(`karst: graph coordinator tick failed for run ${graphRunId}`, err);
     }
+    // T1385: a node that launched but never produced a usage sample is stopped
+    // and parked (awake time only). A failure only delays the next tick.
+    await graphFirstActivity.run(graphRunId);
     // Completing nodes are integrated by THIS window, in node-run order (the
     // pipeline's integrating-slot CAS serializes the write phases across
     // windows). A deferred node is retried on the next tick. The continuation

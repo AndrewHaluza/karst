@@ -85,6 +85,17 @@ export const MAX_SWEEP_TRANSITIONS = 100;
 export const MAX_DEFERRAL_WAIT_MS = 30 * 60_000;
 
 /**
+ * T1385 — the first-activity ceiling (T1371, T1372). A running opencode2 node,
+ * or a claude node on host placement, that has produced NO usage sample this
+ * long after its start is stopped and parked: the provider launched but the
+ * prompt never reached a session, and nothing else would ever notice. AWAKE
+ * time only, so a host sleep is not activity-free work (the same sleep-ledger
+ * rule as the stall windows). A false stop of a slow first turn costs exactly
+ * one relaunch, so the bound is generous.
+ */
+export const FIRST_ACTIVITY_WAIT_MS = 10 * 60_000;
+
+/**
  * H4, the LONG ceiling: a deferral behind a live holder (T1333). The holder's
  * node run is `launching`, `running`, `completing` or `integrating` — or a
  * claimed run at `ready`, which is still awaiting its drive and holds its lease
