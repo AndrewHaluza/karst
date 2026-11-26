@@ -132,7 +132,7 @@ describe('prepareInteractive', () => {
     await runner(ssh, { registry }).prepareInteractive!(spec());
     const sweep = ssh.calls.map((c) => scriptOf(c.args)).find((s) => s.startsWith('# karst-ssh-gate-sweep'))!;
     expect(sweep).toContain(`set -- 'bbbbbbbbbbbbbbbb'`);
-    expect(sweep).toContain('kill -KILL -- "-$p"');
+    expect(sweep).toContain('kill -KILL "-$p"');
   });
 });
 
@@ -201,8 +201,10 @@ describe('runGate', () => {
     const out = await run(runner(ssh, { gateProcess: gate({ kind, output: '' }) }));
     expect(out.kind).toBe(kind);
     const kill = ssh.calls.map((c) => scriptOf(c.args)).find((s) => s.startsWith('# karst-ssh-gate-kill'))!;
-    expect(kill).toContain('if [ -f "$f" ]; then kill -TERM -- -4242');
-    expect(kill).toContain('if [ -f "$f" ]; then kill -KILL -- -4242');
+    expect(kill).toContain('if [ -f "$f" ]; then kill -TERM -4242');
+    expect(kill).toContain('if [ -f "$f" ]; then kill -KILL -4242');
+    expect(kill).not.toContain(' -- -');
+    expect(kill).toContain('is still alive after KILL');
     expect(kill).toContain(`rm -f -- "$f" '${WS}/gates/${RUN_ID}.exit'`);
   });
 
@@ -362,7 +364,7 @@ describe('SPEC coverage: args, env keys, services, two instances', () => {
     await second.stop!();
     const kill = ssh.calls.map((c) => scriptOf(c.args)).find((s) => s.startsWith('# karst-ssh-gate-kill'))!;
     expect(kill).toContain(`${WS}/gate-${RUN_ID}.pgid`);
-    expect(kill).toContain('kill -TERM -- -777');
+    expect(kill).toContain('kill -TERM -777');
     release({ kind: 'aborted', output: '' });
     await pending;
   });

@@ -89,7 +89,7 @@ export async function killRemoteGate(ctx: SshGateContext, runId: string): Promis
     ctx.debug?.(`[ssh ${ctx.remoteName}] gate ${runId}: no live process group to kill`);
     return;
   }
-  ctx.debug?.(`[ssh ${ctx.remoteName}] gate ${runId}: kill -TERM -- -${String(pgid)}`);
+  ctx.debug?.(`[ssh ${ctx.remoteName}] gate ${runId}: kill -TERM -${String(pgid)}`);
   const killed = await remoteRun(ctx, killGateScript(ctx.workspace, runId, pgid, ctx.killGraceSeconds));
   if (killed.code !== 0) ctx.debug?.(`[ssh ${ctx.remoteName}] gate ${runId}: kill exited ${String(killed.code)}: ${lastLine(killed.stderr)}`);
 }

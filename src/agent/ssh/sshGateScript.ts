@@ -143,11 +143,19 @@ export function parsePgid(stdout: string): number | undefined {
   return pgid > 1 ? pgid : undefined;
 }
 
+/** Seconds the kill script waits for a group to go after KILL. */
+const KILL_SETTLE_SECONDS = 5;
+
 /**
  * Kill one remote gate group: TERM, then KILL after `graceSeconds`, each only
  * while the pgid file still exists (the wrapper's `trap` removes it once the
  * group is gone, so a reused pid is never signalled). Then remove the pgid file
  * and the exit file: a killed gate has no verdict.
+ *
+ * The group operand is `-<pgid>` with no `--`: the dash `kill` builtin (the
+ * `/bin/sh` of Debian and Ubuntu) rejects `--` ("Illegal number"), so
+ * `kill -TERM -- -<pgid>` signals nothing there. When the group is still alive
+ * after KILL, the script keeps the pgid file (the sweep tries again) and exits 1.
  */
 export function killGateScript(workspace: string, runId: string, pgid: number, graceSeconds: number): string {
   if (!Number.isInteger(pgid) || pgid <= 1) throw new Error(`ssh gate: invalid pgid ${String(pgid)}`);
@@ -157,9 +165,12 @@ export function killGateScript(workspace: string, runId: string, pgid: number, g
   return [
     '# karst-ssh-gate-kill',
     `f=${sshQuote(paths.pgidFile)}`,
-    `if [ -f "$f" ]; then kill -TERM -- ${group} 2>/dev/null; fi`,
-    `i=0; while [ -f "$f" ] && [ "$i" -lt ${String(graceSeconds)} ]; do sleep 1; i=$((i+1)); done`,
-    `if [ -f "$f" ]; then kill -KILL -- ${group} 2>/dev/null; fi`,
+    `alive() { [ -f "$f" ] && kill -0 ${group} 2>/dev/null; }`,
+    `if [ -f "$f" ]; then kill -TERM ${group} 2>/dev/null; fi`,
+    `i=0; while alive && [ "$i" -lt ${String(graceSeconds)} ]; do sleep 1; i=$((i+1)); done`,
+    `if [ -f "$f" ]; then kill -KILL ${group} 2>/dev/null; fi`,
+    `i=0; while alive && [ "$i" -lt ${String(KILL_SETTLE_SECONDS)} ]; do sleep 1; i=$((i+1)); done`,
+    `if alive; then echo ${sshQuote(`ssh gate: group ${group} is still alive after KILL`)} >&2; exit 1; fi`,
     `rm -f -- "$f" ${sshQuote(paths.exitFile)}`,
   ].join('\n');
 }
@@ -184,7 +195,7 @@ export function sweepScript(workspace: string, liveRunIds: readonly string[]): s
     '  [ "$skip" = 1 ] && continue',
     '  p=$(cat -- "$f" 2>/dev/null)',
     `  ${PGID_OK}`,
-    '  if [ -n "$p" ]; then kill -KILL -- "-$p" 2>/dev/null; fi',
+    '  if [ -n "$p" ]; then kill -KILL "-$p" 2>/dev/null; fi',
     '  rm -f -- "$f" "$ws/gates/$id.exit"',
     'done',
     'exit 0',
