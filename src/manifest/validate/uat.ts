@@ -363,6 +363,9 @@ function validateTester(raw: unknown): UatTesterConfig | undefined {
 function validateBaselineReview(raw: unknown): UatBaselineReviewConfig | undefined {
   if (raw === undefined) return undefined;
   if (!isObject(raw)) throw new ManifestError('uat.baselineReview must be a mapping');
+  if (raw.precheck !== undefined && typeof raw.precheck !== 'boolean') {
+    throw new ManifestError('uat.baselineReview.precheck must be a boolean');
+  }
   if (raw.paths === undefined) return undefined;
   if (!Array.isArray(raw.paths)) {
     throw new ManifestError('uat.baselineReview.paths must be a list of globs');
@@ -376,7 +379,8 @@ function validateBaselineReview(raw: unknown): UatBaselineReviewConfig | undefin
     }
     return entry;
   });
-  return paths.length === 0 ? undefined : { paths };
+  if (paths.length === 0) return undefined;
+  return raw.precheck === undefined ? { paths } : { paths, precheck: raw.precheck };
 }
 
 function validateRepositories(raw: unknown): Record<string, UatRepositoryOverride> {

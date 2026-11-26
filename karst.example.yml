@@ -679,7 +679,11 @@ uat:
   # WIRED, opt-in, manifest-only. Repo-relative globs of files (visual baselines,
   # a ratchet ledger) whose change by a ticket counts only after YOU approve it in
   # the dashboard: UAT parks "Needs you" until then. Absent = off.
-  # baselineReview: { paths: ['tests/visual/__baselines__/**'] }
+  # `precheck: true` first shows each pending changed PNG to the model (the
+  # Tester's assignment) and approves only the ones it judges clearly intended
+  # and free of visible defects; the rest still wait for you. Any pre-check
+  # failure leaves every entry waiting. Absent = false.
+  # baselineReview: { paths: ['tests/visual/__baselines__/**'], precheck: true }
   # Cookbook (needs a declared repo `frontend`):
   # repositories:
   #   frontend:

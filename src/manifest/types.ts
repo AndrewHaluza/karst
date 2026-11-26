@@ -756,6 +756,13 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export interface UatBaselineReviewConfig {
   /** Repo-relative git pathspec globs; never empty (an empty list disables the knob). */
   paths: string[];
+  /**
+   * Opt-in model pre-check of the pending changed baselines before the
+   * baseline-review block. It approves only the entries the model judges
+   * clearly intended and free of visible defects; everything else still waits
+   * for the user. Absent = false. Manifest-only, no Settings field.
+   */
+  precheck?: boolean;
 }
 
 /**
