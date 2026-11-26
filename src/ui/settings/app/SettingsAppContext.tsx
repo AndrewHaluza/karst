@@ -93,10 +93,12 @@ function appReducer(state: SettingsAppState, action: AppAction): SettingsAppStat
       return recordTicketRequest(state, action.fetch, action.key);
     case 'begin-save':
       return beginSave(state, action.section);
+    // A Discard or an Undo moves the draft too, so it drops a fetch whose key
+    // it moved, the same as an edit.
     case 'discard':
-      return discardWithUndo(state, action.section);
+      return invalidateTicketFetchesFor(state, discardWithUndo(state, action.section));
     case 'undo-discard':
-      return undoDiscard(state);
+      return invalidateTicketFetchesFor(state, undoDiscard(state));
     case 'clear-undo':
       return clearUndo(state);
     default:

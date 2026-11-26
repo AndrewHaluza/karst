@@ -92,7 +92,7 @@ export function TicketingSection() {
   const statusesDropped = statusState.kind === 'idle' && state.ticketRequests.statuses === null;
   useEffect(() => {
     if (lists.requestId === undefined || listState === seenListState.current) return;
-    if (listsDropped && lists.pending) {
+    if (listsDropped && lists.disabled) {
       seenListState.current = listState;
       lists.reset();
     }
@@ -108,7 +108,7 @@ export function TicketingSection() {
 
   useEffect(() => {
     if (statuses.requestId === undefined || statusState === seenStatusState.current) return;
-    if (statusesDropped && statuses.pending) {
+    if (statusesDropped && statuses.disabled) {
       seenStatusState.current = statusState;
       statuses.reset();
     }

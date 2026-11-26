@@ -32,7 +32,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Manifest, TicketingConfig } from '../../../../manifest/types.js';
 import { TICKET_PROVIDER_IDS } from '../../../../model/ticketProviders.js';
 import { AnnouncerProvider } from '../primitives/LiveRegion.js';
-import { SettingsAppProvider } from '../SettingsAppContext.js';
+import { SettingsAppProvider, useSettingsApp } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
 import type { SettingsState } from '../../state.js';
@@ -694,6 +694,61 @@ describe('TicketingSection — a reply lands only on the key it was asked for', 
     expect(bridge.last('fetch-ticket-lists')).toMatchObject({ teamId: '9002' });
     act(() => bridge.push({ type: 'ticket-lists', lists: [{ id: 'LB', name: 'Beta', space: 'Core' }] }));
     expect(Array.from(list.options).map((o) => o.value)).toContain('LB');
+  });
+});
+
+describe('TicketingSection — a Discard or an Undo drops the statuses of the list it left', () => {
+  /** Stand-in for the shell's Discard and Undo controls. */
+  function DiscardControls() {
+    const app = useSettingsApp();
+    return (
+      <>
+        <button type="button" onClick={() => app.discard('ticketing')}>test-discard</button>
+        <button type="button" onClick={() => app.undoDiscard()}>test-undo</button>
+      </>
+    );
+  }
+
+  it('reloads the statuses for the list the draft is on after each move', () => {
+    const bridge = createTestBridge();
+    render(
+      <AnnouncerProvider>
+        <SettingsAppProvider bridge={bridge} initialSection="ticketing">
+          <TicketingSection />
+          <DiscardControls />
+        </SettingsAppProvider>
+      </AnnouncerProvider>,
+    );
+    act(() =>
+      bridge.push({
+        type: 'state',
+        state: stateWith({ provider: 'clickup', teamId: '9001', listId: 'LA', advanceOnShip: true, shipStatus: 'a1' }),
+      }),
+    );
+    act(() =>
+      bridge.push({
+        type: 'ticket-lists',
+        lists: [
+          { id: 'LA', name: 'Alpha', space: 'Core' },
+          { id: 'LB', name: 'Beta', space: 'Core' },
+        ],
+      }),
+    );
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['a1'] }));
+    fireEvent.change(byLabel('List'), { target: { value: 'LB' } });
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['b1'] }));
+    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(2);
+
+    fireEvent.click(screen.getByText('test-discard'));
+    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(3);
+    expect(bridge.last('fetch-ticket-statuses')).toMatchObject({ listId: 'LA' });
+    const ship = byLabel('Status when Karst ships') as unknown as HTMLSelectElement;
+    expect(Array.from(ship.options).map((o) => o.value)).not.toContain('b1');
+    act(() => bridge.push({ type: 'ticket-statuses', statuses: ['a1'] }));
+
+    fireEvent.click(screen.getByText('test-undo'));
+    expect(bridge.all('fetch-ticket-statuses')).toHaveLength(4);
+    expect(bridge.last('fetch-ticket-statuses')).toMatchObject({ listId: 'LB' });
   });
 });
 
