@@ -236,8 +236,9 @@ failure shows one fixed line, "Karst cannot read the tickets.", with a Retry tha
 posts `refresh`. The webview has no toolbar row: the resource monitor, token usage
 and settings handoffs are `view/title` menu entries of `karst.tickets`. A collapsed
 ticket row keeps its More menu in flow at the row end; Session and Pause/Resume
-appear on hover only from the narrow tier (400 px) up, and the stage pill is never
-hidden for them. The facet chip row is gone: a funnel menu
+appear on hover or focus at every width (D860), the solid overlay covering the
+stage pill and the end of the title only while the row is hovered or focused, and
+the stage pill is never hidden at rest. The facet chip row is gone: a funnel menu
 (`FilterMenu.tsx`, `menuitemradio`, a dot when a preset other than All is active)
 in the Tickets header offers single-select presets (All, Needs you or failed =
 `input`+`failed`, Running, Done, Archived). A preset is a facet selection, so
