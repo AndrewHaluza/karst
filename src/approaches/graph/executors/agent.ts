@@ -105,7 +105,7 @@ export interface RunAgentNodeInput {
   /** The adapter the transport bridges from (wiring-resolved per provider). */
   adapter: AgentAdapter;
   /** The launch identity the driver resolved ONCE (adapter and identity share it). */
-  resolved: { provider: string; model?: string; effort?: string };
+  resolved: { provider: string; model?: string; effort?: string; account?: string };
   /** Repository whose worktree the session runs in. */
   repo: string;
   /** Workspace directory. */
@@ -210,6 +210,7 @@ export async function runAgentNode(
       provider: resolved.provider,
       ...(resolved.model !== undefined ? { model: resolved.model } : {}),
       ...(resolved.effort !== undefined ? { effort: resolved.effort } : {}),
+      ...(resolved.account !== undefined ? { account: resolved.account } : {}),
     },
     adapter: input.adapter,
     interactive: {

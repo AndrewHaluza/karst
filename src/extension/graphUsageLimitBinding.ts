@@ -14,7 +14,9 @@
  *
  * The prompt mirrors the interactive one (`runInteractiveOffer`):
  * Pick agent/model… (a QuickPick, then ONLY the parked role's snapshot entry is
- * replaced) → Resume; Retry same → Resume; Dismiss → the blocked banner keeps
+ * replaced) → Resume; Pick account… (T1386, only when the parked core has
+ * another account: the user pins that account for the parked role of THIS run,
+ * then Resume); Retry same → Resume; Dismiss → the blocked banner keeps
  * Resume and Replan. Karst never switches a core or account by itself.
  */
 
@@ -31,7 +33,9 @@ import {
   type GraphRole,
 } from '../approaches/graph/runIdentity.js';
 import {
+  switchGraphRunAccount,
   switchGraphRunModels,
+  type SwitchAccountOutcome,
   type SwitchModelsOutcome,
 } from '../approaches/graph/modelChange.js';
 import type { GraphLaunchTicketFields } from '../approaches/graph/profileResolver.js';
@@ -39,13 +43,20 @@ import { parkGraphUsageLimit } from '../approaches/graph/coordinator/usageLimitP
 import type { RecoveryRefusalReason } from '../approaches/graph/coordinator/recovery.js';
 import { blockGraphStage } from '../workflow/graphMarkerGuard.js';
 import type { SupervisedAgentSession, TerminationProof } from '../approaches/graph/transport/agentTransport.js';
+import type { AccountStatus } from '../agent/accounts/accountOps.js';
+import { DEFAULT_ACCOUNT, type AccountsConfig } from '../agent/accounts/types.js';
 import { dispatchGraphRecovery, type GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
 import {
   graphRecoveryRefusalNotice,
   graphRefusalContext,
   projectMaxReplans,
 } from './ops/graphRecovery.js';
-import { PICK_LABEL, RETRY_LABEL, DISMISS_LABEL } from './ops/interactiveUsageLimitActions.js';
+import {
+  PICK_LABEL,
+  PICK_ACCOUNT_LABEL,
+  RETRY_LABEL,
+  DISMISS_LABEL,
+} from './ops/interactiveUsageLimitActions.js';
 import { ask, toast } from './toastSeam.js';
 import { reasonText } from '../model/notifyText.js';
 
@@ -84,6 +95,22 @@ export interface GraphUsageLimitTransport {
   terminate(session: SupervisedAgentSession): Promise<TerminationProof>;
 }
 
+/** One account of the parked core, as the Accounts settings tab lists it. */
+export interface GraphAccountRow {
+  readonly name: string;
+  /** True when a NEW launch of this project would use it. */
+  readonly active: boolean;
+}
+
+/** One entry of the account QuickPick. */
+export interface GraphAccountChoice {
+  readonly name: string;
+  /** The account the parked session used: the role's pinned account, else the active one. */
+  readonly current: boolean;
+  /** The signed-in probe of that account folder (@arch:AC-55). */
+  readonly status: AccountStatus;
+}
+
 export interface GraphUsageLimitBindingDeps {
   /** The graph coordinator store; resolved lazily (created after the hook endpoint). */
   store(): Store | undefined;
@@ -109,6 +136,24 @@ export interface GraphUsageLimitBindingDeps {
   /** The failure toast; defaults to `toast.error` from the toast seam. */
   toastError?(message: string): void;
   /**
+   * The accounts of a core (@arch:AC-55), `default` first and the stored ones
+   * after it. Absent, or fewer than two rows, means the parked core has no
+   * other account: the prompt offers no account choice.
+   */
+  accountsOf?(core: string): PromiseLike<readonly GraphAccountRow[] | undefined>;
+  /** The signed-in state of one account (the Accounts settings probe). */
+  accountStatus?(core: string, name: string): PromiseLike<AccountStatus>;
+  /** The account QuickPick; undefined when the user closes it. */
+  pickAccount?(core: string, choices: readonly GraphAccountChoice[]): PromiseLike<string | undefined>;
+  /**
+   * The machine-local accounts config `switchGraphRunAccount` validates the
+   * pick against (@arch:AC-55). It is read, never written: a pick writes only
+   * the run snapshot (@arch:AC-50, @arch:AC-61).
+   */
+  accountsConfig?(): AccountsConfig;
+  /** One Activity entry for a resumed launch that runs under a pinned account. */
+  activity?(ticketId: number, title: string): void;
+  /**
    * The async pause between retries of a lock-contended presentation write.
    * The coordinator store has no busy timeout (a synchronous wait would block
    * the extension host), so a post-commit stage write retries here instead of
@@ -132,6 +177,33 @@ export function parkedGraphRole(role: GraphSessionRole, agentName: string | null
   }
   return role === 'planner' ? 'expert' : 'worker';
 }
+
+/** The truthful reason a pick did not reach the snapshot; the prompt stays open. */
+export const graphAccountRefusalNotice = (
+  provider: string,
+  role: GraphRole,
+  account: string,
+  outcome: SwitchAccountOutcome,
+): string => {
+  const cause =
+    outcome === 'unknown-account'
+      ? `it is not a stored ${provider} account`
+      : outcome === 'no-snapshot'
+        ? 'the graph run has no identity snapshot'
+        : outcome === 'role-missing'
+          ? `the ${role} role is not in the run snapshot`
+          : 'the graph run no longer exists';
+  return `Karst did not switch the graph ${role} of this run to the ${provider} account '${account}': ${cause}.`;
+};
+
+/**
+ * The Activity text names the account that RUNS. A pick of `default`
+ * removes the pin (the plan), so the role follows the active account.
+ */
+export const graphAccountActivity = (role: GraphRole, chosen: string, active: string | undefined): string =>
+  chosen === DEFAULT_ACCOUNT && active !== undefined && active !== DEFAULT_ACCOUNT
+    ? `graph ${role} runs under the active account ${active} (picked default at the usage limit)`
+    : `graph ${role} runs under account ${chosen} (picked at the usage limit)`;
 
 export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): GraphUsageLimitBinding {
   const warn = deps.ask ?? ((message: string, ...actions: string[]) => ask.warn(message, ...actions));
@@ -195,6 +267,50 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
       input.graphRunId,
       snapshot,
     );
+  };
+
+  /**
+   * Pin the parked role's account in the run snapshot (T1386, @arch:AC-55).
+   * Only the user's pick reaches this; a quota stop never switches the account.
+   */
+  const switchParkedAccount = (
+    store: Store,
+    input: { graphRunId: number; role: GraphRole; account: string },
+    accounts: AccountsConfig,
+  ): SwitchAccountOutcome =>
+    switchGraphRunAccount(
+      {
+        db: store.db,
+        transaction: deps.transaction,
+        now: deps.now,
+        debug: deps.debug,
+        accountsConfig: () => accounts,
+      },
+      input.graphRunId,
+      input.role,
+      input.account,
+    );
+
+  /**
+   * The accounts the parked core can offer, with the parked session's account
+   * marked. `undefined` when account support is not wired or the core has no
+   * second account: one account is no choice (@arch:AC-55).
+   */
+  const accountChoices = async (
+    provider: string,
+    pinned: string | undefined,
+  ): Promise<{ choices: GraphAccountChoice[]; active: string | undefined } | undefined> => {
+    if (!deps.accountsOf || !deps.pickAccount || !deps.accountsConfig) return undefined;
+    const rows = await deps.accountsOf(provider);
+    if (!rows || rows.length < 2) return undefined;
+    const active = rows.find((row) => row.active)?.name;
+    const current = pinned ?? active;
+    const choices: GraphAccountChoice[] = [];
+    for (const row of rows) {
+      const status = deps.accountStatus ? await deps.accountStatus(provider, row.name) : 'unknown';
+      choices.push({ name: row.name, current: row.name === current, status });
+    }
+    return { choices, active };
   };
 
   /** A failed refresh is presentation only; the park already committed. */
@@ -264,13 +380,20 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
     parkedRole: GraphRole;
     label: string;
   }): Promise<void> => {
+    const store = deps.store();
+    const snapshot = store
+      ? parseRunIdentities(graphRunAgentIdentity(store.db, input.signal.graphRunId))
+      : undefined;
+    const offered = await accountChoices(input.provider, snapshot?.roles[input.parkedRole]?.account);
+    const actions = offered
+      ? [PICK_LABEL, PICK_ACCOUNT_LABEL, RETRY_LABEL, DISMISS_LABEL]
+      : [PICK_LABEL, RETRY_LABEL, DISMISS_LABEL];
     for (;;) {
-      const choice = await warn(input.label, PICK_LABEL, RETRY_LABEL, DISMISS_LABEL);
+      const choice = await warn(input.label, ...actions);
       if (choice === PICK_LABEL) {
         const chosen = await deps.pick(input.provider, input.model);
         // A cancelled picker keeps the park (and the prompt) available.
         if (!chosen) continue;
-        const store = deps.store();
         if (!store) return;
         const outcome = switchParkedRole(store, {
           ticketId: input.signal.ticketId,
@@ -285,6 +408,27 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
         }
         // Unchanged/terminal/not-found: let the user pick again or retry.
         if (outcome === 'unchanged') continue;
+        return;
+      }
+      if (choice === PICK_ACCOUNT_LABEL && offered) {
+        const chosen = await deps.pickAccount!(input.provider, offered.choices);
+        // A cancelled picker keeps the park (and the prompt) available.
+        if (chosen === undefined) continue;
+        if (!store) return;
+        const outcome = switchParkedAccount(
+          store,
+          { graphRunId: input.signal.graphRunId, role: input.parkedRole, account: chosen },
+          deps.accountsConfig!(),
+        );
+        if (outcome !== 'switched') {
+          deps.debug(
+            `[graph] usage-limit: account "${chosen}" not pinned for run ${input.signal.graphRunId} role "${input.parkedRole}" (${outcome})`,
+          );
+          void warn(graphAccountRefusalNotice(input.provider, input.parkedRole, chosen, outcome));
+          continue;
+        }
+        deps.activity?.(input.signal.ticketId, graphAccountActivity(input.parkedRole, chosen, offered.active));
+        resume(input.signal.ticketId, input.signal.graphRunId);
         return;
       }
       if (choice === RETRY_LABEL) {

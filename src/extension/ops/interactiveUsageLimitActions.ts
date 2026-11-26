@@ -54,6 +54,8 @@ export function makeInteractiveParkActions(deps: InteractiveParkActionDeps) {
 }
 
 export const PICK_LABEL = 'Pick agent/model…';
+/** T1386: the graph park's fourth action, offered only when the core has another account. */
+export const PICK_ACCOUNT_LABEL = 'Pick account…';
 export const RETRY_LABEL = 'Retry same';
 export const DISMISS_LABEL = 'Dismiss';
 

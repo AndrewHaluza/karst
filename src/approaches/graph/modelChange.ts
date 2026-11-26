@@ -20,9 +20,13 @@ import {
   graphRunsInStatuses,
   setGraphRunAgentIdentity,
 } from '../../store/graph/graphRuns.js';
+import { DEFAULT_ACCOUNT, isAccountCore, type AccountsConfig } from '../../agent/accounts/types.js';
+import { findAccount } from '../../agent/accounts/resolve.js';
 import type { GraphLaunchTicketFields } from './profileResolver.js';
 import { NON_TERMINAL_GRAPH_RUN_STATUSES } from './coordinator/reconcileScope.js';
 import {
+  GRAPH_ROLES,
+  type GraphRole,
   type GraphRunIdentities,
   identitiesDiffer,
   identityDifference,
@@ -95,6 +99,26 @@ export function findModelChanges(
 export type SwitchModelsOutcome = 'switched' | 'unchanged' | 'terminal' | 'not-found';
 
 /**
+ * A pinned account survives a model switch while the provider stays: the user
+ * picked it for THIS core. A provider change drops it (the name belongs to the
+ * old core's account list, @arch:AC-55).
+ */
+function keepPinnedAccounts(
+  before: GraphRunIdentities | undefined,
+  next: GraphRunIdentities,
+): GraphRunIdentities {
+  if (!before) return next;
+  const roles = { ...next.roles };
+  for (const role of GRAPH_ROLES) {
+    const previous = before.roles[role];
+    const current = roles[role];
+    if (!previous?.account || !current || current.provider !== previous.provider) continue;
+    roles[role] = { ...current, account: previous.account };
+  }
+  return { ...next, roles };
+}
+
+/**
  * Replace the run's snapshot with the identity the current settings give, in
  * one transaction. A run with no snapshot gets one. No session stops.
  */
@@ -109,12 +133,80 @@ export function switchGraphRunModels(
     if (!MODEL_CHANGE_STATUSES.includes(run.status)) return 'terminal';
     const config = deps.graphConfigOf(run.approach_id);
     if (!config) return 'not-found';
-    const before = parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId));
-    const next = target ?? resolveRunIdentities(deps.manifest, config, deps.ticketLaunchFieldsOf(run.ticket_id));
+    const before = parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId), deps.debug);
+    const next = keepPinnedAccounts(
+      before,
+      target ?? resolveRunIdentities(deps.manifest, config, deps.ticketLaunchFieldsOf(run.ticket_id)),
+    );
     if (before && !identitiesDiffer(before, next)) return 'unchanged';
     setGraphRunAgentIdentity(deps.db, graphRunId, serializeRunIdentities(next), deps.now());
     deps.debug(
       `[process] graph run ${graphRunId} models switched: ${before ? identityDifference(before, next) : summarizeRunIdentities(next)}`,
+    );
+    return 'switched';
+  });
+}
+
+/** The run, the accounts config and the log a per-role account pick needs. */
+export interface SwitchAccountDeps {
+  readonly db: GraphDb;
+  readonly transaction: <T>(fn: () => T) => T;
+  readonly now: () => string;
+  readonly debug: (message: string) => void;
+  /**
+   * The machine-local accounts (@arch:AC-55), injected by the host: this module
+   * is host-agnostic and never reads the process-wide registry itself.
+   */
+  readonly accountsConfig: () => AccountsConfig;
+}
+
+export type SwitchAccountOutcome =
+  | 'switched'
+  | 'not-found'
+  | 'no-snapshot'
+  | 'role-missing'
+  | 'unknown-account';
+
+/**
+ * Pin ONE role's account in the run's identity snapshot (T1386). The user picks
+ * an account of the SAME core at a graph usage-limit park; nothing else changes
+ * and nothing is written to accounts.json, Settings or the ticket (@arch:AC-50).
+ * The name `default` removes the override (the role runs under the active
+ * account again). A deleted or unknown account is refused, never substituted.
+ */
+export function switchGraphRunAccount(
+  deps: SwitchAccountDeps,
+  graphRunId: number,
+  role: GraphRole,
+  account: string,
+): SwitchAccountOutcome {
+  return deps.transaction(() => {
+    const run = graphRunById(deps.db, graphRunId);
+    if (!run) return 'not-found';
+    const snapshot = parseRunIdentities(graphRunAgentIdentity(deps.db, graphRunId), deps.debug);
+    if (!snapshot) return 'no-snapshot';
+    if (!(GRAPH_ROLES as readonly string[]).includes(role)) return 'role-missing';
+    const current = snapshot.roles[role];
+    if (!current) return 'role-missing';
+    if (account !== DEFAULT_ACCOUNT) {
+      if (!isAccountCore(current.provider)) return 'unknown-account';
+      try {
+        findAccount(deps.accountsConfig(), current.provider, account);
+      } catch {
+        return 'unknown-account';
+      }
+    }
+    const next = { ...current };
+    if (account === DEFAULT_ACCOUNT) delete next.account;
+    else next.account = account;
+    setGraphRunAgentIdentity(
+      deps.db,
+      graphRunId,
+      serializeRunIdentities({ ...snapshot, roles: { ...snapshot.roles, [role]: next } }),
+      deps.now(),
+    );
+    deps.debug(
+      `[process] graph run ${graphRunId} role "${role}" account → ${account === DEFAULT_ACCOUNT ? 'default (no override)' : account}`,
     );
     return 'switched';
   });
