@@ -44,7 +44,7 @@ import type { RecoveryRefusalReason } from '../approaches/graph/coordinator/reco
 import { blockGraphStage } from '../workflow/graphMarkerGuard.js';
 import type { SupervisedAgentSession, TerminationProof } from '../approaches/graph/transport/agentTransport.js';
 import type { AccountStatus } from '../agent/accounts/accountOps.js';
-import type { AccountsConfig } from '../agent/accounts/types.js';
+import { DEFAULT_ACCOUNT, type AccountsConfig } from '../agent/accounts/types.js';
 import { dispatchGraphRecovery, type GraphRecoverySeams } from './ops/graphRecoveryDispatch.js';
 import {
   graphRecoveryRefusalNotice,
@@ -287,20 +287,30 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
    * marked. `undefined` when account support is not wired or the core has no
    * second account: one account is no choice (@arch:AC-55).
    */
+  /**
+   * The Activity text names the account that RUNS. A pick of `default`
+   * removes the pin (the plan), so the role follows the active account.
+   */
+  const accountActivity = (role: GraphRole, chosen: string, active: string | undefined): string =>
+    chosen === DEFAULT_ACCOUNT && active !== undefined && active !== DEFAULT_ACCOUNT
+      ? `graph ${role} runs under the active account ${active} (picked default at the usage limit)`
+      : `graph ${role} runs under account ${chosen} (picked at the usage limit)`;
+
   const accountChoices = async (
     provider: string,
     pinned: string | undefined,
-  ): Promise<GraphAccountChoice[] | undefined> => {
+  ): Promise<{ choices: GraphAccountChoice[]; active: string | undefined } | undefined> => {
     if (!deps.accountsOf || !deps.pickAccount || !deps.accountsConfig) return undefined;
     const rows = await deps.accountsOf(provider);
     if (!rows || rows.length < 2) return undefined;
-    const current = pinned ?? rows.find((row) => row.active)?.name;
+    const active = rows.find((row) => row.active)?.name;
+    const current = pinned ?? active;
     const choices: GraphAccountChoice[] = [];
     for (const row of rows) {
       const status = deps.accountStatus ? await deps.accountStatus(provider, row.name) : 'unknown';
       choices.push({ name: row.name, current: row.name === current, status });
     }
-    return choices;
+    return { choices, active };
   };
 
   /** A failed refresh is presentation only; the park already committed. */
@@ -374,7 +384,8 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
     const snapshot = store
       ? parseRunIdentities(graphRunAgentIdentity(store.db, input.signal.graphRunId))
       : undefined;
-    const choices = await accountChoices(input.provider, snapshot?.roles[input.parkedRole]?.account);
+    const offered = await accountChoices(input.provider, snapshot?.roles[input.parkedRole]?.account);
+    const choices = offered?.choices;
     const actions = choices
       ? [PICK_LABEL, PICK_ACCOUNT_LABEL, RETRY_LABEL, DISMISS_LABEL]
       : [PICK_LABEL, RETRY_LABEL, DISMISS_LABEL];
@@ -417,10 +428,7 @@ export function createGraphUsageLimitBinding(deps: GraphUsageLimitBindingDeps): 
           void warn(accountRefusalNotice(input.provider, input.parkedRole, chosen, outcome));
           continue;
         }
-        deps.activity?.(
-          input.signal.ticketId,
-          `graph ${input.parkedRole} runs under account ${chosen} (picked at the usage limit)`,
-        );
+        deps.activity?.(input.signal.ticketId, accountActivity(input.parkedRole, chosen, offered?.active));
         resume(input.signal.ticketId, input.signal.graphRunId);
         return;
       }

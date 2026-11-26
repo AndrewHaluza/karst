@@ -21,7 +21,7 @@
  */
 
 import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
-import { DEFAULT_ACCOUNT, validateAccountName } from '../../agent/accounts/types.js';
+import { validateAccountName } from '../../agent/accounts/types.js';
 import {
   NO_TICKET_FIELDS,
   resolveGraphNodeProfile,
@@ -48,7 +48,7 @@ export interface RoleIdentity {
   /**
    * The account this role runs under when the user picked one at a graph
    * usage-limit park (@arch:AC-55, T1386). Absent = the active account of the
-   * core; `default` = the built-in default account, whatever is active. Only a user pick writes it; a quota stop never switches by itself.
+   * core. Only a user pick writes it; a quota stop never switches by itself.
    */
   account?: string;
 }
@@ -93,11 +93,10 @@ function parseRole(raw: unknown, role: GraphRole, debug?: (message: string) => v
   const out: RoleIdentity = { provider: r.provider, source: r.source };
   if (typeof r.model === 'string') out.model = r.model;
   if (typeof r.effort === 'string') out.effort = r.effort;
-  // Validate the stored JSON: a name that is not a safe account slug is
-  // dropped, the role is kept. The built-in `default` is a real pin (the
-  // default folder), not the active account, so it is kept.
+  // Validate the stored JSON: a name that is not a safe account slug (or the
+  // reserved `default`, which means NO override) is dropped, the role is kept.
   if (r.account !== undefined) {
-    const problem = r.account === DEFAULT_ACCOUNT ? null : validateAccountName(r.account);
+    const problem = validateAccountName(r.account);
     if (problem === null) out.account = r.account as string;
     else debug?.(`[process] graph run snapshot: role "${role}" has an unsafe account name — dropped (${problem})`);
   }

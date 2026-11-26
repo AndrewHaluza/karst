@@ -417,22 +417,36 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     ]);
   });
 
-  it('offers default while another account is active, and a pick pins default (not the active account)', async () => {
+  it('a pick of default removes the pin and the Activity names the active account that runs', async () => {
     const fixture = nodeFixture();
-    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work'], 'default', 'work');
+    store.db
+      .prepare('UPDATE approach_graph_runs SET agent_identity = ? WHERE id = ?')
+      .run(
+        JSON.stringify({
+          v: 1,
+          roles: { ...ROLES.roles, worker: { ...ROLES.roles.worker, account: 'home' } },
+        }),
+        fixture.graphRunId,
+      );
+    const h = withAccounts(harness(fixture, [PICK_ACCOUNT_LABEL]), ['default', 'work', 'home'], 'default', 'work');
+    h.deps.accountsConfig = () => ({
+      claude: {
+        active: 'work',
+        list: {
+          work: { kind: 'subscription', source: 'folder', dir: '/accounts/work' },
+          home: { kind: 'subscription', source: 'folder', dir: '/accounts/home' },
+        },
+      },
+    });
     const activity = vi.fn();
     h.deps.activity = activity;
     await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
 
-    expect(h.deps.pickAccount).toHaveBeenCalledWith('claude', [
-      { name: 'default', current: false, status: 'signed-in' },
-      { name: 'work', current: true, status: 'signed-in' },
-    ]);
     const identity = JSON.parse(graphRunAgentIdentity(store.db, fixture.graphRunId)!);
-    expect(identity.roles.worker.account).toBe('default');
+    expect(identity.roles.worker).not.toHaveProperty('account');
     expect(activity).toHaveBeenCalledWith(
       ticketId,
-      'graph worker runs under account default (picked at the usage limit)',
+      'graph worker runs under the active account work (picked default at the usage limit)',
     );
     expect(h.recover).toHaveBeenCalledWith({ ticketId, graphRunId: fixture.graphRunId, mode: 'resume' });
   });
