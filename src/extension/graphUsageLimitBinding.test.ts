@@ -334,6 +334,8 @@ describe('createGraphUsageLimitBinding (T1380)', () => {
     const h = harness(fixture, []);
     await createGraphUsageLimitBinding(h.deps).onGraphUsageLimit(signal(fixture));
     expect(h.ask).not.toHaveBeenCalled();
+    // Only the finally refreshes: a lost park writes no stage block and no refresh.
+    expect(h.refresh).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to the worker role when the process identity has no agent name', async () => {
