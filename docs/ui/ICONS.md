@@ -78,6 +78,7 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Attach file (ticket form) | `paperclip` | icon-only button, label "Attach file" |
 | Copy ticket id | `copy` | icon-only button, label "Copy ticket id"; flashes `check` on success |
 | New ticket | `plus` | Tickets pane header |
+| Install an approach package (Settings › Approaches) | `download` | primary button, label "Install"; the glyph is the spinner slot |
 | Start planning session | `bulb` | Planning pane header |
 | Search / filter | `search` | toolbar + facets |
 | Settings | `settings` | `karst.tickets` view title menu |

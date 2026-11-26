@@ -25,6 +25,9 @@ export const APPROACH_PROFILE = 'tdd-implementer';
 /** First role of the Roles table (PROCESS_KEYS order). */
 export const FIRST_ROLE = 'uatTester';
 
+/** The hand-authored built-in approach every realistic page carries. */
+const TDD_APPROACH: ApproachDef = { id: 'tdd', label: 'TDD', recommended: true };
+
 const longBody = Array.from(
   { length: 45 },
   (_, i) => `${i + 1}. Step ${i + 1}: read the diff, name the risk precisely, and cite the file and line it comes from.`,
@@ -73,7 +76,7 @@ const MANIFEST: Manifest = manifest(
   },
   {
     baselineBranch: 'develop',
-    approaches: [{ id: 'tdd', label: 'TDD', recommended: true }],
+    approaches: [TDD_APPROACH],
     agents: {
       [LONG_BODY_PROFILE]: { role: 'review', command: 'claude' },
       [SHORT_PROFILE]: { role: 'review', command: 'claude' },
@@ -100,12 +103,12 @@ const AGENT_ROWS: SettingsAgentRow[] = [
 export type RealisticSettings = SettingsState & { readonly currentSection: 'general' };
 
 /** The host state shape for one manifest, with the realistic presets and agent rows. */
-function realisticState(m: Manifest): RealisticSettings {
+function realisticState(m: Manifest, installedIds: readonly string[] = ['tdd']): RealisticSettings {
   return {
     ...buildSettingsState(
       m,
       null,
-      ['tdd'],
+      [...installedIds],
       true,
       ['claude', 'codex', 'antigravity', 'opencode'],
       AGENT_ROWS,
@@ -129,8 +132,8 @@ export const REALISTIC_SETTINGS = realisticState(MANIFEST);
  * host builds the state from the manifest, so a variant cannot drift from the
  * shape the panel pushes.
  */
-export function settingsWithManifest(over: Partial<Manifest>): RealisticSettings {
-  return realisticState({ ...MANIFEST, ...over });
+export function settingsWithManifest(over: Partial<Manifest>, installedIds?: readonly string[]): RealisticSettings {
+  return realisticState({ ...MANIFEST, ...over }, installedIds);
 }
 
 /** A 120-character repository path: the middle-ellipsis case (@ui:UI-R44, SET-25). */
@@ -183,6 +186,43 @@ const GRAPH_APPROACH: ApproachDef = {
 };
 
 export const GRAPH_SETTINGS = settingsWithManifest({ approaches: [GRAPH_APPROACH] });
+
+/**
+ * T1374: one installed git package and one available npm package beside the
+ * built-in TDD and the built-in Dynamic Graph, so the roster shot shows all
+ * three groups and the graph card's one-line summary (@ui:UI-R57).
+ */
+const GIT_APPROACH: ApproachDef = {
+  id: 'team-review',
+  label: 'Team review',
+  description:
+    'Fetches the team review prompts from the shared repository and runs the review chain against them.',
+  entrypoint: 'review',
+  recommended: false,
+  source: {
+    type: 'git',
+    repo: 'github.com/acme/karst-review',
+    ref: 'v2.1.0',
+    include: ['prompts/**', '.claude/commands/**', 'approach.yml'],
+  },
+};
+
+const NPM_APPROACH: ApproachDef = {
+  id: 'docs-first',
+  label: 'Docs first',
+  description: 'Writes the user-facing doc before the code, then implements against it.',
+  source: {
+    type: 'npm',
+    package: '@acme/karst-docs-first',
+    command: 'npx karst-docs-first install',
+    collect: ['.claude/commands', 'prompts'],
+  },
+};
+
+export const ROSTER_SETTINGS = settingsWithManifest(
+  { approaches: [TDD_APPROACH, GIT_APPROACH, NPM_APPROACH, GRAPH_APPROACH] },
+  ['tdd', 'team-review'],
+);
 
 /** UX-10: the same host shape with 0 presets and 0 local/approach profiles. */
 export const EMPTY_SETTINGS = {

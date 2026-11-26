@@ -49,6 +49,7 @@ import {
   LONG_PATH_SETTINGS,
   MANUAL_SETTINGS,
   REALISTIC_SETTINGS,
+  ROSTER_SETTINGS,
 } from './realisticSettings.js';
 import {
   getCorpus,
@@ -1052,12 +1053,21 @@ const rolesGraphVariants = (): Variant[] =>
     route: { section: 'agents', hash: formatAgentsHash(route) },
   }));
 
-/** T1297 SET-26: the graph approach card at the wide, mid and narrow tiers (@ui:UI-R57). */
+/**
+ * T1297 SET-26: the graph approach card at the wide, mid and narrow tiers (@ui:UI-R57).
+ * T1374: the agents, limits and planner prompt moved off the card into the Edit
+ * drawer, so each shot opens that drawer instead of the roster card.
+ */
 const APPROACHES_GRAPH = [
   ['approaches-graph', 1100],
   ['approaches-graph-mid', 800],
   ['approaches-graph-narrow', 630],
 ] as const;
+
+/** The Edit button of one roster card (`text-is`, so the switch and Install are never matched). */
+const editCard = (id: string): string => `[data-approach="${id}"] button:text-is("Edit")`;
+
+const openGraphDrawer = [editCard('karst-graph-engineering')];
 
 const approachesGraphVariants = (): Variant[] =>
   APPROACHES_GRAPH.map(([id, width]) => ({
@@ -1067,9 +1077,50 @@ const approachesGraphVariants = (): Variant[] =>
       // The approaches route layout run already covers the page at every width.
       skipLayout: true,
       width,
+      // A fixed overlay: the shot is the viewport, not the page height below it.
+      capture: 'viewport',
+      clicks: openGraphDrawer,
     }),
     route: { section: 'approaches' },
   }));
+
+/**
+ * T1374: the roster at the wide and narrow tiers (Installed, Available, Built-in,
+ * with the graph card's one-line summary and no pickers or limit inputs), and the
+ * drawer of a git-sourced approach at the wide tier (@ui:UI-R57).
+ */
+const APPROACHES_ROSTER = [
+  ['approaches-roster', 1100],
+  ['approaches-roster-narrow', 630],
+] as const;
+
+const approachesRosterVariants = (): Variant[] =>
+  APPROACHES_ROSTER.map(([id, width]) => ({
+    ...variant('settings', id, () => stateMessage(ROSTER_SETTINGS), {
+      baseline: `settings--${id}`,
+      themes: DARK_ONLY,
+      // The approaches route layout run already covers the page at every width.
+      skipLayout: true,
+      width,
+    }),
+    route: { section: 'approaches' },
+  }));
+
+const approachesDrawerGitVariants = (): Variant[] => [
+  {
+    ...variant('settings', 'approaches-drawer-git', () => stateMessage(ROSTER_SETTINGS), {
+      baseline: 'settings--approaches-drawer-git',
+      themes: DARK_ONLY,
+      // The approaches route layout run already covers the page at every width.
+      skipLayout: true,
+      width: 1100,
+      // A fixed overlay: the shot is the viewport, not the page height below it.
+      capture: 'viewport',
+      clicks: [editCard('team-review')],
+    }),
+    route: { section: 'approaches' },
+  },
+];
 
 const AUTOPILOT_FAULT = 'Invalid karst.yml: autopilot.conflicts.maxRounds must be a whole number of at least 1';
 const AUTOPILOT_TIERS = [['mid', 800], ['narrow', 480]] as const;
@@ -1233,6 +1284,8 @@ const settingsVariants = (): Variant[] => [
   ...rolesNarrowVariants(),
   ...rolesGraphVariants(),
   ...approachesGraphVariants(),
+  ...approachesRosterVariants(),
+  ...approachesDrawerGitVariants(),
   // T1297 Q11: the General tab discarded at once, with the 5 s "Changes discarded · Undo" offer. One
   // click toggles a saved checkbox (the Discard button is disabled while clean), the second discards it.
   {

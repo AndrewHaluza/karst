@@ -64,7 +64,29 @@ describe('renderChainBlock', () => {
     expect(out).toMatch(/\[truncated: \d+ chars omitted/);
     expect(out.length).toBeLessThan(700);
   });
-  it('names the cut file(s) in the truncation marker', () => {
+  it('a truncated part with no paths names no store location', () => {
+    const out = renderChainBlock(
+      [
+        { label: 'Intent', text: 'I'.repeat(100) },
+        { label: 'Plan', text: 'P'.repeat(500) },
+      ],
+      300,
+    ).join('\n');
+    expect(out).toContain('[truncated: 300 chars omitted]');
+    expect(out).not.toContain('in the store');
+  });
+  it('a truncated part with an empty paths list names no store location', () => {
+    const out = renderChainBlock(
+      [
+        { label: 'Intent', text: 'I'.repeat(100) },
+        { label: 'Plan', text: 'P'.repeat(500), paths: [] },
+      ],
+      300,
+    ).join('\n');
+    expect(out).toContain('[truncated: 300 chars omitted]');
+    expect(out).not.toContain('in the store');
+  });
+  it('names the cut file in the truncation marker', () => {
     const out = renderChainBlock(
       [
         { label: 'Intent', text: 'I'.repeat(100) },
@@ -72,7 +94,38 @@ describe('renderChainBlock', () => {
       ],
       300,
     ).join('\n');
-    expect(out).toContain('read r/plan.md in the store');
+    expect(out).toContain('[truncated: 300 chars omitted — read r/plan.md in the store]');
+  });
+  it('names every cut file in the truncation marker', () => {
+    const out = renderChainBlock(
+      [
+        { label: 'Intent', text: 'I'.repeat(100) },
+        { label: 'Plan', text: 'P'.repeat(500), paths: ['r/a.md', 'r/b.md'] },
+      ],
+      300,
+    ).join('\n');
+    expect(out).toContain('read r/a.md, r/b.md in the store');
+  });
+  it('a part cut to zero without paths still says how much was omitted', () => {
+    const out = renderChainBlock(
+      [
+        { label: 'Intent', text: 'I'.repeat(300) },
+        { label: 'Description', text: 'D'.repeat(500) },
+      ],
+      300,
+    ).join('\n');
+    expect(out).toContain('[truncated: 500 chars omitted]');
+    expect(out).not.toContain('in the store');
+  });
+  it('a part cut to zero with paths still names the file', () => {
+    const out = renderChainBlock(
+      [
+        { label: 'Intent', text: 'I'.repeat(300) },
+        { label: 'Plan', text: 'P'.repeat(500), paths: ['r/plan.md'] },
+      ],
+      300,
+    ).join('\n');
+    expect(out).toContain('[truncated: 500 chars omitted — read r/plan.md in the store]');
   });
   it('empty parts → []', () => expect(renderChainBlock([])).toEqual([]));
 });

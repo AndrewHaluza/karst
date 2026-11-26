@@ -57,9 +57,44 @@ describe('buildConformanceBlock', () => {
     expect(t).toMatch(/no plan is available/i);
     expect(t).toMatch(/do not apply/);
   });
-  it('description is placed after the plan', () => {
+  it('description is placed before the spec and the plan', () => {
+    const t = buildConformanceBlock({
+      intent: null,
+      spec: 'SPECBODY',
+      plan: 'PLANBODY',
+      description: 'DESCBODY',
+    }).join('\n');
+    expect(t.indexOf('DESCBODY')).toBeLessThan(t.indexOf('SPECBODY'));
+    expect(t.indexOf('SPECBODY')).toBeLessThan(t.indexOf('PLANBODY'));
+  });
+  it('description is placed before the plan', () => {
     const t = buildConformanceBlock({ intent: null, spec: null, plan: 'PLANBODY', description: 'DESCBODY' }).join('\n');
-    expect(t.indexOf('PLANBODY')).toBeLessThan(t.indexOf('DESCBODY'));
+    expect(t.indexOf('DESCBODY')).toBeLessThan(t.indexOf('PLANBODY'));
+  });
+  it('keeps the whole description when a long plan would exhaust the budget', () => {
+    const description = 'D'.repeat(5_000);
+    const t = buildConformanceBlock({
+      intent: null,
+      spec: null,
+      plan: 'P'.repeat(45_000),
+      description,
+      paths: { plan: ['r/plan.md'] },
+    }).join('\n');
+    expect(t).toContain(description);
+    expect(t.indexOf(description)).toBeLessThan(t.indexOf('Plan (how it was meant to be built)'));
+    expect(t).toContain('P'.repeat(35_000));
+    expect(t).not.toContain('P'.repeat(35_001));
+    expect(t).toContain('[truncated: 10000 chars omitted — read r/plan.md in the store]');
+  });
+  it('truncated description names no store path', () => {
+    const t = buildConformanceBlock({
+      intent: null,
+      spec: null,
+      plan: null,
+      description: 'D'.repeat(45_000),
+    }).join('\n');
+    expect(t).toContain('[truncated: 5000 chars omitted]');
+    expect(t).not.toContain('in the store');
   });
   it('ignores the description when an intent exists', () => {
     const t = buildConformanceBlock({ intent: 'I', spec: null, plan: null, description: 'DESCBODY' }).join('\n');
