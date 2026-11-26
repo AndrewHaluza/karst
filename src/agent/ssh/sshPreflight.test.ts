@@ -39,7 +39,7 @@ function facts(overrides: Record<string, string | undefined> = {}): string {
     node: 'v22.11.0',
     remoteDirStat: '1000 700',
     allowTcpForwarding: 'yes',
-    freeMb: '51200',
+    freeKb: '52428800',
     ...overrides,
   };
   const lines = Object.entries(values)
@@ -241,7 +241,7 @@ describe('sshPreflight · remoteDir', () => {
 
 describe('sshPreflight · free disk', () => {
   it('fails below MIN_REMOTE_FREE_MB', async () => {
-    const { result } = await runPreflight(facts({ ...DIRECT_FACTS, freeMb: '1024' }));
+    const { result } = await runPreflight(facts({ ...DIRECT_FACTS, freeKb: '1048576' }));
     expect(result).toEqual({
       ok: false,
       reason: `ssh devbox: 1024 MB free in /srv/karst, need ${MIN_REMOTE_FREE_MB} MB`,
@@ -249,7 +249,7 @@ describe('sshPreflight · free disk', () => {
   });
 
   it('warns below WARN_REMOTE_FREE_MB but keeps going', async () => {
-    const { result } = await runPreflight(facts({ ...DIRECT_FACTS, freeMb: '4096' }));
+    const { result } = await runPreflight(facts({ ...DIRECT_FACTS, freeKb: '4194304' }));
     expect(result).toEqual({
       ok: true,
       facts: expect.objectContaining({ freeMb: 4096 }),
@@ -259,8 +259,8 @@ describe('sshPreflight · free disk', () => {
   });
 
   it('warns (never passes silently) when df is unreadable', async () => {
-    for (const freeMb of [undefined, 'n/a']) {
-      const { result } = await runPreflight(facts({ ...DIRECT_FACTS, freeMb }));
+    for (const freeKb of [undefined, 'n/a']) {
+      const { result } = await runPreflight(facts({ ...DIRECT_FACTS, freeKb }));
       expect(result).toEqual({
         ok: true,
         facts: expect.objectContaining({ freeMb: null }),
@@ -269,8 +269,24 @@ describe('sshPreflight · free disk', () => {
     }
   });
 
+  it('reads df -Pk kilobytes, never as megabytes', async () => {
+    // 2_000_000 KiB is 1953 MB: below the minimum, though 2_000_000 > MIN_REMOTE_FREE_MB.
+    const low = await runPreflight(facts({ ...DIRECT_FACTS, freeKb: '2000000' }));
+    expect(low.result).toEqual({
+      ok: false,
+      reason: `ssh devbox: 1953 MB free in /srv/karst, need ${MIN_REMOTE_FREE_MB} MB`,
+    });
+    // 3_000_000 KiB is 2929 MB: above the minimum, below the warning level.
+    const warn = await runPreflight(facts({ ...DIRECT_FACTS, freeKb: '3000000' }));
+    expect(warn.result).toEqual({
+      ok: true,
+      facts: expect.objectContaining({ freeMb: 2929 }),
+      warnings: ['ssh devbox: low disk (2929 MB free in /srv/karst)'],
+    });
+  });
+
   it('reports both the tmux and the low-disk warning', async () => {
-    const { result } = await runPreflight(facts({ ...DIRECT_FACTS, tmux: 'no', freeMb: '4096' }));
+    const { result } = await runPreflight(facts({ ...DIRECT_FACTS, tmux: 'no', freeKb: '4194304' }));
     expect(result.ok && result.warnings).toEqual([
       'ssh devbox: tmux not found; the agent stops when the connection drops (install tmux)',
       'ssh devbox: low disk (4096 MB free in /srv/karst)',
@@ -453,7 +469,7 @@ describe('sshPreflight · the remote output is untrusted', () => {
       'node=v22.11.0',
       'remoteDirStat=1000 700',
       'allowTcpForwarding=yes',
-      'freeMb=51200',
+      'freeKb=52428800',
       'coreBin=/usr/bin/claude',
       'coreVersion=2.0.1 (Claude Code) extra=stuff',
     ].join('\n');

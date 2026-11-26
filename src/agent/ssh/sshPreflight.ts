@@ -32,6 +32,8 @@ export const WARN_REMOTE_FREE_MB = 10240;
 export const SSH_PREFLIGHT_TIMEOUT_MS = 30_000;
 /** The script is a fixed set of facts; anything larger is a broken remote. */
 const MAX_PREFLIGHT_STDOUT_BYTES = 64 * 1024;
+/** `df -Pk` counts 1024-byte blocks; this many make one MB (MiB). */
+const KIB_PER_MB = 1024;
 
 export interface SshPreflightOptions {
   /** The ControlMaster socket directory (Part A.2), checked by the seam's callers. */
@@ -102,7 +104,7 @@ function preflightScript(remote: RemoteDef, core: SshCore): string {
     // `sshd -T` prints the effective config when the user may read it; an
     // unreadable one is `unknown`, never a guess.
     `printf 'allowTcpForwarding=%s\\n' "$(sshd -T 2>/dev/null | sed -n 's/^allowtcpforwarding //p' | head -n 1)"`,
-    `printf 'freeMb=%s\\n' "$(df -Pk -- "$dir" 2>/dev/null | awk 'NR == 2 { print $4 }')"`,
+    `printf 'freeKb=%s\\n' "$(df -Pk -- "$dir" 2>/dev/null | awk 'NR == 2 { print $4 }')"`,
   ];
   if (remote.mode === 'docker') {
     lines.push(
@@ -264,7 +266,9 @@ function interpret(name: string, remote: RemoteDef, core: SshCore, result: SshRe
   const warnings: string[] = [];
   if (!tmux) warnings.push(`ssh ${name}: tmux not found; the agent stops when the connection drops (install tmux)`);
 
-  const freeMb = decimalOrNull(raw('freeMb'));
+  // `df -Pk` reports 1024-byte blocks; the thresholds are MB.
+  const freeKb = decimalOrNull(raw('freeKb'));
+  const freeMb = freeKb === null ? null : Math.floor(freeKb / KIB_PER_MB);
   if (freeMb === null) {
     // Never a silent pass: an unreadable df could be a full disk.
     warnings.push(`ssh ${name}: cannot read free disk in ${remote.remoteDir}`);
