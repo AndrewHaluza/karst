@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { HookPayload } from '../hooks/dispatch.js';
+import { encodeClaudeProjectDir } from '../agent/claudeTranscriptWatch.js';
 import type { SupervisedAgentSession } from '../approaches/graph/transport/agentTransport.js';
 import type { SupervisedLaunchRequest } from '../approaches/graph/transport/supervisedCliTransport.js';
 import { createGraphUsageBinding, graphClaudeSessionOf, type GraphUsageBindingDeps } from './graphUsageBinding.js';
@@ -99,5 +104,33 @@ describe('createGraphUsageBinding.sweep', () => {
       sessions: () => [{ nodeRunId: 1, ticketId: 1, graphRunId: 3, cwd: '/c', generation: GEN, provider: 'opencode2', providerSessionId: null } as unknown as SupervisedAgentSession],
     });
     expect(await createGraphUsageBinding(h.deps).sweep()).toBe(0);
+  });
+
+  describe('with a claude transcript on disk', () => {
+    let dir: string;
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-graph-usage-binding-'));
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    it('reads the transcript of a live claude session and posts one UsageUpdate', async () => {
+      const cwd = '/repo/.karst/worktrees/x';
+      const sessionId = '3f2b6c1e-8a4d-4c2e-9b7a-1d2e3f4a5b6c';
+      const projectDir = join(dir, encodeClaudeProjectDir(cwd));
+      mkdirSync(projectDir, { recursive: true });
+      const line = JSON.stringify({ type: 'assistant', uuid: 'm-1', message: { usage: { input_tokens: 10, output_tokens: 5 } } });
+      writeFileSync(join(projectDir, `${sessionId}.jsonl`), `${line}\n`);
+      const posted: HookPayload[] = [];
+      const askedFor: string[] = [];
+      const h = harness({
+        sessions: () => [{ nodeRunId: 121, ticketId: 1368, graphRunId: 81, runKind: 'planner', cwd, generation: GEN, provider: 'claude', providerSessionId: sessionId } as unknown as SupervisedAgentSession],
+        dispatch: (p) => { posted.push(p); },
+        projectsDirFor: (id) => { askedFor.push(id); return dir; },
+      });
+      expect(await createGraphUsageBinding(h.deps).sweep()).toBe(1);
+      expect(askedFor).toEqual([sessionId]);
+      expect(posted).toHaveLength(1);
+      expect(posted[0]).toMatchObject({ hook_event_name: 'UsageUpdate', cwd, session_id: sessionId });
+    });
   });
 });
