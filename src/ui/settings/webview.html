@@ -716,17 +716,107 @@
   .instant-apply-note{font-size:var(--k-text-sm);color:var(--k-text-dim);flex:0 0 auto}
   .undo-discard{margin-left:var(--k-space-2)}
 
-  /* Autopilot tab (T1086): number fields fit their value, selects stay narrow,
-     the checks are one wrapping chip row ending in the add input, and the
-     checked switch label keeps the normal text color (UI-R41). */
-  #section-autopilot .k-input.autopilot-number{width:9ch;justify-self:start}
-  #section-autopilot .k-input.autopilot-select{max-width:38ch}
+  /* Autopilot tab (T1372/D832; prototype P69 settings-autopilot.html): one
+     Auto-fix row, one rules table (Problem | When it happens | Limit per PR) and
+     one checks chip row, in that order at every tier (@ui:UI-R39). The rules are
+     one bordered table like Roles/Accounts, with a full-row hover (@ui:UI-R41,
+     UI-R42); below the 700px container tier each problem becomes a card
+     (@ui:UI-R55, RD-TIERS). */
+  #section-autopilot .autopilot-region + .autopilot-region{margin-top:var(--k-space-8)}
+  #section-autopilot .autopilot-mode-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:var(--k-space-4) var(--k-space-8);align-items:center;padding-block:var(--k-space-4)}
+  #section-autopilot .autopilot-mode-text{display:flex;flex-direction:column;gap:var(--k-space-1);min-width:0}
+  #section-autopilot .autopilot-row-title{font-size:var(--k-text-md);font-weight:600;color:var(--k-text)}
+  #section-autopilot .autopilot-row-help{color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal)}
+  #section-autopilot .autopilot-mode-control{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--k-space-3);min-width:0}
+  #section-autopilot .autopilot-mode-control .k-field{min-width:0}
+  #section-autopilot .autopilot-mode-state{color:var(--k-text-dim);font-size:var(--k-text-sm)}
   #section-autopilot .k-switch,#section-autopilot .k-switch label{color:var(--k-text)}
   #section-approaches .k-switch,#section-services .k-switch{min-height:var(--k-hit-min)}
-  #section-autopilot .autopilot-check-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3)}
-  #section-autopilot .autopilot-checks{display:contents;list-style:none;margin:var(--k-space-0);padding:var(--k-space-0)}
-  #section-autopilot .autopilot-checks > li{list-style:none}
-  #section-autopilot .autopilot-add{flex:0 1 14ch;min-width:var(--k-space-10, 8ch)}
+  #section-autopilot .autopilot-off-note{
+    margin:var(--k-space-2) var(--k-space-0) var(--k-space-0);padding-inline-start:var(--k-space-4);
+    border-inline-start:calc(var(--k-border-w) * 2) solid var(--vscode-focusBorder,var(--k-link));
+    color:var(--k-text-dim);font-size:var(--k-text-sm);line-height:var(--k-leading-normal);
+  }
+  #section-autopilot .autopilot-region-head{
+    display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;
+    gap:var(--k-space-1) var(--k-space-4);padding-bottom:var(--k-space-4);
+    border-bottom:var(--k-border-w) solid var(--vscode-panel-border,var(--k-border));
+  }
+  #section-autopilot .autopilot-region-title{margin:var(--k-space-0);font-size:var(--k-text-lg);font-weight:600;min-width:0}
+  #section-autopilot .autopilot-region-note{color:var(--k-text-dim);font-size:var(--k-text-sm)}
+  #section-autopilot .autopilot-rules-table{
+    width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;
+    margin-top:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border,var(--k-border));
+    border-radius:var(--k-radius-md);overflow:hidden;font-size:var(--k-text-sm);
+  }
+  #section-autopilot .autopilot-rules-table th,
+  #section-autopilot .autopilot-rules-table td{padding:var(--k-space-3) var(--k-space-4);text-align:start;vertical-align:middle;min-width:0}
+  #section-autopilot .autopilot-rules-table thead th{font-weight:600;color:var(--k-text-dim);border-bottom:var(--k-border-w) solid var(--vscode-panel-border,var(--k-border))}
+  #section-autopilot .autopilot-rules-table thead th:nth-child(1){width:38%}
+  #section-autopilot .autopilot-rules-table thead th:nth-child(2){width:25%}
+  #section-autopilot .autopilot-rules-table tbody th{font-weight:400}
+  #section-autopilot .autopilot-rules-table tbody tr:hover{background:var(--vscode-list-hoverBackground,var(--k-surface-hover));color:var(--k-text)}
+  /* A painted row keeps a readable pair: its dim runs inherit the same ink (UI-R29). */
+  #section-autopilot .autopilot-rules-table tbody tr:hover :is(.autopilot-rule-help,.autopilot-muted,.autopilot-limit-note){color:inherit}
+  #section-autopilot .autopilot-rules-table .help-link{color:var(--vscode-textLink-foreground,var(--k-link))}
+  #section-autopilot .autopilot-rules-table tbody tr + tr th,
+  #section-autopilot .autopilot-rules-table tbody tr + tr td{border-top:var(--k-border-w) solid color-mix(in srgb,var(--vscode-panel-border,var(--k-border)) 45%,transparent)}
+  #section-autopilot .autopilot-rule-name{display:block;font-weight:600;color:var(--k-text)}
+  #section-autopilot .autopilot-rule-help{display:block;margin-top:var(--k-space-1);color:var(--k-text-dim);font-size:var(--k-text-xs);line-height:var(--k-leading-normal)}
+  #section-autopilot .autopilot-muted{color:var(--k-text-dim)}
+  #section-autopilot .autopilot-cell-label{display:none}
+  /* T1372 bug 1: the select and its .k-select wrapper share one fixed width, so
+     the chevron sits inside the box instead of at the column edge. */
+  #section-autopilot .k-field.autopilot-select-cell{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:var(--k-space-2);align-items:center}
+  #section-autopilot .autopilot-select-cell .k-select{grid-column:1;grid-row:1;width:22ch;max-width:100%}
+  #section-autopilot .autopilot-select-cell .k-input.autopilot-select{width:100%}
+  #section-autopilot .autopilot-select-cell .k-field-error{grid-column:2;grid-row:1;justify-self:start;min-width:0;color:var(--vscode-errorForeground,var(--k-danger))}
+  /* T1372 bug 3 + errors: the number, its unit note and its error share one line
+     box; the error replaces the note and never moves the input. */
+  #section-autopilot .k-field.autopilot-limit{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:var(--k-space-2);align-items:center;min-height:var(--k-hit-min)}
+  #section-autopilot .autopilot-limit .k-input.autopilot-number{grid-column:1;grid-row:1;width:9ch;justify-self:start}
+  #section-autopilot .autopilot-limit .autopilot-limit-note{grid-column:2;grid-row:1;justify-self:start;min-width:0;color:var(--k-text-dim);font-size:var(--k-text-xs);line-height:var(--k-leading-normal)}
+  #section-autopilot .autopilot-limit .k-field-error{grid-column:2;grid-row:1;justify-self:start;min-width:0;color:var(--vscode-errorForeground,var(--k-danger));font-size:var(--k-text-xs);line-height:var(--k-leading-normal)}
+  #section-autopilot .autopilot-check-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);list-style:none;margin:var(--k-space-4) var(--k-space-0) var(--k-space-0);padding:var(--k-space-0)}
+  #section-autopilot .autopilot-check-row > li{list-style:none;margin:var(--k-space-0);min-width:0}
+  #section-autopilot .autopilot-check-row .k-chip{max-width:100%;min-width:0;font-family:inherit;color:var(--k-text)}
+  #section-autopilot .autopilot-check-name{min-width:0;overflow-wrap:anywhere}
+  #section-autopilot .autopilot-add-item{display:flex;min-width:0}
+  #section-autopilot .autopilot-add-check{
+    min-height:var(--k-hit-min);padding:var(--k-space-1) var(--k-space-4);
+    border:var(--k-border-w) dashed var(--k-border-strong,var(--k-border));border-radius:var(--k-radius-pill);
+    color:var(--vscode-textLink-foreground,var(--k-link));
+  }
+  /* T1372 bug 2: the inline input and its Add button are ONE chip-flow item, so
+     they can wrap together but never apart. */
+  #section-autopilot .autopilot-add{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--k-space-2);min-width:0;max-width:100%}
+  #section-autopilot .autopilot-add .k-input{width:22ch;max-width:100%}
+  #section-autopilot .autopilot-checks-error{display:block;margin-top:var(--k-space-2);color:var(--vscode-errorForeground,var(--k-danger))}
+  @container settings-content (max-width: 699px){
+    /* The Auto-fix row stacks, and each problem becomes its own card with
+       label:value pairs; the table semantics stay in the DOM (@ui:UI-R55). */
+    #section-autopilot .autopilot-mode-row{grid-template-columns:minmax(0,1fr)}
+    #section-autopilot .autopilot-mode-control{justify-content:flex-start}
+    #section-autopilot .autopilot-rules-table{display:block;border:0;border-radius:0;overflow:visible;margin-top:var(--k-space-3)}
+    #section-autopilot .autopilot-rules-table thead{
+      position:absolute;width:var(--k-border-w);height:var(--k-border-w);padding:var(--k-space-0);
+      margin:calc(var(--k-border-w) * -1);overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+    }
+    #section-autopilot .autopilot-rules-table tbody{display:block}
+    #section-autopilot .autopilot-rules-table tbody tr{
+      display:block;padding:var(--k-space-4);border:var(--k-border-w) solid var(--vscode-panel-border,var(--k-border));
+      border-radius:var(--k-radius-md);
+    }
+    #section-autopilot .autopilot-rules-table tbody tr + tr{margin-top:var(--k-space-3)}
+    #section-autopilot .autopilot-rules-table tbody tr:hover{background:transparent}
+    #section-autopilot .autopilot-rules-table tbody th,
+    #section-autopilot .autopilot-rules-table tbody td,
+    #section-autopilot .autopilot-rules-table tbody tr + tr th,
+    #section-autopilot .autopilot-rules-table tbody tr + tr td{display:block;padding:var(--k-space-0);border:0}
+    #section-autopilot .autopilot-rules-table tbody td,
+    #section-autopilot .autopilot-rules-table tbody th + td{margin-top:var(--k-space-3)}
+    #section-autopilot .autopilot-cell-label{display:block;font-size:var(--k-text-xs);color:var(--k-text-dim);margin-bottom:var(--k-space-1)}
+  }
 
   /* Page structure: fewer containers, stronger hierarchy (handoff §2.3). */
   .content{padding:var(--k-space-8) var(--k-space-9) calc(var(--k-space-8) * 4)}

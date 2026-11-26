@@ -1,0 +1,5 @@
+{
+  "wide": { "layout": "stacked", "order": ["autopilot-mode", "autopilot-rules", "autopilot-checks"] },
+  "mid": { "layout": "stacked", "order": ["autopilot-mode", "autopilot-rules", "autopilot-checks"] },
+  "narrow": { "layout": "stacked", "order": ["autopilot-mode", "autopilot-rules", "autopilot-checks"] }
+}
