@@ -5,7 +5,7 @@ import { ensureStage, removeStage, setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { parkGateStage, stageBlock } from '../../store/stageBlocks.js';
-import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt, markConflictRound, getAutopilotBudget, getAutopilotTicket, getRefusedMerge, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
+import { clearConflictRound, getAutopilotRerun, getCiRoundAt, getConflictRoundAt, markConflictRound, markCiRound, getAutopilotBudget, getAutopilotTicket, getRefusedMerge, takeAutopilotAttempt, setCiRoundHeadSha, getCiRoundHeadSha, setAutopilotOverride, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped } from '../../store/autopilot.js';
 import type { AutopilotConfig } from '../../manifest/autopilot.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { autopilotTick, NO_CHANGE_BASE_MOVED_REASON, ROUND_LAUNCH_DEATH_WINDOW_MS, roundDied, stopAutopilot, allChecksAllowed, approveOneMore, clearParkBlock, type AutopilotDeps, type FixOutcome } from './autopilotOps.js';
@@ -1567,6 +1567,52 @@ describe('conflicts', () => {
       expect(later.sendConflict).not.toHaveBeenCalled();
     });
 
+    it('(z14) a sent round with no head move parks no-change once the launch window passed', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      expect((await autopilotTick(rigRefused(failedRun('auto', 'head1')).deps)).kind).toBe('armed');
+      // The fix round made no commit and the launch window is over: park visibly instead of waiting in busy.
+      markCiRound(store, id, Date.now() - ROUND_LAUNCH_DEATH_WINDOW_MS - 1);
+      const resumeDeliver = vi.fn(async () => 'started' as const);
+      const reload = rig({ resumeDeliver, localHead: async () => SHA, conflictRoundRefused: () => null, sendRefusedMergeFailure: vi.fn(async () => ({ kind: 'sent' as const })) });
+      expect(await autopilotTick(reload.deps)).toEqual({ kind: 'parked', reason: NO_CHANGE_BASE_MOVED_REASON });
+      expect(resumeDeliver).not.toHaveBeenCalled();
+      expect(getAutopilotTicket(store, id).stoppedReason).toBe(NO_CHANGE_BASE_MOVED_REASON);
+      expect(getAutopilotTicket(store, id).pausedReason).toBeNull();
+      const note = reload.notes[reload.notes.length - 1]!;
+      expect(note[0]).toBe(`Autopilot: ${NO_CHANGE_BASE_MOVED_REASON}`);
+      expect(note[1]).toContain('(ci)');
+      expect(note[1]).toContain('the gate fix round made no commit and the failed repo is still at the same head');
+    });
+
+    it('(z15) a sent round whose mark a person cleared parks instead of waiting', async () => {
+      seedPr(PASSING);
+      conflict();
+      markConflictRound(store, id, Date.now());
+      expect((await autopilotTick(rigRefused(failedRun('auto', 'head1')).deps)).kind).toBe('armed');
+      // A person's override change clears the ci round mark; the sent heads remain, so the round made no commit.
+      store.db.prepare('UPDATE autopilot_tickets SET ci_round_at = NULL WHERE ticket_id = ?').run(id);
+      const reload = rig({ localHead: async () => SHA, conflictRoundRefused: () => null, sendRefusedMergeFailure: vi.fn(async () => ({ kind: 'sent' as const })) });
+      expect(await autopilotTick(reload.deps)).toEqual({ kind: 'parked', reason: NO_CHANGE_BASE_MOVED_REASON });
+    });
+
+    it('(aa) an already-delivered refusal does not leave the tick on a stale armed-round busy', async () => {
+      seedPr(PASSING);
+      conflict();
+      // A manual Deliver won the race: the PR already holds the refused merge.
+      store.db.prepare('UPDATE prs SET head_oid = ? WHERE ticket_id = ?').run(SHA, id);
+      markConflictRound(store, id, Date.now());
+      let active = true;
+      const r = rigRefused(failedRun('auto', 'head1'), {
+        conflictRoundActive: () => active,
+        dropConflictRound: vi.fn(() => { active = false; }),
+      });
+      expect((await autopilotTick(r.deps)).kind).not.toBe('busy');
+      expect(r.debug.mock.calls.some((call) => String(call[0]).includes('no round, a conflict round is armed'))).toBe(false);
+      expect(getRefusedMerge(store, id)).toBeNull();
+    });
+
     it('(w) a stored guard whose run is gone surfaces the fallback park instead of waiting in silence', async () => {
       seedPr(PASSING);
       conflict();
@@ -1731,14 +1777,14 @@ describe('conflicts', () => {
       finishDeliverRun(store, runId, 'failed', 'T1');
       expect(await autopilotTick(rigRefused(runId).deps)).toEqual({ kind: 'armed', problem: 'ci', used: 1, max: 3 });
       expect(getCiRoundHeadSha(store, id, 'a')).toBe(RUN_HEAD);
-      // One failed repo still carries the round head, the other was re-shipped: the round ran, so the tick waits.
+      // One failed repo still carries the round head, the other was re-shipped: the round ran, so the tick parks no-change.
       setCiRoundHeadSha(store, id, 'b', 'e'.repeat(40));
+      markCiRound(store, id, Date.now() - ROUND_LAUNCH_DEATH_WINDOW_MS - 1);
       const sent = vi.fn(async () => ({ kind: 'sent' as const }));
       const reload = rig({ localHead: async () => SHA, conflictRoundRefused: () => null, sendRefusedMergeFailure: sent });
-      expect((await autopilotTick(reload.deps)).kind).toBe('busy');
+      expect(await autopilotTick(reload.deps)).toEqual({ kind: 'parked', reason: NO_CHANGE_BASE_MOVED_REASON });
       expect(sent).not.toHaveBeenCalled();
-      expect(reload.debug).toHaveBeenCalledWith('[ship] autopilot ticket AP-1: the gate fix round ran for a at head ccccccccc; waiting for the fix');
-      expect(stageBlock(store, id, 'ship')?.reason).toBe(NORMAL_BLOCK);
+      expect(stageBlock(store, id, 'ship')?.reason).toBe(NO_CHANGE_BASE_MOVED_REASON);
     });
 
     it('(z12) records each failed repo its own head, not the first planned repo head, for the round', async () => {

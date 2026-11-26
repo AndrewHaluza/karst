@@ -22,7 +22,7 @@ import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { isKnownOptional, parseChecks } from '../../model/prChecks.js';
 import {
   clearConflictRound, clearRefusedMerge, effectiveAutopilot, getRefusedMerge, markCiRound, clearCiRoundHeadShas, getAutopilotTicket, getConflictRoundAt, grantAutopilotExtra, refundAutopilotAttempt,
-  getCiRoundHeadSha, setCiRoundHeadSha, setRefusedMerge, markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
+  getCiRoundAt, getCiRoundHeadSha, setCiRoundHeadSha, setRefusedMerge, markConflictRound, setAutopilotPaused, setAutopilotStopAfter, setAutopilotStopped, stoppedReason, takeAutopilotAttempt,
   type AutopilotKind, type RefusedMerge,
 } from '../../store/autopilot.js';
 
@@ -357,7 +357,8 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
       // The probe may read the local merge commit as clean and the CI rollup is of the old head: no round (CI included) may
       // start on that. Park, so a person sees it; approve one more attempt or resolve it by hand.
       return park(d, 'conflicts', STALLED_REASON, UNFINISHED_BODY);
-    } else if (roundActive) {
+    } else if (d.conflictRoundActive()) {
+      // Read again: refusedMergeStep may have ended the round of a refusal that was already delivered (T1381).
       if (!armedNoted(d.store).has(flightKeyOf(d))) {
         armedNoted(d.store).add(flightKeyOf(d));
         d.debug(`${LOG} ticket ${d.key}: no round, a conflict round is armed or its resolved merge is being delivered`);
@@ -487,14 +488,17 @@ async function recoverRefusedMerge(d: AutopilotDeps, cfg: AutopilotConfig, store
   }
   const failure = refusedFailure(d, stored.runId, stored.baseRef, stored.baseSha);
   if (failure === null || !failure.available || failure.failed.length === 0) return parkRefusedMerge(d, refused);
-  // A round already ran at this state: the agent's fix is in flight and the guard waits (never a second send, never the
-  // no-change park of a new round). The round records a head per FAILED-GATE repo, not the conflicted round's repo, and not
-  // the run's single (first planned repo) head for every repo.
+  // A round already ran at this state: never a second send. The gate fix round's own no-change guard decides between a
+  // retry (a head moved) and the park (nothing moved). The launch-death window is the grace while the session starts; after
+  // it, a sent round with no head move is one that made no commit, so park with the no-change reason instead of waiting in
+  // silence (a Retry clears the recorded heads and an override change clears the mark, so neither can wedge the tick).
   const sent = [...failedRepoHeads(failure.failed, failure.run.headSha)]
     .find(([repo, head]) => head !== null && getCiRoundHeadSha(d.store, d.ticketId, repo) === head);
   if (sent !== undefined) {
-    d.debug(`${LOG} ticket ${d.key}: the gate fix round ran for ${sent[0]} at head ${sent[1]!.slice(0, 9)}; waiting for the fix`);
-    return { kind: 'busy' };
+    const at = getCiRoundAt(d.store, d.ticketId);
+    // Stryker disable next-line EqualityOperator: equivalent at the exact millisecond boundary (one more busy tick or the same park)
+    if (Date.now() - (at ?? 0) < ROUND_LAUNCH_DEATH_WINDOW_MS) return { kind: 'busy' };
+    return park(d, 'ci', NO_CHANGE_BASE_MOVED_REASON, 'the gate fix round made no commit and the failed repo is still at the same head; fix it by hand or approve one more attempt.', false, sent[1]);
   }
   return sendRefusedRound(d, cfg, failure, () => d.sendRefusedMergeFailure!(failure));
 }

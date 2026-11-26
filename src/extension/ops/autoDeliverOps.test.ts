@@ -885,20 +885,23 @@ describe('the refused delivery of a verified merge (T1315)', () => {
     expect(rounds.armed(1)).not.toBeNull();
   });
 
-  it('binds the refusal to the FAILING repo, not the conflicted round repo (T1381)', async () => {
+  it('binds the base of the FAILING repo but guards the conflicted merge (T1381)', async () => {
     const store = openStore(':memory:');
     setMergeCheck(store, { ticketId: 1, repo: 'api', state: 'clean', files: [], reason: null, headSha: 'apih', baseSha: 'apibase', baseRef: 'main', checkedAt: 'x' });
     const api = { repo: 'api', number: 9, branch: 'feat/api', cwd: '/wt/api' };
+    const read: string[] = [];
     const { deps, rounds } = rig({
       store,
       targets: () => ({ available: true, prs: [OPEN.prs[0]!, api] }),
       runGates: async () => ({ reason: 'api: gate "unit" failed (exit 1)', failed: [{ name: 'unit', repo: 'api', output: 'x' }] }),
-      mergeSha: async (pr) => (pr.repo === 'api' ? 'apis' : SHA),
+      mergeSha: async (pr) => { read.push(pr.repo); return SHA; },
       baseRef: (pr) => (pr.repo === 'api' ? 'main' : 'develop'),
     });
     await autoDeliverAfterConflict(deps);
-    // The failing repo's head, base ref and base head: a fix moves THAT repo, and the failure names its base.
-    expect(rounds.refusal(1)).toEqual({ repo: 'api', tail: 'gate "unit" failed', sha: 'apis', runId: null, baseRef: 'main', baseSha: 'apibase' });
+    // The guard is the conflicted repo's merge (unpushed); the failing repo's base names the failure. Binding the guard to
+    // the failing repo's head would name an ALREADY-PUSHED commit and the delivered check would drop the refusal.
+    expect(rounds.refusal(1)).toEqual({ repo: 'karst', tail: 'gate "unit" failed', sha: SHA, runId: null, baseRef: 'main', baseSha: 'apibase' });
+    expect(read).toEqual(['karst']);
   });
 
   it('records the round repo when the failed run names no gate', async () => {

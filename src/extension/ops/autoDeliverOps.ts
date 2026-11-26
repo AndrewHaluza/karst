@@ -375,12 +375,13 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
         if (entry.takenOver) return TAKEN_OVER;
         if (gates.reason !== null) {
           d.error(`Resolved merge not delivered: a ship-stage gate failed — ${gates.reason}`);
-          // The merge is finished and correct: only a gate stopped the delivery. Name the FAILING repo (its head is the one
-          // a fix moves, and its base names the failure), not the conflicted round's repo on another repo's failure (T1381).
+          // The FAILING repo names the failure (a fix moves that repo; the reason names its base), but the guard names the
+          // merge the round left at HEAD of the CONFLICTED repo (T1381): that commit is not pushed, so the delivered check
+          // cannot mistake a failing repo's already-pushed branch head for the refused merge.
           const failedPr = targets.prs.find((p) => p.repo === gates.failed[0]?.repo) ?? pr;
           const failedBase = getMergeCheck(d.store, d.ticketId, failedPr.repo)?.baseSha ?? round.baseSha;
           d.rounds.refuse(d.ticketId, {
-            repo: failedPr.repo, tail: shipGateFailureTail(gates), sha: await mergeShaOf(d, failedPr),
+            repo: round.repo, tail: shipGateFailureTail(gates), sha: await mergeShaOf(d, pr),
             runId: d.lastRunId?.() ?? null, baseRef: d.baseRef?.(failedPr) ?? null, baseSha: failedBase,
           });
           return gates.reason;
