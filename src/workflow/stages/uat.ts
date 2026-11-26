@@ -904,7 +904,12 @@ export async function runUat(
     // it, so running it again would only record duplicate decisions. The
     // gate-failure returns above stay first, so a failing gate never gets here.
     const precheckOn = opts.manifest?.uat?.baselineReview?.precheck === true;
-    if (pending.length > 0 && precheckOn && rerun === undefined && !skipGates) {
+    const precheckPass = pending.length > 0 && rerun === undefined && !skipGates;
+    // The gate's own skip lines never run with the knob off, so state that skip here.
+    if (precheckPass && !precheckOn) {
+      opts.debug?.(`[gate] uat baseline pre-check ticket ${opts.ticketId}: skipped — pre-check disabled`);
+    }
+    if (precheckPass && precheckOn) {
       const precheck = await runUatBaselinePrecheck({
         store,
         ticketId: opts.ticketId,

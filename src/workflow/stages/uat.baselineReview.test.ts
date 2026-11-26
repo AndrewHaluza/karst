@@ -354,6 +354,17 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
       });
     });
 
+    it('states in one debug line that the knob off skipped the pre-check', async () => {
+      const debug = vi.fn();
+      await runUat(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: withPrecheck({ precheck: false }), debug },
+        deps({ detectBaselines: async () => [ENTRY], precheckBaselines: seam(approving()) }),
+      );
+      const lines = debug.mock.calls.map(([line]) => String(line)).filter((line) => line.includes('pre-check'));
+      expect(lines.filter((line) => line.includes('skipped — pre-check disabled'))).toHaveLength(1);
+    });
+
     it('never runs when a gate fails: the gate failure keeps precedence', async () => {
       const precheck = seam(approving());
       const res = await runWith(
