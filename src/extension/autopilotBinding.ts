@@ -299,7 +299,7 @@ export function startAutopilot(d: AutopilotBindingDeps): {
         placement: () => d.placement(id),
         ...(d.sandboxPreflight ? { sandboxPreflight: () => d.sandboxPreflight!(id) } : {}),
         sendCi: () => sentRound(id, () => ciOutcome(d.ciInput(id))),
-        sendGateFailure: () => sentRound(id, () => gateFailureOutcome(d.ciInput(id))),
+        sendGateFailure: (state) => sentRound(id, () => gateFailureOutcome(d.ciInput(id), state)),
         sendConflict: (repo) => sentRound(id, () => conflictOutcome(d.conflictInput(id, repo))),
         conflictRoundActive: () => d.conflictRoundActive(id),
         conflictRoundEnded: () => roundEndedOf(d, id),

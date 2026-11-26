@@ -1377,14 +1377,17 @@
   "src/workflow/artifacts/alignment.ts#runAlignment": [
     "arch:APP-12"
   ],
-  "src/workflow/baseMovedFailure.ts#baseMovedFailureState": [
-    "arch:AP-12"
-  ],
   "src/workflow/baseMovedFailure.ts#deliverRunFailureState": [
     "arch:AP-06",
     "arch:AP-12"
   ],
   "src/workflow/baseMovedFailure.ts#latestBaseMovedFailedGates": [
+    "arch:AP-12"
+  ],
+  "src/workflow/baseMovedFailure.ts#latestBlockRunState": [
+    "arch:AP-12"
+  ],
+  "src/workflow/baseMovedFailure.ts#shipGateFailureState": [
     "arch:AP-12"
   ],
   "src/workflow/baseMovedStale.ts": [

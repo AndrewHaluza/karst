@@ -85,7 +85,7 @@ describe('the seams of one ticket', () => {
     await expect(seams.sendGateFailure!()).resolves.toEqual({ kind: 'skipped' });
     await expect(seams.sendConflict('repo-a')).resolves.toEqual({ kind: 'skipped' });
     expect(ciOutcome).toHaveBeenCalledWith({ ticketId: r.id, tag: 'ci' });
-    expect(gateFailureOutcome).toHaveBeenCalledWith({ ticketId: r.id, tag: 'ci' });
+    expect(gateFailureOutcome).toHaveBeenCalledWith({ ticketId: r.id, tag: 'ci' }, undefined);
     expect(conflictOutcome).toHaveBeenCalledWith({ ticketId: r.id, repo: 'repo-a' });
     handle.dispose();
   });

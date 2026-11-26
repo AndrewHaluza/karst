@@ -4,7 +4,7 @@ import { createTicket, setStageCurrent } from '../store/tickets.js';
 import { setStage } from '../store/stages.js';
 import { openDeliverRun, recordDeliverGate, finishDeliverRun } from '../store/deliverRuns.js';
 import { transition } from './machine.js';
-import { baseMovedFailureState, deliverRunFailureState, latestBaseMovedFailedGates } from './baseMovedFailure.js';
+import { baseMovedFailureState, deliverRunFailureState, latestBaseMovedFailedGates, shipGateFailureState } from './baseMovedFailure.js';
 
 let store: Store;
 let id: number;
@@ -53,23 +53,31 @@ describe('baseMovedFailureState', () => {
     run('base-moved', 'passed', 0);
     expect(baseMovedFailureState(store, id)).toEqual({ available: false, reason: 'no-failed-run' });
   });
-  it('reads the newest run of kind auto or base-moved, ignoring another kind', () => {
+  it('ignores a failed run of another kind', () => {
     park();
-    // An auto-deliver run that refused a resolved merge is read like a base-moved one (T1381).
-    const auto = run('auto', 'failed');
-    expect(baseMovedFailureState(store, id)).toMatchObject({ available: true, run: { id: auto } });
-    // The newest of the two kinds wins.
-    const baseMoved = run('base-moved', 'failed');
-    expect(baseMovedFailureState(store, id)).toMatchObject({ available: true, run: { id: baseMoved } });
-    // A run of another kind is never the block's run.
-    openDeliverRun(store, { ticketId: id, headSha: 'abc', gates: ['unit'], pid: 1, now: 'T0', kind: 'after-take-over' });
-    expect(baseMovedFailureState(store, id)).toMatchObject({ available: true, run: { id: baseMoved } });
+    run('auto', 'failed');
+    expect(baseMovedFailureState(store, id)).toEqual({ available: false, reason: 'no-failed-run' });
   });
   it('is not offered while a PR has merged', () => {
     park();
     run('base-moved', 'failed');
     store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, ?, ?, ?)').run(id, 'r', 5, 'https://github.com/o/r/pull/5', 'merged');
     expect(baseMovedFailureState(store, id)).toEqual({ available: false, reason: 'landed' });
+  });
+});
+
+describe('shipGateFailureState (T1381)', () => {
+  it('reads the newest run of kind auto or base-moved, ignoring another kind', () => {
+    park();
+    // An auto-deliver run that refused a resolved merge is the block's run.
+    const auto = run('auto', 'failed');
+    expect(shipGateFailureState(store, id)).toMatchObject({ available: true, run: { id: auto } });
+    // The newest of the two kinds wins.
+    const baseMoved = run('base-moved', 'failed');
+    expect(shipGateFailureState(store, id)).toMatchObject({ available: true, run: { id: baseMoved } });
+    // A run of another kind is never the block's run.
+    openDeliverRun(store, { ticketId: id, headSha: 'abc', gates: ['unit'], pid: 1, now: 'T0', kind: 'after-take-over' });
+    expect(shipGateFailureState(store, id)).toMatchObject({ available: true, run: { id: baseMoved } });
   });
 });
 

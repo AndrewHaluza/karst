@@ -17,7 +17,7 @@ import { isHostTicket, MAX_AUTO_SHIP_RETRIES, shipRetryDecision, type ShipRetryO
 import { listShipRuns } from '../../store/shipRuns.js';
 import { hasTicketEvent } from '../../store/karstEvents.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
-import { baseMovedFailureState, deliverRunFailureState, type BaseMovedFailureRun, type BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
+import { deliverRunFailureState, latestBlockRunState, shipGateFailureState, type BaseMovedFailureRun, type BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { restoreAwaitingMergeBlock } from '../../workflow/mergeGate.js';
 import { isKnownOptional, parseChecks } from '../../model/prChecks.js';
 import {
@@ -76,8 +76,11 @@ export interface AutopilotDeps {
    */
   readonly isGraphTicket: () => boolean;
   readonly sendCiFailure: () => Promise<FixOutcome>;
-  /** The send-back of a failed base-moved run (@arch:AP-00). Absent: a `base-moved-failed` block gets no round. */
-  readonly sendGateFailure?: () => Promise<FixOutcome>;
+  /**
+   * The send-back of a failed base-moved run (@arch:AP-00) or a refused resolved merge (@arch:AP-12). The failure state the
+   * round read is passed, so the send never re-reads a newer run. Absent: no round for the block.
+   */
+  readonly sendGateFailure?: (state?: BaseMovedFailureState) => Promise<FixOutcome>;
   /** The Resolve conflicts path for one repo (`resolveConflictRound`). */
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or karst delivers its resolved merge now: no other round starts beside it. */
@@ -346,8 +349,14 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     armedNoted(d.store).delete(flightKeyOf(d));
     const failure = deliverRunFailureState(d.store, d.ticketId, refused.runId, refused.baseRef, refused.baseSha);
     if (failure.available && failure.failed.length > 0 && d.sendGateFailure !== undefined) {
+      // The refusal supersedes any older park: a stale stop reason would idle the base-moved round on the next tick.
+      setAutopilotStopped(d.store, d.ticketId, null);
       parkGateStage(d.store, { ticketId: d.ticketId, stageKey: 'ship', kind: 'base-moved-failed', reason: failure.reason, runAt: new Date().toISOString(), gates: [] });
-      d.debug(`${LOG} ticket ${d.key}: the resolved merge failed gate ${[...new Set(failure.failed.map((g) => g.gateName))].join(', ')}; the base-moved round fixes it`);
+      const names = [...new Set(failure.failed.map((g) => g.gateName))].join(', ');
+      d.debug(`${LOG} ticket ${d.key}: the resolved merge failed gate ${names}; the base-moved round fixes it`);
+      // The block is a visible ship-row change: post the event BEFORE the round, so an ask/queued/busy outcome does not leave
+      // the dashboard showing the previous block.
+      d.note('Autopilot: resolved merge refused', `${d.key}: gate ${names} failed; the ticket is parked on the base-moved block.`);
       return guardedRound(d, () => runBaseMovedRound(d, cfg, failure));
     }
     return parkRefusedMerge(d, refused);
@@ -551,19 +560,21 @@ function failedRepoHeads(failed: BaseMovedFailureRun['failed'], runHead: string 
  * state the caller already read (the refused resolved merge names ITS run, @arch:AP-12); absent → read the block's run.
  */
 async function runBaseMovedRound(d: AutopilotDeps, cfg: AutopilotConfig, state?: BaseMovedFailureState): Promise<AutopilotResult> {
-  const read = state ?? baseMovedFailureState(d.store, d.ticketId);
+  const read = state ?? shipGateFailureState(d.store, d.ticketId);
   if (!read.available) {
-    // A SHIPPED ticket (stage passed) whose block no longer names a failed run: the evidence was superseded (a newer ship
-    // run), so put the normal ship wait back instead of stranding the ticket on the block (@arch:AP-12).
-    if (read.reason === 'no-failed-run' && getStage(d.store, d.ticketId, 'ship')!.status === 'passed') {
+    // A SHIPPED ticket (stage passed) whose block names a PASSED run: the evidence was superseded, so put the normal ship wait
+    // back instead of stranding the ticket. A running or stopped run is not proof the block is stale: leave it.
+    if (read.reason === 'no-failed-run' && getStage(d.store, d.ticketId, 'ship')!.status === 'passed'
+      && latestBlockRunState(d.store, d.ticketId) === 'passed') {
       restoreAwaitingMergeBlock(d.store, d.ticketId);
-      d.debug(`${LOG} ticket ${d.key}: the base-moved block names no failed run; the awaiting-merge block is restored`);
+      d.debug(`${LOG} ticket ${d.key}: the base-moved block names a passed run; the awaiting-merge block is restored`);
       return { kind: 'cleared' };
     }
     return { kind: 'nothing' };
   }
-  // Both callers require the seam (the tick's base-moved gate and the refusal check), so it is wired here.
-  return runGateFailureRound(d, cfg, read, d.sendGateFailure!);
+  // Both callers require the seam (the tick's base-moved gate and the refusal check), so it is wired here. The send receives
+  // the SAME state the round works from: the refused run, never a re-read of the newest run (T1381).
+  return runGateFailureRound(d, cfg, read, () => d.sendGateFailure!(read));
 }
 
 /**
