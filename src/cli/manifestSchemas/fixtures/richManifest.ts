@@ -194,7 +194,7 @@ export function richManifest(): Raw {
         requireEvidence: { file: 'evidence/*.md', whenChanged: ['src/**'] },
       },
       tester: { tokenBudget: 400000 },
-      baselineReview: { paths: ['docs'] },
+      baselineReview: { paths: ['docs'], precheck: true },
       env: { NODE_ENV: 'test' },
       secrets: ['API_KEY'],
       passthrough: ['HOME'],
