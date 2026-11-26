@@ -5,12 +5,14 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CORPUS_VIEWS, GENERATED_DIR, buildCorpus, corpusFiles, exportCorpusFromDb } from './export.js';
 import { seedCorpusDatabase, SEED_DASHBOARD_TICKET_KEY, type SeededCorpus } from './seedSpec.js';
-import { FIXTURE_TICKET_ID_MIN, assertNoLeaks } from './sanitize.js';
+import { FIXTURE_NOW_MS, FIXTURE_TICKET_ID_MIN, assertNoLeaks } from './sanitize.js';
+import { rebaseDatabase, type RebaseDb } from './rebase.js';
 import { openReadonlyStore } from '../../../src/cli/readonlyStore.js';
 import { openStore } from '../../../src/store/db.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMMITTED_DIR = resolve(REPO_ROOT, GENERATED_DIR);
+const DAY_MS = 86_400_000;
 
 let tempDir: string;
 let seeded: SeededCorpus;
@@ -174,6 +176,34 @@ describe('exportCorpusFromDb', () => {
       expect(row.id).toBeGreaterThanOrEqual(FIXTURE_TICKET_ID_MIN);
       expect(row.idLabel).toBe(`T${row.id}`);
     }
+  });
+
+  it('rebases the database rows, not the stubs: a database moved in time exports the same corpus', () => {
+    const moved = seedCorpusDatabase(join(tempDir, 'karst-moved.db'));
+    const writable = openStore(moved.dbPath);
+    try {
+      // A real database is "today", not the fixture day: move every row 30 days ahead.
+      rebaseDatabase(writable.db as unknown as RebaseDb, 30 * DAY_MS);
+    } finally {
+      writable.close();
+    }
+    const opts = { projectId: seeded.projectId, ticketId: seeded.dashboardTicketId };
+    const base = exportCorpusFromDb(seeded.dbPath, { ...opts, outDir: join(tempDir, 'out-base') });
+    const shifted = exportCorpusFromDb(moved.dbPath, { ...opts, outDir: join(tempDir, 'out-moved') });
+    expect(corpusFiles(shifted.corpus)).toEqual(corpusFiles(base.corpus));
+  });
+
+  it('keeps the stubbed quota on the fixture clock and no activity after it', () => {
+    const { corpus } = exportCorpusFromDb(seeded.dbPath, {
+      outDir: join(tempDir, 'out-quota'),
+      projectId: seeded.projectId,
+      ticketId: seeded.dashboardTicketId,
+    });
+    expect(JSON.stringify(corpus.usage)).toContain(new Date(FIXTURE_NOW_MS + 2 * 3_600_000).toISOString());
+    const dashboard = JSON.stringify(corpus.dashboard);
+    const instants = [...dashboard.matchAll(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z/g)].map((m) => Date.parse(m[0]));
+    expect(instants.length).toBeGreaterThan(0);
+    expect(Math.max(...instants)).toBeLessThanOrEqual(FIXTURE_NOW_MS);
   });
 
   it('matches the checked-in fixtures, so a stale corpus fails here', () => {

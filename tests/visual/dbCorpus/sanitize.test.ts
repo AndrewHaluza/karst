@@ -116,6 +116,13 @@ describe('sanitizeCorpus', () => {
     expect(Date.parse(out.startedAt)).toBe(FIXTURE_NOW_MS - 24 * 3_600_000);
   });
 
+  it('applies a fixed shiftMs as given: a future stub instant never steers it', () => {
+    const future = new Date(FIXTURE_NOW_MS + 4 * 86_400_000).toISOString();
+    const past = new Date(FIXTURE_NOW_MS - 3_600_000).toISOString();
+    const out = sanitizeCorpus({ resetsAt: future, startedAt: past }, { shiftMs: 0 });
+    expect(out).toEqual({ resetsAt: future, startedAt: past });
+  });
+
   it('replaces a registered external ticket ref wherever it appears, keys and text alike', () => {
     const sanitizer = new CorpusSanitizer();
     sanitizer.registerExternalRefs(['869e494q2', '869e48tv6', 'CU-12']);

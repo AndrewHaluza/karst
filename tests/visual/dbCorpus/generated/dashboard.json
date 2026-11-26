@@ -631,7 +631,7 @@
     {
       "agentConsole": null,
       "commits": [],
-      "createdAt": "2026-10-22T16:00:00.000Z",
+      "createdAt": "2026-10-26T16:00:00.000Z",
       "currentVersionLabel": "v1",
       "detail": null,
       "findings": [],
@@ -675,7 +675,7 @@
     {
       "agentConsole": "review",
       "commits": [],
-      "createdAt": "2026-10-23T17:00:00.000Z",
+      "createdAt": "2026-10-27T17:00:00.000Z",
       "currentVersionLabel": "v1",
       "detail": null,
       "findings": [],
@@ -751,7 +751,7 @@
   "currentStage": {
     "attempt": 0,
     "stageKey": "review",
-    "startedAt": "2026-10-23T17:00:00.000Z",
+    "startedAt": "2026-10-27T17:00:00.000Z",
     "status": "running"
   },
   "deliver": {
@@ -824,7 +824,7 @@
     "review": {
       "attempts": [
         {
-          "key": "ra:2026-10-23T20:00:00.000Z",
+          "key": "ra:2026-10-27T20:00:00.000Z",
           "label": "R1",
           "latest": false,
           "status": "pass",
@@ -1143,7 +1143,7 @@
       {
         "cell": {
           "attempt": 0,
-          "endedAt": "2026-10-22T16:00:00.000Z",
+          "endedAt": "2026-10-26T16:00:00.000Z",
           "stageKey": "scope",
           "status": "passed"
         },
@@ -1156,7 +1156,7 @@
       {
         "cell": {
           "attempt": 0,
-          "endedAt": "2026-10-22T16:00:00.000Z",
+          "endedAt": "2026-10-26T16:00:00.000Z",
           "stageKey": "impl",
           "status": "passed"
         },
@@ -1169,7 +1169,7 @@
       {
         "cell": {
           "attempt": 0,
-          "endedAt": "2026-10-22T16:00:00.000Z",
+          "endedAt": "2026-10-26T16:00:00.000Z",
           "stageKey": "uat",
           "status": "passed"
         },
@@ -1183,7 +1183,7 @@
         "cell": {
           "attempt": 0,
           "stageKey": "review",
-          "startedAt": "2026-10-23T17:00:00.000Z",
+          "startedAt": "2026-10-27T17:00:00.000Z",
           "status": "running"
         },
         "current": true,
@@ -1257,26 +1257,26 @@
   "stepper": [
     {
       "attempt": 0,
-      "endedAt": "2026-10-22T16:00:00.000Z",
+      "endedAt": "2026-10-26T16:00:00.000Z",
       "stageKey": "scope",
       "status": "passed"
     },
     {
       "attempt": 0,
-      "endedAt": "2026-10-22T16:00:00.000Z",
+      "endedAt": "2026-10-26T16:00:00.000Z",
       "stageKey": "impl",
       "status": "passed"
     },
     {
       "attempt": 0,
-      "endedAt": "2026-10-22T16:00:00.000Z",
+      "endedAt": "2026-10-26T16:00:00.000Z",
       "stageKey": "uat",
       "status": "passed"
     },
     {
       "attempt": 0,
       "stageKey": "review",
-      "startedAt": "2026-10-23T17:00:00.000Z",
+      "startedAt": "2026-10-27T17:00:00.000Z",
       "status": "running"
     },
     {
@@ -1319,7 +1319,7 @@
       "queuePos": null,
       "stage": "done",
       "stageClass": "stg-done",
-      "stageSince": "2026-10-22T16:00:00.000Z",
+      "stageSince": "2026-10-26T16:00:00.000Z",
       "title": "Extract the inventory probe"
     },
     {
@@ -1345,7 +1345,7 @@
       "queuePos": null,
       "stage": "impl",
       "stageClass": "stg-impl",
-      "stageSince": "2026-10-23T16:00:00.000Z",
+      "stageSince": "2026-10-27T16:00:00.000Z",
       "title": "Add the restart action to the tab"
     },
     {
@@ -1376,7 +1376,7 @@
       "baseDefault": "",
       "baseRef": "develop",
       "branch": "karst/FIX-101",
-      "createdAt": "2026-10-22T20:00:00.000Z",
+      "createdAt": "2026-10-26T20:00:00.000Z",
       "depsMode": "inherited",
       "launchable": false,
       "path": "/fixture/workspace/api/.karst/worktrees/FIX-101",

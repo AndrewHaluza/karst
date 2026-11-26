@@ -165,10 +165,12 @@ It is opened read-only, so the extension does not need to be stopped first.
   description quotes it; the export fails when one survives), logins in
   `author`/`login`/`username` fields `fixture-user-<n>` (also where text quotes
   them; the leak scan fails on one left), emails
-  `developer@fixture.invalid`, token shapes `fixture-token-redacted`; every ISO
-  and SQLite `datetime()` timestamp is rebased onto `FIXTURE_NOW_MS` (the instant
-  `tests/visual/fixtures.ts` pins the page clock to), so relative ages are
-  stable. A final leak scan **fails the export** on any leftover absolute or
+  `developer@fixture.invalid`, token shapes `fixture-token-redacted`. Timestamps
+  are rebased onto `FIXTURE_NOW_MS` (the page clock) in a DATABASE copy before
+  the builders run (`rebase.ts`): the newest past-event row (`ANCHOR_COLUMNS`)
+  sets the delta, and every ISO, SQLite `datetime()` and INTEGER `*_at` epoch-ms
+  cell moves by it. Builder ages agree with the raw instants, and the stubbed
+  quota never steers the delta. A final leak scan **fails the export** on any leftover absolute or
   climbing relative path, email, http(s) URL or token shape; `npm run -s gate:secrets` sees only
   placeholders.
 

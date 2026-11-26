@@ -21,7 +21,7 @@
  * and never reads this database, so there is nothing in SQLite to export.
  *
  * Nothing here imports `better-sqlite3`: the read path is
- * `src/cli/readonlyStore.ts#openReadonlyStore` (`node:sqlite`), per
+ * `rebase.ts#openRebasedCopy` (`node:sqlite`, the source opened read-only), per
  * `@arch:CLI-05`. Seeding a corpus database is a separate module
  * (`seedSpec.ts`) exactly so that importing the exporter never drags the
  * Electron-ABI addon in.
@@ -36,9 +36,9 @@ import type { PathContext } from '../../../src/ui/worktreePath.js';
 import { manifest, repo } from '../../../src/manifest/fixtures.js';
 import type { Manifest } from '../../../src/manifest/types.js';
 import type { QuotaSnapshot } from '../../../src/agent/quota/types.js';
-import { openReadonlyStore } from '../../../src/cli/readonlyStore.js';
 import { installSqliteWarningFilter } from '../../../src/cli/suppressWarning.js';
 import { FIXTURE_NOW_MS, CorpusSanitizer, assertNoLeaks } from './sanitize.js';
+import { openRebasedCopy } from './rebase.js';
 
 /** The views this exporter covers, in the order they are always written. */
 export const CORPUS_VIEWS = ['dashboard', 'sidebar', 'usage'] as const;
@@ -198,7 +198,12 @@ function withPinnedTimeZone<T>(zone: string, fn: () => T): T {
 /**
  * Build the three states from an open store and sanitize them as ONE corpus:
  * a repo path seen in the dashboard and again in the sidebar maps to the same
- * fixture path, and every timestamp shifts by the same delta.
+ * fixture path.
+ *
+ * The store must already be on the fixture clock (`openRebasedCopy` does that
+ * for `exportCorpusFromDb`; the seed writes fixture-clock rows). The builders
+ * derive ages and usage windows from the rows, so the rows move, never only the
+ * output strings. The sanitizer therefore applies no shift of its own.
  */
 export function buildCorpus(store: Store, opts: CorpusOptions = {}): Corpus {
   const nowMs = opts.nowMs ?? FIXTURE_NOW_MS;
@@ -251,7 +256,7 @@ export function buildCorpus(store: Store, opts: CorpusOptions = {}): Corpus {
     })),
   );
 
-  const sanitizer = new CorpusSanitizer({ nowMs });
+  const sanitizer = new CorpusSanitizer({ nowMs, shiftMs: 0 });
   sanitizer.registerExternalRefs(externalRefsOf(store));
   sanitizer.collect(raw);
   const cleaned: Corpus = {
@@ -322,8 +327,9 @@ export function writeCorpus(corpus: Corpus, outDir: string): string[] {
 }
 
 /**
- * The whole read path: open a Karst database read-only with `node:sqlite`,
- * build the corpus, write it, and close the handle.
+ * The whole read path: copy a Karst database with `node:sqlite` (the source
+ * opens read-only), rebase the copy onto the fixture clock, build the corpus,
+ * write it, and remove the copy.
  */
 export function exportCorpusFromDb(
   dbPath: string,
@@ -336,11 +342,11 @@ export function exportCorpusFromDb(
   // CLI drops exactly that line (`cli/suppressWarning.ts`); the exporter does
   // the same, so a run prints the files it wrote and nothing else.
   installSqliteWarningFilter();
-  const store = openReadonlyStore(dbPath);
+  const copy = openRebasedCopy(dbPath, opts.nowMs ?? FIXTURE_NOW_MS);
   try {
-    const corpus = buildCorpus(store, opts);
+    const corpus = buildCorpus(copy.store, opts);
     return { corpus, files: writeCorpus(corpus, opts.outDir) };
   } finally {
-    store.close();
+    copy.dispose();
   }
 }

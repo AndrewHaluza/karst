@@ -168,6 +168,13 @@ export interface Leak {
 export interface SanitizeOptions {
   /** The instant the fixture clock is pinned to; timestamps are rebased onto it. */
   nowMs?: number;
+  /**
+   * A fixed timestamp shift. Omit it to align the newest collected instant with
+   * `nowMs`. The exporter passes `0`: it rebases the database rows before the
+   * builders run, and the host-injected stubs (the quota snapshot, already on
+   * the fixture clock) must not steer a second shift.
+   */
+  shiftMs?: number;
 }
 
 /** Rebase every ISO timestamp onto `nowMs`, keyed off the newest timestamp found. */
@@ -208,6 +215,7 @@ function isTicketIdKey(key: string): boolean {
  */
 export class CorpusSanitizer {
   private readonly nowMs: number;
+  private readonly fixedShift: number | undefined;
   private readonly ticketIds = new Set<number>();
   private readonly paths = new Set<string>();
   private readonly urls = new Set<string>();
@@ -227,6 +235,7 @@ export class CorpusSanitizer {
 
   constructor(opts: SanitizeOptions = {}) {
     this.nowMs = opts.nowMs ?? FIXTURE_NOW_MS;
+    this.fixedShift = opts.shiftMs;
   }
 
   /** Register every private value in one state tree. Call before `apply`. */
@@ -349,7 +358,7 @@ export class CorpusSanitizer {
       textRefs.length === 0
         ? null
         : new RegExp(`(?<![A-Za-z0-9_-])(?:${textRefs.map(escapeRegExp).join('|')})(?![A-Za-z0-9_-])`, 'g');
-    this.shift = timestampShift([...this.instants], this.nowMs);
+    this.shift = this.fixedShift ?? timestampShift([...this.instants], this.nowMs);
   }
 
   private collectString(text: string): void {
