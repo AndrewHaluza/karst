@@ -16,7 +16,14 @@ import { hostBundleHaves } from '../cloneSyncClass.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { DiffResult, RefreshOptions, SyncResult } from '../sessionRunner.js';
 import type { SbxProcess } from '../sbx/sbxProcess.js';
-import { diffSandboxBundle, fetchSandboxBundle, hostGit, syncSandboxBundle } from './sshCloneShared.js';
+import {
+  SSH_BUNDLE_STDOUT_MAX_BYTES,
+  SSH_TEXT_STDOUT_MAX_BYTES,
+  diffSandboxBundle,
+  fetchSandboxBundle,
+  hostGit,
+  syncSandboxBundle,
+} from './sshCloneShared.js';
 import { sshArgv, type SshProcess, type SshResult } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
 
@@ -110,8 +117,9 @@ function remoteArgv(ctx: SshDockerCloneContext, script: string): string[] {
   return sshDockerHelper(ctx.remote, ctx.controlDir, ctx.image, ctx.volume, script);
 }
 
-function runDocker(ctx: SshDockerCloneContext, script: string): Promise<SshResult> {
-  return ctx.ssh.run(remoteArgv(ctx, script));
+/** Every remote stdout is collected in memory, so every call is bounded (a bundle by its own, larger cap). */
+function runDocker(ctx: SshDockerCloneContext, script: string, maxStdoutBytes: number = SSH_TEXT_STDOUT_MAX_BYTES): Promise<SshResult> {
+  return ctx.ssh.run(remoteArgv(ctx, script), { maxStdoutBytes });
 }
 
 function message(err: unknown): string {
@@ -244,7 +252,7 @@ type RemoteBundle = { readonly ok: true; readonly bytes: Uint8Array } | { readon
 /** Run the thin-bundle script in the helper and return its stdout bytes (never a JS string). */
 async function remoteBundle(ctx: SshDockerCloneContext, input: CloneInput): Promise<RemoteBundle> {
   const haves = await hostBundleHaves((args) => hostGit(ctx.host, input, args), input.branch);
-  const result = await runDocker(ctx, thinScript(input.branch, haves));
+  const result = await runDocker(ctx, thinScript(input.branch, haves), SSH_BUNDLE_STDOUT_MAX_BYTES);
   const failed = remoteFailure(ctx, result, 'sync bundle');
   if (failed !== undefined) return { ok: false, reason: failed.reason };
   ctx.debug?.(`ssh docker clone: received a ${String(result.stdoutBuffer.length)}-byte bundle`);

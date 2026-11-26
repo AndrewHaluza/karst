@@ -21,6 +21,16 @@ import { withXfer } from '../xfer.js';
  * for the bundle path. The temp file is removed in `finally`.
  */
 
+/**
+ * The most stdout bytes a remote bundle may send before the step fails closed.
+ * The same bound as `MAX_BUNDLE_STDOUT_BYTES` in `sbx/sbxRunner.ts`: the seam
+ * collects stdout in memory, so an unbounded bundle could exhaust the host.
+ */
+export const SSH_BUNDLE_STDOUT_MAX_BYTES = 128 * 1024 * 1024;
+
+/** The bound for every other remote stdout (probes, ref lists, `status`, a diff diagnostic). */
+export const SSH_TEXT_STDOUT_MAX_BYTES = 8 * 1024 * 1024;
+
 /** Host git must ignore the user's and the system's config: a repo-local `fetch.fsck`/hook never runs for a bundle. */
 export const HOST_GIT_ENV: Readonly<Record<string, string>> = {
   GIT_CONFIG_NOSYSTEM: '1',

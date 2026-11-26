@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import { fakeSbxProcess } from '../sbx/fakeSbxProcess.js';
 import { fakeSshProcess } from './fakeSshProcess.js';
+import { SSH_BUNDLE_STDOUT_MAX_BYTES, SSH_TEXT_STDOUT_MAX_BYTES } from './sshCloneShared.js';
 import {
   ensureSshClone,
   fetchSshClone,
@@ -132,6 +133,7 @@ describe('syncFromSshClone', () => {
     });
     const call = ssh.calls[0]!;
     expect(remoteCmd(call).startsWith(`sh -c '`)).toBe(true);
+    expect(call.opts?.maxStdoutBytes).toBe(SSH_BUNDLE_STDOUT_MAX_BYTES);
     expect(scriptOf(call)).toContain(`bundle create -q - "$br"`);
     const l = argLines(host);
     expect(l.some((line) => line.includes('fetch --no-write-fetch-head') && line.includes('refs/karst/sandbox/feat/x'))).toBe(true);
@@ -294,6 +296,8 @@ describe('rebuildSshCheck', () => {
     const ssh = fakeSshProcess({ [listKey]: { stdout: `${SHA}\n` }, [dirtyKey]: { stdout: '' } });
     const host = fakeSbxProcess({ [`git -C ${WT} merge-base --is-ancestor ${SHA} ${BRANCH}`]: { code: 0 } });
     await expect(rebuildSshCheck(ctx(ssh, host), input)).resolves.toEqual({ ok: true });
+    // Text reads are bounded too: a remote that prints without end fails closed.
+    expect(ssh.calls.map((c) => c.opts?.maxStdoutBytes)).toEqual([SSH_TEXT_STDOUT_MAX_BYTES, SSH_TEXT_STDOUT_MAX_BYTES]);
   });
 
   it('refuses when the clone has uncommitted work', async () => {

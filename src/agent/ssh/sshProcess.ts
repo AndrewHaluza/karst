@@ -232,6 +232,8 @@ function collect(
       // No stdin: close it at once, or a remote `cat`/bundle reader waits forever.
       child.stdin.end();
     } else if (Buffer.isBuffer(stdin)) {
+      // A remote that exits before it reads all of stdin gives EPIPE: never an uncaught error.
+      child.stdin.on('error', () => undefined);
       child.stdin.end(stdin);
     } else {
       // A bundle read from disk: stream it, and tear the other side down if one fails.

@@ -86,6 +86,13 @@ describe('SshProcess.runWithStdin against the fake ssh', () => {
     expect(run.stdout).not.toBe(bytes.toString('latin1'));
   });
 
+  it('resolves with the exit code when the remote exits before it reads a Buffer (EPIPE)', async () => {
+    // Larger than a pipe buffer, so the write is still pending when the remote exits.
+    const bytes = Buffer.alloc(8 * 1024 * 1024, 0x61);
+    const run = await proc.runWithStdin(argv('exit 3'), bytes);
+    expect(run.code).toBe(3);
+  });
+
   it('streams a Readable to the remote stdin', async () => {
     const run = await proc.runWithStdin(argv('cat > readable.txt'), Readable.from([Buffer.from('ab'), Buffer.from('cd')]));
     expect(run.code).toBe(0);

@@ -15,7 +15,14 @@ import { THIN_BUNDLE_EXCLUDE, hostBundleHaves, sandboxHeadRef } from '../cloneSy
 import type { RemoteDef } from '../../manifest/types.js';
 import type { DiffResult, RefreshOptions, StepOutcome, SyncResult } from '../sessionRunner.js';
 import type { SbxProcess } from '../sbx/sbxProcess.js';
-import { diffSandboxBundle, fetchSandboxBundle, hostGit, syncSandboxBundle } from './sshCloneShared.js';
+import {
+  SSH_BUNDLE_STDOUT_MAX_BYTES,
+  SSH_TEXT_STDOUT_MAX_BYTES,
+  diffSandboxBundle,
+  fetchSandboxBundle,
+  hostGit,
+  syncSandboxBundle,
+} from './sshCloneShared.js';
 import { sshArgv, type SshProcess, type SshResult } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
 
@@ -101,8 +108,9 @@ function remoteArgv(ctx: SshCloneContext, script: string): string[] {
   return sshArgv(ctx.remote, ctx.controlDir, script);
 }
 
-function runRemote(ctx: SshCloneContext, script: string): Promise<SshResult> {
-  return ctx.ssh.run(remoteArgv(ctx, script));
+/** Every remote stdout is collected in memory, so every call is bounded (a bundle by its own, larger cap). */
+function runRemote(ctx: SshCloneContext, script: string, maxStdoutBytes: number = SSH_TEXT_STDOUT_MAX_BYTES): Promise<SshResult> {
+  return ctx.ssh.run(remoteArgv(ctx, script), { maxStdoutBytes });
 }
 
 interface RemoteFailure {
@@ -241,7 +249,7 @@ type RemoteBundle = { readonly ok: true; readonly bytes: Uint8Array } | { readon
 /** Run the thin-bundle script on the clone and return its stdout bytes (never a JS string). */
 async function remoteBundle(ctx: SshCloneContext, input: CloneInput): Promise<RemoteBundle> {
   const haves = await hostBundleHaves((args) => hostGit(ctx.host, input, args), input.branch);
-  const result = await runRemote(ctx, thinScript(ctx, input, haves));
+  const result = await runRemote(ctx, thinScript(ctx, input, haves), SSH_BUNDLE_STDOUT_MAX_BYTES);
   const failed = remoteFailure(ctx, result, 'sync bundle');
   if (failed !== undefined) return { ok: false, reason: failed.reason };
   return { ok: true, bytes: result.stdoutBuffer };

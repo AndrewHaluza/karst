@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import { fakeSbxProcess } from '../sbx/fakeSbxProcess.js';
 import { fakeSshProcess } from './fakeSshProcess.js';
+import { SSH_BUNDLE_STDOUT_MAX_BYTES, SSH_TEXT_STDOUT_MAX_BYTES } from './sshCloneShared.js';
 import {
   diffSshDockerClone,
   ensureSshDockerClone,
@@ -97,6 +98,7 @@ describe('ensureSshDockerClone', () => {
     expect(ssh.pipes).toHaveLength(0);
     expect(ssh.calls).toHaveLength(1);
     expect(scriptOf(ssh.calls[0]!)).toContain('git -c ');
+    expect(ssh.calls[0]!.opts?.maxStdoutBytes).toBe(SSH_TEXT_STDOUT_MAX_BYTES);
   });
 
   it('pipes a host bundle into docker run -i and seeds the clone in the volume', async () => {
@@ -163,6 +165,7 @@ describe('syncFromSshDockerClone', () => {
     await expect(syncFromSshDockerClone(ctx(ssh, host), input)).resolves.toEqual({
       ok: true, summary: `fast-forwarded ${BRANCH} to the ssh sandbox's commits`,
     });
+    expect(ssh.calls[0]!.opts?.maxStdoutBytes).toBe(SSH_BUNDLE_STDOUT_MAX_BYTES);
     const inner = scriptOf(ssh.calls[0]!);
     const script = dockerScriptOf(ssh.calls[0]!);
     expect(inner).toContain(`docker run --rm -i --network none --cap-drop ALL --security-opt no-new-privileges`);
