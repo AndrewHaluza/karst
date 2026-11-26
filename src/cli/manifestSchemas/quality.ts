@@ -70,7 +70,7 @@ const UAT = lenientObject({
     ]),
   }),
   tester: lenientObject({ tokenBudget: integer(1) }),
-  baselineReview: lenientObject({ paths: arrayOf(TRIMMED_PATH) }),
+  baselineReview: lenientObject({ paths: arrayOf(TRIMMED_PATH), precheck: BOOLEAN }),
   harnesses: arrayOf(HARNESS),
   env: stringMap(),
   secrets: KEY_LIST,

@@ -125,7 +125,7 @@ const TESTER: Keys<UatTesterConfig> = { tokenBudget: true };
 const HARNESS: Keys<UatHarnessDef> = {
   name: true, whenChanged: true, start: true, stop: true, evidence: true, startTimeoutSeconds: true, description: true,
 };
-const BASELINE_REVIEW: Keys<UatBaselineReviewConfig> = { paths: true };
+const BASELINE_REVIEW: Keys<UatBaselineReviewConfig> = { paths: true, precheck: true };
 const AUTH_BOOTSTRAP: Keys<UatAuthBootstrap> = { path: true, secrets: true };
 const AUTHOR: Keys<UatAuthor> = { agent: true, enabled: true };
 const UAT_REPOSITORY: Keys<UatRepositoryOverride> = { env: true, secrets: true, gates: true, testDir: true };
