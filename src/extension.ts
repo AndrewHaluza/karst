@@ -209,7 +209,6 @@ import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWa
 import { createCodexRolloutWatchLoop, CODEX_ROLLOUT_WATCH_INTERVAL_MS } from './extension/ops/codexRolloutWatchLoop.js';
 import { bridgePaths } from './agent/bridge/bridgeDir.js';
 import { sweepClaudeTranscript } from './agent/claudeTranscriptSweep.js';
-import { sweepGraphClaudeSessions } from './agent/graphClaudeSweep.js';
 import { isGraphSessionEnv } from './approaches/graph/transport/env.js';
 import { makeTranscriptReader } from './agent/claudeTranscriptRead.js';
 import { createLiveHeadlessBinding } from './extension/liveHeadlessBinding.js';
@@ -262,7 +261,7 @@ import {
 import { discardUnknownProcess } from './approaches/graph/coordinator/discard.js';
 import { beginReplanPlannerRun, electReplan } from './approaches/graph/coordinator/replan.js';
 import { createSupervisedCliTransport, type SupervisedCliTransport, type SupervisedAgentSession } from './approaches/graph/transport/supervisedCliTransport.js';
-import { graphLaunchIdForLaunch } from './approaches/graph/graphLaunchId.js';
+import { createGraphUsageBinding } from './extension/graphUsageBinding.js';
 import {
   activeGraphRunFor,
   graphTicketSurface,
@@ -970,9 +969,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // path, message uuid, and file fingerprint. Ephemeral — rebuilt from the file
   // on every sweep, cleared when the terminal closes.
   const claudeTranscriptStates = new Map<number, ClaudeWatchState>();
-  // T1370: graph planner/node claude sessions, keyed by graph launch id (never
-  // by ticket, so a graph session never shares the ticket session's state).
-  const graphClaudeTranscriptStates = new Map<string, ClaudeWatchState>();
   // Live token reading of running headless Claude calls (@arch:AC-14); read on the watch tick.
   const liveHeadless = createLiveHeadlessBinding({
     debug: (m) => logger.debug(m),
@@ -4487,11 +4483,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ownerNonce: identity.ownerNonce,
         startedAt: identity.startedAt,
         processRunId: identity.processRunId,
-        // A re-attached session knows neither its provider nor its provider
-        // session id (a reload rebuilt the registry from the terminal), so it
-        // records null rather than guessing from the binary name — that
-        // session's usage reading simply does not resume.
-        provider: null,
+        provider: null, // T1370: a re-attached session does not know its provider; its usage reading does not resume
         providerSessionId: null,
         terminal: wrapRevivedGraphTerminal(terminal),
       };
@@ -4769,6 +4761,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
   };
   const graphClaimEvidence = createGraphClaimEvidence(graphCompletionPipelineDeps, logError);
+  const graphUsage = createGraphUsageBinding({ endpointUrl: () => endpoint?.url, configDir: settingsDir, projectKey: () => projectEndpointKey(currentProject()?.slug), sessions: () => graphTransport?.sessions() ?? [], dispatch: (payload) => { dispatchHook(localStore, payload, notifyHook, shouldApplyHookState, sessionProviderFor, hookChannelRecorder, logger.debug); }, projectsDirFor: (sessionId) => resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)), debug: (m) => logger.debug(m), onError: logError }); // T1370
 
   // Graph node supervision (Slice 3 Task 3 + 7 wiring). Node sessions are
   // REAL vscode terminals, remembered in the identity registry so a reload
@@ -4842,33 +4835,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!gs) return undefined;
       return resolveGraphDiagnosticIdentity(gs.db, graphRunId);
     },
-    // Token accounting (T1370): a graph session gets a hook channel only on the
-    // cores whose usage ARRIVES as a hook — opencode2's generated bridge plugin
-    // posts `UsageUpdate`. claude is excluded on purpose: its usage comes from
-    // the transcript sweep, and a claude hook channel would carry lifecycle
-    // events for a ticket that has no session of its own.
-    //
-    // The channel carries a GRAPH launch id (`graph-<run>-<role>-<id>`), never a
-    // ticket generation: dispatch keys on the prefix to route a graph event down
-    // its usage-only path instead of the ticket lifecycle. It must NOT call
-    // `recoveryLifecycle.startLaunch` — a graph launch is not a ticket launch,
-    // and marking one would make the ticket's own session read as stale.
-    hookChannelFor: (request) => {
-      if (request.identity?.provider !== 'opencode2') return undefined;
-      if (!endpoint) {
-        logger.debug('[graph] hook endpoint is not bound — the launch records no usage');
-        return undefined;
-      }
-      const launchId = graphLaunchIdForLaunch(request);
-      const hookEndpoint = new URL(endpoint.url);
-      hookEndpoint.searchParams.set('karstLaunch', launchId);
-      return {
-        endpointUrl: hookEndpoint.toString(),
-        configDir: settingsDir,
-        launchId,
-        projectKey: projectEndpointKey(currentProject()?.slug),
-      };
-    },
+    hookChannelFor: graphUsage.hookChannelFor, // T1370 token accounting
   });
 
   /* ------------------------------------------------------------------ */
@@ -6495,35 +6462,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           },
         );
       }
-      // T1370: graph planner and node sessions, through the SAME dispatch seam.
-      // The supervised CLI transport spawns host terminals, so the placement is
-      // the host. The usage-limit read stays with the ticket session.
-      const graphTranscriptReader = makeTranscriptReader();
-      await sweepGraphClaudeSessions(
-        {
-          stat: graphTranscriptReader.stat,
-          readFile: graphTranscriptReader.readFile,
-          debug: (m) => logger.debug(m),
-          onError: (m, e) => logError(m, e),
-          onTranscript: () => undefined,
-          dispatch: (payload) => {
-            dispatchHook(localStore, payload, notifyHook, shouldApplyHookState, sessionProviderFor, hookChannelRecorder, logger.debug);
-          },
-          projectsDirFor: (sessionId) => resolveClaudeProjectsDir(sessionReaderEnv('claude', sessionId)),
-        },
-        (graphTransport?.sessions() ?? []).map((session) => ({
-          ticketId: session.ticketId,
-          graphRunId: session.graphRunId,
-          runId: session.nodeRunId,
-          role: session.runKind ?? 'node',
-          cwd: session.cwd,
-          provider: session.provider,
-          providerSessionId: session.providerSessionId,
-          generation: session.generation,
-          placement: 'host' as const,
-        })),
-        graphClaudeTranscriptStates,
-      );
+      await graphUsage.sweep(); // T1370: graph planner and node sessions, same dispatch seam
     } catch (error) {
       logError('karst: claude transcript usage watch failed', error);
     } finally {
