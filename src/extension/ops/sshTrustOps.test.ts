@@ -17,6 +17,15 @@ describe('sshRemoteFor', () => {
     expect(sshRemoteFor({ claude: 'ssh:missing' }, remotes, 'claude')).toBeUndefined();
     expect(sshRemoteFor(undefined, remotes, 'claude')).toBeUndefined();
   });
+
+  it('a manifest without remotes resolves ssh:<name> to none', () => {
+    expect(sshRemoteFor({ claude: 'ssh:devbox' }, undefined, 'claude')).toBeUndefined();
+  });
+
+  it('a launch not on ssh resolves to none, even when a remote is named "undefined"', () => {
+    expect(sshRemoteFor({ claude: 'host' }, { undefined: def }, 'claude')).toBeUndefined();
+    expect(sshRemoteFor({ claude: 'sbx' }, { undefined: def }, 'claude')).toBeUndefined();
+  });
 });
 
 describe('confirmRemoteTrust', () => {

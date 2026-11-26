@@ -44,6 +44,12 @@ describe('backendSessionOptions ssh remote trust (T1387)', () => {
     await backendSessionOptions({ ...base, remoteTrust, resolve }).resolveRunner!();
     expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ remoteTrusted: remoteTrust }));
   });
+
+  it('without a trust read, the forwarded remoteTrusted fails closed to false', async () => {
+    const resolve = vi.fn(async (_input: { remoteTrusted: (name: string) => boolean }) => ({ runner: HOST_SESSION_RUNNER, line: 'host (x)' }));
+    await backendSessionOptions({ ...base, resolve: resolve as never }).resolveRunner!();
+    expect(resolve.mock.calls[0]![0].remoteTrusted('devbox')).toBe(false);
+  });
 });
 
 describe('backendSessionOptions multi-repo guard (F4/F13 v1)', () => {

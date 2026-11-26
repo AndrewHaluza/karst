@@ -33,10 +33,11 @@ export function sshRemoteFor(
   core: string,
   ticketOverride?: 'host' | null,
 ): SshRemoteChoice | undefined {
-  const setting = ticketBackendSetting(backendForCore(backends, core), ticketOverride);
-  const name = setting === undefined ? undefined : parseSshBackend(setting);
-  const def = name === undefined ? undefined : remotes?.[name];
-  return name === undefined || def === undefined ? undefined : { name, def };
+  // backendForCore never returns undefined, so the ticket setting is always defined here.
+  const name = parseSshBackend(ticketBackendSetting(backendForCore(backends, core), ticketOverride)!);
+  if (name === undefined) return undefined;
+  const def = remotes?.[name];
+  return def === undefined ? undefined : { name, def };
 }
 
 export interface ConfirmRemoteDeps {
