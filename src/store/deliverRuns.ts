@@ -177,7 +177,8 @@ export function currentDeliverRun(store: Store, ticketId: number): DeliverRun | 
 }
 
 /** One run by id, so a caller reads the run it opened, not the newest run of the ticket. */
-export function getDeliverRun(store: Store, runId: number): DeliverRun | null {
+export function getDeliverRun(store: Store, runId: number | null): DeliverRun | null {
+  // A null id (a refusal that named no run) matches no row: the caller gets the same "none" answer as a missing id.
   const row = store.db.prepare(`${RUN_SELECT} WHERE r.id = ?`).get(runId) as RunRow | undefined;
   return row ? rowToRun(row) : null;
 }

@@ -284,6 +284,62 @@ export function runnableNodeRunsForGraphRun(
   >;
 }
 
+/**
+ * T1385 — the first-activity watchdog's read: a graph run's RUNNING node runs
+ * with the ticket's placement and whether ANY `interactive_usage_samples` row
+ * exists for the node's `process_run_id`. A sample at any age exempts the node,
+ * so the read answers existence, not recency. `placement` is the ticket's
+ * `tickets.placement_backend`; NULL means host placement.
+ *
+ * `launched_at` is the start of the CURRENT launch: the `started_at` of the
+ * node's current `process_runs` row. The node's own `started_at` keeps the
+ * FIRST claim across relaunches (`markNodeRunStarted`), so a window measured
+ * from it would stop each relaunch on its first tick. It is the fallback only
+ * when the process run has no start.
+ */
+export type RunningNodeRunActivity = Pick<NodeRunRow, 'id' | 'process_run_id' | 'provider'> & {
+  launched_at: string | null;
+  placement: string | null;
+  hasUsageSample: boolean;
+};
+
+export function runningNodeRunsForFirstActivity(
+  db: GraphDb,
+  graphRunId: number,
+): RunningNodeRunActivity[] {
+  const rows = db
+    .prepare(
+      `SELECT n.id, n.process_run_id, n.provider,
+              COALESCE(p.started_at, n.started_at) AS launched_at,
+              t.placement_backend AS placement,
+              EXISTS (
+                SELECT 1 FROM interactive_usage_samples s
+                 WHERE s.process_run_id = n.process_run_id
+              ) AS has_usage_sample
+         FROM approach_node_runs n
+         JOIN approach_graph_runs r ON r.id = n.graph_run_id
+         LEFT JOIN process_runs p ON p.id = n.process_run_id
+         LEFT JOIN tickets t ON t.id = r.ticket_id
+        WHERE n.graph_run_id = ? AND n.status = 'running'
+        ORDER BY n.id`,
+    )
+    .all(graphRunId) as Array<
+    Pick<NodeRunRow, 'id' | 'process_run_id' | 'provider'> & {
+      launched_at: string | null;
+      placement: string | null;
+      has_usage_sample: number;
+    }
+  >;
+  return rows.map((row) => ({
+    id: row.id,
+    process_run_id: row.process_run_id,
+    provider: row.provider,
+    launched_at: row.launched_at,
+    placement: row.placement,
+    hasUsageSample: Number(row.has_usage_sample) === 1,
+  }));
+}
+
 /** How many node runs (revision, node) has, regardless of status. */
 export function countNodeRunsForRevisionNode(
   db: GraphDb,

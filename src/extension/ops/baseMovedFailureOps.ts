@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import { baseMovedFailureState, type BaseMovedFailureRun } from '../../workflow/baseMovedFailure.js';
+import { baseMovedFailureState, type BaseMovedFailureRun, type BaseMovedFailureState } from '../../workflow/baseMovedFailure.js';
 import { sendBackToImplement, SEND_BACK_EVENT_PREFIX } from '../../workflow/sendBack.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
 import { enterShipFixRound } from '../../workflow/shipFixRound.js';
@@ -35,6 +35,11 @@ export interface BaseMovedFailureOpsDeps {
   readonly implRunsGraph?: () => boolean;
   /** Settles the webview's pending state. Must run on EVERY exit. */
   readonly afterServerChange: () => void;
+  /**
+   * A failure state the caller already read (T1381: the auto-deliver's own refused run). Absent → the newest
+   * `base-moved` run of the ticket (`baseMovedFailureState`).
+   */
+  readonly state?: BaseMovedFailureState;
 }
 
 /** The base ref named in the block reason (`origin/<base>`), or null when the reason does not carry it. */
@@ -86,7 +91,7 @@ export function failureReason(f: BaseMovedFailureRun, path: string, withImplMark
 
 export async function sendGateFailureToAgent(deps: BaseMovedFailureOpsDeps): Promise<void> {
   try {
-    const state = baseMovedFailureState(deps.store, deps.ticketId);
+    const state = deps.state ?? baseMovedFailureState(deps.store, deps.ticketId);
     if (!state.available) {
       deps.info('There is no failed base-moved gate run on this ticket to send to the agent.');
       return;

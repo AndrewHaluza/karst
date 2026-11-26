@@ -12,8 +12,8 @@ import type { DoctorCheck } from './types.js';
 export const SANDBOX_DISK_WARN_BYTES = 10 * 2 ** 30;
 
 export interface SandboxCheckInput {
-  /** The sandbox backends some core selects; sbx and docker can both be on. */
-  readonly selected: readonly ('sbx' | 'docker')[];
+  /** The sandbox backends some core selects; sbx, docker and ssh can all be on. */
+  readonly selected: readonly ('sbx' | 'docker' | 'ssh')[];
   readonly sbx: BackendStatus;
   readonly docker: BackendStatus;
   readonly sandboxCount: number;
@@ -36,7 +36,10 @@ export const DOCKER_MEM_WARN_BYTES = 8 * 2 ** 30;
  */
 export function checkSandboxBackends(input: SandboxCheckInput): DoctorCheck[] {
   if (input.selected.length === 0) return [];
-  const out: DoctorCheck[] = input.selected.map((backend) => backendCheck(backend, backend === 'sbx' ? input.sbx : input.docker));
+  // No ssh probe exists yet (T1387): the doctor reports only the runners it can check.
+  const out: DoctorCheck[] = input.selected
+    .filter((backend): backend is 'sbx' | 'docker' => backend !== 'ssh')
+    .map((backend) => backendCheck(backend, backend === 'sbx' ? input.sbx : input.docker));
   if (input.selected.includes('docker') && input.dockerMemBytes !== undefined) out.push(memoryCheck(input.dockerMemBytes));
   const extra = (input.imageBytes ?? 0) + (input.cacheBytes ?? 0);
   if (input.sandboxCount > 0 || extra > 0) out.push(diskCheck(input.sandboxCount, input.diskBytes, input.imageBytes, input.cacheBytes));
@@ -108,7 +111,7 @@ export interface SetupRepoFact {
 }
 
 /** A sandboxed run starts from a fresh clone: a lockfile repo with no `sandbox.setup` has no deps (report-only). */
-export function checkSandboxSetupDeclared(selected: readonly ('sbx' | 'docker')[], repos: readonly SetupRepoFact[]): DoctorCheck[] {
+export function checkSandboxSetupDeclared(selected: readonly ('sbx' | 'docker' | 'ssh')[], repos: readonly SetupRepoFact[]): DoctorCheck[] {
   if (selected.length === 0) return [];
   return repos
     .filter((r) => r.hasLockfile && !r.hasSetup)

@@ -1,10 +1,12 @@
 import type { JsonSchema } from '../jsonSchema.js';
 import { BACKEND_CORES, allowedBackends } from '../../agent/backendChoices.js';
+import { SSH_CORES } from '../../agent/sandboxCores.js';
 import { PRESET_CAPABILITIES, type PresetCapability } from '../../manifest/types.js';
 import { PROCESS_KEYS } from '../../manifest/validate/processAssignments.js';
 import {
   BOOLEAN,
   NON_EMPTY_STRING,
+  PORT,
   STRING,
   enumOf,
   lenientObject,
@@ -74,7 +76,35 @@ const PROCESS: JsonSchema = {
 };
 
 const BACKEND_PROPERTIES: Record<string, JsonSchema> = Object.fromEntries(
-  BACKEND_CORES.map((core) => [core, enumOf(allowedBackends(core))]),
+  BACKEND_CORES.map((core) => {
+    const allowed = enumOf(allowedBackends(core));
+    // `ssh:<name>` names a `remotes` entry (T1387). The schema cannot check that
+    // the name is declared — the validator does (VALIDATOR_ONLY_RULES) — but the
+    // shape is pinned here so a typo never reaches the resolver.
+    const ssh: JsonSchema = { type: 'string', pattern: '^ssh:[a-z0-9][a-z0-9-]{0,30}$' };
+    return [core, (SSH_CORES as readonly string[]).includes(core) ? { anyOf: [allowed, ssh] } : allowed];
+  }),
+);
+
+export const REMOTE_NAME_PATTERN = '^[a-z0-9][a-z0-9-]{0,30}$';
+export const REMOTE_HOST_PATTERN = '^(?:[A-Za-z0-9][A-Za-z0-9.-]{0,252}|\\[[0-9A-Fa-f:.]+\\])$';
+export const REMOTE_USER_PATTERN = '^[a-z_][a-z0-9_-]{0,31}$';
+export const REMOTE_DIR_PATTERN = '^(?!.*\\/\\.{1,2}(?:\\/|$))\\/[A-Za-z0-9._-]+(?:\\/[A-Za-z0-9._-]+)+$';
+export const REMOTE_KEY_PATH_PATTERN =
+  '^(?!.*\\/\\.\\.(?:\\/|$))(?:~|\\/[A-Za-z0-9._-]+(?:\\/[A-Za-z0-9._-]+)*)\\/\\.ssh\\/[A-Za-z0-9._\\/-]+$';
+
+/** One named SSH target (T1387); the validator's patterns are the security boundary. */
+const REMOTE: JsonSchema = strictObject(
+  {
+    host: { type: 'string', pattern: REMOTE_HOST_PATTERN },
+    user: { type: 'string', pattern: REMOTE_USER_PATTERN },
+    port: PORT,
+    keyPath: { type: 'string', pattern: REMOTE_KEY_PATH_PATTERN },
+    mode: enumOf(['direct', 'docker']),
+    remoteDir: { type: 'string', pattern: REMOTE_DIR_PATTERN },
+    allowHostServices: BOOLEAN,
+  },
+  ['host', 'user', 'mode', 'remoteDir'],
 );
 
 /** Agents tab: the Default row, per-role pins, presets, agent profiles and backends. `quota` is out of band (project schema). */
@@ -101,6 +131,11 @@ export const AGENTS_SCHEMA: JsonSchema = {
     activeAgentPreset: STRING,
     defaultAgentPreset: STRING,
     agentBackends: strictObject(BACKEND_PROPERTIES),
+    remotes: {
+      type: 'object',
+      propertyNames: { type: 'string', pattern: REMOTE_NAME_PATTERN },
+      additionalProperties: REMOTE,
+    },
   },
 };
 

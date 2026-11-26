@@ -559,7 +559,7 @@ describe('openStore', () => {
     expect(colsOf(reopened).filter((c) => c === 'source')).toHaveLength(1);
   });
 
-  it('a fresh database defaults phase_marks.source to agent', () => {
+      it('a fresh database defaults phase_marks.source to agent', () => {
     const fresh = openStore(':memory:');
     cleanups.push(() => fresh.close());
     const col = (fresh.db.prepare("PRAGMA table_info('phase_marks')").all() as { name: string; notnull: number; dflt_value: string | null }[])

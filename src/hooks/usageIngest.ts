@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import { appendInteractiveUsageSample } from '../store/interactiveUsageSamples.js';
+import { appendInteractiveUsageSample, type GraphRunOwner } from '../store/interactiveUsageSamples.js';
 import { normalizeInteractiveUsage } from '../agent/interactiveUsage.js';
 import { nowIso } from '../model/time.js';
 import type { AgentProvider } from '../manifest/types.js';
@@ -20,6 +20,8 @@ export function recordUsageSample(
     provider: AgentProvider;
     providerSessionId: string;
     usage: unknown;
+    /** T1385: the graph run that owns the session (graph hook path only). */
+    graphRun?: GraphRunOwner;
   },
   debug?: (msg: string) => void,
 ): boolean {
@@ -32,6 +34,7 @@ export function recordUsageSample(
   debug?.(`[usage] ticket ${ticketId}: provider=${provider}, session=${providerSessionId}, input=${normalized.input}, output=${normalized.output}`);
   const result = appendInteractiveUsageSample(store, {
     ticketId,
+    ...(input.graphRun === undefined ? {} : { graphRun: input.graphRun }),
     sample: {
       ...normalized,
       provider,

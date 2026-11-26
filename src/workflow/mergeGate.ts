@@ -354,12 +354,18 @@ export function settleShipGate(
     );
     return { advanced: false, state: mergeGateState(store, ticketId), landedSubtaskParentId: null };
   }
-  const awaiting = stageBlock(store, ticketId, 'ship')?.kind === 'awaiting-merge';
+  const stage = getStage(store, ticketId, 'ship');
+  const block = stageBlock(store, ticketId, 'ship');
+  // A refused resolved merge parks this same block after the ship already passed, so its PRs landing settles it. A block
+  // written by the ship runner BEFORE the push (a pending stage, the base check failed) names no shipped ticket: settling
+  // it would move a ticket to done that never pushed.
+  const parked = block?.kind === 'awaiting-merge'
+    || (block?.kind === 'base-moved-failed' && stage?.status === 'passed');
   // The recovery case: ship completed (a passed ship run) but the terminal
   // block write was lost, so there is no block to key on. Without this the
   // sweep refused forever and the ticket never reached `done`.
-  const recover = !awaiting && shippedWithoutBlock(store, ticketId);
-  if (!awaiting && !recover) {
+  const recover = !parked && shippedWithoutBlock(store, ticketId);
+  if (!parked && !recover) {
     debug?.(
       `[merge] ticket ${ticketId}: settle skipped — no awaiting-merge block (freshly parked at ship?)`,
     );

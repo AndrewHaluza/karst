@@ -691,6 +691,8 @@ A `graph-preserve-failed` block means the host could not write the work of a sup
 
 A `usage-limit` park blocks the role row and the graph run in one transaction, then terminates the session through the graph transport. A PARALLEL node that hits the same provider stop still parks and is terminated, but the run keeps the first node's reason and only the first park offers the prompt. The park retries a lock-contended transaction with bounded asynchronous backoff: the coordinator connection runs with no busy timeout, and a hook or transcript signal arrives once. The post-commit stage write retries the same way and is best-effort, so it never turns the committed park into a reported failure; a refused Resume in the prompt shows the same guidance as the blocked banner's Resume.
 
+The first-activity watchdog (T1385) stops a `running` node that shows no session activity after 10 minutes of awake time, and parks it as `node-blocked` (`launch-retry`). Detail: `arch:GRAPH-FIRST-ACTIVITY`.
+
 An automatic recovery never uses `force-resume`, so the launch-loop guard stays. A `refused` result stops the automatic step for that block in the same host session. An automatic replan runs with `humanReplan: false`, so it obeys `budgets.maxReplans` of the revision document. When that budget is spent, the recovery refuses with `config-then-resume` before the run claim and changes no row. The run keeps its block reason and the node keeps its failure evidence. A human Replan bypasses the document budget. A replan for `resource-claim-violated` gets the node id, the path, and the declared write claims in the `claimViolations` list of the reasons file.
 
 A recovery note never carries a forbidden body character. A `resource-conflict` deferral names the canonical worktree path of the domain, not the durable domain key (which joins its halves with NUL), and the coordinator passes every reason through `sanitizeInline` before it posts the note.
@@ -721,6 +723,17 @@ A node that is live at the election can end its work. The CLI accepts `node comp
 
 The host (`driveReplanDrain`) acts only when a replan drain has no planner run for its target revision. It drives the completing nodes, reads the status again, and then allocates the planner. The planner is allocated only after quiescence. A drain that already has a planner row, of any status, is left to reconcile. A paused ticket starts nothing. A Stop drain is not a replan drain: it starts no planner and it waits for a deliberate Restart.
 END_DOC_BLOCK: [@arch:GRAPH-REPLAN-DRAIN]
+
+## [@arch:GRAPH-FIRST-ACTIVITY] The graph host stops a node that shows no session activity 10 minutes after launch
+covers: src/approaches/graph/coordinator/firstActivity.ts, src/extension/graphFirstActivityBinding.ts
+
+Split out of `arch:GRAPH-AUTORECOVERY`. The first-activity watchdog (`firstActivity.ts`) stops a node whose prompt never reached a session (T1371, T1372). It checks only a `running` node with provider `opencode2`, or `claude` on host placement; other providers have no graph progress signal. The trigger is no `interactive_usage_samples` row for the `process_run_id` of the node after `FIRST_ACTIVITY_WAIT_MS` (10 minutes) of awake time. The window starts at the current launch (`started_at` of the current `process_runs` row), not at the first claim: a relaunch keeps the node `started_at` but opens a new process run. The time comes from the sleep ledger, so host sleep does not count. A sample at any age exempts the node.
+
+Nodes run in parallel, so the graph hook path binds each sample to the run that owns the session (`graphRun` from the launch id or the node workspace), never to the latest running node. A sample with no graph owner binds to no graph run.
+
+The host terminates the session through the graph transport (attributable kill only). A `denied` or `unknown` proof, or no session in this window, leaves the row `running`. After a proven kill, `parkLaunchFailure` parks the node with `no session activity <N> min after launch`. The run reason is `node-blocked: node run <id> showed no session activity <N> min after launch`. The park passes `providerExit = false`, so `launch_fail_streak` does not increase. The block is in the automatic `launch-retry` category, so autorecovery relaunches the node at most `AUTO_RECOVERY_LIMIT` times; one graph diagnostic records the node run id, the provider and the awake minutes.
+
+END_DOC_BLOCK: [@arch:GRAPH-FIRST-ACTIVITY]
 
 ## [@arch:GRAPH-PRESERVE] The graph host keeps the work of a node that did not integrate
 covers: src/approaches/graph/integration/claimEvidence.ts, src/approaches/graph/integration/changeSetCapture.ts, src/approaches/graph/workspace/preserve.ts, src/approaches/graph/workspace/preserveBestEffort.ts, src/approaches/graph/coordinator/abandonedNodes.ts, src/extension/graphPreserveBinding.ts, src/extension/graphClaimEvidenceBinding.ts

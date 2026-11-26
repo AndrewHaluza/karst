@@ -17,4 +17,10 @@ describe('section table', () => {
     const open = (Object.keys(SECTION_OF) as (keyof typeof SECTION_OF)[]).filter((k) => !protectedKeys().includes(k));
     expect(open).toEqual(['repositories']);
   });
+
+  it('protects `remotes` through the agents section, so a setup proposal never changes it (T1387)', () => {
+    expect(SECTION_OF.remotes).toBe('agents');
+    expect(protectedKeys()).toContain('remotes');
+    expect(keysOfSection('agents')).toContain('remotes');
+  });
 });

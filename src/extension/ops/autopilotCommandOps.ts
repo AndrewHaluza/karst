@@ -4,7 +4,7 @@ import { isFinishedStage } from '../../model/types.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
 import { autopilotEventLevel, recordEvent } from '../../store/karstEvents.js';
 import {
-  AUTOPILOT_OVERRIDES, getAutopilotTicket, listAutopilotBudgets, clearConflictRound, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
+  AUTOPILOT_OVERRIDES, getAutopilotTicket, listAutopilotBudgets, clearCiRoundHeadShas, clearConflictRound, setAutopilotOverride, setAutopilotPaused, setAutopilotStopped, type AutopilotKind, type AutopilotOverride,
 } from '../../store/autopilot.js';
 import { approveOneMore, clearParkBlock, stopAutopilot } from './autopilotOps.js';
 
@@ -67,13 +67,15 @@ export async function setOverrideCommand(d: AutopilotCommandDeps, ticketId?: num
 
 /**
  * Retry a paused or parked round: clear the pause, the stop reason and the park block, so the next sweep tries again.
- * The mode stays as it is and no note is posted: a retry is not a mode change.
+ * The recorded CI round heads are cleared too: they are the no-change guard, and a retry that left them would park the same
+ * round again instead of trying it. The mode stays as it is and no note is posted: a retry is not a mode change.
  */
 export async function retryCommand(d: AutopilotCommandDeps, ticketId?: number): Promise<void> {
   const id = await resolveTicket(d, ticketId, 'Retry auto-fix for which ticket?');
   if (id === undefined) return;
   setAutopilotPaused(d.store, id, null);
   setAutopilotStopped(d.store, id, null);
+  clearCiRoundHeadShas(d.store, id);
   clearParkBlock(d.store, id);
   d.debug(`[ship] autopilot ticket ${keyOf(d.store, id)} retry`);
 }

@@ -1,6 +1,6 @@
 import { sandboxAccountBlock, sbxTokenAccount } from './accounts/registry.js';
 import { ACCOUNT_CORES, type AccountCore } from './accounts/types.js';
-import { backendForCore, type AgentBackends } from './backendChoices.js';
+import { backendForCore, isSshBackend, parseSshBackend, type AgentBackends } from './backendChoices.js';
 import { prepareSbxClone, sbxCloneDir } from './sbx/sbxClone.js';
 import { sbxName } from './sbx/sbxName.js';
 import { sbxPreflight, type SbxPreflight } from './sbx/sbxPreflight.js';
@@ -43,6 +43,12 @@ export interface ResolveBackendInput {
   readonly account?: string;
   /** The host OAuth proxy side of an sbx claude launch: the key store and the accounts that hold a stored token (@arch:AC-51). */
   readonly oauth?: { readonly grants: SbxOauthGrants; readonly tokenAccounts: ReadonlySet<string> };
+  /**
+   * Whether the host trust record allows this remote (T1387): built from
+   * `readRemoteTrust` + `isRemoteTrusted`. An unconfirmed remote always runs on
+   * the host, so no ssh command can run before the user allowed it.
+   */
+  readonly remoteTrusted: (name: string) => boolean;
 }
 
 /** Why a launch's account cannot run in the sandbox, as data: callers never parse `line`. */
@@ -69,12 +75,18 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   const onHost = (reason: string): ResolvedBackend => ({ runner: host, line: `host (${reason})` });
   const backend = backendForCore(input.backends, input.core);
   if (backend === 'host') return onHost(`agentBackends.${input.core}: host`);
+  const sshRemote = isSshBackend(backend) ? parseSshBackend(backend) : undefined;
   // @arch:AC-55: a command account is a host binary; a sandbox cannot run it.
   const accountBlock = (ACCOUNT_CORES as readonly string[]).includes(input.core)
-    ? sandboxAccountBlock(input.core as AccountCore, input.account, backend === 'sbx' ? 'sbx' : 'docker', input.oauth?.tokenAccounts)
+    ? sandboxAccountBlock(input.core as AccountCore, input.account, sshRemote !== undefined ? 'ssh' : backend === 'sbx' ? 'sbx' : 'docker', input.oauth?.tokenAccounts)
     : undefined;
   if (accountBlock) {
     return { ...onHost(accountBlock), blocked: { kind: 'account', reason: accountBlock } };
+  }
+  if (sshRemote !== undefined) {
+    // The gate D555 keeps: no ssh command for an unconfirmed remote.
+    if (!input.remoteTrusted(sshRemote)) return onHost(`ssh: remote '${sshRemote}' not confirmed`);
+    return onHost('ssh: backend not available yet');
   }
   if (backend === 'docker') {
     const docker = await resolveDocker({

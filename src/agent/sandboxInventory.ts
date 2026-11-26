@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { SBX_CORES } from './sbx/sbxRunner.js';
 import { DOCKER_CORES } from './docker/dockerImage.js';
+import { SSH_CORES } from './sandboxCores.js';
 import { listSbx } from './sbx/sbxList.js';
 import type { SbxProcess, ProcessResult } from './sbx/sbxProcess.js';
 
-export type SandboxRunnerKind = 'sbx' | 'docker';
+export type SandboxRunnerKind = 'sbx' | 'docker' | 'ssh';
 
 /** One sandbox of THIS project, identity derived from its name (`karst-<hash8>-<id>-<core>`). */
 export interface ProjectSandbox {
@@ -23,7 +24,7 @@ export interface SandboxInventory {
   readonly errors: readonly string[];
 }
 
-const CORES_BY_RUNNER: Record<SandboxRunnerKind, readonly string[]> = { sbx: SBX_CORES, docker: DOCKER_CORES };
+const CORES_BY_RUNNER: Record<SandboxRunnerKind, readonly string[]> = { sbx: SBX_CORES, docker: DOCKER_CORES, ssh: SSH_CORES };
 
 export function projectPrefix(projectRoot: string): string {
   return `karst-${createHash('sha256').update(projectRoot).digest('hex').slice(0, 8)}-`;

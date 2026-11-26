@@ -119,10 +119,22 @@ export function lastInteractiveUsageSample(
   return row === undefined ? null : rowToSample(row);
 }
 
+/** The graph run a session belongs to, proven by its launch id or node workspace. */
+export interface GraphRunOwner {
+  role: 'node' | 'planner';
+  /** The node-run id or the planner-run id (two sequences; `role` tells them apart). */
+  runId: number;
+}
+
 export interface AppendInteractiveUsageInput {
   ticketId: number;
   /** The full normalized sample; provider + session id scope the baseline. */
   sample: InteractiveUsageSample;
+  /**
+   * T1385: the graph run the session belongs to. When set, only that run may
+   * own the sample (parallel graph nodes). Unset binds to no graph run.
+   */
+  graphRun?: GraphRunOwner;
 }
 
 export type AppendInteractiveUsageResult =
@@ -198,6 +210,7 @@ function resolveSessionBinding(
   ticketId: number,
   provider: string,
   providerSessionId: string,
+  graphRun: GraphRunOwner | undefined,
 ): SessionBinding | null {
   const fixRound = store.db
     .prepare(
@@ -326,19 +339,42 @@ function resolveSessionBinding(
   }
   }
 
-  // Graph sessions (Slice-3 T10): the launch opened its `process_runs` row at
-  // the transport seam, so the binding is the ticket's ACTIVE graph process
-  // of this provider — the node or planner run whose row is still `running`.
-  // Slice-3 execution is SEQUENTIAL, so one ticket has at most one live graph
-  // process at a time; the latest such run owns the session. No owned process
-  // is NOT a binding: a closed row (the node completed, the terminal closed)
-  // owns nothing, and nothing is invented to make the observation fit. (A
-  // provider-session-id column on the runs is the Slice-6 refinement; until
-  // then the sequential invariant bounds the approximation.)
-  const graphNode = store.db
+  return graphSessionBinding(store, ticketId, provider, graphRun);
+}
+
+/** The graph run table of each launch role, and the binding purpose it gives. */
+const GRAPH_ROLE_TABLES = {
+  node: { table: 'approach_node_runs', purpose: 'graph-node' },
+  planner: { table: 'approach_planner_runs', purpose: 'graph-planner' },
+} as const;
+
+/**
+ * Graph sessions (Slice-3 T10): the launch opened its `process_runs` row at
+ * the transport seam, so the binding is a graph process of this provider whose
+ * row is still `running`. No owned process is NOT a binding: a closed row (the
+ * node completed, the terminal closed) owns nothing, and nothing is invented to
+ * make the observation fit.
+ *
+ * T1385: graph nodes run in PARALLEL, so "the latest running graph process of
+ * the ticket" is not the session's owner — it filed every sample of two
+ * parallel nodes under the newer one, and the first-activity watchdog then
+ * stopped the older, active node. Only the session's OWN run (`graphRun`, from
+ * the launch id or the node workspace on the graph hook path) may own the
+ * sample. A sample with no graph owner (the ticket path) binds to no graph run:
+ * it would otherwise exempt a hung node from the watchdog.
+ */
+function graphSessionBinding(
+  store: Store,
+  ticketId: number,
+  provider: string,
+  graphRun: GraphRunOwner | undefined,
+): SessionBinding | null {
+  if (graphRun === undefined) return null;
+  const { table, purpose } = GRAPH_ROLE_TABLES[graphRun.role];
+  const row = store.db
     .prepare(
       `SELECT ar.id AS run_id, pr.id AS process_run_id, pr.model AS model
-         FROM approach_node_runs ar
+         FROM ${table} ar
          JOIN process_runs pr
            ON pr.id = ar.process_run_id
           AND pr.status = 'running'
@@ -346,54 +382,22 @@ function resolveSessionBinding(
           AND pr.ticket_id = ?
          JOIN approach_graph_runs gr
            ON gr.id = ar.graph_run_id AND gr.ticket_id = ?
-        WHERE gr.status NOT IN ('closed', 'cancelled', 'stale')
-        ORDER BY ar.id DESC LIMIT 1`,
+        WHERE gr.status NOT IN ('closed', 'cancelled', 'stale') AND ar.id = ?`,
     )
-    .get(provider, ticketId, ticketId) as
+    .get(provider, ticketId, ticketId, graphRun.runId) as
     | { run_id: number; process_run_id: number; model: string | null }
     | undefined;
-  if (graphNode !== undefined) {
-    return {
-      purpose: 'graph-node',
-      sessionOrigin: 'new',
-      provider,
-      model: graphNode.model,
-      processRunId: graphNode.process_run_id,
-      implementationSegmentId: null,
-      approachPlannerRunId: null,
-      approachNodeRunId: graphNode.run_id,
-    };
-  }
-  const graphPlanner = store.db
-    .prepare(
-      `SELECT ar.id AS run_id, pr.id AS process_run_id, pr.model AS model
-         FROM approach_planner_runs ar
-         JOIN process_runs pr
-           ON pr.id = ar.process_run_id
-          AND pr.status = 'running'
-          AND pr.provider = ?
-          AND pr.ticket_id = ?
-         JOIN approach_graph_runs gr
-           ON gr.id = ar.graph_run_id AND gr.ticket_id = ?
-        WHERE gr.status NOT IN ('closed', 'cancelled', 'stale')
-        ORDER BY ar.id DESC LIMIT 1`,
-    )
-    .get(provider, ticketId, ticketId) as
-    | { run_id: number; process_run_id: number; model: string | null }
-    | undefined;
-  if (graphPlanner !== undefined) {
-    return {
-      purpose: 'graph-planner',
-      sessionOrigin: 'new',
-      provider,
-      model: graphPlanner.model,
-      processRunId: graphPlanner.process_run_id,
-      implementationSegmentId: null,
-      approachPlannerRunId: graphPlanner.run_id,
-      approachNodeRunId: null,
-    };
-  }
-  return null;
+  if (row === undefined) return null;
+  return {
+    purpose,
+    sessionOrigin: 'new',
+    provider,
+    model: row.model,
+    processRunId: row.process_run_id,
+    implementationSegmentId: null,
+    approachPlannerRunId: purpose === 'graph-planner' ? row.run_id : null,
+    approachNodeRunId: purpose === 'graph-node' ? row.run_id : null,
+  };
 }
 
 /**
@@ -437,6 +441,7 @@ export function appendInteractiveUsageSample(
       input.ticketId,
       sample.provider,
       sample.providerSessionId,
+      input.graphRun,
     );
     if (binding === null || binding.processRunId === null) {
       outcome = { kind: 'unattributed' };
