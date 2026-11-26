@@ -1021,7 +1021,7 @@ describe('deliverToPrAction reports a refused ship push (T1379)', () => {
     openDeliverRun(store, { ticketId: id, headSha: SHA, gates: ['unit', 'lint'], pid: 1, now: 'T0' });
     conflictRounds.arm(id, { repo: 'r', baseSha: null, files: [] });
     const auto = autoDeliverAfterConflict({
-      ticketId: id, key: 'W-1', rounds: conflictRounds,
+      store, ticketId: id, key: 'W-1', rounds: conflictRounds,
       targets: () => ({ available: true, prs: [{ repo: 'r', number: 5, branch: 'feat/x', cwd: '/w/r' }] }),
       agentActive: () => false, ensureSynced: async () => ({ ok: true }) as never, verifyMerge: async () => null,
       runGates: (_p, signal) => new Promise((resolve) => { if (signal.aborted) resolve({ reason: 'stopped', failed: [] }); else signal.addEventListener('abort', () => resolve({ reason: 'stopped', failed: [] })); }),

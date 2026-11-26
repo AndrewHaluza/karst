@@ -164,7 +164,7 @@ describe('latestBaseMovedFailedGates (T1169)', () => {
   it('ignores a newer auto run, and a gate that did not exit non-zero is not a failure', () => {
     const bm = run('base-moved', 'failed');
     run('auto', 'failed');
-    // The ship's base-moved remedy names the base-moved run, never an unrelated auto-deliver run (@arch:AP-12).
+    // The ship's base-moved remedy names the base-moved run, never an unrelated auto-deliver run (@arch:AP-14).
     expect(latestBaseMovedFailedGates(store, id, 'r').map((g) => g.runId)).toEqual([bm]);
     store.db.prepare('UPDATE deliver_gate_results SET exit_code = NULL WHERE run_id = ?').run(bm);
     expect(latestBaseMovedFailedGates(store, id, 'r')).toEqual([]);

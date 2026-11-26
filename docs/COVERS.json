@@ -557,7 +557,10 @@
     "arch:AP-01"
   ],
   "src/extension/ops/autoDeliverOps.ts#autoDeliverAfterConflict": [
-    "arch:AP-12"
+    "arch:AP-14"
+  ],
+  "src/extension/ops/autoDeliverOps.ts#rerunSkippedGates": [
+    "arch:AP-13"
   ],
   "src/extension/ops/autoReship.ts": [
     "arch:AP-06"
@@ -581,14 +584,14 @@
     "arch:AP-12"
   ],
   "src/extension/ops/autopilotOps.ts#autopilotTick": [
-    "arch:AP-12"
+    "arch:AP-14"
   ],
   "src/extension/ops/autopilotOps.ts#parkRefusedMerge": [
-    "arch:AP-12"
+    "arch:AP-14"
   ],
   "src/extension/ops/autopilotOps.ts#runBaseMovedRound": [
     "arch:AP-06",
-    "arch:AP-12"
+    "arch:AP-14"
   ],
   "src/extension/ops/autopilotRefusal.ts": [
     "arch:AP-01"
@@ -631,7 +634,8 @@
     "arch:AP-01"
   ],
   "src/extension/ops/ciActionsWiring.ts#deliverToPrAction": [
-    "arch:AP-01"
+    "arch:AP-01",
+    "arch:AP-13"
   ],
   "src/extension/ops/ciFailureOps.ts#sendCiFailureToAgent": [
     "arch:AP-06"
@@ -726,6 +730,7 @@
   ],
   "src/extension/ops/shipGatesOps.ts": [
     "arch:AP-01",
+    "arch:AP-13",
     "arch:GATE-BASE-MOVED"
   ],
   "src/extension/ops/shipRetryOps.ts": [
@@ -1120,7 +1125,8 @@
     "arch:AP-01"
   ],
   "src/store/deliverRuns.ts": [
-    "arch:AP-01"
+    "arch:AP-01",
+    "arch:AP-13"
   ],
   "src/store/draftOverlap.ts#listOverlapCandidates": [
     "arch:DRAFT-QUALITY"
@@ -1233,6 +1239,7 @@
     "arch:SHARED-VIEW"
   ],
   "src/store/shipRuns.ts": [
+    "arch:AP-13",
     "arch:GH-00"
   ],
   "src/store/shipRuns.ts#hasAttendedShipRun": [
@@ -1401,16 +1408,16 @@
   ],
   "src/workflow/baseMovedFailure.ts#deliverRunFailureState": [
     "arch:AP-06",
-    "arch:AP-12"
+    "arch:AP-14"
   ],
   "src/workflow/baseMovedFailure.ts#latestBaseMovedFailedGates": [
-    "arch:AP-12"
+    "arch:AP-14"
   ],
   "src/workflow/baseMovedFailure.ts#latestBlockRunState": [
-    "arch:AP-12"
+    "arch:AP-14"
   ],
   "src/workflow/baseMovedFailure.ts#shipGateFailureState": [
-    "arch:AP-12"
+    "arch:AP-14"
   ],
   "src/workflow/baseMovedStale.ts": [
     "arch:GATE-BASE-MOVED"

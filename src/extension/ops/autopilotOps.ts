@@ -79,7 +79,7 @@ export interface AutopilotDeps {
   readonly isGraphTicket: () => boolean;
   readonly sendCiFailure: () => Promise<FixOutcome>;
   /**
-   * The send-back of a failed base-moved run (@arch:AP-00) or a refused resolved merge (@arch:AP-12). The failure state the
+   * The send-back of a failed base-moved run (@arch:AP-00) or a refused resolved merge (@arch:AP-14). The failure state the
    * round read is passed, so the send never re-reads a newer run. Absent: no round for the block.
    */
   readonly sendGateFailure?: (state?: BaseMovedFailureState) => Promise<FixOutcome>;
@@ -341,7 +341,7 @@ export async function autopilotTick(d: AutopilotDeps): Promise<AutopilotResult> 
     d.debug(`${LOG} ticket ${d.key}: the conflict round ended, the PR is no longer conflicted`);
   }
   // A refusal of a verified resolved merge whose deliver run failed a gate parks the ticket on the SAME base-moved block the
-  // base check uses and delegates to its round (@arch:AP-12): the block runs before resumeStep and runRound, survives a
+  // base check uses and delegates to its round (@arch:AP-14): the block runs before resumeStep and runRound, survives a
   // reload or a lease loss, and every existing clear path (send-back, fix round, landing) ends it. Only a refusal with
   // nothing to fix parks (T1315).
   const refused = getConflictRoundAt(d.store, d.ticketId) !== null
@@ -561,7 +561,7 @@ function failedRepoHeads(failed: BaseMovedFailureRun['failed'], runHead: string 
  * A failed base-moved run is a red CI rollup (@arch:AP-00): one CI round through the CI budget and its mark, so the driver
  * re-ships after the round (@arch:AP-06). The round records the ticket head the failed run tested. A second failure on that head
  * means the round made no commit (D564): the ticket parks and the block `base-moved-failed` stays. `state` is the failure
- * state the caller already read (the refused resolved merge names ITS run, @arch:AP-12); absent → read the block's run.
+ * state the caller already read (the refused resolved merge names ITS run, @arch:AP-14); absent → read the block's run.
  */
 async function runBaseMovedRound(d: AutopilotDeps, cfg: AutopilotConfig, state?: BaseMovedFailureState): Promise<AutopilotResult> {
   const read = state ?? shipGateFailureState(d.store, d.ticketId);

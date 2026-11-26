@@ -90,7 +90,7 @@ export interface TicketSeams {
   /** Sandbox tickets only: the blocker reason before a hand-off, or null (arch:AC-46, AC-47). */
   readonly sandboxPreflight?: () => Promise<string | null>;
   readonly sendCi: () => Promise<FixOutcome>;
-  /** "Send gate failure to agent" for a failed base-moved run (@arch:AP-00) or a refused merge (@arch:AP-12). */
+  /** "Send gate failure to agent" for a failed base-moved run (@arch:AP-00) or a refused merge (@arch:AP-14). */
   readonly sendGateFailure?: (state?: BaseMovedFailureState) => Promise<FixOutcome>;
   readonly sendConflict: (repo: string) => Promise<FixOutcome>;
   /** A conflict round is armed, or its resolved merge is being delivered (arch:AC-39). */

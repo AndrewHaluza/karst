@@ -98,7 +98,7 @@ export function sendCiFailureAction(i: CiActionsInput): Promise<void> {
 }
 
 /**
- * `state` is a failure state the caller already read (the refused merge's own run, @arch:AP-12): the send uses THAT run
+ * `state` is a failure state the caller already read (the refused merge's own run, @arch:AP-14): the send uses THAT run
  * instead of re-reading the newest one.
  */
 export function sendGateFailureAction(i: CiActionsInput, state?: BaseMovedFailureState): Promise<void> {

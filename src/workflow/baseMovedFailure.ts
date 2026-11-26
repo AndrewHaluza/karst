@@ -8,7 +8,7 @@ import { sendBackState, type SendBackUnavailableReason } from './sendBack.js';
  *
  * It rides on `sendBackState`, so the in-flight and landed refusals cannot drift from the plain send-back. On top it
  * needs the ship block `base-moved-failed` (@arch:BLOCKED) and the newest run the block can name — a `base-moved` ship check
- * or the `auto` deliver run that refused a resolved merge (@arch:AP-12) — to have `failed`: the block text alone is not
+ * or the `auto` deliver run that refused a resolved merge (@arch:AP-14) — to have `failed`: the block text alone is not
  * evidence, the run row is.
  */
 export type BaseMovedFailureUnavailableReason = SendBackUnavailableReason | 'no-block' | 'no-failed-run';
@@ -120,7 +120,7 @@ export function baseMovedFailureState(store: Store, ticketId: number): BaseMoved
 /**
  * The failure state of the newest run the `base-moved-failed` block can name: a ship base check (`base-moved`) or the auto
  * deliver run that refused a resolved merge (T1381). Separate from `baseMovedFailureState` on purpose: the ship's base-moved
- * remedy must keep reading the base check's run, never an unrelated auto-deliver one (@arch:AP-12).
+ * remedy must keep reading the base check's run, never an unrelated auto-deliver one (@arch:AP-14).
  */
 export function shipGateFailureState(store: Store, ticketId: number): BaseMovedFailureState {
   const sb = sendBackState(store, ticketId);
@@ -142,7 +142,7 @@ export function latestBlockRunState(store: Store, ticketId: number): DeliverRun[
 /**
  * The failed gates of the repo in the newest `base-moved` run of the ticket, in run order; empty when the run did not fail or
  * none ran. Ship reads it right after the check failed, before it parks the ship stage (T1169, D633); it must never read an
- * auto-deliver run, so the remedy rebases from the base check's own merge (@arch:AP-12).
+ * auto-deliver run, so the remedy rebases from the base check's own merge (@arch:AP-14).
  */
 export function latestBaseMovedFailedGates(store: Store, ticketId: number, repo: string): readonly DeliverGateResult[] {
   const run = latestBaseMovedRun(store, ticketId);

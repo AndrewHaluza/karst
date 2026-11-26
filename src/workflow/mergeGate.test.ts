@@ -325,7 +325,7 @@ describe('settleShipGate', () => {
     walkToShip(store, id);
     seedPr(store, id, 'api', 'open', 12);
     seedPr(store, id, 'web', 'open', 13);
-    // A refused resolved merge parks the base-moved block AFTER the ship passed (@arch:AP-12).
+    // A refused resolved merge parks the base-moved block AFTER the ship passed (@arch:AP-14).
     setStage(store, id, 'ship', { status: 'passed' });
     parkGateStage(store, { ticketId: id, stageKey: 'ship', kind: 'base-moved-failed', reason: 'api: gate "unit" fails when merged with origin/develop abc', runAt: 't0', gates: [] });
     // A teammate merged one PR and the other was dismissed upstream: the ticket has still landed.
