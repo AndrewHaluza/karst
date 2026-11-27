@@ -804,6 +804,18 @@ describe('SessionManager', () => {
     expect(terminals[1]!.description).toBe('Other');
   });
 
+  it('shows the session quota line for a direct ssh launch instead of the host account (D826)', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new DefaultedSessionManager(host, channelFor);
+    mgr.openSession(adapter, 1, '/wt/a', { key: 'PROJ-42', title: 'Fix login' }, undefined, undefined, undefined, undefined, undefined, [], {
+      account: 'work',
+      quotaLine: 'claude ssh · devbox quota: unknown (remote login)',
+    });
+    expect(terminals[0]!.description).toBe('claude ssh · devbox quota: unknown (remote login)');
+    expect(terminals[0]!.description).not.toContain('account: work');
+  });
+
   it('uses the naming bag for terminal name, icon and color when provided', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();

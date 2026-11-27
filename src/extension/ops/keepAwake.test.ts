@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
+import { recordPlacement } from '../../store/placement.js';
 import { openShipRun } from '../../store/shipRuns.js';
 import {
   KEEP_AWAKE_AGENT_FRESH_MS,
@@ -435,6 +436,22 @@ describe('keepAwakeLiveKeys over a real store', () => {
     const store = openStore(':memory:');
     const t = createTicket(store, { key: 'K-fresh', title: 'fresh', projectId: PROJECT });
     addRun(store, "UPDATE tickets SET agent_state = 'running', last_hook_at = ? WHERE id = ?", new Date(NOW - 30 * 60_000).toISOString(), t.id);
+    expect(keepAwakeLiveKeys(store, HOST_PID, PROJECT, 0, [], NOW)).toEqual([`agent:${t.id}`]);
+    store.close();
+  });
+
+  it('gives a key for a running ssh agent even without a fresh host hook (D826)', () => {
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'K-ssh', title: 'ssh', projectId: PROJECT });
+    recordPlacement(store, t.id, { backend: 'ssh', core: 'claude', sandboxName: 'devbox/karst-ab-1-claude', reason: null }, 'claude');
+    // The hooks land in the REMOTE bridge: no host hook, or a stale one, is expected.
+    addRun(store, "UPDATE tickets SET agent_state = 'running', last_hook_at = NULL WHERE id = ?", t.id);
+    expect(keepAwakeLiveKeys(store, HOST_PID, PROJECT, 0, [], NOW)).toEqual([`agent:${t.id}`]);
+    addRun(store, "UPDATE tickets SET last_hook_at = ? WHERE id = ?", new Date(NOW - 61 * 60_000).toISOString(), t.id);
+    expect(keepAwakeLiveKeys(store, HOST_PID, PROJECT, 0, [], NOW)).toEqual([`agent:${t.id}`]);
+    // A host agent with the same stale hook stays out.
+    const host = createTicket(store, { key: 'K-host-stale', title: 'host', projectId: PROJECT });
+    addRun(store, "UPDATE tickets SET agent_state = 'running', last_hook_at = ? WHERE id = ?", new Date(NOW - 61 * 60_000).toISOString(), host.id);
     expect(keepAwakeLiveKeys(store, HOST_PID, PROJECT, 0, [], NOW)).toEqual([`agent:${t.id}`]);
     store.close();
   });

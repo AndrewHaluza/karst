@@ -50,7 +50,7 @@ describe('token-usage host wiring', () => {
     expect(EXTENSION).toMatch(/quotaStatus\.command = \{[\s\S]{0,80}command: 'karst\.openTokenUsage',[\s\S]{0,40}arguments: \['quota'\]/);
     // The decision half lives in the host-agnostic ops module; the binding is thin.
     expect(EXTENSION).toContain('new QuotaOps(');
-    expect(EXTENSION).toMatch(/if \(!options\.recovery\) quotaOps\.warnBeforeLaunch\(launchProvider, accountForLaunch\(launchProvider, resumeId, options\.account\)\)/);
+    expect(EXTENSION).toMatch(/if \(!options\.recovery && quotaLine === undefined\) quotaOps\.warnBeforeLaunch\(launchProvider, accountForLaunch\(launchProvider, resumeId, options\.account\)\)/);
     // The ops module owns the badge/warning decisions (and is unit-tested).
     expect(QUOTA_OPS).toContain('buildQuotaIndicator(');
     expect(QUOTA_OPS).toContain('quotaLaunchWarning(');

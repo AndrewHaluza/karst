@@ -15,6 +15,8 @@ import {
  * setting is read on every tick, so a change applies within
  * `KEEP_AWAKE_INTERVAL_MS` without a reload. The live set is the drain's own
  * (`listLiveRuns` + the tracked runs), so the lock and the drain never disagree.
+ * A running ssh agent is part of it (D826): the host owns the connection that
+ * reads the remote bridge, so the Mac must not sleep through it.
  */
 export function registerKeepAwake(
   store: Store,

@@ -60,7 +60,7 @@ describe('sandboxScrubber', () => {
 
 describe('guardLaunchResume', () => {
   const input = (over: Partial<Parameters<typeof guardLaunchResume>[0]> = {}) => ({
-    ticketId: 7, ticketLabel: 'K-7', resumeId: 'ses_1', sandboxed: false, hasSandbox: async () => true, warn: vi.fn(), ...over,
+    ticketId: 7, ticketLabel: 'K-7', resumeId: 'ses_1', runner: 'host' as const, hasSandbox: async () => true, warn: vi.fn(), ...over,
   });
   it('a host launch of a ticket with a sandbox starts fresh and says so', async () => {
     const i = input();
@@ -68,7 +68,9 @@ describe('guardLaunchResume', () => {
     expect(i.warn).toHaveBeenCalledWith(expect.stringContaining('fresh host session'));
   });
   it.each([
-    ['a sandbox launch', { sandboxed: true }],
+    ['a sandbox launch', { runner: 'sbx' as const }],
+    ['a docker launch', { runner: 'docker' as const }],
+    ['an ssh launch', { runner: 'ssh' as const }],
     ['a ticket with no sandbox', { hasSandbox: async () => false }],
   ])('keeps the resume id for %s', async (_n, over) => {
     await expect(guardLaunchResume(input(over))).resolves.toBe('ses_1');
@@ -80,8 +82,14 @@ describe('guardLaunchResume', () => {
   });
   it('the guard sees the runner kind: a sandbox launch is not a host resume', async () => {
     const hasSandbox = vi.fn(async () => true);
-    await expect(guardLaunchResume(input({ sandboxed: true, hasSandbox }))).resolves.toBe('ses_1');
+    await expect(guardLaunchResume(input({ runner: 'sbx', hasSandbox }))).resolves.toBe('ses_1');
     expect(hasSandbox).toHaveBeenCalledTimes(1);
+  });
+  it('an SSH session id is kept on an ssh run and refused on a host run (@arch:AC-39 (8))', async () => {
+    await expect(guardLaunchResume(input({ runner: 'ssh' }))).resolves.toBe('ses_1');
+    const host = input({ runner: 'host' });
+    await expect(guardLaunchResume(host)).resolves.toBeUndefined();
+    expect(host.warn).toHaveBeenCalledWith(expect.stringContaining('A fresh host session starts instead of the sandbox session.'));
   });
   it('a listing failure propagates (never swallowed into a wrong resume)', async () => {
     await expect(guardLaunchResume(input({ hasSandbox: async () => { throw new Error('boom'); } }))).rejects.toThrow('boom');

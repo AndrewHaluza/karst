@@ -262,6 +262,47 @@ describe('sandboxLaunchFailureOptions', () => {
   });
 });
 
+describe('ssh launch failures (D826)', () => {
+  it('names the transport and the remote for an exit 255 before SessionStart', () => {
+    const { notified, marked, opts } = setup(undefined, { sshRemote: 'devbox' });
+    opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 255, tail: 'ssh: connect to host devbox port 22: Connection refused' });
+    expect(marked).toEqual([4]);
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toContain('ssh transport failed (devbox');
+    expect(notified[0]).toContain('agentBackends.claude=host');
+    expect(notified[0]).toContain('Retry');
+    expect(notified[0]).not.toContain('sandbox of T704 failed to launch');
+  });
+
+  it('reports an exit 137 as the remote OOM kill, like sbx, and keeps the workspace', async () => {
+    const warn = vi.fn();
+    const removeSandbox = vi.fn(async () => undefined);
+    const markNotStarted = vi.fn();
+    const interruptRun = vi.fn();
+    const dir = mkdtempSync(join(tmpdir(), 'oom-ssh-'));
+    const opts = sandboxLaunchFailureOptions({
+      ticketId: 7, ticketLabel: 'T7', core: 'claude', sshRemote: 'devbox', captureDir: dir, warn: () => undefined,
+      notify: { info: vi.fn(), warn, error: async () => undefined },
+      markNotStarted, removeSandbox, interruptRun, oomReport: async () => 'ssh remote devbox ran out of memory: killed node.',
+    });
+    opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 137, tail: '' });
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(warn.mock.calls[0]![0]).toContain('ran out of memory: killed node');
+    expect(warn.mock.calls[0]![0]).not.toContain('launch failed');
+    expect(removeSandbox).not.toHaveBeenCalled();
+    expect(markNotStarted).toHaveBeenCalledWith(7);
+    expect(interruptRun).toHaveBeenCalledWith(7, expect.stringContaining('ran out of memory'));
+  });
+
+  it('keeps the Docker memory help off an ssh exit 137', async () => {
+    const { notified, opts } = setup(undefined, { sshRemote: 'devbox', killContext: async () => 'Docker VM 4.0 GB', oomReport: async () => null });
+    opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 137, tail: 'Killed' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notified[0]).not.toContain(DOCKER_MEMORY_HELP_TEXT);
+    expect(notified[0]).toContain('failed to launch');
+  });
+});
+
 describe('sbx exit 137 is reported as an out-of-memory kill', () => {
   it('shows the OOM text, not a launch failure, and keeps the sandbox', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'oom-'));

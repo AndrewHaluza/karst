@@ -186,6 +186,7 @@ import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import { applyAgentSwitchSelection, type AgentSwitchOutcome } from './agent/sessionSwitch.js';
 import { AGENT_PROVIDER_LABELS } from './model/agentIdentity.js';
+import { sessionQuotaLine } from './model/quotaText.js';
 import {
   catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
@@ -6904,7 +6905,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
         ? (t.sessionId ?? undefined)
         : undefined;
-      if (fallback.freshSession) resumeId = undefined; else if (resumeId && sandboxB) resumeId = await guardLaunchResume({ ticketId, ticketLabel: t.key ?? String(ticketId), resumeId, sandboxed, hasSandbox: () => sandboxB!.hasSandbox(ticketId), warn: (m) => vscodeNotify.warn(m) });
+      if (fallback.freshSession) resumeId = undefined; else if (resumeId && sandboxB) resumeId = await guardLaunchResume({ ticketId, ticketLabel: t.key ?? String(ticketId), resumeId, runner: launchBackend.placement.backend, hasSandbox: () => sandboxB!.hasSandbox(ticketId), warn: (m) => vscodeNotify.warn(m) });
       // A core whose resume id can go stale validates it here (opencode2). A
       // missing id is dropped BEFORE the seed is composed, so the launch is a
       // fresh full seed rather than a dangling `--session`. Adapters with no
@@ -7065,6 +7066,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // resolution). A host-only assignment override supplies it verbatim.
       const effort = identity.effort;
 
+      // D826 (@arch:AC-29): the host quota probe reads THIS Mac's login, so a
+      // direct ssh session shows its own line instead of the host account label.
+      const quotaLine =
+        launchBackend.placement.backend === 'ssh'
+          ? sessionQuotaLine(launchProvider, launchBackend.placement.sandboxName?.split('/')[0] ?? sshRemote?.name ?? 'remote')
+          : undefined;
+
       // Terminal name/icon/color are frozen at creation, so the tab carries the
       // status-free brand mark from the start — never a stage-at-launch glyph
       // hue, which the tab would keep for the rest of its life (869egvp46-fu2).
@@ -7078,8 +7086,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // View-only quota warning (D163): the resolved core is near a limit. Fired
       // only for a real launch — a recovery re-launch is automatic and must not
-      // stack warnings. Never awaited, never blocking.
-      if (!options.recovery) quotaOps.warnBeforeLaunch(launchProvider, accountForLaunch(launchProvider, resumeId, options.account));
+      // stack warnings. Never awaited, never blocking. A direct ssh ticket is
+      // skipped (D826): the host snapshot describes this Mac's login, not the
+      // remote one, and the terminal description carries its unknown quota line.
+      if (!options.recovery && quotaLine === undefined) quotaOps.warnBeforeLaunch(launchProvider, accountForLaunch(launchProvider, resumeId, options.account));
 
         await sessions.openSession(
           adapter,
@@ -7095,6 +7105,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           {
             ...options,
             ...(effort ? { effort } : {}),
+            ...(quotaLine ? { quotaLine } : {}),
             // The regenerated instruction layer, delivered through the core's
             // own channel; absent when the composer inlined it into the kickoff.
             ...(sessionInstructions ? { instructions: sessionInstructions } : {}),
@@ -7103,7 +7114,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
             ...launchBackend.options, // AC-32
-            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, removeSandbox: () => sandboxLife.remove(ticketId), oomReport: (id) => sandboxLife.oomReport(id).catch(() => null), interruptRun: (id, detail) => { interruptImplementationRun(localStore, id, new Date().toISOString(), detail); }, hostEnded: (id) => sandboxLife.sessionEnder.ended(id), killContext: () => dockerKillContext(), failClosed: options.failClosed === true, onRoundDied: (id, detail) => autopilot.roundDied(id, detail), runOnHost: async (id) => { updateTicketFields(localStore, id, { agentBackend: 'host' }); sandboxB?.remember(id, null); sandboxLife.recordLaunchPlacement(id, { backend: 'host', core: null, sandboxName: null, reason: 'Run on Host after sandbox launch failure' }, launchProvider); provider.refresh(); dashboard.pushState(id); await vscode.commands.executeCommand('karst.openSession', id); }, retrySandbox: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); }, dropStaleResume: (id) => { setSessionId(localStore, id, null, null); } }) : {}), // AC-32 launch failure
+            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, ...(sshRemote ? { sshRemote: sshRemote.name } : {}), captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => { setAgentState(localStore, id, 'not-started'); provider.refresh(); dashboard.pushState(id); }, removeSandbox: () => sandboxLife.remove(ticketId), oomReport: (id) => sandboxLife.oomReport(id).catch(() => null), interruptRun: (id, detail) => { interruptImplementationRun(localStore, id, new Date().toISOString(), detail); }, hostEnded: (id) => sandboxLife.sessionEnder.ended(id), killContext: () => dockerKillContext(), failClosed: options.failClosed === true, onRoundDied: (id, detail) => autopilot.roundDied(id, detail), runOnHost: async (id) => { updateTicketFields(localStore, id, { agentBackend: 'host' }); sandboxB?.remember(id, null); sandboxLife.recordLaunchPlacement(id, { backend: 'host', core: null, sandboxName: null, reason: 'Run on Host after sandbox launch failure' }, launchProvider); provider.refresh(); dashboard.pushState(id); await vscode.commands.executeCommand('karst.openSession', id); }, retrySandbox: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); }, dropStaleResume: (id) => { setSessionId(localStore, id, null, null); } }) : {}), // AC-32 launch failure
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

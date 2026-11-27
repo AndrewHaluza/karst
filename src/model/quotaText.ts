@@ -117,3 +117,13 @@ export function quotaWindowTooltipLine(
 ): string {
   return `${coreDisplay}: ${quotaWindowSummary(window.label, window.usedPct)} · ${quotaWindowMeta(window, now, readAt)}`;
 }
+
+/**
+ * The session's own quota line for a direct ssh ticket (`@arch:AC-29`, D826):
+ * `claude ssh · devbox quota: unknown (remote login)`. The host quota probe
+ * reads THIS Mac's login, so it cannot describe the login on the remote; the
+ * host account's numbers are never shown for the session.
+ */
+export function sessionQuotaLine(core: string, remote: string): string {
+  return `${core} ssh · ${remote} quota: unknown (remote login)`;
+}

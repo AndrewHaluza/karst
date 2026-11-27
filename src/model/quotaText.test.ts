@@ -11,6 +11,7 @@ import {
   quotaWindowPct,
   quotaWindowSummary,
   quotaWindowTooltipLine,
+  sessionQuotaLine,
 } from './quotaText.js';
 
 const NOW = new Date('2026-01-01T00:00:00.000Z');
@@ -130,5 +131,12 @@ describe('expiry parity with the agent predicate', () => {
       expect(meta === QUOTA_EXPIRED_TEXT, label).toBe(expired);
       if (!expired) expect(meta, label).not.toBe(QUOTA_EXPIRED_TEXT);
     }
+  });
+});
+
+describe('sessionQuotaLine (D826)', () => {
+  it('names the core, the remote and the remote login, never a host number', () => {
+    expect(sessionQuotaLine('claude', 'devbox')).toBe('claude ssh · devbox quota: unknown (remote login)');
+    expect(sessionQuotaLine('opencode2', 'gpu-box')).not.toMatch(/%/);
   });
 });

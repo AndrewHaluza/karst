@@ -1019,7 +1019,7 @@ describe('an ssh placement routes every ticket step to the ssh runner (D826)', (
     expect(ssh.choose).toHaveBeenCalledTimes(1);
     expect(ssh.launch).toHaveBeenCalledTimes(1);
     const warn = vi.fn();
-    await expect(guardLaunchResume({ ticketId: 7, ticketLabel: 'K-7', resumeId: 'sess-1', sandboxed: false, hasSandbox: () => down.hasSandbox(7), warn })).resolves.toBeUndefined();
+    await expect(guardLaunchResume({ ticketId: 7, ticketLabel: 'K-7', resumeId: 'sess-1', runner: 'host', hasSandbox: () => down.hasSandbox(7), warn })).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
     const hostTicket = createTicketSandboxBindings({ ...deps({ placementOf: () => ({ backend: 'host', core: 'claude', sandboxName: null, reason: null }), proc: fakeSbxProcess() }), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined });
     const host = fallback(() => hostTicket.hasSandbox(7));

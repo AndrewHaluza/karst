@@ -144,8 +144,13 @@ export interface ResumeGuardLaunch {
   readonly ticketId: number;
   readonly ticketLabel: string;
   readonly resumeId: string | undefined;
-  /** The launch runs off the host (a sandbox or an ssh remote, `LaunchBackend.sandboxed`). */
-  readonly sandboxed: boolean;
+  /**
+   * The kind of runner that would resume the id: a session id captured in a
+   * sandbox or on an ssh remote exists only there, so only a HOST resume is
+   * refused (`@arch:AC-39` (8)). Never derive this from `sandboxed`: a direct
+   * ssh launch is off the host but not a sandbox.
+   */
+  readonly runner: 'host' | 'sbx' | 'docker' | 'ssh';
   readonly hasSandbox: () => Promise<boolean>;
   readonly warn: (message: string) => void;
 }
@@ -155,7 +160,7 @@ export async function guardLaunchResume(input: ResumeGuardLaunch): Promise<strin
   if (input.resumeId === undefined) return undefined;
   try {
     assertNoSandboxResumeOnHost({
-      ticketId: input.ticketId, resume: input.resumeId, runner: input.sandboxed ? 'docker' : 'host', hasSandbox: await input.hasSandbox(),
+      ticketId: input.ticketId, resume: input.resumeId, runner: input.runner, hasSandbox: await input.hasSandbox(),
     });
     return input.resumeId;
   } catch (err) {
