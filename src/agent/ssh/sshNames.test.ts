@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { SshCore } from '../sandboxCores.js';
-import { SANDBOX_NAME_RE, readOrCreateInstallId, sshProjectPrefix, sshSandboxName } from './sshNames.js';
+import { SANDBOX_NAME_RE, readExistingInstallId, readOrCreateInstallId, sshProjectPrefix, sshSandboxName } from './sshNames.js';
 
 const PROJECT = '/Users/nick/projects/karst';
 
@@ -57,6 +57,16 @@ describe('sshSandboxName', () => {
     const id = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     expect(() => sshSandboxName(PROJECT, id, 0, 'claude')).toThrow(/ticket id/);
     expect(() => sshSandboxName(PROJECT, id, 1.5, 'claude')).toThrow(/ticket id/);
+  });
+});
+
+describe('readExistingInstallId (D826)', () => {
+  it('is undefined before a launch creates the id, and creates nothing', async () => {
+    const storage = tempDir();
+    expect(await readExistingInstallId(storage)).toBeUndefined();
+    expect(await readExistingInstallId(storage)).toBeUndefined();
+    const created = await readOrCreateInstallId(storage);
+    expect(await readExistingInstallId(storage)).toBe(created);
   });
 });
 

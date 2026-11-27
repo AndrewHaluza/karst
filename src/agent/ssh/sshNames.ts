@@ -92,6 +92,14 @@ function describeError(error: unknown): string {
 }
 
 /**
+ * The per-install id, read only: `undefined` when no launch created it yet, or the file
+ * holds no valid id. A host step (sync, gate, removal) never creates the id (D826).
+ */
+export function readExistingInstallId(globalStorageDir: string, debug?: (message: string) => void): Promise<string | undefined> {
+  return readInstallId(join(globalStorageDir, SSH_INSTALL_ID_FILE), debug);
+}
+
+/**
  * The per-install id at `<globalStorage>/ssh/install-id`, created ONCE (mode
  * 0600, `wx` so a concurrent creator wins the race and the loser reads its id)
  * and read back on every later call. Async fs only: this runs on the extension

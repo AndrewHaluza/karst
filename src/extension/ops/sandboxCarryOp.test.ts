@@ -13,6 +13,7 @@ function setup(over: { fetch?: { ok: boolean; reason?: string }; owns?: boolean;
   const runner = (over.runner === false ? {} : { fetchClone }) as SessionRunner;
   const deps = {
     notify: { info: (m: string) => infos.push(m), warn: vi.fn(), error: (m: string) => { errors.push(m); return Promise.resolve(); } },
+    placementOf: () => null,
     projectRoot: '/p', choose: vi.fn(), owns: () => over.owns ?? true, openSyncDiff: vi.fn(), reopen, remove, runner,
   };
   return { deps, errors, infos, reopen, remove, fetchClone };

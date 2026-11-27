@@ -3,6 +3,7 @@ import { ensureSshControlDir, sshControlDir } from '../../agent/ssh/sshControlDi
 import { SANDBOX_NAME_RE } from '../../agent/ssh/sshNames.js';
 import { NODE_SSH_PROCESS, sshArgv, type SshProcess } from '../../agent/ssh/sshProcess.js';
 import { sshQuote } from '../../agent/ssh/sshQuote.js';
+import { disposeResult, type DisposeResult } from '../../agent/disposeResult.js';
 import type { SessionRunner, StepOutcome } from '../../agent/sessionRunner.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { TicketPlacement } from '../../store/placement.js';
@@ -10,34 +11,51 @@ import type { TicketPlacement } from '../../store/placement.js';
 /**
  * Host-side wiring of the `ssh` placement (D555).
  *
- * D826 replaces the interim block: until it lands, `sandboxTicketRunner` and
- * `sandboxRunnerFor` have no way to build the real ssh runner (they do not
- * resolve a backend), so an `ssh` placement must FAIL CLOSED — a gate refused
- * with a reason, never a silent gate or sync on the host clone.
+ * D826: `sshRunnerFor` builds the runner of a host step from the recorded
+ * placement. When it cannot (see `sshRunnerFor.ts`), the placement FAILS
+ * CLOSED through `blockedSshRunner`: a step refused with a reason, never a
+ * silent gate or sync on the host clone.
  *
  * The recovery probe is the only other ssh entry point here. It runs ONE
  * `tmux has-session` over ssh, and only after `isRemoteTrusted` says the user
  * allowed this exact remote (D553): an unconfirmed remote makes ZERO ssh calls.
  */
 
-/** The reason the interim ssh gate/sync path refuses; D826 replaces it. */
-export const SSH_RUNNER_NOT_WIRED = 'ssh runner not wired yet';
-
-/** A runner that refuses every sandbox action with the interim reason (never `undefined`, never a host gate). */
-export function blockedSshRunner(): SessionRunner {
-  const refused = (): { readonly ok: false; readonly reason: string } => ({ ok: false, reason: SSH_RUNNER_NOT_WIRED });
+/**
+ * A runner that refuses every sandbox action with `reason` (D826): an ssh
+ * placement whose runner cannot be built (remote removed or not confirmed, no
+ * install id, a bad name). It is never `undefined` and never a host runner, so
+ * no gate, sync or service of the ticket runs on the host (`@arch:AC-36`).
+ * `hasSandbox` is true and `probeSandbox` is `unknown`: an unreadable remote
+ * never proves that the ticket has no sandbox (`@arch:AC-39`). It runs no ssh.
+ */
+export function blockedSshRunner(reason: string): SessionRunner {
+  const refused = (): { readonly ok: false; readonly reason: string } => ({ ok: false, reason });
+  const refusedDispose = async (): Promise<DisposeResult> => disposeResult([{ step: 'ssh', status: 'failed', stderr: reason }]);
+  const thrown = (): never => {
+    throw new Error(reason);
+  };
   return {
     kind: 'ssh',
     enforcesSandbox: false,
     autonomous: false,
-    placeInteractive: () => {
-      throw new Error(SSH_RUNNER_NOT_WIRED);
-    },
+    placeInteractive: () => thrown(),
+    prepareInteractive: async () => thrown(),
+    prepareLaunch: async () => refused(),
     hasSandbox: async () => true,
-    probeSandbox: async () => ({ state: 'unknown', reason: SSH_RUNNER_NOT_WIRED }),
+    probeSandbox: async () => ({ state: 'unknown', reason }),
     sync: async () => refused(),
     refresh: async () => refused(),
-    runGate: async () => ({ kind: 'spawnFailed', message: SSH_RUNNER_NOT_WIRED, output: SSH_RUNNER_NOT_WIRED }),
+    fetchClone: async () => refused(),
+    diff: async () => refused(),
+    shellCommand: async () => refused(),
+    ensureWritable: async () => refused(),
+    ensureCloneReady: async () => refused(),
+    stop: async () => thrown(),
+    dispose: refusedDispose,
+    rebuild: refusedDispose,
+    oomReport: async () => reason,
+    runGate: async () => ({ kind: 'spawnFailed', message: reason, output: reason }),
   };
 }
 

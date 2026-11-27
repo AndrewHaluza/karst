@@ -13,6 +13,9 @@ import { setStage } from '../../store/stages.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { getPlacement, recordPlacement, GRAPH_RUN_PLACEMENT } from '../../store/placement.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
+import type { SessionRunner } from '../../agent/sessionRunner.js';
+import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
 
 let store: Store;
 let id: number;
@@ -885,16 +888,89 @@ describe('makeSandboxWiring reads the recorded placement, not the core (D245)', 
   });
 });
 
-describe('makeSandboxWiring reads an ssh placement (D555)', () => {
-  it('a recorded ssh placement fails closed and never spawns sbx or docker', async () => {
-    recordPlacement(store, id, { backend: 'ssh', core: 'claude', sandboxName: 'devbox/karst-abcd1234-1-claude', reason: null }, 'claude');
+describe('makeSandboxWiring routes every caller of an ssh ticket to the ssh runner (D826)', () => {
+  const PROBE = 'karst-ssh-probe';
+  const listing = (l: string): boolean => l.startsWith('sbx ls') || l.startsWith('docker ps') || l.startsWith('docker volume ls');
+  const setup = (ssh: FakeSshProcess, over: Partial<SandboxWiringInput> = {}) => {
+    recordPlacement(store, id, fakeSshPlacement(id), 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
     const proc = fakeSbxProcess();
     const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
-    const { w } = wiring({ proc, dockerProc, projectRoot: () => '/p/karst.yml', backendOn: () => true });
-    const out = await w.ensureSynced(id);
-    expect(out.ok).toBe(false);
+    const sbxActs = (): string[] => [...proc.calls, ...dockerProc.calls].map((c) => [c.command, ...c.args].join(' ')).filter((l) => !listing(l));
+    const { w, notify, choose } = wiring({
+      proc, dockerProc, projectRoot: () => '/p', backendOn: () => true, sshRunner: fakeSshRunnerDeps(ssh),
+      openTerminal: vi.fn(), reopen: vi.fn(async () => {}), bridges: () => ({ dispose: vi.fn(async () => {}) }), ...over,
+    });
+    return { w, notify, choose, sbxActs };
+  };
+  type Wiring = ReturnType<typeof setup>['w'];
+  const callers: readonly (readonly [string, (w: Wiring) => Promise<unknown>])[] = [
+    ['sync', (w) => w.sync(id)],
+    ['ensureInSync', (w) => w.ensureInSync(id)],
+    ['ensureSynced', (w) => w.ensureSynced(id)],
+    ['dispose', (w) => w.dispose(id)],
+    ['rebuild', (w) => w.rebuild(id)],
+    ['diff', (w) => w.diff(id)],
+    ['shell', (w) => w.shell(id)],
+    ['hasUnsynced (rebase)', (w) => w.hasUnsynced(id)],
+    ['carry', (w) => w.carry(id)],
+    ['cloneRef', (w) => w.cloneRef(id, '/wt/r')],
+    ['hasSandbox', (w) => w.hasSandbox(id)],
+    ['oomReport', (w) => w.oomReport(id)],
+    ['stop (lifecycle)', (w) => w.stop(id)],
+    ['remove (lifecycle)', (w) => w.remove(id)],
+  ];
+
+  it.each(callers)('%s reaches the remote over ssh, and never runs sbx or docker', async (_name, call) => {
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const { w, sbxActs } = setup(ssh);
+    await call(w).catch(() => undefined);
+    expect(ssh.calls.length + ssh.stdinCalls.length + ssh.pipes.length + ssh.streams.length).toBeGreaterThan(0);
+    expect(sbxActs()).toEqual([]);
+  });
+
+  it.each(callers)('%s on an unconfirmed remote runs no ssh and no sbx or docker', async (_name, call) => {
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const { w, sbxActs } = setup(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }) });
+    await call(w).catch(() => undefined);
+    expect([ssh.calls, ssh.stdinCalls, ssh.pipes, ssh.streams]).toEqual([[], [], [], []]);
+    expect(sbxActs()).toEqual([]);
+  });
+
+  it('an unconfirmed remote: the sync refuses with the reason, hasSandbox stays true (no silent host fallback)', async () => {
+    const ssh = fakeSshProcess();
+    const { w } = setup(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }) });
+    expect(await w.ensureInSync(id)).toMatchObject({ ok: false, reason: expect.stringContaining('ssh remote devbox not confirmed') });
+    expect(await w.hasSandbox(id)).toBe(true);
+    expect(await w.oomReport(id)).toBe('ssh remote devbox not confirmed');
+  });
+
+  it('hasSandbox: a transport failure is true, only an absent clone is false', async () => {
+    const down = setup(fakeSshProcess({ [PROBE]: { code: 255, transport: true } }));
+    expect(await down.w.hasSandbox(id)).toBe(true);
+    store.db.prepare('DELETE FROM worktrees WHERE ticket_id = ?').run(id);
+    const absent = setup(fakeSshProcess({ [PROBE]: { code: 44 } }));
+    expect(await absent.w.hasSandbox(id)).toBe(false);
+  });
+
+  it('a session close keeps the bridge poller of an ssh ticket (its tmux session outlives the terminal)', async () => {
+    const detach = vi.fn(async () => {});
+    const { w } = setup(fakeSshProcess(), { bridges: () => ({ dispose: vi.fn(async () => {}), detach }) });
+    await w.onSessionClosed(id);
+    expect(detach).not.toHaveBeenCalled();
+  });
+
+  it('the launch runner wins: a first launch syncs through it, with no listing and no core-derived sbx runner', async () => {
+    const t = createTicket(store, { key: 'K-90', title: 'n' }).id;
+    setSessionId(store, t, null, 'claude');
+    const proc = fakeSbxProcess();
+    const { w } = wiring({ proc, projectRoot: () => '/p', backendOn: () => true, owned: new Set([t]) });
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(t);
+    const sync = vi.fn(async () => ({ ok: true as const, summary: 'synced' }));
+    const launch = { kind: 'ssh', enforcesSandbox: false, probeSandbox: async () => ({ state: 'present' as const }), sync, refresh: async () => ({ ok: true as const, summary: 'r' }) } as unknown as SessionRunner;
+    expect(await w.ensureInSync(t, true, true, launch)).toEqual({ ok: true });
+    expect(sync).toHaveBeenCalledTimes(1);
     expect(proc.calls).toEqual([]);
-    expect(dockerProc.calls).toEqual([]);
   });
 });
 

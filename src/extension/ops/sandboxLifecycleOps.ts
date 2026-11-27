@@ -7,7 +7,7 @@ import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
 import { disposeFailures, disposeResult, disposeStep, type DisposeResult } from '../../agent/disposeResult.js';
 import type { SessionRunner, SandboxTicketRef } from '../../agent/sessionRunner.js';
 import type { SbxGrantReleaser } from './sbxLaunchOauth.js';
-import { ensureSandboxSynced, sandboxRunnerFor, type SandboxSyncDeps, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { ensureSandboxSynced, probeOf, sandboxRunnerFor, type SandboxSyncDeps, type SandboxSyncTarget } from './sandboxSyncOps.js';
 
 /** A modal choice; `undefined` = dismissed (treated as the safe default). */
 export type Choose = (message: string, choices: readonly string[]) => Promise<string | undefined>;
@@ -25,8 +25,6 @@ export interface SandboxLifecycleDeps extends SandboxSyncDeps {
   /** `undefined` until the hook endpoint is bound; no bridge dir to remove then. */
   readonly bridges?: { dispose(ticketId: number): Promise<void>; retryPending?(ticketId: number): Promise<void> };
   readonly openSyncDiff: (target: SandboxSyncTarget) => Promise<void>;
-  /** The recorded host worktree of a ticket (orphan cleanup's remote step); `undefined` = no record. */
-  readonly worktreeOf?: (ticketId: number) => string | undefined;
   /** Revoke the proxy key and remove the policy rule of an sbx sandbox that is removed by name (@arch:AC-51). */
   readonly releaseGrant?: SbxGrantReleaser;
   readonly debug?: (message: string) => void;
@@ -44,8 +42,18 @@ export function sandboxKindOfCore(core: string | null): BackendKind {
   return isDockerCore(c) ? 'docker' : 'host';
 }
 
+/**
+ * Did the listing of this runner fail? Only the ticket's OWN runner counts (T801): `sbx `, `docker `,
+ * or `ssh <remote>:` for one remote (any `ssh ` error when no remote is given). Host has no listing.
+ */
+export function listingFailedFor(errors: readonly string[], kind: BackendKind, remote?: string): boolean {
+  if (kind === 'host') return false;
+  const prefix = kind === 'ssh' ? (remote === undefined ? 'ssh ' : `ssh ${remote}:`) : `${kind} `;
+  return errors.some((e) => e.startsWith(prefix));
+}
+
 /** This project's sandboxes through the same process seams the runners use. */
-export function inventoryOf(deps: SandboxSyncDeps): Promise<SandboxInventory> {
+export function inventoryOf(deps: Pick<SandboxSyncDeps, 'projectRoot' | 'proc' | 'dockerProc'>): Promise<SandboxInventory> {
   return listProjectSandboxes({
     projectRoot: deps.projectRoot, sbx: deps.proc ?? NODE_SBX_PROCESS, docker: deps.dockerProc ?? NODE_DOCKER_PROCESS,
   });
@@ -66,6 +74,16 @@ export async function removeVerified(
   const inv = await inventoryOf(deps);
   if (!inv.sandboxes.some(stillListed)) return result;
   return disposeResult([...result.steps, { step: 'inventory', status: 'failed', stderr: 'still listed after removal' }]);
+}
+
+/** The ssh removal path: no listing shows ssh sandboxes, so the runner's own probe verifies the removal (D826). */
+async function removeSshVerified(runner: SessionRunner, ref: SandboxTicketRef): Promise<DisposeResult> {
+  const result = await runner.dispose!(ref);
+  if (!result.ok) return result;
+  const probe = await probeOf(runner);
+  if (probe.state === 'absent') return result;
+  const stderr = probe.state === 'unknown' ? `removal not verified: ${probe.reason}` : 'still present after removal';
+  return disposeResult([...result.steps, { step: 'probe', status: 'failed', stderr }]);
 }
 
 function removeRunner(deps: SandboxLifecycleDeps, runner: SessionRunner, ref: SandboxTicketRef, stillListed: (s: ProjectSandbox) => boolean): Promise<DisposeResult> {
@@ -97,9 +115,15 @@ export async function removeSandboxGuarded(
 ): Promise<boolean> {
   const inv = await inventoryOf(deps);
   const boxes = inv.sandboxes.filter((s) => s.ticketId === target.ticketId);
-  // A failed listing proves nothing gone: fall back to the ticket's current core. Callers skip a recorded-host ticket first (arch:AC-32), so the core only picks the runner to ask.
-  if (boxes.length === 0 && sandboxKindOfCore(target.core) !== 'host' && inv.errors.length > 0) {
-    boxes.push({ runner: 'sbx', name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
+  const placement = deps.placementOf(target.ticketId);
+  // No listing shows an ssh sandbox: the recorded placement names it, and its runner's probe decides (D826).
+  if (placement?.backend === 'ssh') {
+    boxes.push({ runner: 'ssh', name: placement.sandboxName ?? '', ticketId: target.ticketId, core: placement.core ?? target.core ?? '', state: 'stopped' });
+  }
+  // A failed listing proves nothing gone: fall back to the recorded placement, else the ticket's current core. Callers skip a recorded-host ticket first (arch:AC-32).
+  const kind = placement?.backend ?? sandboxKindOfCore(target.core);
+  if (boxes.length === 0 && kind !== 'host' && kind !== 'ssh' && inv.errors.length > 0) {
+    boxes.push({ runner: kind, name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
   }
   if (boxes.length === 0) return true;
   if (!deps.owns(target.ticketId)) {
@@ -132,14 +156,21 @@ async function removeOneGuarded(
       await removeInvalidCoreSandbox(deps, box);
       return true;
     }
-    const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
+    // A listed sbx or docker box is removed by its own runner, even when the placement says ssh (a box left from before).
+    const runner = sandboxRunnerFor(box.runner === 'ssh' ? deps : { ...deps, placementOf: () => null }, target.core, target.ticketId);
     if (!runner) return true;
+    if (box.runner === 'ssh') {
+      const probe = await probeOf(runner);
+      if (probe.state === 'absent') return true;
+    }
     const synced = opts.skipSync ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
     if (!synced.ok && !(await confirmUnsynced(deps, target, synced.reason))) {
       deps.notify.warn(`The sandbox of ${target.ticketLabel} stays. You did not confirm the removal.`);
       return false;
     }
-    const removal = await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
+    const removal = box.runner === 'ssh'
+      ? await removeSshVerified(runner, ref)
+      : await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
     if (!removal.ok) {
       // Keep the bridge dir and clone record: the Remove affordance retries against them.
       await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed (${disposeFailures(removal)}). The sandbox and its evidence folder stay. Remove the sandbox again to retry.`);
@@ -227,6 +258,8 @@ export interface ReconcileTicket {
   readonly sessionProvider: string | null;
   /** The recorded placement backend; `null`/absent = none recorded, so the core's sandbox kind is the fallback. */
   readonly placementBackend?: BackendKind | null;
+  /** The remote of an `ssh` placement: only that remote's listing error counts for this ticket. */
+  readonly placementRemote?: string;
 }
 
 export interface ReconcileResult {
@@ -251,7 +284,7 @@ export function reconcileSandboxes(
   clearSession: (ticketId: number) => void,
 ): ReconcileResult {
   const liveIds = new Set(live.map((t) => t.id));
-  const listed = (kind: 'sbx' | 'docker'): boolean => !inv.errors.some((e) => e.startsWith(kind === 'sbx' ? 'sbx ' : 'docker '));
+  const listed = (t: ReconcileTicket, kind: BackendKind): boolean => !listingFailedFor(inv.errors, kind, t.placementRemote);
   const running: number[] = [], stopped: number[] = [], missing: number[] = [];
   for (const t of live) {
     if (!owns(t.id)) continue;
@@ -260,8 +293,8 @@ export function reconcileSandboxes(
     else {
       // Recorded placement decides (arch:AC-32); a core only tells which sandbox kind it would use.
       const kind = t.placementBackend ?? sandboxKindOfCore(t.sessionProvider);
-      // No ssh inventory exists yet (T1387): a recorded ssh placement proves nothing missing.
-      if (kind !== 'host' && kind !== 'ssh' && t.sessionId !== null && listed(kind)) {
+      // No ssh inventory exists yet (T1387, D826): a recorded ssh placement proves nothing missing.
+      if (kind !== 'host' && kind !== 'ssh' && t.sessionId !== null && listed(t, kind)) {
         clearSession(t.id);
         missing.push(t.id);
       }
@@ -324,7 +357,8 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
     try {
       if (o.invalidCore) await removeInvalidCoreSandbox(deps, o);
       else {
-        const removal = await removeRunner(deps, sandboxRunnerFor(deps, o.core, o.ticketId)!, { hostWorktreePath: deps.worktreeOf?.(o.ticketId) ?? '', branch: '' }, (s) => s.name === o.name);
+        // A listed orphan is removed by its own runner, never by the placement's (D826).
+        const removal = await removeRunner(deps, sandboxRunnerFor({ ...deps, placementOf: () => null }, o.core, o.ticketId)!, { hostWorktreePath: deps.worktreeOf?.(o.ticketId) ?? '', branch: '' }, (s) => s.name === o.name);
         if (!removal.ok) throw new Error(disposeFailures(removal));
         if (!deps.worktreeOf?.(o.ticketId)) deps.debug?.(`sandbox orphan ${o.name}: no recorded worktree, skipped the host remote step`);
       }

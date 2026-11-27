@@ -9,8 +9,8 @@ import { describe, expect, it } from 'vitest';
  */
 const ALLOWED: Readonly<Record<string, string>> = {
   'extension/ops/sandboxLifecycleOps.ts': 'definition; reconcile and removeSandboxGuarded use it only as fallback after the recorded placement',
-  'extension/ops/sandboxRebaseOps.ts': 'wiring returns early for a recorded-host ticket before these run',
-  'extension/ops/sandboxWiring.ts': 'onSessionClosed returns early for a recorded-host ticket before it picks a runner by core',
+  'extension/ops/sandboxRebaseOps.ts': 'runsOnHost reads the recorded placement first; the core is the fallback for a NULL placement only',
+  'extension/ops/sandboxWiring.ts': 'onSessionClosed reads the recorded placement first (ssh keeps the poller); the core is the fallback for a NULL placement only',
 };
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -34,5 +34,11 @@ describe('placement rule (arch:AC-32)', () => {
   it('no reconcile decision reads the core directly', () => {
     const src = readFileSync(join(__dirname, 'sandboxLifecycleOps.ts'), 'utf8');
     expect(src).toMatch(/t\.placementBackend \?\? sandboxKindOfCore\(t\.sessionProvider\)/);
+  });
+  it('every other use reads the recorded placement first (D826)', () => {
+    const read = (f: string): string => readFileSync(join(__dirname, f), 'utf8');
+    expect(read('sandboxLifecycleOps.ts')).toMatch(/placement\?\.backend \?\? sandboxKindOfCore\(target\.core\)/);
+    expect(read('sandboxRebaseOps.ts')).toMatch(/placementOf\(target\.ticketId\)\?\.backend \?\? sandboxKindOfCore\(target\.core\)/);
+    expect(read('sandboxWiring.ts')).toMatch(/placementOf\(ticketId\)\?\.backend \?\? sandboxKindOfCore\(core\)/);
   });
 });

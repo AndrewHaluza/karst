@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+import { fakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import { fakeSshPlacement, fakeSshRunnerDeps } from './fakeSshRunnerDeps.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
 import {
-  sandboxKindOfCore, cleanupOrphansOp, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
+  sandboxKindOfCore, cleanupOrphansOp, listingFailedFor, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
   CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
@@ -41,7 +43,7 @@ function deps(over: Partial<SandboxLifecycleDeps> & { inv?: readonly ProjectSand
   const dockerProc = Object.assign(stateful(fakeSbxProcess(all)), { pipe: vi.fn() });
   const notify = { info: vi.fn(), warn: vi.fn(), error: vi.fn(async () => {}) };
   const d = {
-    notify, projectRoot: ROOT, proc, dockerProc,
+    notify, projectRoot: ROOT, proc, dockerProc, placementOf: () => null,
     choose: vi.fn(async (): Promise<string | undefined> => undefined),
     owns: (): boolean => true,
     bridges: { dispose: vi.fn(async () => {}) },
@@ -504,5 +506,61 @@ describe('removeDoneMergedSandboxes', () => {
     const { d, acted } = deps({ owns: () => false });
     await expect(removeDoneMergedSandboxes(d, new Set([7]), targetOf)).resolves.toBe(0);
     expect(acted().some((l) => l.startsWith('sbx rm'))).toBe(false);
+  });
+});
+
+describe('listingFailedFor (D826)', () => {
+  const errors = ['ssh devbox: connection refused', 'docker ps failed: down'];
+  it('an ssh ticket counts only the error of its own remote', () => {
+    expect(listingFailedFor(errors, 'ssh', 'devbox')).toBe(true);
+    expect(listingFailedFor(errors, 'ssh', 'other')).toBe(false);
+    expect(listingFailedFor(['ssh devboxx: x'], 'ssh', 'devbox')).toBe(false);
+    expect(listingFailedFor(errors, 'ssh')).toBe(true);
+  });
+  it('sbx and docker keep their prefixes; host has no listing', () => {
+    expect(listingFailedFor(errors, 'docker')).toBe(true);
+    expect(listingFailedFor(errors, 'sbx')).toBe(false);
+    expect(listingFailedFor(['sbx ls failed'], 'sbx')).toBe(true);
+    expect(listingFailedFor(errors, 'host')).toBe(false);
+  });
+});
+
+describe('reconcileSandboxes with an ssh placement (D826)', () => {
+  const sshTicket = { id: 7, sessionId: 's7', sessionProvider: 'claude', placementBackend: 'ssh' as const, placementRemote: 'A' };
+  it('an ssh ticket on remote A with an `ssh A:` error is neither missing nor cleared', () => {
+    const clear = vi.fn();
+    const r = reconcileSandboxes({ sandboxes: [], errors: ['ssh A: unreachable'] }, [sshTicket], () => true, clear);
+    expect(r.missing).toEqual([]);
+    expect(clear).not.toHaveBeenCalled();
+  });
+  it('an `ssh B:` error does not matter, and no ssh listing ever proves the ticket missing', () => {
+    const clear = vi.fn();
+    const r = reconcileSandboxes({ sandboxes: [], errors: ['ssh B: unreachable'] }, [sshTicket], () => true, clear);
+    expect(r.missing).toEqual([]);
+    expect(clear).not.toHaveBeenCalled();
+  });
+  it('an sbx or docker ticket keeps the prefixes of today', () => {
+    const sbx = { id: 8, sessionId: 's8', sessionProvider: 'claude', placementBackend: 'sbx' as const };
+    const clear = vi.fn();
+    expect(reconcileSandboxes({ sandboxes: [], errors: ['ssh A: x'] }, [sbx], () => true, clear).missing).toEqual([8]);
+    expect(reconcileSandboxes({ sandboxes: [], errors: ['sbx ls failed'] }, [sbx], () => true, vi.fn()).missing).toEqual([]);
+  });
+});
+
+describe('removeSandboxGuarded with an ssh placement (D826)', () => {
+  const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: '/wt', branch: 'k/b' } };
+  const sshDeps = (ssh: ReturnType<typeof fakeSshProcess>) => deps({ inv: [], placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh), projectRoot: '/p' });
+  it('a remote clone that is already gone is a no-op: no dispose', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 44 } });
+    const { d } = sshDeps(ssh);
+    await expect(removeSandboxGuarded(d, target, { skipSync: true })).resolves.toBe(true);
+    expect(ssh.calls).toHaveLength(1);
+  });
+  it('the probe verifies the removal: a clone still present after dispose fails, and the bridge dir stays', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 } });
+    const { d, notify } = sshDeps(ssh);
+    await expect(removeSandboxGuarded(d, target, { skipSync: true })).resolves.toBe(false);
+    expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('still present after removal'));
+    expect(d.bridges.dispose).not.toHaveBeenCalled();
   });
 });
