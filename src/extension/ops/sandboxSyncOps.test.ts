@@ -14,7 +14,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
 import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
 import type { TicketPlacement } from '../../store/placement.js';
-import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
+import { fakeSshDockerRunnerDeps, fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
 import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, sandboxRunnerFor, ensureSandboxInSync, ensureSandboxSynced, stashSandboxAndUpdate, syncSandboxOp, placementOfResolved, type SandboxSyncDeps } from './sandboxSyncOps.js';
 
 function recorder() {
@@ -382,6 +382,21 @@ describe('backendSessionOptions: baseline host ports (arch:AC-32)', () => {
     expect(resolve.mock.calls[2]![0].docker).toEqual({ debug });
     await backendSessionOptions(base).resolveRunner!();
     expect(resolve.mock.calls[3]![0]).not.toHaveProperty('docker');
+  });
+
+  it('forwards the baseline ports of an ssh docker backend to the resolver (D822)', async () => {
+    const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'x' });
+    const remotes = { devbox: { host: 'vm.example.com', user: 'karst', mode: 'docker' as const, remoteDir: '/srv/karst' } };
+    const base = {
+      backends: { opencode: 'ssh:devbox', opencode2: 'ssh:devbox' } as const, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve,
+      remotes, remoteTrust: () => true,
+    };
+    await backendSessionOptions({ ...base, hostPorts: [5432] }).resolveRunner!();
+    const call = resolve.mock.calls[0]![0] as Record<string, unknown>;
+    expect(call.docker).toEqual({ hostPorts: [5432] });
+    // The remote definition rides along; `resolveSsh` refuses non-empty host ports in docker mode (D823).
+    expect(call.remotes).toEqual(remotes);
+    expect((call.remoteTrusted as (name: string) => boolean)('devbox')).toBe(true);
   });
 });
 
@@ -1074,6 +1089,31 @@ describe('sandboxRunnerFor routes an ssh placement to the ssh runner (D826)', ()
     expect(runner?.kind).toBe('ssh');
     expect(await runner!.probeSandbox!()).toEqual({ state: 'present' });
     expect(ssh.calls).toHaveLength(1);
+  });
+
+  it('an ssh placement on a mode: docker remote gets the ssh docker runner (D822): docker runs over ssh', async () => {
+    const ssh = fakeSshProcess();
+    const runner = sandboxRunnerFor(
+      { ...syncDeps(ssh), placementOf: () => fakeSshPlacement(7, 'opencode'), sshRunner: fakeSshDockerRunnerDeps(ssh) },
+      'opencode',
+      7,
+    );
+    expect(runner?.kind).toBe('ssh');
+    expect(runner?.enforcesSandbox).toBe(true);
+    expect(runner?.windowNeedsIdle).toBe(true);
+    expect(await runner!.probeSandbox!()).toEqual({ state: 'present' });
+    // `docker volume inspect` ran on the REMOTE: one `sh -c 'docker …'` ssh call.
+    expect(ssh.calls).toHaveLength(1);
+    expect(ssh.calls[0]!.args.at(-1)).toContain("sh -c 'docker ");
+    expect(ssh.calls[0]!.args.at(-1)).toContain('volume');
+  });
+
+  it('a mode: direct remote keeps the prompted direct ssh runner, unchanged', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 } });
+    const runner = sandboxRunnerFor({ ...syncDeps(ssh), sshRunner: fakeSshRunnerDeps(ssh) }, 'claude', 7);
+    expect(runner?.kind).toBe('ssh');
+    expect(runner?.enforcesSandbox).toBe(false);
+    expect(await runner!.probeSandbox!()).toEqual({ state: 'present' });
   });
 
   it('a removed remote and an unconfirmed remote refuse with unknown and run no ssh', async () => {
