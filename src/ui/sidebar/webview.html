@@ -403,11 +403,7 @@
   .ctxsub-arrow{margin-left:auto;display:inline-flex;color:var(--k-text-dim)}
   .ctxsub [role="menuitemradio"]{position:relative;padding-left:var(--k-space-8)}
   .ctxsub [role="menuitemradio"][aria-checked="true"]::before{content:"\2713";position:absolute;left:var(--k-space-3)}
-  /* Priority chip: the level word is the text. Urgent is the filled danger pair; high and low are tinted, because only danger/success own a filled foreground pair (UI-R29). */
-  .k-pri{flex:none;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);line-height:var(--k-text-base);padding:0 var(--k-space-2);border-radius:var(--k-radius-sm);letter-spacing:.04em;white-space:nowrap;vertical-align:baseline}
-  .k-pri--urgent{color:var(--k-danger);background:color-mix(in srgb,var(--k-danger) 16%,transparent);border:var(--k-border-w) solid var(--k-danger)}
-  .k-pri--high{color:var(--k-warning);background:color-mix(in srgb,var(--k-warning) 16%,transparent);border:var(--k-border-w) solid var(--k-warning)}
-  .k-pri--low{color:var(--k-text-dim);background:var(--k-surface-hover)}
+  /* Priority chip (T1396): the shared rule set lives in the design-system stylesheet, next to `.k-id`. */
   /* Queue rows: one line each. The region is the container, so the reason and the session drop at a narrow sidebar, the title keeps the rest. */
   [data-region="queue"]{container-type:inline-size;container-name:queue}
   .q-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto var(--k-hit-min);grid-template-areas:"main rel chain menu";align-items:center;column-gap:var(--k-space-1);padding:0 var(--k-space-1) 0 var(--k-space-2);min-height:calc(var(--k-space-8) + var(--k-space-1));border-radius:var(--k-radius-sm)}
@@ -423,7 +419,7 @@
   .q-rel .refs-line{min-height:var(--k-space-8);flex-wrap:nowrap}
   .q-rel--cycle .refs-verb,.q-rel-icon{color:var(--k-danger)}
   .q-rel--cycle .k-ticket-ref{border-color:var(--k-danger)}
-  .k-pri-up{margin-left:var(--k-border-w);vertical-align:-0.1em}
+  /* `.k-pri-up` rides the shared priority chip rule set in the design-system stylesheet (T1396). */
   /* The chain and menu tracks are one control wide, never a token shorter than
      the button's --k-hit-min floor (RD-1): a short track made every row wider
      than the pane and the body scrolled sideways. */

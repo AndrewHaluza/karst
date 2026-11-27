@@ -156,6 +156,14 @@ describe('design tokens', () => {
     expect(DESIGN_TOKENS['--k-dur-flash-attention']).toBe('1000ms');
   });
 
+  it('keeps the sticky row below the attention ring and every scrim (T1396)', () => {
+    // The dashboard ticket header sticks at 10; the attention ring (20) must still
+    // paint over it, and so must every popover layer above the scrim (30).
+    expect(DESIGN_TOKENS['--k-z-sticky']).toBe('10');
+    expect(Number(DESIGN_TOKENS['--k-z-sticky'])).toBeLessThan(20);
+    expect(Number(DESIGN_TOKENS['--k-z-sticky'])).toBeLessThan(Number(DESIGN_TOKENS['--k-z-scrim']));
+  });
+
   it('pins the page floor token to the tier floor (UI-R43)', () => {
     // The shared base rule reads this token, so every editor webview gets the
     // floor from one place; the sidebar opts out with data-k-floor="off".

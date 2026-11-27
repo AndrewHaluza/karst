@@ -38,12 +38,14 @@ describe('ticket row priority chip', () => {
   it('names the source in the tooltip and the accessible name for each state', async () => {
     const h = await mount(fixture('priority'));
     const chips = h.queryAll('.ticket .row .k-pri');
-    expect(chips.map((c) => c.getAttribute('title'))).toEqual([
+    expect(chips.map((c) => c.getAttribute('data-tip'))).toEqual([
       'Urgent · ClickUp',
       'High · set by you',
       'Low · set by you (ClickUp: High)',
     ]);
-    expect(chips.map((c) => c.getAttribute('aria-label'))).toEqual(chips.map((c) => c.getAttribute('title')));
+    expect(chips.map((c) => c.getAttribute('aria-label'))).toEqual(chips.map((c) => c.getAttribute('data-tip')));
+    // data-tip feeds the shared k-tooltip; a native title would double the hint.
+    expect(chips.map((c) => c.getAttribute('title'))).toEqual([null, null, null]);
   });
 });
 

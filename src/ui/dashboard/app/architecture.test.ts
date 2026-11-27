@@ -41,17 +41,18 @@ describe('dashboard static guards — non-vacuity', () => {
 const RAW_HTML_ALLOWED = ['AgentIcon.tsx', 'Icon.tsx'];
 
 /**
- * The dashboard app writes no element style imperatively, except kTooltip.ts: `position:fixed` popovers are placed by
- * the shared `src/ui/shared/anchoredPopover.ts` primitive (from the trigger's measured rect, which CSS cannot express),
- * and kTooltip.ts does the same for the one k-tooltip node.
+ * The dashboard app writes no element style imperatively. The one exception used to live here: kTooltip.ts placed
+ * the `position:fixed` k-tooltip node. That delegate moved to the shared `src/ui/shared/kTooltip.ts` (T1396) because
+ * the sidebar mounts it too, so no file under this app writes element styles any more. Add a file here only with a
+ * measured reason CSS cannot express.
  */
-const IMPERATIVE_STYLE_ALLOWED = ['kTooltip.ts'];
+const IMPERATIVE_STYLE_ALLOWED: string[] = [];
 
 /**
- * kTooltip.ts is one delegated document listener (not a React view): it wires `aria-describedby` on whichever
- * `[data-tip]` control is hovered or focused, and only while the tooltip shows. React state cannot own that.
+ * No file under this app wires ARIA imperatively either: the k-tooltip's `aria-describedby` moved with the shared
+ * delegate (T1396). React state owns what the views render.
  */
-const IMPERATIVE_ARIA_ALLOWED = ['kTooltip.ts'];
+const IMPERATIVE_ARIA_ALLOWED: string[] = [];
 
 describe('R-X6 — no inline style, no raw HTML', () => {
   const BANNED: ReadonlyArray<readonly [string, RegExp]> = [
@@ -98,7 +99,7 @@ describe('raw HTML allowance is scoped to the sanctioned files', () => {
     expect(users.sort()).toEqual([...RAW_HTML_ALLOWED].sort());
   });
 
-  it('only kTooltip.ts writes element styles imperatively', () => {
+  it('writes element styles imperatively only where the allow-list names the file', () => {
     const users = APP_SOURCE.filter((f) => /\.style\./.test(stripBlockComments(readFileSync(f, 'utf8')))).map((f) => basename(f));
     expect(users).toEqual(IMPERATIVE_STYLE_ALLOWED);
   });

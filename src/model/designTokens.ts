@@ -176,6 +176,10 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   '--k-chip-tracking': '.05em',
   '--k-chip-wash': '20%',
   '--k-chip-wash-needs': '30%',
+  // The priority chip (T1396): one rule set for the sidebar and the dashboard, so
+  // its tracking and its raised-arrow nudge are tokens rather than local lengths.
+  '--k-pri-tracking': '.04em',
+  '--k-pri-up-align': '-0.1em',
   '--k-focus-w': '1px',
   '--k-focus-offset': '1px',
   // The spinner ring. Distinct from `--k-border-w`: a 1px ring reads as a
@@ -186,6 +190,9 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   '--k-brief-max-h': '420px',
 
   // ── Layering ───────────────────────────────────────────────────────────────
+  // A sticky row (the dashboard ticket header) sits above the page but below the
+  // attention ring (z-index 20) and every scrim/popover layer.
+  '--k-z-sticky': '10',
   '--k-z-scrim': '30',
   '--k-z-drawer': '40',
   '--k-z-modal': '50',
