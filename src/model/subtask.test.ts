@@ -103,6 +103,11 @@ describe('canDetachSubtask', () => {
     expect(canDetachSubtask({ ...base, stageCurrent: 'done' }, 0)).toBe(false);
   });
 
+  it('allows a closed sub-task: closed work was never merged, so it can still leave the stack (T1391)', () => {
+    expect(canDetachSubtask({ ...base, stageCurrent: 'closed' }, 0)).toBe(true);
+    expect(canDetachSubtask({ ...base, stageCurrent: 'closed', blocksParent: true }, 0)).toBe(false);
+  });
+
   it('refuses while the agent is running or a child sub-task is open', () => {
     expect(canDetachSubtask({ ...base, agentState: 'running' }, 0)).toBe(false);
     expect(canDetachSubtask(base, 1)).toBe(false);

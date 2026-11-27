@@ -369,6 +369,11 @@ describe('buildDashboardState', () => {
     // A done sub-task is already leaving the stack.
     store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(blocking.id);
     expect(buildDashboardState(store, blocking.id).canDetachSubtask).toBe(false);
+
+    // A closed sub-task (and the Reopen it also offers) can still leave the stack.
+    const closed = createTicket(store, { key: 'PROJ-1-s3', title: 'closed', subtaskParentId: parent.id });
+    store.db.prepare("UPDATE tickets SET stage_current = 'closed' WHERE id = ?").run(closed.id);
+    expect(buildDashboardState(store, closed.id)).toMatchObject({ canDetachSubtask: true, canReopen: true, canClose: false });
   });
 
   it('offers Close only to an unfinished, unarchived ticket and Reopen only to a closed one', () => {
