@@ -26,8 +26,26 @@ const XDG_DIRS: Readonly<Record<string, string>> = {
   XDG_STATE_HOME: 'state',
 };
 
-/** The v2 XDG dirs inside the container, on the data volume so credentials persist. */
-export function containerXdgEnv(): Record<string, string> {
+/**
+ * The XDG remap of ONE core, inside the container.
+ *
+ * opencode v2 keeps every dir under `${CONTAINER_DATA}/xdg/…` (its isolated
+ * store, whose values persist on the data volume). opencode V1's own data dir
+ * IS `${CONTAINER_DATA}`: the app appends `/opencode` to `XDG_DATA_HOME`, and
+ * that is exactly where `seedOpencode1Credentials` writes `auth.json`. A v1
+ * launch under a folder/managed account (whose adapter env carries the HOST
+ * `XDG_DATA_HOME`) must therefore resolve to `${CONTAINER_HOME}/.local/share`,
+ * never to the v2 `xdg/data` subtree — that would launch it signed out.
+ */
+export function containerXdgEnv(core: DockerRunnerCore): Record<string, string> {
+  if (core === 'opencode') {
+    return {
+      XDG_DATA_HOME: `${CONTAINER_HOME}/.local/share`,
+      XDG_CONFIG_HOME: `${CONTAINER_HOME}/.config`,
+      XDG_CACHE_HOME: `${CONTAINER_HOME}/.cache`,
+      XDG_STATE_HOME: `${CONTAINER_HOME}/.local/state`,
+    };
+  }
   return Object.fromEntries(Object.entries(XDG_DIRS).map(([key, dir]) => [key, `${CONTAINER_DATA}/xdg/${dir}`]));
 }
 
@@ -79,14 +97,15 @@ export function withoutHostAccountDirs(env: Readonly<Record<string, string>>): R
 }
 
 /**
- * `--env` flags for the adapter's env. Host XDG paths (opencode2's isolated
- * store) are remapped onto the data volume, with their value in the argv:
- * a container path is no secret. Every other key is passed BY NAME, so its
- * value comes from the docker client's own env and never lands in the argv
- * (`ps`, `docker inspect` of the client). Terminal type keys ride along.
+ * `--env` flags for the adapter's env. Host XDG paths (an account's isolated
+ * store, or the opencode2 one) are remapped onto the container's store for
+ * THIS core, with their value in the argv: a container path is no secret.
+ * Every other key is passed BY NAME, so its value comes from the docker
+ * client's own env and never lands in the argv (`ps`, `docker inspect` of the
+ * client). Terminal type keys ride along.
  */
-export function envArgs(env: Readonly<Record<string, string>>): string[] {
-  const xdg = containerXdgEnv();
+export function envArgs(env: Readonly<Record<string, string>>, core: DockerRunnerCore): string[] {
+  const xdg = containerXdgEnv(core);
   const flags: string[] = [];
   for (const key of Object.keys(withoutHostAccountDirs(env)).sort()) {
     flags.push('--env', key in xdg ? `${key}=${xdg[key]!}` : key);
@@ -113,8 +132,8 @@ function checkEnvFile(envFile: string): string {
  * ZERO by-name flags: a name has nothing to resolve when the client's env is
  * not the agent's env — the file is the one channel. TERM/COLORTERM ride there too.
  */
-function envFileArgs(env: Readonly<Record<string, string>>, envFile: string): string[] {
-  const xdg = containerXdgEnv();
+function envFileArgs(env: Readonly<Record<string, string>>, envFile: string, core: DockerRunnerCore): string[] {
+  const xdg = containerXdgEnv(core);
   const flags: string[] = ['--env-file', checkEnvFile(envFile)];
   for (const key of Object.keys(withoutHostAccountDirs(env)).sort()) {
     if (key in xdg) flags.push('--env', `${key}=${xdg[key]!}`);
@@ -239,7 +258,7 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
     '--network', input.names.network, ...HARDENING,
     ...memoryArgs(input.memory?.interactiveMemory, input.memory?.interactiveReservation),
     ...volumeMounts(input.names), ...auth, ...bridge, ...gemini, ...userArgs(input.user),
-    ...(input.envFile !== undefined ? envFileArgs(input.env, input.envFile) : envArgs(input.env)),
+    ...(input.envFile !== undefined ? envFileArgs(input.env, input.envFile, input.core) : envArgs(input.env, input.core)),
     '--workdir', CONTAINER_REPO,
     OPENCODE_IMAGE, ...launch,
   ];

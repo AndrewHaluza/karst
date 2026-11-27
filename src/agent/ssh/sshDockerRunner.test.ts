@@ -170,6 +170,17 @@ describe('createSshDockerSessionRunner: bridge mount, session env and argv', () 
     expect(placed.shellArgs.join('\n')).not.toContain('L1');
   });
 
+  it('an opencode v1 account launch resolves XDG_DATA_HOME to the seeded store, not the v2 subtree', () => {
+    const runner = makeRunner();
+    const placed = runner.placeInteractive!(launchSpec({ env: { ...launchSpec().env, XDG_DATA_HOME: '/host/accounts/a/share' } }));
+    const docker = tokens(sshScriptOf(placed.shellArgs));
+    const envFlags = docker.flatMap((arg, i) => (docker[i - 1] === '--env' ? [arg] : []));
+    // A folder/managed account carries the HOST data home; opencode v1 appends `/opencode`,
+    // which is exactly where the seed wrote auth.json — never the v2 `xdg/data` subtree.
+    expect(envFlags).toContain('XDG_DATA_HOME=/home/node/.local/share');
+    expect(envFlags.join(' ')).not.toContain('/host/accounts/a');
+  });
+
   it('the bridge run dir ends in the ticket id, which is exactly what MARKER_EMIT reads', () => {
     const runner = makeRunner();
     const paths = bridgePaths('/tmp/karst-bridge-root', 7);

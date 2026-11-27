@@ -3,6 +3,7 @@ import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import {
   bindMount,
+  CONTAINER_DATA,
   containerXdgEnv,
   envArgs,
   gateRunArgs,
@@ -28,7 +29,7 @@ describe('interactiveRunArgs', () => {
       '--network', names.network, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       '--mount', `type=volume,source=${names.repoVolume},target=/work`,
       '--mount', `type=volume,source=${names.dataVolume},target=/home/node/.local/share/opencode`,
-      ...envArgs({}), '--workdir', '/work/repo',
+      ...envArgs({}, 'opencode'), '--workdir', '/work/repo',
       OPENCODE_IMAGE, 'opencode1', '/work/repo',
     ]);
   });
@@ -79,8 +80,8 @@ describe('interactiveRunArgs', () => {
 });
 
 describe('envArgs', () => {
-  it('passes adapter keys by name, remaps XDG onto the data volume, adds proxy and terminal keys', () => {
-    expect(envArgs({ OPENCODE_CONFIG_CONTENT: '{"secret":1}', XDG_DATA_HOME: '/host/x/data' })).toEqual([
+  it('passes adapter keys by name, remaps XDG onto the core store, adds proxy and terminal keys', () => {
+    expect(envArgs({ OPENCODE_CONFIG_CONTENT: '{"secret":1}', XDG_DATA_HOME: '/host/x/data' }, 'opencode2')).toEqual([
       '--env', 'OPENCODE_CONFIG_CONTENT',
       '--env', 'XDG_DATA_HOME=/home/node/.local/share/opencode/xdg/data',
       '--env', 'HTTPS_PROXY=http://karst-proxy:3128', '--env', 'HTTP_PROXY=http://karst-proxy:3128',
@@ -90,8 +91,21 @@ describe('envArgs', () => {
     ]);
   });
 
-  it('maps all four XDG dirs', () => {
-    expect(containerXdgEnv()).toEqual({
+  it('maps the V1 data home to where its auth.json is seeded, never the v2 xdg subtree', () => {
+    // A folder/managed account sets the HOST XDG_DATA_HOME; opencode v1 appends `/opencode` to it,
+    // and `seedOpencode1Credentials` writes `/home/node/.local/share/opencode/auth.json`.
+    expect(envArgs({ XDG_DATA_HOME: '/host/accounts/a/share' }, 'opencode')).toContain('XDG_DATA_HOME=/home/node/.local/share');
+    expect(envArgs({ XDG_DATA_HOME: '/host/accounts/a/share' }, 'opencode')).not.toContain('XDG_DATA_HOME=/home/node/.local/share/opencode/xdg/data');
+    expect(containerXdgEnv('opencode').XDG_DATA_HOME).toBe('/home/node/.local/share');
+  });
+
+  it('the v1 data home is the parent of the seeded auth.json (one store, one lookup)', () => {
+    // opencode v1 reads `$XDG_DATA_HOME/opencode/auth.json`; the seed writes `${CONTAINER_DATA}/auth.json`.
+    expect(`${containerXdgEnv('opencode').XDG_DATA_HOME!}/opencode/auth.json`).toBe(`${CONTAINER_DATA}/auth.json`);
+  });
+
+  it('maps all four XDG dirs of the v2 store', () => {
+    expect(containerXdgEnv('opencode2')).toEqual({
       XDG_DATA_HOME: '/home/node/.local/share/opencode/xdg/data',
       XDG_CONFIG_HOME: '/home/node/.local/share/opencode/xdg/config',
       XDG_CACHE_HOME: '/home/node/.local/share/opencode/xdg/cache',
@@ -221,8 +235,8 @@ describe('host account folders stay out of the container', () => {
     expect(withoutHostAccountDirs(env)).toEqual({ KARST_X: '1' });
   });
   it('applies to envArgs, headlessExecArgs and gateRunArgs', () => {
-    expect(envArgs(env).join(' ')).not.toMatch(/CLAUDE_CONFIG_DIR|CODEX_HOME|ANTIGRAVITY/);
-    expect(envArgs(env)).toContain('KARST_X');
+    expect(envArgs(env, 'opencode').join(' ')).not.toMatch(/CLAUDE_CONFIG_DIR|CODEX_HOME|ANTIGRAVITY/);
+    expect(envArgs(env, 'opencode')).toContain('KARST_X');
     expect(headlessExecArgs('c', 'r1', 'x', [], env).join(' ')).not.toMatch(/\/h\//);
     expect(gateRunArgs(names, undefined, 'run', 'npm', [], env).join(' ')).not.toMatch(/\/h\//);
   });
@@ -245,10 +259,11 @@ describe('--env-file mode (remote docker, T1399)', () => {
 
   it('leaves the LOCAL argv byte-identical: envArgs, not one --env-file', () => {
     const local = interactiveRunArgs({ ...base, env });
+    const expected = envArgs(env, base.core);
     expect(local).not.toContain('--env-file');
     const workdir = local.indexOf('--workdir');
-    expect(local.slice(workdir - envArgs(env).length, workdir)).toEqual(envArgs(env));
-    expect(envValues(local)).toEqual(envValues(envArgs(env)));
+    expect(local.slice(workdir - expected.length, workdir)).toEqual(expected);
+    expect(envValues(local)).toEqual(envValues(expected));
   });
 
   it('emits --env-file, value-form XDG remaps and PROXY_ENV only', () => {
@@ -256,6 +271,18 @@ describe('--env-file mode (remote docker, T1399)', () => {
     const i = argv.indexOf('--env-file');
     expect(i).toBeGreaterThan(0);
     expect(argv[i + 1]).toBe(ENV_FILE);
+    expect(envValues(argv)).toEqual([
+      // opencode v1: its data home is the PARENT of the seeded auth.json dir.
+      'XDG_DATA_HOME=/home/node/.local/share',
+      'XDG_STATE_HOME=/home/node/.local/state',
+      'HTTPS_PROXY=http://karst-proxy:3128', 'HTTP_PROXY=http://karst-proxy:3128',
+      'https_proxy=http://karst-proxy:3128', 'http_proxy=http://karst-proxy:3128',
+      'NO_PROXY=localhost,127.0.0.1', 'no_proxy=localhost,127.0.0.1',
+    ]);
+  });
+
+  it('remaps XDG to the v2 store for an opencode2 launch', () => {
+    const argv = interactiveRunArgs({ ...base, core: 'opencode2', env, envFile: ENV_FILE });
     expect(envValues(argv)).toEqual([
       'XDG_DATA_HOME=/home/node/.local/share/opencode/xdg/data',
       'XDG_STATE_HOME=/home/node/.local/share/opencode/xdg/state',

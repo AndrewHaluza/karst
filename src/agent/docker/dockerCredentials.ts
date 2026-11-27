@@ -24,7 +24,7 @@ export interface SeedInput {
 export type SeedResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
 function inContainer(input: SeedInput, interactive: boolean, args: readonly string[]): string[] {
-  const xdg = Object.entries(containerXdgEnv()).flatMap(([key, value]) => ['--env', `${key}=${value}`]);
+  const xdg = Object.entries(containerXdgEnv('opencode2')).flatMap(([key, value]) => ['--env', `${key}=${value}`]);
   return [
     'run', '--rm', ...(interactive ? ['--interactive'] : []), '--network', 'none',
     ...userArgs(input.user), ...volumeMounts(input.names), ...xdg,
