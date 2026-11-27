@@ -184,6 +184,13 @@ const insideGraphDagNarrow = (): Variant[] => {
 /** T1099: a viewport height above the 966px content of the ship/wide menu variant. */
 const SHIP_MENU_WIDE_VIEWPORT_H = 1000;
 
+/**
+ * T1400: the review/tight page is ~1201-1203 px tall, so a 720 px viewport made the full-page capture flip by 2 px
+ * and move the open menu's edge by 1 px (311 px of difference between two otherwise identical renders). A viewport
+ * above the content pins the capture, the same fix T1099 gave ship/wide.
+ */
+const REVIEW_MENU_TIGHT_VIEWPORT_H = 1250;
+
 /** T1072 (F): the stage menu open at the wide and narrow tiers, on a ship with a main action plus rest, and on a failed review. */
 const stageMenuOpenVariants = (): Variant[] => {
   const cases = [
@@ -199,6 +206,8 @@ const stageMenuOpenVariants = (): Variant[] => {
         click: `[data-stage-menu="${key}"]`,
         // T1099: the full-page capture of ship/wide flips 964/966px while the DOM height is a stable 966px; a viewport above the content pins it.
         ...(stage === 'ship' && tier === 'wide' ? { viewportHeight: SHIP_MENU_WIDE_VIEWPORT_H } : {}),
+        // T1400: the same 2 px capture flip on review/tight.
+        ...(stage === 'review' && tier === 'tight' ? { viewportHeight: REVIEW_MENU_TIGHT_VIEWPORT_H } : {}),
       }),
     );
   });
