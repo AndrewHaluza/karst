@@ -57,6 +57,13 @@ export interface ResolveBackendInput {
   readonly installId?: string;
   /** Test seam for `resolveSsh` (the ssh process, preflight, clone and trust steps). */
   readonly ssh?: SshResolveDeps;
+  /**
+   * Raises the caller's own launch bound (`boundedBackendStep`). A cold remote
+   * image build runs here and names its longer bound, so the 180 s guard does
+   * not kill a healthy first launch (and never leaves the build running as an
+   * orphan behind a discarded step).
+   */
+  readonly extendBackendStep?: (ms: number) => void;
 }
 
 /** Why a launch's account cannot run in the sandbox, as data: callers never parse `line`. */
@@ -116,7 +123,9 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
       // The declared baseline host ports: `mode: docker` refuses them (D823),
       // `mode: direct` ignores them (it has no proxy).
       ...(input.docker?.hostPorts !== undefined ? { hostPorts: input.docker.hostPorts } : {}),
-      ...(input.ssh ? { deps: input.ssh } : {}),
+      ...(input.ssh !== undefined || input.extendBackendStep !== undefined
+        ? { deps: { ...(input.ssh ?? {}), ...(input.extendBackendStep !== undefined ? { extendDeadline: input.extendBackendStep } : {}) } }
+        : {}),
     });
     if (!out.ok) return onHost(out.reason);
     return {

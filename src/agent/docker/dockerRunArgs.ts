@@ -49,9 +49,23 @@ export function containerXdgEnv(core: DockerRunnerCore): Record<string, string> 
   return Object.fromEntries(Object.entries(XDG_DIRS).map(([key, dir]) => [key, `${CONTAINER_DATA}/xdg/${dir}`]));
 }
 
+/**
+ * `--user` + a private tmpfs HOME for the container's user.
+ *
+ * `--env HOME` is not optional: a uid that is not in the image's `/etc/passwd`
+ * (the normal case for a remote login uid, e.g. 1001) makes runc fall back to
+ * `HOME=/`, where opencode v1 would look for `/.local/share/opencode/auth.json`
+ * instead of the seeded `/home/node/.local/share/opencode/auth.json`, and every
+ * cache/config write under `/` fails closed. The image's own `node` user already
+ * has this home; naming it makes the two cases identical.
+ */
 export function userArgs(user: LinuxUser | undefined): string[] {
   if (!user) return [];
-  return ['--user', `${user.uid}:${user.gid}`, '--tmpfs', `${CONTAINER_HOME}:uid=${user.uid},gid=${user.gid},mode=0700`];
+  return [
+    '--user', `${user.uid}:${user.gid}`,
+    '--env', `HOME=${CONTAINER_HOME}`,
+    '--tmpfs', `${CONTAINER_HOME}:uid=${user.uid},gid=${user.gid},mode=0700`,
+  ];
 }
 
 export const HARDENING = ['--cap-drop', 'ALL', '--security-opt', 'no-new-privileges'];

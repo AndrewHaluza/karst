@@ -245,6 +245,8 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
     stopServices: async (): Promise<void> => base.stopServices!(),
     stop: async (): Promise<void> => base.stop!(),
     runGate: base.runGate!,
+    // A launch the guard discarded after this runner resolved must not leave the remote proxy up.
+    abortLaunch: async (): Promise<void> => { await base.abortLaunch?.(); },
     setupWindow: (hosts) => base.setupWindow!(hosts),
     windowNeedsIdle: true,
     /**

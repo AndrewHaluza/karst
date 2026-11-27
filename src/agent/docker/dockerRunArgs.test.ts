@@ -46,7 +46,7 @@ describe('interactiveRunArgs', () => {
 
   it('runs as the host uid with a writable HOME on linux', () => {
     const argv = interactiveRunArgs({ ...base, user: { uid: 1001, gid: 1002 } });
-    expect(argv.join(' ')).toContain('--user 1001:1002 --tmpfs /home/node:uid=1001,gid=1002,mode=0700');
+    expect(argv.join(' ')).toContain('--user 1001:1002 --env HOME=/home/node --tmpfs /home/node:uid=1001,gid=1002,mode=0700');
   });
 
   it('launches opencode2 by its image name', () => {

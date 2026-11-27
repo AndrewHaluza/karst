@@ -225,6 +225,14 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       ];
       return disposeResult(steps);
     },
+    /**
+     * A backend result the launch discarded (a timed-out guard) may already have
+     * started the proxy: it is the one object with egress, so it never outlives
+     * the launch. The agent container does not exist yet (`placeInteractive`).
+     */
+    abortLaunch: async (): Promise<void> => {
+      if (opts.proxy) await stopProxySidecar(opts.proc, opts.names.proxy);
+    },
   };
 }
 

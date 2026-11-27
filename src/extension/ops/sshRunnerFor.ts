@@ -219,8 +219,24 @@ function withRemoteDockerUser(
   build: (user: LinuxUser | undefined) => SessionRunner,
   probe: () => Promise<LinuxUser | undefined>,
 ): SessionRunner {
-  let resolved: Promise<SessionRunner> | undefined;
-  const real = (): Promise<SessionRunner> => (resolved ??= probe().then((user) => build(user), () => build(undefined)));
+  /** `retry` = the probe did not answer: that result is handed out for THIS op but never kept. */
+  let resolved: Promise<{ readonly runner: SessionRunner; readonly retry: boolean }> | undefined;
+  const real = async (): Promise<SessionRunner> => {
+    const pending = resolved ?? (async () => {
+      try {
+        const user = await probe();
+        return { runner: build(user), retry: user === undefined };
+      } catch {
+        return { runner: build(undefined), retry: true };
+      }
+    })();
+    resolved = pending;
+    const out = await pending;
+    // A failed probe is not cached (like `withControlDir`): a transient ssh blip must not pin the
+    // image's own user for the runner's lifetime, or a later op writes a volume it does not own.
+    if (out.retry) resolved = undefined;
+    return out.runner;
+  };
   const guarded: Partial<Record<(typeof USER_OPS)[number], AnyOp>> = {};
   for (const key of USER_OPS) {
     const op = provisional[key] as AnyOp | undefined;

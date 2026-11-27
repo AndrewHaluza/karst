@@ -191,6 +191,49 @@ describe('sshRunnerFor (D826)', () => {
     expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).not.toContain('--user');
   });
 
+  it('a failed uid probe is not cached: the next write op asks again and uses the ids', async () => {
+    const failing = fakeSshProcess({ '# karst-ssh-docker-user': { code: 1 }, '{{.State.Running}}': { code: 1 } });
+    const answering = fakeSshProcess({ '# karst-ssh-docker-user': { stdout: '1001\n1002\n' }, '{{.State.Running}}': { code: 1 } });
+    let probes = 0;
+    const run = failing.run;
+    failing.run = (args, opts) => {
+      if (String(args.at(-1)).includes('# karst-ssh-docker-user')) {
+        probes += 1;
+        return probes === 1 ? run(args, opts) : answering.run(args, opts);
+      }
+      return run(args, opts);
+    };
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(failing), gateProcess: gate }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.runGate!('npm', ['test'], '/wt');
+    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).not.toContain('--user');
+    // A transient blip must not pin the image user: the retry writes the volume as its owner.
+    await runner.runGate!('npm', ['test'], '/wt');
+    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).toContain('--user 1001:1002');
+    expect(probes).toBe(2);
+  });
+
+  it('a throwing uid probe is retried on the next op, like a failed one', async () => {
+    const ssh = fakeSshProcess({ '{{.State.Running}}': { code: 1 } });
+    const answering = fakeSshProcess({ '# karst-ssh-docker-user': { stdout: '1001\n1002\n' }, '{{.State.Running}}': { code: 1 } });
+    const run = ssh.run;
+    let probes = 0;
+    ssh.run = (args, opts) => {
+      if (String(args.at(-1)).includes('# karst-ssh-docker-user')) {
+        probes += 1;
+        if (probes === 1) return Promise.reject(new Error('ssh: transport dropped'));
+        return answering.run(args, opts);
+      }
+      return run(args, opts);
+    };
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), gateProcess: gate }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.runGate!('npm', ['test'], '/wt');
+    await runner.runGate!('npm', ['test'], '/wt');
+    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).toContain('--user 1001:1002');
+    expect(probes).toBe(2);
+  });
+
   it.each<[string, FakeSshAnswer]>([
     ['a transport flag wins over a 0 exit', { code: 0, transport: true as const, stdout: '1001\n1002\n' }],
     ['a non-zero exit', { code: 7, stdout: '1001\n1002\n' }],

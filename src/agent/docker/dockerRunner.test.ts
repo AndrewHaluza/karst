@@ -335,6 +335,16 @@ describe('DockerMountRoot (remote docker, T1399)', () => {
     expect(withoutBridge(remote.shellArgs, '/remote/ws/bridge/7')).toEqual(withoutBridge(local.shellArgs, '/host/bridge/7'));
   });
 
+  it('abortLaunch stops the proxy it may have started, and is a no-op without one', async () => {
+    const proxied = fakeDockerProcess();
+    await createDockerSessionRunner({ proc: proxied, core: 'opencode', names, user: undefined, proxy: { script: '/ext/allowlist-proxy.mjs' } }).abortLaunch!();
+    // A discarded launch (a timed-out guard) is never placed: the proxy is the one egress object to stop.
+    expect(proxied.calls.map((c) => c.args.join(' '))).toContain(`rm --force ${names.proxy}`);
+    const plain = fakeDockerProcess();
+    await createDockerSessionRunner({ proc: plain, core: 'opencode', names, user: undefined }).abortLaunch!();
+    expect(plain.calls).toHaveLength(0);
+  });
+
   it('mounts the proxy bundle from the remote assets dir; local uses the host script', async () => {
     const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
     const localProc = fakeDockerProcess({ 'docker container inspect': { code: 1 } });

@@ -106,9 +106,10 @@ describe('backendSessionOptions', () => {
     const resolved = { runner: HOST_SESSION_RUNNER, line: 'host (sbx not signed in)' };
     const resolve = vi.fn().mockResolvedValue(resolved);
     const info = vi.fn();
-    const opts = backendSessionOptions({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info, resolve });
+    const extendBackendStep = vi.fn();
+    const opts = backendSessionOptions({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info, resolve, extendBackendStep });
     await expect(opts.resolveRunner!()).resolves.toBe(resolved);
-    expect(resolve).toHaveBeenCalledWith({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7, remoteTrusted: expect.any(Function) });
+    expect(resolve).toHaveBeenCalledWith({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7, remoteTrusted: expect.any(Function), extendBackendStep });
     opts.onBackend!(resolved.line);
     expect(info).toHaveBeenCalledWith('[session] ticket K-7 backend: host (sbx not signed in)');
   });

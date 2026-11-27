@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { PrepareInput } from '../docker/dockerRunner.js';
 import { dockerNames } from '../docker/dockerNames.js';
 import { fakeSbxProcess } from '../sbx/fakeSbxProcess.js';
 import { fakeSshProcess } from './fakeSshProcess.js';
-import { resolveSsh, type SshResolveDeps, type SshResolveInput, type SshWarnOnce } from './resolveSsh.js';
+import { resolveSsh, SSH_DOCKER_BUILD_DEADLINE_MS, type SshResolveDeps, type SshResolveInput, type SshWarnOnce } from './resolveSsh.js';
 import { noTmuxWarning, type SshPreflightFacts, type SshPreflightResult } from './sshPreflight.js';
 
 const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
@@ -185,9 +185,11 @@ describe('resolveSsh docker mode (D822)', () => {
 
   it('a first image build raises the resolve deadline, so the 180 s race cannot fire mid-build', async () => {
     const phases: string[] = [];
+    const extended = vi.fn();
     const out = await resolveSsh(dockerInput(fakeSshProcess(), {}, {
       timeoutMs: 10,
       onProgress: (message) => phases.push(message),
+      extendDeadline: extended,
       // Slower than the resolve bound, and announced as a build: the build's own bound applies.
       dockerPreflight: async (_proc, _dir, _debug, opts) => {
         opts?.onProgress?.('building the image on the remote daemon…');
@@ -196,6 +198,8 @@ describe('resolveSsh docker mode (D822)', () => {
       },
     }));
     expect(phases).toEqual(['building the image on the remote daemon…']);
+    // The CALLER's bound (the launch guard) is raised too: it would otherwise discard a healthy build.
+    expect(extended).toHaveBeenCalledWith(SSH_DOCKER_BUILD_DEADLINE_MS);
     expect(out.ok).toBe(true);
   });
 

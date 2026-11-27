@@ -181,6 +181,14 @@ describe('createSshDockerSessionRunner: bridge mount, session env and argv', () 
     expect(envFlags.join(' ')).not.toContain('/host/accounts/a');
   });
 
+  it('abortLaunch stops the remote proxy a discarded launch started', async () => {
+    const ssh = fakeSshProcess();
+    const runner = makeRunner({ ssh });
+    await runner.abortLaunch!();
+    // A guard that timed out discards the runner: its proxy is the one object with egress.
+    expect(scriptsOf(ssh).some((s) => s.includes(`'rm'`) && s.includes(`'--force'`) && s.includes('-proxy'))).toBe(true);
+  });
+
   it('the bridge run dir ends in the ticket id, which is exactly what MARKER_EMIT reads', () => {
     const runner = makeRunner();
     const paths = bridgePaths('/tmp/karst-bridge-root', 7);

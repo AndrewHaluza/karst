@@ -92,6 +92,12 @@ export interface SshResolveDeps {
   readonly opencode2Host?: (account?: string) => { readonly command: string; readonly env: Readonly<Record<string, string>> };
   /** Progress for a first (slow) remote image build, so the launch is not silent. */
   readonly onProgress?: (message: string) => void;
+  /**
+   * The CALLER's own bound (the launch guard): a step that names its longer
+   * bound raises it too, so the guard does not kill a cold remote image build
+   * while this resolve would have waited for it.
+   */
+  readonly extendDeadline?: (ms: number) => void;
 }
 
 export interface SshResolveInput {
@@ -247,7 +253,13 @@ async function resolveDockerSteps(
   // kills the build if the raised deadline is reached too.
   const check = await (deps.dockerPreflight ?? dockerPreflight)(dockerProc, assetsDir, deps.debug, {
     streamContext: true,
-    onProgress: (message) => { extendBound(SSH_DOCKER_BUILD_DEADLINE_MS); deps.onProgress?.(message); },
+    onProgress: (message) => {
+      // The build names its own bound for BOTH deadlines: this resolve's and the caller's guard,
+      // which would otherwise kill a healthy cold build at its generic timeout.
+      extendBound(SSH_DOCKER_BUILD_DEADLINE_MS);
+      deps.extendDeadline?.(SSH_DOCKER_BUILD_DEADLINE_MS);
+      deps.onProgress?.(message);
+    },
     signal,
   });
   if (!check.ok) return check;
