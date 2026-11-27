@@ -142,6 +142,16 @@ describe('design system components', () => {
     expect(hiddenFill).toContain('-webkit-text-fill-color:transparent');
   });
 
+  it('hides an inline glyph under the centred spinner, so no icon draws through it (UI-R18)', () => {
+    const rules = CSS.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+\{[^}]*\}/g) ?? [];
+    for (const state of ['is-spinning', 'is-success']) {
+      const selector = `.k-btn:not(.k-btn--icon):not(.k-btn--row).${state} svg`;
+      const rule = rules.find((r) => r.includes(selector));
+      expect(rule, selector).toBeDefined();
+      expect(rule).toContain('visibility:hidden');
+    }
+  });
+
   it('keeps .is-success a tier-3 check: no colour or border change', () => {
     const rules = CSS.match(/[^{}]*\.is-success[^{}]*\{[^}]*\}/g) ?? [];
     for (const r of rules) {

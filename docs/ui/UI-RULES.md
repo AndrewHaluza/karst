@@ -568,7 +568,9 @@ Avoid unnecessary accessible-name changes during the action.
 
 An idle button reserves no empty space. A text-only button draws the spinner (and
 the tier-3 check) in its centre over the label, which stays in the DOM but is not
-painted; a button with a glyph draws it in place of the glyph. Width and
+painted; a button with a glyph draws it in place of the glyph. A glyph written
+without `.k-btn--icon` (an inline `<svg>` inside a text-only button) is hidden
+while the spinner or check shows, so no icon paints under it. Width and
 accessible name stay fixed through idle→pending→settled.
 
 Label changes are allowed when intentional and accessible; they are not
@@ -1435,8 +1437,11 @@ Inside one view, pending state has one owner, and each view's
   `document.querySelector`; no raw form controls or DS primitive classes outside
   `primitives/`; no hand-rolled `pending`/`loading` `useState`).
 - **Dashboard:** `app/pendingOps.ts`, `usePendingAction.ts`, `usePrPending.ts`
-  (same guards; raw HTML only in `AgentIcon.tsx`/`Icon.tsx`, imperative style only
-  in `stickyHeader.ts`).
+  (its `architecture.test.ts` guards R-X5/R-X6/R-X7: no raw HTML outside
+  `AgentIcon.tsx`/`Icon.tsx`; no index keys or `document.querySelector`; no
+  imperative style or ARIA except `stickyHeader.ts`. The Settings guards — raw form
+  controls, DS classes outside `primitives/`, hand-rolled pending state — do not
+  apply: the dashboard has no `primitives/`.)
 - **Resources:** `useHostAction.ts` plus the Settings `Button`, `LiveRegion` and
   `useHostMutation` (same guards; one `acquireVsCodeApi()` in `main.tsx`; typed
   sender only, no raw `.postMessage({`).

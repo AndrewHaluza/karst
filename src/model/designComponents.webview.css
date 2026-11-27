@@ -95,6 +95,13 @@ body.vscode-light{--k-action-2-bg:var(--vscode-editorWidget-background);--k-acti
 .k-btn:not(.k-btn--icon):not(.k-btn--row).is-success::before{
   position:absolute;top:50%;left:50%;translate:-50% -50%;
   -webkit-text-fill-color:currentColor}
+/* A `.k-btn` can carry an inline glyph written without `.k-btn--icon` (a React `<Icon>` child, or one a runtime
+   injects). The glyph paints with its own fill, so the centred spinner would draw over a still-visible icon: hide
+   the glyph for the pending/confirm beat. `visibility` keeps the glyph's box, so idle and pending share one width,
+   and the label keeps its own box and accessible name (UI-R18). */
+.k-btn:not(.k-btn--icon):not(.k-btn--row).is-spinning svg,
+.k-btn:not(.k-btn--icon):not(.k-btn--row).is-success svg{
+  visibility:hidden}
 /* A button with a leading glyph (`.k-btn--icon`): the glyph is the spinner slot. No empty slot is reserved;
    while spinning the glyph hides and the spinner draws over it, so the width does not change (UI-R18). */
 .k-btn-icon{position:relative;display:inline-flex;align-items:center;justify-content:center}
