@@ -1,6 +1,7 @@
 import type { OpenSessionOptions } from '../ui/session.js';
 import type { Store } from '../store/db.js';
 import { listMemoryQueue, memoryWaitNotes, memoryWaitOwner } from '../store/memoryQueue.js';
+import { getPlacement } from '../store/placement.js';
 import type { Inventory } from '../runtime/resourceInventory.js';
 import { makeMemoryQueue, type MemoryQueue } from './ops/memoryQueueOps.js';
 import { makePressureWatch, type SandboxFootprint } from '../runtime/memoryPressure.js';
@@ -137,6 +138,10 @@ export function bindMemory(d: MemoryBindingDeps): MemoryBinding {
       offerChoice(id, waiting.get(id) ?? 'Waiting for memory');
     },
     admitLaunch: async (ticketId, options) => {
+      // D826: a ticket recorded on an ssh remote never enters the HOST memory
+      // queue (@arch:AC-49): its memory is the remote's, not this Mac's. The
+      // recorded placement wins over a config that changed since the launch.
+      if (getPlacement(d.store, ticketId)?.backend === 'ssh') return true;
       sbxTickets.add(ticketId);
       if (admitted.delete(ticketId)) return true;
       if (pending.has(ticketId) && !memoryWaitNotes(d.store).has(ticketId)) pending.delete(ticketId); // its row was dropped: old options must not replay

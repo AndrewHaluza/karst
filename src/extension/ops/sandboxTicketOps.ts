@@ -31,6 +31,7 @@ import type { SandboxServiceContext } from '../../runtime/startService.js';
 import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js';
 import { isServing } from '../../runtime/health.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import { getTicket } from '../../store/tickets.js';
 import { getPlacement, type TicketPlacement } from '../../store/placement.js';
 import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, onceByMessage, provisionTicketSandbox, ticketCloneReady, warnMissingSetup } from './sandboxSetupOp.js';
@@ -40,6 +41,7 @@ import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
 import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
 import { blockedSshRunner } from './sshPlacementOps.js';
+import { sshRunnerFor, type SshRunnerDeps } from './sshRunnerFor.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -59,6 +61,10 @@ export interface TicketSandboxDeps {
    * Recorded host = nothing is spawned; a recorded sandbox names the backend and core directly (arch:AC-32).
    */
   readonly placementOf?: (ticketId: number) => TicketPlacement | null;
+  /** What `sshRunnerFor` needs for an `ssh` placement; absent = that placement refuses (D826). */
+  readonly sshRunner?: SshRunnerDeps;
+  /** The ticket's (cloned) host worktree: the ssh runner maps its gate cwd from it. */
+  readonly worktreeOf?: (ticketId: number) => string | undefined;
   /** The ticket's evidence bridge paths, when the hook endpoint is up. */
   readonly bridgeOf?: (ticketId: number) => BridgePaths | undefined;
   /**
@@ -96,17 +102,15 @@ export interface TicketSandbox {
 export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number, coreOverride?: string | null): TicketSandbox | undefined {
   const placement = deps.placementOf?.(ticketId) ?? null;
   if (placement?.backend === 'host') return undefined;
+  // The recorded placement picks the runner (D826): an ssh ticket gets the ssh runner, or one that
+  // refuses with the reason (never `undefined`, so no gate runs on the host clone).
+  // Only a recorded placement is `ssh` (the configured value is `ssh:<remote>`).
+  if (placement?.backend === 'ssh') return sshTicketSandbox(deps, ticketId, placement);
   const core = coreOverride === undefined ? (placement?.core ?? deps.coreOf(ticketId)) : coreOverride;
   if (core === null) return undefined;
   const backend = placement ? placement.backend : backendForCore(deps.backends(), core);
   const bridge = deps.bridgeOf?.(ticketId);
   const projectRoot = deps.projectRoot(ticketId);
-  // D555 → D826: an ssh placement gets no host-side runner yet. A fail-closed
-  // runner (never `undefined`) keeps every gate off the host clone.
-  // Only a recorded placement is `ssh` (the configured value is `ssh:<remote>`).
-  if (placement?.backend === 'ssh') {
-    return { runner: blockedSshRunner(), sandboxName: placement.sandboxName ?? '' };
-  }
   if (backend === 'sbx' && (SBX_CORES as readonly string[]).includes(core)) {
     const name = sbxName({ projectRoot, ticketId, core });
     const runner = createSbxSessionRunner({
@@ -167,8 +171,47 @@ export async function resolveTicketSandbox(deps: TicketSandboxDeps, ticketId: nu
   return { found, listed, ...(listingError !== undefined ? { listingError } : {}) };
 }
 
-/** The services context, only when the sandbox exists. */
+/** The runner of a recorded ssh placement: the ssh runner, or one that refuses with the reason. Its core does not matter. */
+function sshTicketSandbox(deps: TicketSandboxDeps, ticketId: number, placement: TicketPlacement): TicketSandbox {
+  const runner = sshRunnerFor(deps.sshRunner, placement, { ticketId, projectRoot: deps.projectRoot(ticketId), hostWorktreePath: deps.worktreeOf?.(ticketId) });
+  return { runner, sandboxName: placement.sandboxName ?? '' };
+}
+
+/** The runner of a recorded ssh placement and its probe; undefined for every other placement. The listing has no ssh entries. */
+export async function sshTicketProbe(deps: TicketSandboxDeps, ticketId: number): Promise<{ readonly found: TicketSandbox; readonly probe: SandboxProbe } | undefined> {
+  const placement = deps.placementOf?.(ticketId);
+  if (placement?.backend !== 'ssh') return undefined;
+  const found = sshTicketSandbox(deps, ticketId, placement);
+  // `sshRunnerFor` gives the ssh runner or `blockedSshRunner`; both implement the probe.
+  const probe = await found.runner.probeSandbox!()
+    .catch((err: unknown): SandboxProbe => ({ state: 'unknown', reason: err instanceof Error ? err.message : String(err) }));
+  return { found, probe };
+}
+
+/** An ssh ticket's sandbox counts as there unless a reachable, trusted remote says `absent` (`@arch:AC-39`): never a silent host run. */
+async function sshHasSandbox(deps: TicketSandboxDeps, ticketId: number): Promise<boolean | undefined> {
+  const ssh = await sshTicketProbe(deps, ticketId);
+  return ssh === undefined ? undefined : ssh.probe.state !== 'absent';
+}
+
+/** Why an ssh ticket's step is refused: its probe is not `present`. */
+function sshRefusal(ticketId: number, probe: SandboxProbe): string {
+  return probe.state === 'unknown'
+    ? `ticket ${ticketId} runs on ssh and its remote cannot be used: ${probe.reason}; nothing runs on the host for it`
+    : `ticket ${ticketId} runs on ssh and its remote clone is gone; nothing runs on the host for it`;
+}
+
+/**
+ * The services context, only when the sandbox exists. An ssh ticket always gets one
+ * (D826): `undefined` would start its services on the host, so a remote that cannot
+ * be used gives a context whose runner refuses with the reason.
+ */
 export async function ticketSandboxContext(deps: TicketSandboxDeps, ticketId: number): Promise<SandboxServiceContext | undefined> {
+  const ssh = await sshTicketProbe(deps, ticketId);
+  if (ssh !== undefined) {
+    if (ssh.probe.state === 'present') return { runner: ssh.found.runner, sandboxName: ssh.found.sandboxName };
+    return { runner: blockedSshRunner(sshRefusal(ticketId, ssh.probe)), sandboxName: ssh.found.sandboxName };
+  }
   const { found, listed } = await resolveTicketSandbox(deps, ticketId);
   if (!found || !(listed || (await found.runner.hasSandbox?.()))) return undefined;
   return { runner: found.runner, sandboxName: found.sandboxName };
@@ -186,7 +229,21 @@ export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number, opt
   const legacy = ticketSandboxRunner(deps, ticketId);
   const listing = deps.inventory !== undefined && selectedSandboxBackends(deps.backends()).length > 0;
   if (!listing && !legacy?.runner.runGate) return undefined;
+  const slot = (gate: GateProcessRunner): GateProcessRunner =>
+    opts.slotted && deps.gateSlots ? withGateSlot({ ...deps.gateSlots, limit: () => resolveGateSlots(deps.sandboxLimits?.()) }, ticketId, gate) : gate;
   return async (command, args, cwd, options) => {
+    // An ssh ticket's gate runs on its remote or is refused (D826): never `runProcess` on the host.
+    const ssh = await sshTicketProbe(deps, ticketId);
+    if (ssh !== undefined) {
+      if (ssh.probe.state !== 'present') {
+        const reason = `gate refused: ${sshRefusal(ticketId, ssh.probe)}`;
+        deps.debug?.(`[gate] ${reason}`);
+        return { kind: 'spawnFailed', message: reason, output: reason };
+      }
+      deps.debug?.(`[gate] ticket ${ticketId}: ${command} runs in ssh (${ssh.found.sandboxName})`);
+      // The ssh runner and `blockedSshRunner` both implement the gate.
+      return slot(ssh.found.runner.runGate!)(command, args, cwd, options);
+    }
     const { found, listed } = await resolveTicketSandbox(deps, ticketId);
     const sandboxGate = found?.runner.runGate;
     if (listed && !sandboxGate) {
@@ -198,8 +255,7 @@ export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number, opt
     deps.debug?.(`[gate] ticket ${ticketId}: ${command} runs ${inside ? `in ${found!.runner.kind} (${found!.sandboxName})` : 'on the host (no sandbox)'}`);
     if (!inside) return runProcess(command, args, cwd, options);
     // A sandbox gate takes a project-wide slot (agents do not): gates of different tickets cannot all build at once.
-    const slotted = opts.slotted && deps.gateSlots ? withGateSlot({ ...deps.gateSlots, limit: () => resolveGateSlots(deps.sandboxLimits?.()) }, ticketId, sandboxGate!) : sandboxGate!;
-    return slotted(command, args, cwd, options);
+    return slot(sandboxGate!)(command, args, cwd, options);
   };
 }
 
@@ -320,6 +376,12 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       const root = input.bridgeRoot();
       return root === undefined ? undefined : bridgePaths(root, ticketId);
     },
+    // The cloned worktree, like the sync wiring's target (the ssh runner maps its gate cwd from it, D826).
+    worktreeOf: input.worktreeOf ?? ((ticketId) => {
+      const root = input.bridgeRoot();
+      const worktrees = listWorktreesByTicket(input.store, ticketId);
+      return (readClonedWorktree(root === undefined ? undefined : bridgePaths(root, ticketId).dir, worktrees) ?? worktrees[0])?.path;
+    }),
   };
   const uatGate = createUserUatGate();
   const bindings = {
@@ -328,12 +390,18 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     guardResume: async (opts: { readonly resume?: string; readonly tracking?: { readonly ticketId?: number | null } }): Promise<void> => {
       const ticketId = opts.tracking?.ticketId;
       if (opts.resume === undefined || ticketId === undefined || ticketId === null) return;
-      assertNoSandboxResumeOnHost({ ticketId, resume: opts.resume, runner: 'host', hasSandbox: (await resolveTicketSandbox(deps, ticketId)).listed !== undefined });
+      assertNoSandboxResumeOnHost({ ticketId, resume: opts.resume, runner: 'host', hasSandbox: await bindings.hasSandbox(ticketId) });
     },
-    /** Does the runners' listing show a sandbox for this ticket? (false when it cannot tell: no backend, listing failed) */
-    hasSandbox: async (ticketId: number): Promise<boolean> => (await resolveTicketSandbox(deps, ticketId)).listed !== undefined,
+    /**
+     * Does the runners' listing show a sandbox for this ticket? (false when it cannot tell: no backend, listing failed)
+     * An ssh placement reads its remote instead (D826): only `absent` on a reachable, trusted remote is false.
+     */
+    hasSandbox: async (ticketId: number): Promise<boolean> =>
+      (await sshHasSandbox(deps, ticketId)) ?? (await resolveTicketSandbox(deps, ticketId)).listed !== undefined,
     /** The tri-state behind it: a listing that failed (no CLI, daemon down) and found no sandbox is `unknown`, never `absent` (arch:AC-39). */
     probeSandbox: async (ticketId: number): Promise<SandboxProbe> => {
+      const ssh = await sshTicketProbe(deps, ticketId);
+      if (ssh !== undefined) return ssh.probe;
       const { listed, listingError } = await resolveTicketSandbox(deps, ticketId);
       if (listed) return { state: 'present' };
       return listingError !== undefined ? { state: 'unknown', reason: listingError } : { state: 'absent' };

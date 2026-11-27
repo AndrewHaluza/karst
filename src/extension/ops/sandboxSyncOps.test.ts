@@ -1,7 +1,6 @@
 import { configureAccounts, configureRecordedAccountLookup, resetAccounts } from '../../agent/accounts/registry.js';
 import { resolveBackend } from '../../agent/backendResolver.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
-import { DIRTY_NOT_BEHIND } from '../../agent/cloneRefresh.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -13,7 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, sandboxRunnerFor, ensureSandboxInSync, ensureSandboxSynced, stashSandboxAndUpdate, syncSandboxOp, placementOfResolved } from './sandboxSyncOps.js';
+import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import type { TicketPlacement } from '../../store/placement.js';
+import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
+import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, sandboxRunnerFor, ensureSandboxInSync, ensureSandboxSynced, stashSandboxAndUpdate, syncSandboxOp, placementOfResolved, type SandboxSyncDeps } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -197,7 +199,7 @@ describe('syncSandboxOp', () => {
   it('fast-forwards and reports success', async () => {
     const r = recorder();
     const proc = fakeSbxProcess(LISTED);
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(true);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc }, target)).resolves.toBe(true);
     expect(r.infos).toEqual([expect.stringMatching(/^K-7: fast-forwarded feat\/x to the sbx sandbox's commits\.$/)]);
     expect(r.errors).toEqual([]);
   });
@@ -205,7 +207,7 @@ describe('syncSandboxOp', () => {
   it('reports a refused sync', async () => {
     const r = recorder();
     const proc = fakeSbxProcess({ ...LISTED, 'git -C /wt/a merge-base': { code: 1 } });
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc }, target)).resolves.toBe(false);
     expect(r.errors).toEqual([expect.stringMatching(/^The sandbox of K-7 did not sync: refused: .*never forced/)]);
     expect(r.infos).toEqual([]);
   });
@@ -213,10 +215,10 @@ describe('syncSandboxOp', () => {
   it('refuses a ticket without a worktree or an sbx core, running nothing', async () => {
     const r = recorder();
     const proc = fakeSbxProcess();
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, worktree: undefined })).resolves.toBe(false);
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, worktree: { path: '/wt/a', branch: null } })).resolves.toBe(false);
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: 'gemini' })).resolves.toBe(false);
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: null })).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc }, { ...target, worktree: undefined })).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc }, { ...target, worktree: { path: '/wt/a', branch: null } })).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc }, { ...target, core: 'gemini' })).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc }, { ...target, core: null })).resolves.toBe(false);
     expect(r.errors).toEqual([
       'The sandbox of K-7 did not sync. The ticket has no worktree branch.',
       'The sandbox of K-7 did not sync. The ticket has no worktree branch.',
@@ -229,7 +231,7 @@ describe('syncSandboxOp', () => {
   it('an sbx CLI that cannot run blocks the manual sync with the reason, syncing nothing', async () => {
     const r = recorder();
     const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc }, target)).resolves.toBe(false);
     expect(r.errors).toEqual([expect.stringContaining('sbx CLI not runnable from the extension host')]);
     expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
   });
@@ -249,7 +251,7 @@ describe('syncSandboxOp', () => {
     };
     const deps = (proc: ReturnType<typeof wrapped>, conflictBaseRef: (id: number) => string | null) => {
       const r = recorder();
-      return { r, d: { notify: r.notify, projectRoot: '/p', proc, conflictBaseRef, evidenceDirOf: () => mkdtempSync(join(tmpdir(), 'karst-sync-')) } };
+      return { r, d: { notify: r.notify, projectRoot: '/p', placementOf: () => null, proc, conflictBaseRef, evidenceDirOf: () => mkdtempSync(join(tmpdir(), 'karst-sync-')) } };
     };
     it('also ships the fresh base into the clone', async () => {
       const proc = wrapped(undefined);
@@ -274,7 +276,7 @@ describe('syncSandboxOp', () => {
 
   it('a listed-absent sandbox has nothing to sync manually', async () => {
     const r = recorder();
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } }) }, target)).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } }) }, target)).resolves.toBe(false);
     expect(r.errors).toEqual(['K-7 has no sandbox to sync.']);
   });
 
@@ -282,7 +284,7 @@ describe('syncSandboxOp', () => {
     const r = recorder();
     const dockerProc = fakeDockerProcess();
     const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', dockerProc, temp, platform: 'darwin' }, { ...target, core })).resolves.toBe(true);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, dockerProc, temp, platform: 'darwin' }, { ...target, core })).resolves.toBe(true);
     expect(r.infos).toEqual(["K-7: fast-forwarded feat/x to the docker sandbox's commits."]);
     const bundle = dockerProc.calls.find((c) => c.args.includes('karst-bundle'))!;
     expect(bundle.command).toBe('docker');
@@ -293,7 +295,7 @@ describe('syncSandboxOp', () => {
   it('runs the docker sync helpers as the host uid on linux', async () => {
     const dockerProc = fakeDockerProcess();
     const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
-    await syncSandboxOp({ notify: recorder().notify, projectRoot: '/p', dockerProc, temp, platform: 'linux' }, { ...target, core: 'opencode' });
+    await syncSandboxOp({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, dockerProc, temp, platform: 'linux' }, { ...target, core: 'opencode' });
     expect(dockerProc.calls.find((c) => c.args.includes('karst-bundle'))!.args).toContain('--user');
   });
 });
@@ -321,7 +323,7 @@ describe('disposeSandboxOp', () => {
     const run = proc.run;
     const traced = { ...proc, run: (c: string, a: readonly string[], o?: never) => { order.push(`${c} ${a[0]}`); return run(c, a, o); } };
     const bridges = { dispose: vi.fn(async (id: number) => { order.push(`bridge ${id}`); }) };
-    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: traced, bridges }, target)).resolves.toBe(true);
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc: traced, bridges }, target)).resolves.toBe(true);
     expect(order.at(-1)).toBe('bridge 7');
     expect(order).toContain('sbx rm');
     expect(proc.calls.some((c) => c.args.join(' ').includes('-C /wt/a remote remove'))).toBe(true);
@@ -333,25 +335,25 @@ describe('disposeSandboxOp', () => {
     const r = recorder();
     const proc = { run: () => Promise.reject(new Error('sbx gone')) };
     const bridges = { dispose: vi.fn(async () => {}) };
-    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc, bridges }, target)).resolves.toBe(false);
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc, bridges }, target)).resolves.toBe(false);
     expect(bridges.dispose).not.toHaveBeenCalled();
     expect(r.errors).toEqual(['The sandbox of K-7 was not removed: sbx gone']);
     const r2 = recorder();
-    await disposeSandboxOp({ notify: r2.notify, projectRoot: '/p', proc: { run: () => Promise.reject('x') }, bridges }, target);
+    await disposeSandboxOp({ notify: r2.notify, projectRoot: '/p', placementOf: () => null, proc: { run: () => Promise.reject('x') }, bridges }, target);
     expect(r2.errors).toEqual(['The sandbox of K-7 was not removed: x']);
   });
 
   it('a bridge removal failure is reported after the sandbox is gone', async () => {
     const r = recorder();
     const bridges = { dispose: vi.fn(async () => { throw new Error('EBUSY'); }) };
-    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, target)).resolves.toBe(false);
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess(), bridges }, target)).resolves.toBe(false);
     expect(r.errors).toEqual(['Removed the sandbox of K-7. The evidence folder stays: EBUSY']);
   });
 
   it('reports when the bridge registry is not ready, touching nothing', async () => {
     const r = recorder();
     const proc = fakeSbxProcess();
-    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc, bridges: undefined }, target)).resolves.toBe(false);
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc, bridges: undefined }, target)).resolves.toBe(false);
     expect(proc.calls).toEqual([]);
     expect(r.errors).toEqual(['The sandbox of K-7 was not removed. The hook endpoint is still starting. Try again.']);
   });
@@ -359,10 +361,10 @@ describe('disposeSandboxOp', () => {
   it('refuses a ticket without a worktree or a sandbox core, touching nothing', async () => {
     const r = recorder();
     const bridges = { dispose: vi.fn(async () => {}) };
-    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, { ...target, worktree: undefined })).resolves.toBe(false);
-    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, { ...target, core: 'gemini' })).resolves.toBe(false);
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess(), bridges }, { ...target, worktree: undefined })).resolves.toBe(false);
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess(), bridges }, { ...target, core: 'gemini' })).resolves.toBe(false);
     expect(bridges.dispose).not.toHaveBeenCalled();
-    await disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, { ...target, core: null });
+    await disposeSandboxOp({ notify: r.notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess(), bridges }, { ...target, core: null });
     expect(r.errors).toEqual(['K-7 has no worktree branch.', 'K-7 has no sandbox (core gemini).', 'K-7 has no sandbox (core unknown).']);
   });
 });
@@ -388,20 +390,20 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
 
   it('fast-forwards a sandboxed ticket', async () => {
     const proc = fakeSbxProcess(LISTED);
-    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target)).resolves.toEqual({ ok: true });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, target)).resolves.toEqual({ ok: true });
     expect(proc.calls.length).toBeGreaterThan(0);
   });
 
   it('a host ticket (no sandbox core) runs nothing', async () => {
     const proc = fakeSbxProcess(LISTED);
-    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: 'none' })).resolves.toEqual({ ok: true });
-    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: null })).resolves.toEqual({ ok: true });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, { ...target, core: 'none' })).resolves.toEqual({ ok: true });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, { ...target, core: null })).resolves.toEqual({ ok: true });
     expect(proc.calls).toEqual([]);
   });
 
   it('a non-fast-forward is reported as diverged, never forced', async () => {
     const proc = fakeSbxProcess({ ...LISTED, 'git -C /wt/a merge-base': { code: 1 } });
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target);
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, target);
     expect(r).toMatchObject({ ok: false, diverged: true, reason: expect.stringContaining('not a fast-forward') });
   });
 
@@ -420,11 +422,11 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
 
     it('records the host head after a good sync, and not after a refused one', async () => {
       const dir = bridge();
-      const ok = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(false) }), evidenceDirOf: () => dir }, target);
+      const ok = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess({ ...LISTED, ...answers(false) }), evidenceDirOf: () => dir }, target);
       expect(ok).toEqual({ ok: true });
       expect(await readHostHead(hostHeadFileFor(dir), '/wt/a')).toBe(HOST);
       const other = bridge();
-      await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => other }, target);
+      await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => other }, target);
       expect(await readHostHead(hostHeadFileFor(other), '/wt/a')).toBeUndefined();
     });
 
@@ -432,14 +434,14 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
       const dir = bridge();
       await recordHostHead(hostHeadFileFor(dir), '/wt/a', OLD);
       const flags: boolean[] = [];
-      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
       expect(r).toMatchObject({ ok: false, diverged: true, rewritten: true });
       expect(flags).toEqual([true]);
     });
 
     it('with no record and no reflog it stays plain divergence', async () => {
       const flags: boolean[] = [];
-      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => bridge(), onRewritten: (_id, v) => flags.push(v) }, target);
+      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => bridge(), onRewritten: (_id, v) => flags.push(v) }, target);
       expect(r).toMatchObject({ ok: false, diverged: true });
       expect(r).not.toHaveProperty('rewritten');
       expect(flags).toEqual([false]);
@@ -449,47 +451,47 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
       const dir = bridge();
       await recordHostHead(hostHeadFileFor(dir), '/wt/a', OLD);
       const rec = recorder(); const flags: boolean[] = [];
-      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess({ ...LISTED, ...answers(true) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
       expect(rec.errors[0]).toContain('Carry sandbox commits onto host branch');
-      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', proc: fakeSbxProcess({ ...LISTED, ...answers(false) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess({ ...LISTED, ...answers(false) }), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
       expect(flags).toEqual([true, false]);
     });
   });
 
   it('a sandbox without a worktree branch is a plain failure', async () => {
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(LISTED) }, { ...target, worktree: undefined });
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess(LISTED) }, { ...target, worktree: undefined });
     expect(r).toMatchObject({ ok: false, diverged: false });
   });
 
   it('a throwing runner is a transient failure, not an exception', async () => {
     const proc = fakeSbxProcess(LISTED);
     const boom = { ...proc, run: (...a: Parameters<typeof proc.run>) => { if (a[1][0] === 'ls') return proc.run(...a); throw new Error('daemon gone'); } } as unknown as typeof proc;
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: boom }, target);
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: boom }, target);
     expect(r).toMatchObject({ ok: false, diverged: false });
   });
 
   it('sandboxed ticket + sbx exit 127 (ENOENT) is blocked with the reason, never ok (AC-39)', async () => {
     const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target);
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, target);
     expect(r).toEqual({ ok: false, diverged: false, unknown: true, reason: expect.stringMatching(/^sbx CLI not runnable from the extension host: `sbx` was not found on the PATH \(spawn sbx ENOENT\)/) });
     expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
   });
 
   it('a signed-out or failing sbx ls (other non-zero exit) is unknown too', async () => {
     const proc = fakeSbxProcess({ 'sbx ls': { code: 1, stderr: 'not signed in' } });
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target);
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, target);
     expect(r).toMatchObject({ ok: false, unknown: true, reason: expect.stringContaining('not signed in') });
   });
 
   it('a probe that throws is unknown, not absent', async () => {
     const boom = { run: () => Promise.reject(new Error('EPERM')) } as never;
-    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: boom }, target);
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: boom }, target);
     expect(r).toMatchObject({ ok: false, unknown: true, reason: expect.stringContaining('EPERM') });
   });
 
   it('docker core: no such volume is a host ticket; a missing CLI or down daemon is blocked', async () => {
     const dt = { ...target, core: 'opencode2' };
-    const run = (answer: Record<string, { code: number; stderr: string }>) => ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', dockerProc: fakeDockerProcess(answer) }, dt);
+    const run = (answer: Record<string, { code: number; stderr: string }>) => ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, dockerProc: fakeDockerProcess(answer) }, dt);
     await expect(run({ 'docker volume inspect': { code: 1, stderr: 'Error: No such volume: karst-x' } })).resolves.toEqual({ ok: true });
     await expect(run({ 'docker volume inspect': { code: 127, stderr: 'spawn docker ENOENT' } })).resolves.toMatchObject({ ok: false, unknown: true, reason: expect.stringContaining('docker CLI not runnable') });
     await expect(run({ 'docker volume inspect': { code: 1, stderr: 'Cannot connect to the Docker daemon' } })).resolves.toMatchObject({ ok: false, unknown: true });
@@ -497,7 +499,7 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
 
   it('a sandbox that `ls` does not list is a host ticket even when ls succeeds (D244)', async () => {
     const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'NAME\nother-sandbox' } });
-    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target)).resolves.toEqual({ ok: true });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, target)).resolves.toEqual({ ok: true });
     expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
   });
 
@@ -505,13 +507,13 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     let active = 0; let peak = 0;
     const proc = fakeSbxProcess(LISTED);
     const slow = { ...proc, run: async (...a: Parameters<typeof proc.run>) => { active += 1; peak = Math.max(peak, active); await new Promise((r) => setTimeout(r, 3)); active -= 1; return proc.run(...a); } } as typeof proc;
-    const deps = { notify: recorder().notify, projectRoot: '/p', proc: slow };
+    const deps = { notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: slow };
     await Promise.all([ensureSandboxSynced(deps, target), ensureSandboxSynced(deps, target)]);
     expect(peak).toBe(1);
   });
   it('a host ticket (sbx listed it absent) runs no sync and spawns no sbx bundle (D244)', async () => {
     const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } });
-    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target)).resolves.toEqual({ ok: true });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, target)).resolves.toEqual({ ok: true });
     expect(proc.calls.some((c) => c.args.includes('karst-bundle'))).toBe(false);
   });
 
@@ -519,7 +521,7 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     const dir = join(mkdtempSync(join(tmpdir(), 'karst-hh-')), 'events', '7');
     await recordHostHead(hostHeadFileFor(dir), '/wt/a', 'c'.repeat(40));
     const proc = fakeSbxProcess({ 'sbx ls': { stdout: 'NAME' } });
-    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc, evidenceDirOf: () => dir }, target)).resolves.toEqual({ ok: true });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc, evidenceDirOf: () => dir }, target)).resolves.toEqual({ ok: true });
   });
 });
 
@@ -742,7 +744,7 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
 describe('ensureSandboxInSync (F8/F12: both directions)', () => {
   const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: '/wt/a', branch: 'feat/x' } };
   const LS = { 'sbx ls': { stdout: `NAME\n${sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' })} running` } };
-  const withBridge = (proc: ReturnType<typeof fakeSbxProcess>) => ({ notify: recorder().notify, projectRoot: '/p', proc, evidenceDirOf: () => '/nonexistent-bridge' });
+  const withBridge = (proc: ReturnType<typeof fakeSbxProcess>) => ({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc, evidenceDirOf: () => '/nonexistent-bridge' });
 
   it('a host ticket runs nothing', async () => {
     const proc = fakeSbxProcess();
@@ -771,7 +773,7 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
   });
 
   it('a refresh failure (no usable bridge dir) is a blocker after a good sync', async () => {
-    const r = await ensureSandboxInSync({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(LS) }, target);
+    const r = await ensureSandboxInSync({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess(LS) }, target);
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('bridge') });
   });
 
@@ -788,7 +790,7 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
         },
       };
     };
-    const dep = (proc: ReturnType<typeof bundled>) => ({ notify: recorder().notify, projectRoot: '/p', proc, evidenceDirOf: () => mkdtempSync(join(tmpdir(), 'karst-sync-')) });
+    const dep = (proc: ReturnType<typeof bundled>) => ({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc, evidenceDirOf: () => mkdtempSync(join(tmpdir(), 'karst-sync-')) });
     it('a good sync + refresh is ok', async () => {
       await expect(ensureSandboxInSync(dep(bundled()), target)).resolves.toEqual({ ok: true });
     });
@@ -828,12 +830,12 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
     it('Stash and update: a failed stash is reported, a host ticket has nothing to update', async () => {
       const failed = await stashSandboxAndUpdate(dep(bundled(BEHIND, { code: 5 })), target);
       expect(failed).toMatchObject({ ok: false, reason: expect.stringContaining('stash failed') });
-      const none = await stashSandboxAndUpdate({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess() }, target);
+      const none = await stashSandboxAndUpdate({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc: fakeSbxProcess() }, target);
       expect(none).toMatchObject({ ok: false, reason: expect.stringContaining('no sandbox') });
     });
     it('Stash and update: an sbx CLI that cannot run is named, not "no sandbox"', async () => {
       const proc = fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
-      const r = await stashSandboxAndUpdate({ notify: recorder().notify, projectRoot: '/p', proc }, target);
+      const r = await stashSandboxAndUpdate({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, proc }, target);
       expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('sbx CLI not runnable') });
     });
     it('refresh:false stops after the sync', async () => {
@@ -933,7 +935,7 @@ describe('sandboxRunnerFor releases the proxy grant at dispose (@arch:AC-51)', (
   it('an sbx runner built here revokes the key of its sandbox before it removes it', async () => {
     const release = vi.fn(async () => ({ port: 8787 }));
     const proc = fakeSbxProcess();
-    const runner = sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p/karst.yml', proc, oauthGrants: { issue: vi.fn(), release } }, 'claude', 7)!;
+    const runner = sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p/karst.yml', placementOf: () => null, proc, oauthGrants: { issue: vi.fn(), release } }, 'claude', 7)!;
     await runner.dispose!({ hostWorktreePath: '', branch: 'b' });
     expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: '/p/karst.yml', ticketId: 7, core: 'claude' }));
     expect(proc.calls.some((c) => c.args.join(' ').startsWith('policy rm'))).toBe(true);
@@ -971,41 +973,23 @@ describe('resolveLaunchBackend ssh launch (D555 mutation)', () => {
     await expect(resolveLaunchBackend({ ...base, resolve: async () => resolved })).resolves.toMatchObject({ sandboxed: true });
   });
 
-  it('syncs and refreshes the remote with the host branch and its base ref', async () => {
-    const sync = vi.fn(async () => ({ ok: true as const }));
-    const refresh = vi.fn(async () => ({ ok: true as const }));
-    const worktree = { path: '/wt', branch: 'k/b', baseRef: 'develop' };
-    await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: sshRunner({ sync, refresh }), line: `ssh (${NAME})` }) });
-    expect(sync).toHaveBeenCalledWith({ hostWorktreePath: '/wt', branch: 'k/b', baseRef: 'develop' });
-    expect(refresh).toHaveBeenCalledWith({ hostWorktreePath: '/wt', branch: 'k/b', baseRef: 'develop' });
+  it('syncs an existing remote clone through syncExisting with the resolved runner, like sbx and docker (D826)', async () => {
+    const runner = sshRunner({ hasSandbox: async () => true });
+    const syncExisting = vi.fn(async () => ({ ok: true as const }));
+    await resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: 'k/b', baseRef: 'develop' }, syncExisting, resolve: async () => ({ runner, line: `ssh (${NAME})` }) });
+    expect(syncExisting).toHaveBeenCalledWith(runner);
   });
 
-  it('a worktree without a branch syncs nothing', async () => {
-    const sync = vi.fn(async () => ({ ok: true as const }));
-    await resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: null }, resolve: async () => ({ runner: sshRunner({ sync }), line: `ssh (${NAME})` }) });
-    expect(sync).not.toHaveBeenCalled();
-  });
-
-  it('a runner without sync or refresh does not throw', async () => {
-    await expect(resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: 'k/b' }, resolve: async () => ({ runner: sshRunner(), line: `ssh (${NAME})` }) }))
+  it('a remote with no clone yet skips the sync: the first placement clones it', async () => {
+    const syncExisting = vi.fn(async () => ({ ok: true as const }));
+    await expect(resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: 'k/b' }, syncExisting, resolve: async () => ({ runner: sshRunner({ hasSandbox: async () => false }), line: `ssh (${NAME})` }) }))
       .resolves.toMatchObject({ sandboxed: true });
+    expect(syncExisting).not.toHaveBeenCalled();
   });
 
-  it('a dirty remote clone with nothing to bring in opens the session; a dirty clone behind the host still blocks', async () => {
-    const sync = vi.fn(async () => ({ ok: true as const }));
-    const worktree = { path: '/wt', branch: 'k/b' };
-    const dirty = vi.fn(async () => ({ ok: false as const, reason: `ssh devbox: ${DIRTY_NOT_BEHIND}:\n M a.ts` }));
-    await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: sshRunner({ sync, refresh: dirty }), line: `ssh (${NAME})` }) }))
-      .resolves.toMatchObject({ sandboxed: true });
-    const ahead = vi.fn(async () => ({ ok: false as const, reason: 'ssh devbox: sandbox has uncommitted work and the host is ahead by 1 commit(s); nothing was overwritten:\n M a.ts' }));
-    await expect(resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner: sshRunner({ sync, refresh: ahead }), line: `ssh (${NAME})` }) }))
-      .rejects.toThrow(/K-7: the sandbox is not in sync with the host branch: ssh devbox: sandbox has uncommitted work and the host is ahead/);
-  });
-
-  it('a refused refresh stops the launch with its reason', async () => {
-    const sync = vi.fn(async () => ({ ok: true as const }));
-    const refresh = vi.fn(async () => ({ ok: false as const, reason: 'diverged' }));
-    await expect(resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: 'k/b' }, resolve: async () => ({ runner: sshRunner({ sync, refresh }), line: `ssh (${NAME})` }) }))
+  it('a refused sync stops the launch with its reason', async () => {
+    const syncExisting = vi.fn(async () => ({ ok: false as const, reason: 'diverged', diverged: true }));
+    await expect(resolveLaunchBackend({ ...base, worktree: { path: '/wt', branch: 'k/b' }, syncExisting, resolve: async () => ({ runner: sshRunner({ hasSandbox: async () => true }), line: `ssh (${NAME})` }) }))
       .rejects.toThrow('K-7: the sandbox is not in sync with the host branch: diverged');
   });
 
@@ -1046,34 +1030,24 @@ describe('ssh placement vs autonomy (D555, @arch:AC-31)', () => {
     }
   });
 
-  it('an ssh launch syncs then refreshes the clone itself, never through syncExisting', async () => {
-    const calls: string[] = [];
-    const runner = {
-      kind: 'ssh', enforcesSandbox: false,
-      sync: async () => { calls.push('sync'); return { ok: true as const, summary: 'synced' }; },
-      refresh: async () => { calls.push('refresh'); return { ok: true as const, summary: 'refreshed' }; },
-      ensureWritable: async () => ({ ok: true as const }),
-      hasSandbox: async () => true,
-    } as never;
+  it('an ssh launch syncs an existing clone through syncExisting, with the resolved runner (D826)', async () => {
+    const runner = { kind: 'ssh', enforcesSandbox: false, ensureWritable: async () => ({ ok: true as const }), hasSandbox: async () => true } as never;
     const syncExisting = vi.fn(async () => ({ ok: true as const }));
     const out = await resolveLaunchBackend({
       backends: { claude: 'ssh:devbox' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(),
       worktree: { path: '/wt/b', branch: 'k/b' }, syncExisting, resolve: async () => ({ runner, line: 'ssh (devbox/x)' }),
     });
-    expect(calls).toEqual(['sync', 'refresh']);
-    expect(syncExisting).not.toHaveBeenCalled();
+    expect(syncExisting).toHaveBeenCalledWith(runner);
     expect(out.sandboxed).toBe(true);
     expect(out.placement.backend).toBe('ssh');
   });
 
   it('a refused ssh sync stops the launch with the blocker reason', async () => {
-    const runner = {
-      kind: 'ssh', enforcesSandbox: false, hasSandbox: async () => true, ensureWritable: async () => ({ ok: true as const }),
-      sync: async () => ({ ok: false as const, reason: 'the clone has uncommitted work' }),
-    } as never;
+    const runner = { kind: 'ssh', enforcesSandbox: false, hasSandbox: async () => true, ensureWritable: async () => ({ ok: true as const }) } as never;
     await expect(resolveLaunchBackend({
       backends: { claude: 'ssh:devbox' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(),
       worktree: { path: '/wt/b', branch: 'k/b' }, resolve: async () => ({ runner, line: 'ssh (devbox/x)' }),
+      syncExisting: async () => ({ ok: false as const, reason: 'the clone has uncommitted work', diverged: false }),
     })).rejects.toThrow(/K-7: the sandbox is not in sync with the host branch: the clone has uncommitted work/);
   });
 
@@ -1088,18 +1062,48 @@ describe('ssh placement vs autonomy (D555, @arch:AC-31)', () => {
   });
 });
 
-describe('sandboxRunnerFor fails closed for an ssh placement (D555 → D826)', () => {
-  const sshPlacement = { backend: 'ssh' as const, core: 'claude', sandboxName: 'devbox/karst-abcd1234-7-claude', reason: null };
-
-  it('blocks sync and gates with the interim reason, never undefined', async () => {
-    const runner = sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p', placementOf: () => sshPlacement }, 'claude', 7);
-    expect(runner).toBeDefined();
-    expect(runner!.kind).toBe('ssh');
-    expect(await runner!.sync!({ hostWorktreePath: '/wt', branch: 'k/b' })).toEqual({ ok: false, reason: 'ssh runner not wired yet' });
-    expect(await runner!.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: 'ssh runner not wired yet' });
+describe('sandboxRunnerFor routes an ssh placement to the ssh runner (D826)', () => {
+  const sshPlacement = fakeSshPlacement();
+  const syncDeps = (ssh: FakeSshProcess, over: Partial<SandboxSyncDeps> = {}): SandboxSyncDeps => ({
+    notify: recorder().notify, projectRoot: '/p', placementOf: () => sshPlacement, worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh), proc: fakeSbxProcess(), ...over,
   });
 
-  it('a non-ssh placement keeps the core-derived runner (unchanged)', () => {
-    expect(sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p', placementOf: () => ({ backend: 'host', core: 'claude', sandboxName: null, reason: null }) }, 'claude', 7)?.kind).toBe('sbx');
+  it('a claude ticket placed on ssh gets the ssh runner, never sbx: its probe runs over ssh', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 } });
+    const runner = sandboxRunnerFor(syncDeps(ssh), 'claude', 7);
+    expect(runner?.kind).toBe('ssh');
+    expect(await runner!.probeSandbox!()).toEqual({ state: 'present' });
+    expect(ssh.calls).toHaveLength(1);
+  });
+
+  it('a removed remote and an unconfirmed remote refuse with unknown and run no ssh', async () => {
+    const ssh = fakeSshProcess();
+    const removed = sandboxRunnerFor(syncDeps(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { remotes: () => ({}) }) }), 'claude', 7);
+    expect(await removed!.probeSandbox!()).toEqual({ state: 'unknown', reason: 'ssh remote devbox not in karst.yml' });
+    const unconfirmed = sandboxRunnerFor(syncDeps(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }) }), 'claude', 7);
+    expect(await unconfirmed!.probeSandbox!()).toEqual({ state: 'unknown', reason: 'ssh remote devbox not confirmed' });
+    expect(await unconfirmed!.sync!({ hostWorktreePath: '/wt', branch: 'k/b' })).toEqual({ ok: false, reason: 'ssh remote devbox not confirmed' });
+    expect(await unconfirmed!.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: 'ssh remote devbox not confirmed' });
+    expect((await unconfirmed!.dispose!({ hostWorktreePath: '/wt', branch: 'k/b' })).ok).toBe(false);
+    expect([ssh.calls, ssh.stdinCalls, ssh.pipes, ssh.streams]).toEqual([[], [], [], []]);
+  });
+
+  it('an ssh placement without the ssh deps refuses, never a core-derived runner', async () => {
+    const runner = sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p', placementOf: () => sshPlacement }, 'claude', 7);
+    expect(runner?.kind).toBe('ssh');
+    expect(await runner!.probeSandbox!()).toMatchObject({ state: 'unknown' });
+  });
+
+  it('the launch runner wins over the recorded placement (first launch: none recorded yet)', () => {
+    const launch = { kind: 'ssh', enforcesSandbox: false } as never;
+    expect(sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p', placementOf: () => null, launchRunner: launch }, 'claude', 7)).toBe(launch);
+  });
+
+  it('a NULL placement keeps the core-derived runner; sbx, docker and host placements are unchanged', () => {
+    const d = (placement: TicketPlacement | null): SandboxSyncDeps => ({ notify: recorder().notify, projectRoot: '/p', placementOf: () => placement });
+    expect(sandboxRunnerFor(d(null), 'claude', 7)?.kind).toBe('sbx');
+    expect(sandboxRunnerFor(d(null), 'opencode', 7)?.kind).toBe('docker');
+    expect(sandboxRunnerFor(d({ backend: 'sbx', core: 'claude', sandboxName: 'x', reason: null }), 'claude', 7)?.kind).toBe('sbx');
+    expect(sandboxRunnerFor(d({ backend: 'host', core: 'claude', sandboxName: null, reason: null }), 'claude', 7)?.kind).toBe('sbx');
   });
 });

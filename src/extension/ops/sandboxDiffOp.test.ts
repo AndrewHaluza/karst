@@ -10,7 +10,7 @@ function setup(proc = fakeSbxProcess({ 'git -C /wt/a diff': { stdout: 'diff --gi
   const showDiff = vi.fn(async () => {});
   const deps = {
     notify: { info: (m: string) => infos.push(m), warn: vi.fn(), error: (m: string) => { errors.push(m); return Promise.resolve(); } },
-    projectRoot: '/p', proc, showDiff,
+    projectRoot: '/p', proc, showDiff, placementOf: () => null,
   };
   return { deps, errors, infos, showDiff, proc };
 }

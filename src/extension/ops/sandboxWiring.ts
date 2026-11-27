@@ -19,7 +19,9 @@ import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
 import { ticketToastLabel } from '../ticketToastLabel.js';
-import { rebuildSandboxOp, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { rebuildSandboxOp, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, probeOf, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import type { SessionRunner } from '../../agent/sessionRunner.js';
+import type { SshRunnerDeps } from './sshRunnerFor.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import type { QueuedMarker } from '../../agent/bridge/markerFlow.js';
@@ -30,7 +32,7 @@ import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js
 import { runSandboxReconcile } from './bootSweeps.js';
 import { repairHostSessions } from './hostSessionRepair.js';
 import {
-  sandboxKindOfCore, cleanupOrphansOp, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
+  sandboxKindOfCore, cleanupOrphansOp, depsForListedBox, listingFailedFor, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
 export interface SandboxWiringInput {
@@ -85,6 +87,8 @@ export interface SandboxWiringInput {
   readonly onShellChange?: (ticketId: number) => void;
   /** Drives the ticket on after a successful Stash & update cleared its parked `sandbox-sync` block. */
   readonly redrive?: (ticketId: number) => void;
+  /** What the ssh runner of a recorded `ssh` placement needs (D826); absent = such a ticket's steps refuse. */
+  readonly sshRunner?: SshRunnerDeps;
 }
 
 /** arch:AC-32 lifecycle bindings for `extension.ts`: only with a sandbox backend, only this window's tickets. */
@@ -103,12 +107,16 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     }
     return null;
   };
-  // D555: `sandboxRunnerFor` reads the recorded placement so an `ssh` placement fails closed (one reader for every deps object).
-  const placementOf = (ticketId: number): TicketPlacement | undefined => getPlacement(w.store, ticketId) ?? undefined;
+  // The recorded placement picks the runner of every host step (D826): one reader for every deps object.
+  const placementOf = (ticketId: number): TicketPlacement | null => getPlacement(w.store, ticketId);
+  // Stryker disable next-line BlockStatement,OptionalChaining: equivalent, the catch gives undefined and an empty catch or a throw on a missing worktree gives undefined too
+  const worktreeOf = (id: number): string | undefined => { try { return target(id).worktree?.path; } catch { return undefined; } };
+  /** What `sandboxRunnerFor` reads to route a ticket: its placement, its worktree and the ssh deps. */
+  const placementTrack = { placementOf, worktreeOf, ...(w.sshRunner ? { sshRunner: w.sshRunner } : {}) };
   const syncTrack = {
     onRewritten,
     conflictBaseRef,
-    placementOf,
+    ...placementTrack,
     ...(w.bridgeDirOf ? { evidenceDirOf: w.bridgeDirOf } : {}),
   };
   const target = (ticketId: number): SandboxSyncTarget => {
@@ -130,9 +138,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     return {
       notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: controls, ...(bridges ? { bridges } : {}),
       openSyncDiff: (t) => w.openSyncDiff(t.ticketId),
-      worktreeOf: (id) => { try { return target(id).worktree?.path; } catch { return undefined; } },
       debug: w.debug,
-      placementOf,
+      ...placementTrack,
       ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
       ...oauthDeps(),
     };
@@ -146,7 +153,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       d: {
         notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: controls,
         ...(bridges ? { bridges } : {}), openSyncDiff: (target) => w.openSyncDiff(target.ticketId),
-        placementOf,
+        ...placementTrack,
         ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
         ...oauthDeps(),
       },
@@ -191,7 +198,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     // Recorded: no listing guess. The runner's tri-state probe later confirms the sandbox exists (arch:AC-39).
     if (getPlacement(w.store, ticketId)) return t;
     try {
-      const inv = await inventoryOf({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+      const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
       const found = pickTicketSandbox(inv.sandboxes, ticketId, t.core, (m) => w.info(`karst: ${m}`));
       return found ? { ...t, core: found.core } : t;
     } catch (err) {
@@ -199,10 +206,11 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       return t;
     }
   };
-  const manual = async (ticketId: number) => {
+  /** `launched`: a launch resolved the runner (D826), so no listing picks the core. */
+  const manual = async (ticketId: number, launched?: boolean) => {
     const t0 = target(ticketId);
     const projectRoot = w.projectRoot() ?? t0.worktree?.path ?? '';
-    return { t: await resolved(ticketId, projectRoot), projectRoot };
+    return { t: launched === true ? t0 : await resolved(ticketId, projectRoot), projectRoot };
   };
   /** The dashboard's sync reader of "Open shell in sandbox" availability (a background probe, refreshed on a short TTL). */
   const shellCache = createShellAvailabilityCache({
@@ -223,7 +231,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       w.notify.info('This project has no sandbox backend. Set one in the Settings page.');
       return undefined;
     }
-    const inv = await inventoryOf({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+    const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
     const live = new Map(liveTickets().map((t) => [t.id, t]));
     const seen = new Set<number>();
     const picks = inv.sandboxes.flatMap((box) => {
@@ -238,13 +246,16 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     }
     return w.pickTicket?.(picks, `Ticket whose sandbox to ${verb}`);
   };
-  /** Both directions (F8/F12): before gates, and before a session resumes in an existing sandbox. Dirty clone or divergence = refused. */
-  const ensureInSync = async (ticketId: number, refresh = true, allowDirtyClone = false) => {
+  /**
+   * Both directions (F8/F12): before gates, and before a session resumes in an existing sandbox. Dirty clone or divergence = refused.
+   * `launchRunner` = the runner a launch resolved (D826): it wins over the placement, and no listing picks the core.
+   */
+  const ensureInSync = async (ticketId: number, refresh?: boolean, allowDirtyClone?: boolean, launchRunner?: SessionRunner) => {
     if (!w.backendOn()) return { ok: true as const };
-    const { t, projectRoot } = await manual(ticketId);
+    const { t, projectRoot } = await manual(ticketId, launchRunner !== undefined);
     return ensureSandboxInSync({
       notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}),
-      ...syncTrack,
+      ...syncTrack, ...(launchRunner ? { launchRunner } : {}),
     }, t, { refresh, allowDirtyClone });
   };
   const stopTicket = async (ticketId: number): Promise<void> => {
@@ -257,8 +268,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
    * sandbox: in a real host both CLIs are listed on every sweep, and one broken
    * runner must not hide the sandbox the other one reports (T801).
    */
-  const listingFailed = (inv: SandboxInventory, kind: BackendKind): boolean =>
-    inv.errors.some((e) => e.startsWith(kind === 'sbx' ? 'sbx ' : 'docker '));
+  const listingFailed = (inv: SandboxInventory, kind: BackendKind, remote?: string): boolean => listingFailedFor(inv.errors, kind, remote);
 
   /**
    * A closed terminal does not mean a closed sandbox: sbx keeps it running, and
@@ -274,6 +284,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const d = deps();
     // No backend here: a host session ends with its terminal, so detach.
     if (!d || recordedHost(ticketId)) { await bridges.detach(ticketId); return; }
+    // The placement first (D826): an ssh tmux session outlives its terminal, and no listing shows ssh sandboxes. Keep the poller.
+    if (placementOf(ticketId)?.backend === 'ssh') return;
     let core: string | null = null;
     try {
       core = target(ticketId).core;
@@ -281,7 +293,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       core = null;
     }
     // The recorded placement is not host here (null or a sandbox), so the core only picks the runner to ask (arch:AC-32).
-    const kind = sandboxKindOfCore(core);
+    const kind = placementOf(ticketId)?.backend ?? sandboxKindOfCore(core);
     if (kind === 'host') { await bridges.detach(ticketId); return; }
     let inv: SandboxInventory;
     try {
@@ -378,7 +390,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
     diff: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
-      await diffSandboxOp({ notify: w.notify, projectRoot, showDiff: w.showDiff, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+      await diffSandboxOp({ notify: w.notify, projectRoot, showDiff: w.showDiff, ...placementTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Dashboard "Carry sandbox commits onto host branch": shown only while the last refused sync was a host rewrite. */
     isRewritten: (ticketId: number): boolean => rewrittenTickets.has(ticketId),
@@ -423,6 +435,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const runner = sandboxRunnerFor(d, t.core, ticketId);
       if (runner === undefined) return false;
       try {
+        // An ssh runner's hasSandbox is false on a transport failure; only `absent` proves no sandbox (D826, arch:AC-39).
+        if (runner.kind === 'ssh') return (await probeOf(runner)).state !== 'absent';
         return (await runner.hasSandbox?.()) ?? true;
       } catch {
         return true;
@@ -450,7 +464,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     dispose: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
-      await disposeSandboxOp({ notify: w.notify, bridges: w.bridges(), projectRoot }, t);
+      await disposeSandboxOp({ notify: w.notify, bridges: w.bridges(), projectRoot, ...placementTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Launch records where the ticket runs, with its core, in one write; only the controlling window writes (AC-37). */
     recordLaunchPlacement: (ticketId: number, placement: TicketPlacement, sessionProvider: AgentProvider | null): boolean => {
@@ -555,7 +569,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const tickets = liveTickets().map((t) => ({ id: t.id, updatedAtMs: t.updatedAt === null ? Number.NaN : parseDbTimeMs(t.updatedAt), sessionOpen: w.sessionOpen(t.id) }));
       const idle = idleSandboxes(await inventoryOf(d), tickets, d.owns, (w.now ?? Date.now)(), STUCK_IDLE_MINUTES * 60_000);
       let stopped = 0;
-      for (const box of idle) if (await stopSandboxOp(d, { ...target(box.ticketId), core: box.core })) stopped += 1;
+      // A listed box is stopped by its own runner, never by the placement's (D826).
+      for (const box of idle) if (await stopSandboxOp(depsForListedBox(d, box), { ...target(box.ticketId), core: box.core })) stopped += 1;
       if (stopped > 0) w.info(`karst: stopped ${stopped} idle sandbox(es): ${idle.map((b) => b.name).join(', ')}`);
       return stopped;
     },

@@ -8,6 +8,8 @@ export interface SandboxLaunchFailureInput {
   readonly ticketId: number;
   readonly ticketLabel: string;
   readonly core: string;
+  /** The ssh remote name this launch targets (D826): names it in a transport-failure notice. */
+  readonly sshRemote?: string;
   /** globalStorage `artifacts/<ticket>`; the capture files and the reason file live here. */
   readonly captureDir: string;
   readonly warn: (line: string) => void;
@@ -114,8 +116,10 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
         reportStopped(info);
         return;
       }
-      // Exit 137 on sbx is the guest OOM killer (no swap): say so, never as a generic launch failure.
-      if (info.exitCode === 137 && info.runner === 'sbx' && input.oomReport) {
+      // Exit 137 on sbx is the guest OOM killer (no swap); an ssh remote has no
+      // swap either, so its kernel kill is the same verdict. Never a generic
+      // launch failure (arch:AC-49).
+      if (info.exitCode === 137 && (info.runner === 'sbx' || info.runner === 'ssh') && input.oomReport) {
         void input.oomReport(input.ticketId).catch(() => null).then((oom) => {
           if (input.hostEnded?.(input.ticketId)) return; // the lookup is slow: the session may have been ended by karst meanwhile
           if (oom === null) return reportLaunchFailure(info);
@@ -155,6 +159,15 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       }
       input.markNotStarted(input.ticketId);
       void input.removeSandbox?.().catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} could not remove the half-built sandbox: ${String(e)}`));
+      // A 255 before SessionStart is the ssh TRANSPORT failing, not the agent:
+      // name the remote and keep the same retry / host-backend hint.
+      if (info.runner === 'ssh' && info.exitCode === 255) {
+        report(
+          `The agent of ${input.ticketLabel} did not start: ssh transport failed (${input.sshRemote ?? 'the remote'}, exit ${info.exitCode}). ` +
+            `Retry, or set agentBackends.${input.core}=host.`,
+        );
+        return;
+      }
       const base =
         `The ${info.runner} sandbox of ${input.ticketLabel} failed to launch (exit ${info.exitCode}). ` +
         `Retry, or set agentBackends.${input.core}=host. Details are in the Karst log.`;

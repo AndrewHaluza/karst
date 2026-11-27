@@ -11,7 +11,7 @@ describe('openSandboxShellOp', () => {
     const n = notify();
     const openTerminal = vi.fn();
     const dockerProc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
-    await expect(openSandboxShellOp({ notify: n, projectRoot: '/p', dockerProc, openTerminal }, target('opencode'))).resolves.toBe(true);
+    await expect(openSandboxShellOp({ notify: n, projectRoot: '/p', placementOf: () => null, dockerProc, openTerminal }, target('opencode'))).resolves.toBe(true);
     expect(openTerminal).toHaveBeenCalledTimes(1);
     const spec = openTerminal.mock.calls[0]![0];
     expect(spec.name).toBe('Karst sandbox · T7');
@@ -25,14 +25,14 @@ describe('openSandboxShellOp', () => {
     const n = notify();
     const openTerminal = vi.fn();
     const dockerProc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false' } });
-    await expect(openSandboxShellOp({ notify: n, projectRoot: '/p', dockerProc, openTerminal }, target('opencode'))).resolves.toBe(false);
+    await expect(openSandboxShellOp({ notify: n, projectRoot: '/p', placementOf: () => null, dockerProc, openTerminal }, target('opencode'))).resolves.toBe(false);
     expect(openTerminal).not.toHaveBeenCalled();
     expect(n.error).toHaveBeenCalledWith(expect.stringContaining('Sandbox is stopped'));
   });
 
   it('refuses a host ticket (no core) with "No sandbox yet"', async () => {
     const n = notify();
-    await expect(openSandboxShellOp({ notify: n, projectRoot: '/p', openTerminal: vi.fn() }, target(null))).resolves.toBe(false);
+    await expect(openSandboxShellOp({ notify: n, projectRoot: '/p', placementOf: () => null, openTerminal: vi.fn() }, target(null))).resolves.toBe(false);
     expect(n.error).toHaveBeenCalledWith(expect.stringContaining('No sandbox yet'));
   });
 
@@ -40,15 +40,15 @@ describe('openSandboxShellOp', () => {
     const openTerminal = vi.fn();
     const dockerProc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
     const bare = { ticketId: 7, ticketLabel: 'T7', core: 'opencode', worktree: undefined };
-    await expect(openSandboxShellOp({ notify: notify(), projectRoot: '/p', dockerProc, openTerminal }, bare)).resolves.toBe(true);
+    await expect(openSandboxShellOp({ notify: notify(), projectRoot: '/p', placementOf: () => null, dockerProc, openTerminal }, bare)).resolves.toBe(true);
     expect(openTerminal.mock.calls[0]![0].cwd).toBe('/p');
   });
 
   it('reports availability without opening a terminal', async () => {
     const dockerProc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false' } });
-    await expect(sandboxShellAvailability({ notify: notify(), projectRoot: '/p', dockerProc }, target('opencode'))).resolves.toEqual({ available: false, why: 'Sandbox is stopped' });
+    await expect(sandboxShellAvailability({ notify: notify(), projectRoot: '/p', placementOf: () => null, dockerProc }, target('opencode'))).resolves.toEqual({ available: false, why: 'Sandbox is stopped' });
     const running = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
-    await expect(sandboxShellAvailability({ notify: notify(), projectRoot: '/p', dockerProc: running }, target('opencode'))).resolves.toEqual({ available: true, why: null });
+    await expect(sandboxShellAvailability({ notify: notify(), projectRoot: '/p', placementOf: () => null, dockerProc: running }, target('opencode'))).resolves.toEqual({ available: true, why: null });
   });
 });
 

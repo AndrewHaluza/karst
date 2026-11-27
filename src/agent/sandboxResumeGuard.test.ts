@@ -9,6 +9,7 @@ describe('assertNoSandboxResumeOnHost', () => {
   it.each([
     ['a fresh session', { resume: undefined }],
     ['a sandbox runner', { runner: 'docker' as const }],
+    ['an ssh runner', { runner: 'ssh' as const }],
     ['a ticket with no sandbox', { hasSandbox: false }],
   ])('allows %s', (_name, over) => {
     expect(() => assertNoSandboxResumeOnHost({ ...base, ...over })).not.toThrow();

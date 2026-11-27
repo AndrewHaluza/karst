@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import { remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
 import { fakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
-import { blockedSshRunner, liveRemoteSession, sshPlacementTarget, SSH_RUNNER_NOT_WIRED } from './sshPlacementOps.js';
+import { blockedSshRunner, liveRemoteSession, sshPlacementTarget, sshSessionQuotaLine } from './sshPlacementOps.js';
 import type { TicketPlacement } from '../../store/placement.js';
 
 const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
@@ -25,18 +25,31 @@ describe('sshPlacementTarget', () => {
   });
 });
 
-describe('blockedSshRunner (D555 → D826)', () => {
-  it('fails closed for every gate and sync action', async () => {
-    const runner = blockedSshRunner();
+describe('blockedSshRunner (D826)', () => {
+  const REASON = 'ssh remote devbox not confirmed';
+  const ref = { hostWorktreePath: '/wt', branch: 'k/b' };
+
+  it('refuses every sandbox action with the given reason', async () => {
+    const runner = blockedSshRunner(REASON);
     expect(runner.kind).toBe('ssh');
     expect(runner.enforcesSandbox).toBe(false);
-    expect(await runner.sync!({ hostWorktreePath: '/wt', branch: 'k/b' })).toEqual({ ok: false, reason: SSH_RUNNER_NOT_WIRED });
-    expect(await runner.refresh!({ hostWorktreePath: '/wt', branch: 'k/b' })).toEqual({ ok: false, reason: SSH_RUNNER_NOT_WIRED });
-    expect(await runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: SSH_RUNNER_NOT_WIRED });
-    expect(await runner.hasSandbox!()).toBe(true);
     expect(runner.autonomous).toBe(false);
-    expect(() => runner.placeInteractive({} as never)).toThrow(SSH_RUNNER_NOT_WIRED);
-    expect(await runner.probeSandbox!()).toEqual({ state: 'unknown', reason: SSH_RUNNER_NOT_WIRED });
+    for (const step of [runner.sync!(ref), runner.refresh!(ref), runner.fetchClone!(ref), runner.diff!(ref), runner.shellCommand!(ref), runner.ensureWritable!(ref), runner.ensureCloneReady!('k/b'), runner.prepareLaunch!()]) {
+      expect(await step).toEqual({ ok: false, reason: REASON });
+    }
+    expect(await runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: REASON, output: REASON });
+    expect(await runner.dispose!(ref)).toEqual({ ok: false, steps: [{ step: 'ssh', status: 'failed', stderr: REASON }] });
+    expect(await runner.rebuild!(ref)).toEqual({ ok: false, steps: [{ step: 'ssh', status: 'failed', stderr: REASON }] });
+    await expect(runner.stop!()).rejects.toThrow(REASON);
+    await expect(runner.prepareInteractive!({} as never)).rejects.toThrow(REASON);
+    expect(() => runner.placeInteractive({} as never)).toThrow(REASON);
+    expect(await runner.oomReport!()).toBe(REASON);
+  });
+
+  it('never proves the sandbox absent: hasSandbox is true, the probe is unknown', async () => {
+    const runner = blockedSshRunner(REASON);
+    expect(await runner.hasSandbox!()).toBe(true);
+    expect(await runner.probeSandbox!()).toEqual({ state: 'unknown', reason: REASON });
   });
 });
 
@@ -107,5 +120,18 @@ describe('liveRemoteSession (D555 recovery)', () => {
     const ssh = fakeSshProcess();
     expect(await liveRemoteSession({ placement: placement({ sandboxName: 'devbox/not-a-karst-name' }), remotes: { devbox: REMOTE }, trust: trusted, deps: deps(ssh) })).toBe(false);
     expect(ssh.calls).toHaveLength(0);
+  });
+});
+
+describe('sshSessionQuotaLine', () => {
+  it('gives the remote line for an ssh placement, named from the placement first', () => {
+    expect(sshSessionQuotaLine(placement(), 'claude', 'other')).toBe('claude ssh · devbox quota: unknown (remote login)');
+    expect(sshSessionQuotaLine(placement({ sandboxName: null }), 'codex', 'other')).toBe('codex ssh · other quota: unknown (remote login)');
+    expect(sshSessionQuotaLine(placement({ sandboxName: null }), 'codex', undefined)).toBe('codex ssh · remote quota: unknown (remote login)');
+  });
+
+  it('is undefined for every placement that is not ssh', () => {
+    expect(sshSessionQuotaLine(placement({ backend: 'host', sandboxName: null }), 'claude', 'devbox')).toBeUndefined();
+    expect(sshSessionQuotaLine(placement({ backend: 'sbx' }), 'claude', 'devbox')).toBeUndefined();
   });
 });

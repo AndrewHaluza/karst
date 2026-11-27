@@ -3,6 +3,7 @@ import { openStore, type Store } from '../store/db.js';
 import { upsertProject } from '../store/projects.js';
 import { createTicket } from '../store/tickets.js';
 import { listMemoryQueue } from '../store/memoryQueue.js';
+import { recordPlacement } from '../store/placement.js';
 import type { AttributedRow, Inventory } from '../runtime/resourceInventory.js';
 import { bindMemory, isSbxLaunch, STOP_SANDBOX_ACTION, type MemoryBinding } from './memoryBinding.js';
 
@@ -34,6 +35,16 @@ describe('bindMemory', () => {
     free = 4 * GB;
     expect(await bind().admitLaunch(id)).toBe(true);
     expect(listMemoryQueue(store)).toEqual([]);
+  });
+
+  it('an ssh placement never enters the host memory queue (@arch:AC-49)', async () => {
+    free = 0.2 * GB;
+    recordPlacement(store, id, { backend: 'ssh', core: 'claude', sandboxName: 'devbox/karst-ab-1-claude', reason: null }, 'claude');
+    const infoActions = vi.fn(async () => undefined);
+    const b = bind(infoActions);
+    expect(await b.admitLaunch(id)).toBe(true);
+    expect(listMemoryQueue(store)).toEqual([]);
+    expect(infoActions).not.toHaveBeenCalled();
   });
 
   it('queues a launch when memory is short, then the sweep reopens it once and its relaunch skips the check', async () => {

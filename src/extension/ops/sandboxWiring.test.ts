@@ -13,6 +13,9 @@ import { setStage } from '../../store/stages.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { getPlacement, recordPlacement, GRAPH_RUN_PLACEMENT } from '../../store/placement.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
+import type { SessionRunner } from '../../agent/sessionRunner.js';
+import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
 
 let store: Store;
 let id: number;
@@ -321,6 +324,22 @@ describe('makeSandboxWiring idle sweep', () => {
     const stops = () => proc.calls.filter((c) => c.args[0] === 'stop').map((c) => c.args[1]);
     return { w, n, stops, info };
   }
+  it('an idle sbx box left from before an ssh placement is stopped by sbx, never by the ssh runner (D826)', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'I-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    recordPlacement(store, a, fakeSshPlacement(a), 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(a);
+    store.db.prepare(`UPDATE tickets SET updated_at = datetime('now', '-121 minutes') WHERE id = ?`).run(a);
+    const n = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${n} claude running\n` } });
+    const ssh = fakeSshProcess();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc, sessionOpen: () => false, sshRunner: fakeSshRunnerDeps(ssh) });
+    await expect(w.idleSweep()).resolves.toBe(1);
+    expect(proc.calls.filter((c) => c.args[0] === 'stop').map((c) => c.args[1])).toEqual([n]);
+    expect(ssh.calls.filter((c) => c.args.join(' ').includes('tmux'))).toEqual([]);
+  });
   it('stops a sandbox idle past 120 min with no open session, and logs it', async () => {
     const { w, n, stops, info } = setup(false, 121);
     await expect(w.idleSweep()).resolves.toBe(1);
@@ -885,16 +904,89 @@ describe('makeSandboxWiring reads the recorded placement, not the core (D245)', 
   });
 });
 
-describe('makeSandboxWiring reads an ssh placement (D555)', () => {
-  it('a recorded ssh placement fails closed and never spawns sbx or docker', async () => {
-    recordPlacement(store, id, { backend: 'ssh', core: 'claude', sandboxName: 'devbox/karst-abcd1234-1-claude', reason: null }, 'claude');
+describe('makeSandboxWiring routes every caller of an ssh ticket to the ssh runner (D826)', () => {
+  const PROBE = 'karst-ssh-probe';
+  const listing = (l: string): boolean => l.startsWith('sbx ls') || l.startsWith('docker ps') || l.startsWith('docker volume ls');
+  const setup = (ssh: FakeSshProcess, over: Partial<SandboxWiringInput> = {}) => {
+    recordPlacement(store, id, fakeSshPlacement(id), 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
     const proc = fakeSbxProcess();
     const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
-    const { w } = wiring({ proc, dockerProc, projectRoot: () => '/p/karst.yml', backendOn: () => true });
-    const out = await w.ensureSynced(id);
-    expect(out.ok).toBe(false);
+    const sbxActs = (): string[] => [...proc.calls, ...dockerProc.calls].map((c) => [c.command, ...c.args].join(' ')).filter((l) => !listing(l));
+    const { w, notify, choose } = wiring({
+      proc, dockerProc, projectRoot: () => '/p', backendOn: () => true, sshRunner: fakeSshRunnerDeps(ssh),
+      openTerminal: vi.fn(), reopen: vi.fn(async () => {}), bridges: () => ({ dispose: vi.fn(async () => {}) }), ...over,
+    });
+    return { w, notify, choose, sbxActs };
+  };
+  type Wiring = ReturnType<typeof setup>['w'];
+  const callers: readonly (readonly [string, (w: Wiring) => Promise<unknown>])[] = [
+    ['sync', (w) => w.sync(id)],
+    ['ensureInSync', (w) => w.ensureInSync(id)],
+    ['ensureSynced', (w) => w.ensureSynced(id)],
+    ['dispose', (w) => w.dispose(id)],
+    ['rebuild', (w) => w.rebuild(id)],
+    ['diff', (w) => w.diff(id)],
+    ['shell', (w) => w.shell(id)],
+    ['hasUnsynced (rebase)', (w) => w.hasUnsynced(id)],
+    ['carry', (w) => w.carry(id)],
+    ['cloneRef', (w) => w.cloneRef(id, '/wt/r')],
+    ['hasSandbox', (w) => w.hasSandbox(id)],
+    ['oomReport', (w) => w.oomReport(id)],
+    ['stop (lifecycle)', (w) => w.stop(id)],
+    ['remove (lifecycle)', (w) => w.remove(id)],
+  ];
+
+  it.each(callers)('%s reaches the remote over ssh, and never runs sbx or docker', async (_name, call) => {
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const { w, sbxActs } = setup(ssh);
+    await call(w).catch(() => undefined);
+    expect(ssh.calls.length + ssh.stdinCalls.length + ssh.pipes.length + ssh.streams.length).toBeGreaterThan(0);
+    expect(sbxActs()).toEqual([]);
+  });
+
+  it.each(callers)('%s on an unconfirmed remote runs no ssh and no sbx or docker', async (_name, call) => {
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const { w, sbxActs } = setup(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }) });
+    await call(w).catch(() => undefined);
+    expect([ssh.calls, ssh.stdinCalls, ssh.pipes, ssh.streams]).toEqual([[], [], [], []]);
+    expect(sbxActs()).toEqual([]);
+  });
+
+  it('an unconfirmed remote: the sync refuses with the reason, hasSandbox stays true (no silent host fallback)', async () => {
+    const ssh = fakeSshProcess();
+    const { w } = setup(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }) });
+    expect(await w.ensureInSync(id)).toMatchObject({ ok: false, reason: expect.stringContaining('ssh remote devbox not confirmed') });
+    expect(await w.hasSandbox(id)).toBe(true);
+    expect(await w.oomReport(id)).toBe('ssh remote devbox not confirmed');
+  });
+
+  it('hasSandbox: a transport failure is true, only an absent clone is false', async () => {
+    const down = setup(fakeSshProcess({ [PROBE]: { code: 255, transport: true } }));
+    expect(await down.w.hasSandbox(id)).toBe(true);
+    store.db.prepare('DELETE FROM worktrees WHERE ticket_id = ?').run(id);
+    const absent = setup(fakeSshProcess({ [PROBE]: { code: 44 } }));
+    expect(await absent.w.hasSandbox(id)).toBe(false);
+  });
+
+  it('a session close keeps the bridge poller of an ssh ticket (its tmux session outlives the terminal)', async () => {
+    const detach = vi.fn(async () => {});
+    const { w } = setup(fakeSshProcess(), { bridges: () => ({ dispose: vi.fn(async () => {}), detach }) });
+    await w.onSessionClosed(id);
+    expect(detach).not.toHaveBeenCalled();
+  });
+
+  it('the launch runner wins: a first launch syncs through it, with no listing and no core-derived sbx runner', async () => {
+    const t = createTicket(store, { key: 'K-90', title: 'n' }).id;
+    setSessionId(store, t, null, 'claude');
+    const proc = fakeSbxProcess();
+    const { w } = wiring({ proc, projectRoot: () => '/p', backendOn: () => true, owned: new Set([t]) });
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(t);
+    const sync = vi.fn(async () => ({ ok: true as const, summary: 'synced' }));
+    const launch = { kind: 'ssh', enforcesSandbox: false, probeSandbox: async () => ({ state: 'present' as const }), sync, refresh: async () => ({ ok: true as const, summary: 'r' }) } as unknown as SessionRunner;
+    expect(await w.ensureInSync(t, true, true, launch)).toEqual({ ok: true });
+    expect(sync).toHaveBeenCalledTimes(1);
     expect(proc.calls).toEqual([]);
-    expect(dockerProc.calls).toEqual([]);
   });
 });
 
@@ -1079,5 +1171,82 @@ describe('makeSandboxWiring placement transitions and backfill edges (D245)', ()
     await wiring({ proc, dockerProc, backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, info }).w.backfillPlacements();
     expect(getPlacement(store, t)).toMatchObject({ backend: 'sbx', core: 'claude', sandboxName: name });
     expect(info).toHaveBeenCalledWith(expect.stringMatching(/recorded placement for [1-9]\d* ticket/));
+  });
+});
+
+describe('makeSandboxWiring hands its own process seams and worktree to every host step (D826)', () => {
+  const ROOT_FILE = '/p/karst.yml';
+  const docker = (answers: Parameters<typeof fakeSbxProcess>[0] = {}) => Object.assign(fakeSbxProcess(answers), { pipe: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })) as never });
+  const lines = (p: ReturnType<typeof fakeSbxProcess>): string[] => p.calls.map((c) => [c.command, ...c.args].join(' '));
+  const placeDocker = (): void => recordPlacement(store, id, { backend: 'docker', core: 'opencode2', sandboxName: 'x', reason: null }, 'opencode2');
+
+  it('an ssh ticket with no worktree refuses with that reason', async () => {
+    recordPlacement(store, id, fakeSshPlacement(id), 'claude');
+    const ssh = fakeSshProcess();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => '/p', sshRunner: fakeSshRunnerDeps(ssh) });
+    expect(await w.oomReport(id)).toBe(`ssh: ticket ${id} has no worktree`);
+    expect(ssh.calls).toEqual([]);
+  });
+
+  it('orphan cleanup removes the sandbox of a ticket that no longer exists', async () => {
+    const orphan = sbxName({ projectRoot: ROOT_FILE, ticketId: 999, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${orphan} claude ● running\n` } });
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const { w, choose } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, projectId: () => projectId, proc });
+    choose.mockResolvedValue(REMOVE_ORPHANS as never);
+    await w.cleanupOrphans();
+    expect(lines(proc)).toContain(`sbx rm --force ${orphan}`);
+  });
+
+  it('ensureInSync of a docker ticket lists and syncs through the wiring docker seam', async () => {
+    placeDocker();
+    const dockerProc = docker();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, dockerProc });
+    await w.ensureInSync(id);
+    expect(dockerProc.calls.length).toBeGreaterThan(0);
+  });
+
+  it('the palette target lists the docker sandboxes through the wiring docker seam', async () => {
+    const dockerProc = docker();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, dockerProc });
+    await w.commandTarget(undefined, 'sync');
+    expect(lines(dockerProc).some((l) => l.startsWith('docker ps'))).toBe(true);
+  });
+
+  it('dispose removes an sbx sandbox with the wiring sbx seam and a docker one with the docker seam', async () => {
+    recordPlacement(store, id, { backend: 'sbx', core: 'claude', sandboxName: 'x', reason: null }, 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
+    const proc = fakeSbxProcess();
+    await wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, proc, bridges: () => ({ dispose: vi.fn(async () => {}) }) }).w.dispose(id);
+    expect(lines(proc).some((l) => l.startsWith('sbx rm'))).toBe(true);
+    placeDocker();
+    const dockerProc = docker();
+    await wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, dockerProc, bridges: () => ({ dispose: vi.fn(async () => {}) }) }).w.dispose(id);
+    expect(lines(dockerProc).some((l) => l.startsWith('docker rm'))).toBe(true);
+  });
+
+  it('hasSandbox of a docker ticket whose daemon cannot answer is the docker runner answer (false), not the ssh rule', async () => {
+    placeDocker();
+    const dockerProc = docker({ 'docker volume inspect': { code: 1, stderr: 'Cannot connect to the Docker daemon' } });
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, dockerProc });
+    expect(await w.hasSandbox(id)).toBe(false);
+  });
+
+  it('a ticket with no project root and no worktree names its sandbox from the empty root', async () => {
+    const name = sbxName({ projectRoot: '', ticketId: id, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude running\n` } });
+    const { w } = wiring({ projectRoot: () => undefined, proc });
+    await w.stop(id);
+    expect(proc.calls.some((c) => c.args.join(' ') === `stop ${name}`)).toBe(true);
+  });
+
+  it('ensureInSync without a launch runner reads the core from the listing, not the session provider', async () => {
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
+    const codex = sbxName({ projectRoot: ROOT_FILE, ticketId: id, core: 'codex' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${codex} codex running\n` } });
+    const info = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, proc, info });
+    await w.ensureInSync(id);
+    expect(lines(proc).some((l) => l.includes(codex) && !l.startsWith('sbx ls'))).toBe(true);
   });
 });

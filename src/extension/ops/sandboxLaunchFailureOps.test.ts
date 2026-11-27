@@ -262,6 +262,47 @@ describe('sandboxLaunchFailureOptions', () => {
   });
 });
 
+describe('ssh launch failures (D826)', () => {
+  it('names the transport and the remote for an exit 255 before SessionStart', () => {
+    const { notified, marked, opts } = setup(undefined, { sshRemote: 'devbox' });
+    opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 255, tail: 'ssh: connect to host devbox port 22: Connection refused' });
+    expect(marked).toEqual([4]);
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toContain('ssh transport failed (devbox');
+    expect(notified[0]).toContain('agentBackends.claude=host');
+    expect(notified[0]).toContain('Retry');
+    expect(notified[0]).not.toContain('sandbox of T704 failed to launch');
+  });
+
+  it('reports an exit 137 as the remote OOM kill, like sbx, and keeps the workspace', async () => {
+    const warn = vi.fn();
+    const removeSandbox = vi.fn(async () => undefined);
+    const markNotStarted = vi.fn();
+    const interruptRun = vi.fn();
+    const dir = mkdtempSync(join(tmpdir(), 'oom-ssh-'));
+    const opts = sandboxLaunchFailureOptions({
+      ticketId: 7, ticketLabel: 'T7', core: 'claude', sshRemote: 'devbox', captureDir: dir, warn: () => undefined,
+      notify: { info: vi.fn(), warn, error: async () => undefined },
+      markNotStarted, removeSandbox, interruptRun, oomReport: async () => 'ssh remote devbox ran out of memory: killed node.',
+    });
+    opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 137, tail: '' });
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(warn.mock.calls[0]![0]).toContain('ran out of memory: killed node');
+    expect(warn.mock.calls[0]![0]).not.toContain('launch failed');
+    expect(removeSandbox).not.toHaveBeenCalled();
+    expect(markNotStarted).toHaveBeenCalledWith(7);
+    expect(interruptRun).toHaveBeenCalledWith(7, expect.stringContaining('ran out of memory'));
+  });
+
+  it('keeps the Docker memory help off an ssh exit 137', async () => {
+    const { notified, opts } = setup(undefined, { sshRemote: 'devbox', killContext: async () => 'Docker VM 4.0 GB', oomReport: async () => null });
+    opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 137, tail: 'Killed' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notified[0]).not.toContain(DOCKER_MEMORY_HELP_TEXT);
+    expect(notified[0]).toContain('failed to launch');
+  });
+});
+
 describe('sbx exit 137 is reported as an out-of-memory kill', () => {
   it('shows the OOM text, not a launch failure, and keeps the sandbox', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'oom-'));
@@ -293,5 +334,41 @@ describe('sbx exit 137 is reported as an out-of-memory kill', () => {
     opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 137, tail: '' });
     await vi.waitFor(() => expect(warn).toHaveBeenCalled());
     expect(markNotStarted).toHaveBeenCalledWith(7);
+  });
+});
+
+describe('the OOM and transport verdicts fit only their runners and codes (D826)', () => {
+  it('a docker exit 137 is a launch failure with the memory help, never the OOM lookup', async () => {
+    const oomReport = vi.fn(async () => 'ran out of memory');
+    const { notified, opts } = setup(undefined, { oomReport });
+    opts.onSandboxLaunchFailed({ runner: 'docker', exitCode: 137, tail: '' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(oomReport).not.toHaveBeenCalled();
+    expect(notified[0]).toContain('The docker sandbox of T704 failed to launch (exit 137)');
+  });
+
+  it('an sbx or ssh exit other than 137 never runs the OOM lookup', async () => {
+    const oomReport = vi.fn(async () => 'ran out of memory');
+    const a = setup(undefined, { oomReport });
+    a.opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: '' });
+    const b = setup(undefined, { oomReport, sshRemote: 'devbox' });
+    b.opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 1, tail: '' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(oomReport).not.toHaveBeenCalled();
+    expect(a.notified[0]).toContain('The sbx sandbox of T704 failed to launch (exit 1)');
+    expect(b.notified[0]).toContain('The ssh sandbox of T704 failed to launch (exit 1)');
+  });
+
+  it('only an ssh exit 255 is a transport failure; an sbx exit 255 is a launch failure', () => {
+    const { notified, opts } = setup();
+    opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 255, tail: '' });
+    expect(notified[0]).toContain('The sbx sandbox of T704 failed to launch (exit 255)');
+    expect(notified[0]).not.toContain('ssh transport failed');
+  });
+
+  it('an ssh exit 255 with no remote name says "the remote"', () => {
+    const { notified, opts } = setup();
+    opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 255, tail: '' });
+    expect(notified[0]).toBe('The agent of T704 did not start: ssh transport failed (the remote, exit 255). Retry, or set agentBackends.claude=host.');
   });
 });

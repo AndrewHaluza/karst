@@ -26,7 +26,7 @@ import { reasonText } from '../../model/notifyText.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import type { SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
-import { blockedSshRunner } from './sshPlacementOps.js';
+import { sshRunnerFor, type SshRunnerDeps } from './sshRunnerFor.js';
 
 export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps.js';
 
@@ -71,8 +71,10 @@ export interface BackendSessionInput {
   /**
    * F8: before a session starts or resumes in a sandbox that already exists, sync sandbox → host
    * and refresh host → sandbox. A blocker (dirty clone, divergence) stops the launch.
+   * It gets the resolved launch runner: on a first launch no placement is recorded yet,
+   * so the sync must use this runner, not one picked from the core (D826).
    */
-  readonly syncExisting?: () => Promise<EnsureSyncResult>;
+  readonly syncExisting?: (runner: SessionRunner) => Promise<EnsureSyncResult>;
 }
 
 /**
@@ -190,18 +192,9 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   try {
     const prepared = await resolved.runner.prepareLaunch?.();
     if (prepared && !prepared.ok) throw new Error(`${input.ticketLabel}: ${prepared.reason}`);
-    if (resolved.runner.kind === 'ssh') {
-      // D826 replaces this special case: `sandboxRunnerFor` then reads the placement and the generic path applies.
-      // Until then `syncExisting` cannot be used: it reaches `sandboxRunnerFor`, which picks a runner from the core.
-      if (ticketRef?.branch) {
-        const synced = await resolved.runner.sync?.(ticketRef);
-        if (synced && !synced.ok) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${synced.reason}`);
-        const refreshed = await resolved.runner.refresh?.(ticketRef);
-        // Opening a session (like `allowDirtyClone`): uncommitted remote work with nothing to bring in is the user's own to continue.
-        if (refreshed && !refreshed.ok && !isDirtyNotBehind(refreshed.reason)) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${refreshed.reason}`);
-      }
-    } else if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
-      const synced = await input.syncExisting();
+    // Every off-host runner (sbx, docker, ssh) syncs an existing clone the same way (D826).
+    if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
+      const synced = await input.syncExisting(resolved.runner);
       if (!synced.ok) throw new Error(`${input.ticketLabel}: the sandbox is not in sync with the host branch: ${synced.reason}`);
     }
     const paths = await options.bridgeFor?.(input.ticketId);
@@ -281,18 +274,35 @@ export interface SandboxSyncDeps {
   /** The base branch of a recorded merge conflict on this ticket, or null: while one is open every refresh ships `origin/<base>` in the bundle. */
   readonly conflictBaseRef?: (ticketId: number) => string | null;
   /**
-   * The ticket's recorded placement (D555). `sandboxRunnerFor` reads it so an
-   * `ssh` placement fails closed instead of picking a runner from the core;
-   * D826 replaces the interim block. Absent = derive from the core as before.
+   * The ticket's recorded placement: it picks the runner of every host step
+   * (`@arch:AC-32`, `@arch:AC-43`). Null = none recorded, so the core decides.
    */
-  readonly placementOf?: (ticketId: number) => TicketPlacement | undefined;
+  readonly placementOf: (ticketId: number) => TicketPlacement | null;
+  /** What `sshRunnerFor` needs for an `ssh` placement; absent = that placement refuses (D826). */
+  readonly sshRunner?: SshRunnerDeps;
+  /**
+   * The ticket's (cloned) host worktree; `undefined` = no record. The ssh runner maps its gate cwd
+   * from it, and the orphan cleanup's remote step uses it.
+   */
+  readonly worktreeOf?: (ticketId: number) => string | undefined;
+  /**
+   * The runner a launch resolved: it wins over the placement. A first launch records its
+   * placement only after the launch sync, so the sync must not pick a runner from the core.
+   */
+  readonly launchRunner?: SessionRunner;
 }
 
-/** The sandbox runner that holds a core's clone: sbx (claude, codex) or docker (opencode, opencode2). */
+/**
+ * The runner of a host step: the launch runner, else the recorded placement (`ssh` → `sshRunnerFor`,
+ * which refuses with a reason and never returns undefined), else the core's sandbox kind: sbx
+ * (claude, codex) or docker (opencode, opencode2). The core decides only for a NULL or non-ssh placement.
+ */
 export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, ticketId: number): SessionRunner | undefined {
-  // D555 → D826: an ssh placement has no host-side runner here yet. Returning
-  // undefined would let a gate or sync run on the host clone, so fail closed.
-  if (deps.placementOf?.(ticketId)?.backend === 'ssh') return blockedSshRunner();
+  if (deps.launchRunner) return deps.launchRunner;
+  const placement = deps.placementOf(ticketId);
+  if (placement?.backend === 'ssh') {
+    return sshRunnerFor(deps.sshRunner, placement, { ticketId, projectRoot: deps.projectRoot, hostWorktreePath: deps.worktreeOf?.(ticketId) });
+  }
   if (isSbxCore(core)) {
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
     const evidenceDir = deps.evidenceDirOf?.(ticketId);

@@ -124,7 +124,7 @@ describe('rewrite classification and carry (real git)', () => {
     const remove = vi.fn(async () => true);
     const deps = {
       notify: { info: vi.fn(), warn: vi.fn(), error: (m: string) => { errors.push(m); return Promise.resolve(); } },
-      projectRoot: root, choose: vi.fn(), owns: () => true, openSyncDiff: vi.fn(), reopen, remove, runner, scratch: root,
+      projectRoot: root, choose: vi.fn(), owns: () => true, placementOf: () => null, openSyncDiff: vi.fn(), reopen, remove, runner, scratch: root,
     };
     const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: s.host, branch: 'feat' } };
     await expect(carrySandboxOp(deps, target)).resolves.toBe(true);
@@ -151,7 +151,7 @@ describe('rewrite classification and carry (real git)', () => {
     const reopen = vi.fn(async () => {});
     const deps = {
       notify: { info: vi.fn(), warn: vi.fn(), error: (m: string) => { errors.push(m); return Promise.resolve(); } },
-      projectRoot: root, choose: vi.fn(), owns: () => true, openSyncDiff: vi.fn(), reopen, remove, runner, scratch: root,
+      projectRoot: root, choose: vi.fn(), owns: () => true, placementOf: () => null, openSyncDiff: vi.fn(), reopen, remove, runner, scratch: root,
     };
     await expect(carrySandboxOp(deps, { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: s.host, branch: 'feat' } })).resolves.toBe(false);
     expect(errors).toEqual([expect.stringContaining('newer commits')]);
@@ -169,7 +169,7 @@ describe('rewrite classification and carry (real git)', () => {
     const reopen = vi.fn(async () => {});
     const deps = {
       notify: { info: vi.fn(), warn: vi.fn(), error: (m: string) => { errors.push(m); return Promise.resolve(); } },
-      projectRoot: root, choose: vi.fn(), owns: () => true, openSyncDiff: vi.fn(), reopen, remove, runner, scratch: root,
+      projectRoot: root, choose: vi.fn(), owns: () => true, placementOf: () => null, openSyncDiff: vi.fn(), reopen, remove, runner, scratch: root,
     };
     await expect(carrySandboxOp(deps, { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: s.host, branch: 'feat' } })).resolves.toBe(false);
     expect(errors).toEqual([expect.stringContaining('conflicts in agent.txt')]);

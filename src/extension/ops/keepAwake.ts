@@ -174,7 +174,9 @@ export function makeKeepAwake(deps: KeepAwakeDeps): KeepAwake {
  * `agent:ticketId` for each running agent of the project whose hook fired in the
  * last `KEEP_AWAKE_AGENT_FRESH_MS`. `listLiveRuns` leaves the interactive impl/fix
  * terminals out on purpose, and a stale `running` state must not hold the lock, so
- * the freshness test is required.
+ * the freshness test is required. An SSH placement is the exception (D826): its
+ * hooks land in the remote bridge and the host owns the connection that reads it,
+ * so a running ssh agent holds the lock even without a fresh host hook.
  */
 export function keepAwakeLiveKeys(
   store: Store,
@@ -191,11 +193,20 @@ export function keepAwakeLiveKeys(
   if (projectId !== undefined) {
     const rows = store.db
       .prepare(
-        `SELECT id, last_hook_at FROM tickets
-          WHERE project_id = ? AND archived_at IS NULL AND agent_state = 'running' AND last_hook_at IS NOT NULL`,
+        `SELECT id, last_hook_at, placement_backend FROM tickets
+          WHERE project_id = ? AND archived_at IS NULL AND agent_state = 'running'`,
       )
-      .all(projectId) as { id: number; last_hook_at: string }[];
+      .all(projectId) as { id: number; last_hook_at: string | null; placement_backend: string | null }[];
     for (const row of rows) {
+      // D826: an ssh agent's hooks land in the REMOTE bridge, and the host owns
+      // the connection that reads it. Its placement is enough, so a direct ssh
+      // agent holds the lock like a host agent even when no host hook is fresh.
+      if (row.placement_backend === 'ssh') {
+        keys.add(`agent:${row.id}`);
+        continue;
+      }
+      // Stryker disable next-line ConditionalExpression: equivalent, Date.parse(null) is NaN and the freshness test below is then false
+      if (row.last_hook_at === null) continue;
       const at = Date.parse(row.last_hook_at);
       if (now - at <= KEEP_AWAKE_AGENT_FRESH_MS) keys.add(`agent:${row.id}`);
     }

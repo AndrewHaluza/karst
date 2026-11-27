@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +14,9 @@ import {
   reattachTicketSandbox, resolveTicketSandbox, ticketGateProcess, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
 } from './sandboxTicketOps.js';
 import { onceByMessage } from './sandboxSetupOp.js';
+import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
+import { SSH_DEPS_MISSING } from './sshRunnerFor.js';
 
 vi.mock('../../workflow/gates/run.js', async (orig) => ({
   ...(await orig<typeof import('../../workflow/gates/run.js')>()),
@@ -41,15 +44,17 @@ describe('ticketSandboxRunner (arch:AC-32)', () => {
     expect(ticketSandboxRunner(deps({ coreOf: () => null }), 7)).toBeUndefined();
   });
 
-  it('an ssh placement gets a fail-closed runner: gates refuse, never a host gate (D555)', async () => {
-    const ssh = { backend: 'ssh' as const, core: 'claude', sandboxName: 'devbox/karst-abcd1234-7-claude', reason: null };
+  it('an ssh placement without the ssh deps gets a refusing runner: gates refuse, never a host gate (D826)', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const ssh = fakeSshPlacement();
     const found = ticketSandboxRunner(deps({ placementOf: () => ssh }), 7);
-    expect(found).toMatchObject({ runner: { kind: 'ssh' }, sandboxName: 'devbox/karst-abcd1234-7-claude' });
+    expect(found).toMatchObject({ runner: { kind: 'ssh' }, sandboxName: ssh.sandboxName });
     expect(ticketSandboxRunner(deps({ placementOf: () => ({ ...ssh, sandboxName: null }) }), 7)).toMatchObject({ runner: { kind: 'ssh' }, sandboxName: '' });
-    expect(await found!.runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: 'ssh runner not wired yet' });
+    expect(await found!.runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: SSH_DEPS_MISSING });
     const gate = ticketGateProcess(deps({ placementOf: () => ssh }), 7);
-    expect(gate).toBeDefined();
-    expect(await gate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: 'ssh runner not wired yet' });
+    expect(await gate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining(SSH_DEPS_MISSING) });
+    expect(runProcess).not.toHaveBeenCalled();
   });
 
   it('exports the bridge as the gate evidence dir (sbx: host path, docker: mount path)', async () => {
@@ -925,5 +930,162 @@ describe('a sandbox gate takes a project-wide gate slot', () => {
       ctl.abort();
       await expect(waiting).resolves.toMatchObject({ kind: 'aborted', output: '' });
     });
+  });
+});
+
+describe('an ssh placement routes every ticket step to the ssh runner (D826)', () => {
+  const PLACED = fakeSshPlacement();
+  const sshTicket = (ssh: FakeSshProcess, over: Partial<TicketSandboxDeps> = {}): TicketSandboxDeps =>
+    deps({ placementOf: () => PLACED, worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh), proc: fakeSbxProcess(), ...over });
+  const PROBE = 'karst-ssh-probe';
+  /** The ssh runner's probe exit for "no clone" (`PROBE_ABSENT_EXIT` in sshRunner.ts). */
+  const ABSENT_EXIT = 44;
+
+  it('ticketSandboxRunner and the gate use the ssh runner: the gate runs over ssh, never runProcess on the host', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const hostGate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: 'remote' }));
+    const d = sshTicket(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { gateProcess: hostGate }) });
+    expect(ticketSandboxRunner(d, 7)?.runner.kind).toBe('ssh');
+    await ticketGateProcess(d, 7)!('npm', ['test'], '/wt');
+    expect(ssh.calls[0]!.args.at(-1)).toContain(PROBE);
+    // The ssh runner's gate spawns `ssh` on the host; the command itself runs on the remote.
+    expect(hostGate).toHaveBeenCalledTimes(1);
+    expect((hostGate.mock.calls[0] as unknown[])[0]).toBe('ssh');
+    expect(runProcess).not.toHaveBeenCalled();
+  });
+
+  it('an unconfirmed remote: runner, gate, context and probe refuse with "not confirmed", and no ssh runs', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const ssh = fakeSshProcess();
+    const d = sshTicket(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }) });
+    const runner = ticketSandboxRunner(d, 7)!.runner;
+    expect(await runner.probeSandbox!()).toEqual({ state: 'unknown', reason: 'ssh remote devbox not confirmed' });
+    expect(await runner.sync!({ hostWorktreePath: '/wt', branch: 'k/b' })).toEqual({ ok: false, reason: 'ssh remote devbox not confirmed' });
+    expect((await runner.dispose!({ hostWorktreePath: '/wt', branch: 'k/b' })).ok).toBe(false);
+    const gated = await ticketGateProcess(d, 7)!('true', [], '/wt');
+    expect(gated).toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining('ssh remote devbox not confirmed') });
+    const context = await ticketSandboxContext(d, 7);
+    expect(context?.runner.kind).toBe('ssh');
+    expect(await context!.runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining('not confirmed') });
+    expect([ssh.calls, ssh.stdinCalls, ssh.pipes, ssh.streams]).toEqual([[], [], [], []]);
+    expect(runProcess).not.toHaveBeenCalled();
+  });
+
+  it('a gone remote clone: the gate refuses, never a host run', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const ssh = fakeSshProcess({ [PROBE]: { code: ABSENT_EXIT } });
+    expect(await ticketGateProcess(sshTicket(ssh), 7)!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining('remote clone is gone') });
+    expect(runProcess).not.toHaveBeenCalled();
+  });
+
+  it('the context runner of a present remote is the real one; an absent remote gives a refusing one', async () => {
+    const hostGate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: 'remote' }));
+    const up = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const present = await ticketSandboxContext(sshTicket(up, { sshRunner: fakeSshRunnerDeps(up, { gateProcess: hostGate }) }), 7);
+    await present!.runner.runGate!('true', [], '/wt');
+    expect(hostGate).toHaveBeenCalledTimes(1);
+    const absent = await ticketSandboxContext(sshTicket(fakeSshProcess({ [PROBE]: { code: ABSENT_EXIT } })), 7);
+    expect(await absent!.runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining('remote clone is gone') });
+  });
+
+  it('the gate logs where it runs and why it refuses', async () => {
+    const debug = vi.fn();
+    const hostGate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: 'remote' }));
+    const up = fakeSshProcess({ [PROBE]: { code: 0 } });
+    await ticketGateProcess(sshTicket(up, { debug, sshRunner: fakeSshRunnerDeps(up, { gateProcess: hostGate }) }), 7)!('npm', ['test'], '/wt');
+    expect(debug).toHaveBeenCalledWith(`[gate] ticket 7: npm runs in ssh (${PLACED.sandboxName})`);
+    await ticketGateProcess(sshTicket(fakeSshProcess({ [PROBE]: { code: ABSENT_EXIT } }), { debug }), 7)!('true', [], '/wt');
+    expect(debug).toHaveBeenCalledWith('[gate] gate refused: ticket 7 runs on ssh and its remote clone is gone; nothing runs on the host for it');
+  });
+
+  it('a probe that throws is unknown with its reason', async () => {
+    const { sshTicketProbe } = await import('./sandboxTicketOps.js');
+    const ssh = { ...fakeSshProcess(), run: async () => { throw new Error('ssh died'); } } as unknown as FakeSshProcess;
+    expect((await sshTicketProbe(sshTicket(ssh), 7))?.probe).toEqual({ state: 'unknown', reason: 'ssh died' });
+  });
+
+  it('an ssh placement with no core still gets the ssh runner, never undefined', () => {
+    const found = ticketSandboxRunner(sshTicket(fakeSshProcess(), { placementOf: () => ({ ...PLACED, core: null }), coreOf: () => null }), 7);
+    expect(found?.runner.kind).toBe('ssh');
+  });
+
+  it('bindings without worktreeOf map the gate from the cloned worktree, else the first worktree, else refuse', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'K-1', title: 'k' }).id;
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const hostGate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: 'remote' }));
+    const root = mkdtempSync(join(tmpdir(), 'ssh-wt-'));
+    try {
+      let bridge: string | undefined;
+      const bind = createTicketSandboxBindings({
+        ...sshTicket(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { gateProcess: hostGate }) }), worktreeOf: undefined,
+        store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => bridge,
+      });
+      expect(await bind.probeSandbox(id)).toEqual({ state: 'unknown', reason: `ssh: ticket ${id} has no worktree` });
+      const insert = store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)');
+      insert.run(id, 'a', '/wt/a', 'feat/a');
+      insert.run(id, 'b', '/wt/b', 'feat/b');
+      await bind.gateProcessFor(id)!('true', [], '/wt/a');
+      expect((hostGate.mock.calls.at(-1) as unknown[])[2]).toBe('/wt/a');
+      bridge = root;
+      await bind.gateProcessFor(id)!('true', [], '/wt/a');
+      expect((hostGate.mock.calls.at(-1) as unknown[])[2]).toBe('/wt/a');
+      mkdirSync(join(root, 'events', String(id)), { recursive: true });
+      writeFileSync(join(root, 'events', String(id), 'cloned-worktree.json'), JSON.stringify({ path: '/wt/b' }));
+      await bind.gateProcessFor(id)!('true', [], '/wt/b');
+      expect((hostGate.mock.calls.at(-1) as unknown[])[2]).toBe('/wt/b');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('a present remote gives the real context; never undefined for an ssh ticket', async () => {
+    const present = fakeSshProcess({ [PROBE]: { code: 0 } });
+    expect(await ticketSandboxContext(sshTicket(present), 7)).toMatchObject({ sandboxName: PLACED.sandboxName, runner: { kind: 'ssh' } });
+    const down = fakeSshProcess({ [PROBE]: { code: 255, transport: true } });
+    expect(await ticketSandboxContext(sshTicket(down), 7)).toBeDefined();
+  });
+
+  it('bindings: hasSandbox, guardResume and probeSandbox read the remote; only absent is false', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = openStore(':memory:');
+    const bind = (ssh: FakeSshProcess) => createTicketSandboxBindings({ ...sshTicket(ssh), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined });
+    const down = bind(fakeSshProcess({ [PROBE]: { code: 255, transport: true } }));
+    expect(await down.hasSandbox(7)).toBe(true);
+    expect((await down.probeSandbox(7)).state).toBe('unknown');
+    await expect(down.guardResume({ resume: 'sess-1', tracking: { ticketId: 7 } })).rejects.toThrow();
+    const absent = bind(fakeSshProcess({ [PROBE]: { code: ABSENT_EXIT } }));
+    expect(await absent.hasSandbox(7)).toBe(false);
+    expect(await absent.probeSandbox(7)).toEqual({ state: 'absent' });
+    await expect(absent.guardResume({ resume: 'sess-1', tracking: { ticketId: 7 } })).resolves.toBeUndefined();
+    const present = bind(fakeSshProcess({ [PROBE]: { code: 0 } }));
+    expect(await present.hasSandbox(7)).toBe(true);
+  });
+
+  it('a launch that falls to the host with an unreachable remote gets the choice, never a host run; the host-ticket result is unchanged', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const { launchWithoutSilentHostFallback, guardLaunchResume } = await import('./sandboxLaunchOps.js');
+    const store = openStore(':memory:');
+    const down = createTicketSandboxBindings({ ...sshTicket(fakeSshProcess({ [PROBE]: { code: 255, transport: true } })), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined });
+    const fallback = (hasSandbox: () => Promise<boolean>) => ({
+      ticketLabel: 'K-7', wantsSandbox: true, hasSandbox, choose: vi.fn(async () => undefined as string | undefined), chooseModal: vi.fn(async () => undefined as string | undefined),
+      confirmHost: vi.fn(async () => true), removeSandbox: vi.fn(async () => true), launch: vi.fn(async () => ({ sandboxed: false })),
+    });
+    const ssh = fallback(() => down.hasSandbox(7));
+    expect(await launchWithoutSilentHostFallback(ssh)).toEqual({ kind: 'cancelled' });
+    expect(ssh.choose).toHaveBeenCalledTimes(1);
+    expect(ssh.launch).toHaveBeenCalledTimes(1);
+    const warn = vi.fn();
+    await expect(guardLaunchResume({ ticketId: 7, ticketLabel: 'K-7', resumeId: 'sess-1', runner: 'host', hasSandbox: () => down.hasSandbox(7), warn })).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    const hostTicket = createTicketSandboxBindings({ ...deps({ placementOf: () => ({ backend: 'host', core: 'claude', sandboxName: null, reason: null }), proc: fakeSbxProcess() }), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined });
+    const host = fallback(() => hostTicket.hasSandbox(7));
+    expect(await launchWithoutSilentHostFallback(host)).toMatchObject({ kind: 'launched', freshSession: false });
+    expect(host.choose).not.toHaveBeenCalled();
   });
 });

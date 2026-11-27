@@ -2,6 +2,11 @@ import type { SessionRunner } from '../../agent/sessionRunner.js';
 import { sandboxKindOfCore, removeSandboxGuarded, type SandboxLifecycleDeps } from './sandboxLifecycleOps.js';
 import { recordSyncedHead, sandboxRunnerFor, type SandboxSyncTarget } from './sandboxSyncOps.js';
 
+/** The recorded placement decides; the core is the fallback only when none is recorded (arch:AC-32, D826). */
+function runsOnHost(deps: SandboxRebaseDeps, target: SandboxSyncTarget): boolean {
+  return (deps.placementOf(target.ticketId)?.backend ?? sandboxKindOfCore(target.core)) === 'host';
+}
+
 /** The sandbox primitives "Rebase on base" needs (arch:AC-51 no-sync recreate). */
 export interface SandboxRebaseDeps extends SandboxLifecycleDeps {
   readonly reopen: (ticketId: number) => Promise<void>;
@@ -16,7 +21,7 @@ export interface SandboxRebaseDeps extends SandboxLifecycleDeps {
  * run on a guess, because the recreate that follows would drop those commits.
  */
 export async function sandboxHasUnsynced(deps: SandboxRebaseDeps, target: SandboxSyncTarget): Promise<boolean> {
-  if (sandboxKindOfCore(target.core) === 'host') return false;
+  if (runsOnHost(deps, target)) return false;
   const branch = target.worktree?.branch;
   if (!target.worktree || !branch) return true;
   const runner = deps.runner ?? sandboxRunnerFor(deps, target.core, target.ticketId);
@@ -27,7 +32,7 @@ export async function sandboxHasUnsynced(deps: SandboxRebaseDeps, target: Sandbo
 
 /** Remove WITHOUT the pre-remove sync, record the new head, reopen. Throws when the clone could not be recreated. */
 export async function recreateSandboxNoSync(deps: SandboxRebaseDeps, target: SandboxSyncTarget): Promise<void> {
-  if (sandboxKindOfCore(target.core) === 'host') return;
+  if (runsOnHost(deps, target)) return;
   const removed = await (deps.remove ?? removeSandboxGuarded)(deps, target, { skipSync: true });
   if (!removed) throw new Error('the sandbox could not be removed');
   await recordSyncedHead(deps, target);

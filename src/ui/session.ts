@@ -154,6 +154,13 @@ export interface OpenSessionOptions {
   /** The agent account this launch runs under; omitted = the recorded account of a resume, else the active one (@arch:AC-55). */
   account?: string;
   /**
+   * The session's own quota line, shown as the terminal description instead of
+   * the host account label (D826, `@arch:AC-29`). Set only for a direct ssh
+   * placement, where the host quota probe cannot describe the remote login.
+   * Host-internal: no webview message can reach it.
+   */
+  quotaLine?: string;
+  /**
    * Host-only configured process assignment (the Fix path, Task 3): when
    * present, the launch resolves provider/adapter/model from this snapshot
    * rather than the ticket/manifest precedence. It also rides the
@@ -732,7 +739,7 @@ export class SessionManager {
       }
       terminal = this.host.createTerminal({
         name: terminalName,
-        description: sessionDescription(naming ? undefined : label?.title, account ?? activeAccountLabel(identity?.provider ?? '')),
+        description: options.quotaLine ?? sessionDescription(naming ? undefined : label?.title, account ?? activeAccountLabel(identity?.provider ?? '')),
         cwd: placed.cwd,
         shellPath: placed.shellPath,
         shellArgs: placed.shellArgs,
