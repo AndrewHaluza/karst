@@ -11,6 +11,8 @@ exports[`usage render > all-sorts > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -773,6 +775,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -863,6 +868,8 @@ exports[`usage render > empty > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -1625,6 +1632,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -1715,6 +1725,8 @@ exports[`usage render > error > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -2477,6 +2489,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -2567,6 +2582,8 @@ exports[`usage render > host-failure > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -3329,6 +3346,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -3419,6 +3439,8 @@ exports[`usage render > hostile > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -4181,6 +4203,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -4271,6 +4296,8 @@ exports[`usage render > long-key > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -5033,6 +5060,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -5123,6 +5153,8 @@ exports[`usage render > paged-middle > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -5885,6 +5917,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -5975,7 +6010,9 @@ exports[`usage render > quota-empty > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
-      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="refreshBtn">Refresh</button>
     </div>
   </header>
 
@@ -6737,6 +6774,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -6827,7 +6867,9 @@ exports[`usage render > quota-exhausted > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
-      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="refreshBtn">Refresh</button>
     </div>
   </header>
 
@@ -7589,6 +7631,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -7679,7 +7724,9 @@ exports[`usage render > quota-expired > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
-      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="refreshBtn">Refresh</button>
     </div>
   </header>
 
@@ -8441,6 +8488,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -8531,7 +8581,9 @@ exports[`usage render > quota-near > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
-      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="refreshBtn">Refresh</button>
     </div>
   </header>
 
@@ -9293,6 +9345,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -9383,7 +9438,9 @@ exports[`usage render > quota-stale > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
-      <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
+      <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="refreshBtn">Refresh</button>
     </div>
   </header>
 
@@ -10145,6 +10202,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
@@ -10235,6 +10295,8 @@ exports[`usage render > single-page > snapshot 1`] = `
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated">Updated 10:42</span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -10997,6 +11059,9 @@ function agentIdentityHtml(provider, model, compact) {
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;
