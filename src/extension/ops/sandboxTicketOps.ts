@@ -217,6 +217,7 @@ function sshRefusal(ticketId: number, probe: SandboxProbe): string {
 export function ticketKillContextOf(deps: TicketSandboxDeps, ticketId: number): (() => Promise<string | undefined>) | undefined {
   const placement = deps.placementOf?.(ticketId);
   if (placement?.backend === 'ssh') return sshDockerKillContextFor(deps.sshRunner, placement);
+  // Stryker disable next-line StringLiteral: equivalent, `backendForCore` only needs a core NAME and '' selects the host
   return (placement?.backend ?? backendForCore(deps.backends(), deps.coreOf(ticketId) ?? '')) === 'docker' ? () => dockerKillContext(deps.dockerProc) : undefined;
 }
 

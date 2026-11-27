@@ -146,7 +146,11 @@ export function sshDockerKillContextFor(
   return async (): Promise<string | undefined> => {
     const control = await (deps.ensureControlDir ?? ensureSshControlDir)(controlDir)
       .catch((err: unknown): SshControlResult => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }));
-    if (!control.ok) return undefined;
+    if (!control.ok) {
+      // The reason of a thrown check is the only trace of why the kill context is unavailable.
+      deps.debug?.(`[ssh ${target.remote}] docker kill context: control dir check failed: ${control.reason}`);
+      return undefined;
+    }
     return dockerKillContext(sshDockerProcess(def, deps.ssh ?? NODE_SSH_PROCESS, { controlDir }));
   };
 }

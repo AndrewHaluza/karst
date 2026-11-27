@@ -990,11 +990,39 @@ describe('an ssh placement on a mode: docker remote uses the ssh docker runner (
     expect(ticketKillContextOf(deps({ placementOf: () => ({ backend: 'host', core: 'opencode', sandboxName: null, reason: null }) }), 7)).toBeUndefined();
   });
 
+  it('a one-shot docker gate keeps the ticket memory limits over ssh (D822)', async () => {
+    const ssh = fakeSshProcess({ '{{.State.Running}}': { code: 1 } });
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const d = dockerTicket(ssh, { sshRunner: fakeSshDockerRunnerDeps(ssh, { gateProcess: gate }), sandboxMemory: () => ({ gateMemory: '512m' }) });
+    await ticketGateProcess(d, 7)!('npm', ['test'], '/wt');
+    const script = remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[]);
+    expect(script).toContain('docker run');
+    expect(script).toContain('--memory 512m');
+
+    // The VM size alone drives the limit when the manifest has no override: 55% of 8 GB, clamped.
+    const sized = dockerTicket(ssh, { sshRunner: fakeSshDockerRunnerDeps(ssh, { gateProcess: gate }), memTotalBytes: () => 8 * 2 ** 30 });
+    await ticketGateProcess(sized, 7)!('npm', ['test'], '/wt');
+    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).toContain('--memory 4505m');
+  });
+
   it('a non-docker core on the docker remote refuses, with zero ssh calls', async () => {
     const ssh = fakeSshProcess();
     const found = ticketSandboxRunner(dockerTicket(ssh, { placementOf: () => fakeSshPlacement(7, 'claude'), coreOf: () => 'claude' }), 7);
     expect(await found!.runner.probeSandbox!()).toEqual({ state: 'unknown', reason: 'claude: ssh docker mode supports only opencode, opencode2' });
     expect([ssh.calls, ssh.stdinCalls, ssh.pipes, ssh.streams]).toEqual([[], [], [], []]);
+  });
+});
+
+describe('ticketKillContextOf without a recorded placement (D822)', () => {
+  it('reads the local docker daemon of a docker core, and nothing for a ticket with no core', async () => {
+    const proc = fakeDockerProcess({ 'docker info --format': { stdout: `${String(8 * 2 ** 30)}\n` } });
+    const docker = deps({ placementOf: undefined, backends: () => ({ opencode: 'docker' }), coreOf: () => 'opencode', dockerProc: proc });
+    const kill = ticketKillContextOf(docker, 7);
+    expect(kill).toBeDefined();
+    expect(await kill!()).toBe('Docker VM 8.0 GB, 0 karst/playwright containers running');
+    // A null placement and a null core is a host ticket: no daemon is read at all.
+    expect(ticketKillContextOf(deps({ placementOf: () => null, coreOf: () => null }), 7)).toBeUndefined();
+    expect(ticketKillContextOf(deps({ placementOf: undefined, backends: () => ({ claude: 'sbx' }) }), 7)).toBeUndefined();
   });
 });
 

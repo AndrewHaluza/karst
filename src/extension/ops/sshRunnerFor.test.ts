@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
 import { remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
 import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import { sshControlDir } from '../../agent/ssh/sshControlDir.js';
+import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { createSshGateRegistry, sshGateKey } from '../../agent/ssh/sshGateRegistry.js';
 import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
 import type { RemoteDef } from '../../manifest/types.js';
@@ -132,6 +134,24 @@ describe('sshRunnerFor (D826)', () => {
     expect(gateScript).toContain('--memory 512m');
   });
 
+  it('the docker runner runs host git through the injected host process, never the real one', async () => {
+    const ssh = fakeSshProcess({ '# karst-ssh-docker-thin-bundle': { stdout: 'bundle-bytes' } });
+    const host = fakeSbxProcess();
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), host }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.sync!(REF);
+    // The bundle comes off the remote daemon, but the fetch/merge runs on THIS host (D554 Part D).
+    expect(host.calls.some((c) => c.command === 'git' && c.args.join(' ').includes('refs/karst/sandbox/'))).toBe(true);
+  });
+
+  it('passes debug through to the docker runner', async () => {
+    const ssh = fakeSshProcess();
+    const debug = vi.fn();
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), gateProcess: gate, debug }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.runGate!('npm', ['test'], '/wt');
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('exit file unreadable'));
+  });
+
   it.each([['claude'], ['codex'], ['agy'], ['']])('a docker-mode remote refuses the core %j without an ssh call', async (core) => {
     const ssh = fakeSshProcess();
     const runner = sshRunnerFor(fakeSshDockerRunnerDeps(ssh), { ...fakeSshPlacement(7, 'opencode'), core }, TICKET);
@@ -181,16 +201,38 @@ describe('sshRunnerFor (D826)', () => {
     expect(scripts).toHaveLength(2);
     expect(scripts[0]).toContain('docker info');
     expect(scripts[1]).toContain('docker ps');
+    // The check's own dir, not a default: it is the same ControlMaster the rest of the ticket uses.
+    expect(ssh.calls.every((c) => c.args.join(' ').includes('ControlPath=/tmp/karst-ssh-test/'))).toBe(true);
 
     const unsafe = vi.fn(async () => ({ ok: false as const, reason: 'ssh: control dir /c is not private' }));
-    const blocked = sshDockerKillContextFor({ ...fakeSshDockerRunnerDeps(ssh), ensureControlDir: unsafe }, fakeSshPlacement(7, 'opencode'));
+    const blockedDebug = vi.fn();
+    const blocked = sshDockerKillContextFor({ ...fakeSshDockerRunnerDeps(ssh), ensureControlDir: unsafe, debug: blockedDebug }, fakeSshPlacement(7, 'opencode'));
     expect(await blocked!()).toBeUndefined();
+    expect(blockedDebug).toHaveBeenCalledWith(expect.stringContaining('ssh: control dir /c is not private'));
     expect(ssh.calls).toHaveLength(2);
+    // No debug callback: the refusal is still silent, never a throw.
+    const blockedNoDebug = sshDockerKillContextFor({ ...fakeSshDockerRunnerDeps(ssh), ensureControlDir: unsafe }, fakeSshPlacement(7, 'opencode'));
+    expect(await blockedNoDebug!()).toBeUndefined();
 
     const throwing = vi.fn(async (): Promise<never> => { throw new Error('ssh: control dir unreadable'); });
-    const failed = sshDockerKillContextFor({ ...fakeSshDockerRunnerDeps(ssh), ensureControlDir: throwing }, fakeSshPlacement(7, 'opencode'));
+    const failedDebug = vi.fn();
+    const failed = sshDockerKillContextFor({ ...fakeSshDockerRunnerDeps(ssh), ensureControlDir: throwing, debug: failedDebug }, fakeSshPlacement(7, 'opencode'));
     expect(await failed!()).toBeUndefined();
+    // A throwing check keeps its reason in the trace (a decision point, @arch:DBG-03).
+    expect(failedDebug).toHaveBeenCalledWith(expect.stringContaining('ssh: control dir unreadable'));
     expect(ssh.calls).toHaveLength(2);
+  });
+
+  it('sshDockerKillContextFor checks the default control dir when deps name none', async () => {
+    const ssh = fakeSshProcess();
+    const seen = vi.fn(async () => ({ ok: true as const }));
+    const kill = sshDockerKillContextFor(
+      { ...fakeSshDockerRunnerDeps(ssh), controlDir: undefined, ensureControlDir: seen },
+      fakeSshPlacement(7, 'opencode'),
+    );
+    await kill!();
+    expect(seen).toHaveBeenCalledWith(sshControlDir());
+    expect(ssh.calls.every((c) => c.args.join(' ').includes(`ControlPath=${sshControlDir()}`))).toBe(true);
   });
 
   it('sshDockerKillContextFor is undefined, with zero ssh calls, for every other placement or remote', async () => {
@@ -202,6 +244,7 @@ describe('sshRunnerFor (D826)', () => {
     expect(sshDockerKillContextFor(fakeSshDockerRunnerDeps(ssh), null)).toBeUndefined();
     expect(sshDockerKillContextFor(undefined, fakeSshPlacement(7, 'opencode'))).toBeUndefined();
     expect(sshDockerKillContextFor({ ...fakeSshDockerRunnerDeps(ssh), remotes: () => ({}) }, fakeSshPlacement(7, 'opencode'))).toBeUndefined();
+    expect(sshDockerKillContextFor({ ...fakeSshDockerRunnerDeps(ssh), remotes: () => undefined }, fakeSshPlacement(7, 'opencode'))).toBeUndefined();
     expect(sshDockerKillContextFor({ ...fakeSshDockerRunnerDeps(ssh), globalStorageDir: trustDir({}) }, fakeSshPlacement(7, 'opencode'))).toBeUndefined();
     untouched(ssh);
   });
