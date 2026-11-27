@@ -1157,3 +1157,80 @@ describe('makeSandboxWiring placement transitions and backfill edges (D245)', ()
     expect(info).toHaveBeenCalledWith(expect.stringMatching(/recorded placement for [1-9]\d* ticket/));
   });
 });
+
+describe('makeSandboxWiring hands its own process seams and worktree to every host step (D826)', () => {
+  const ROOT_FILE = '/p/karst.yml';
+  const docker = (answers: Parameters<typeof fakeSbxProcess>[0] = {}) => Object.assign(fakeSbxProcess(answers), { pipe: vi.fn(async () => ({ code: 0, stdout: '', stderr: '' })) as never });
+  const lines = (p: ReturnType<typeof fakeSbxProcess>): string[] => p.calls.map((c) => [c.command, ...c.args].join(' '));
+  const placeDocker = (): void => recordPlacement(store, id, { backend: 'docker', core: 'opencode2', sandboxName: 'x', reason: null }, 'opencode2');
+
+  it('an ssh ticket with no worktree refuses with that reason', async () => {
+    recordPlacement(store, id, fakeSshPlacement(id), 'claude');
+    const ssh = fakeSshProcess();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => '/p', sshRunner: fakeSshRunnerDeps(ssh) });
+    expect(await w.oomReport(id)).toBe(`ssh: ticket ${id} has no worktree`);
+    expect(ssh.calls).toEqual([]);
+  });
+
+  it('orphan cleanup removes the sandbox of a ticket that no longer exists', async () => {
+    const orphan = sbxName({ projectRoot: ROOT_FILE, ticketId: 999, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${orphan} claude ● running\n` } });
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const { w, choose } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, projectId: () => projectId, proc });
+    choose.mockResolvedValue(REMOVE_ORPHANS as never);
+    await w.cleanupOrphans();
+    expect(lines(proc)).toContain(`sbx rm --force ${orphan}`);
+  });
+
+  it('ensureInSync of a docker ticket lists and syncs through the wiring docker seam', async () => {
+    placeDocker();
+    const dockerProc = docker();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, dockerProc });
+    await w.ensureInSync(id);
+    expect(dockerProc.calls.length).toBeGreaterThan(0);
+  });
+
+  it('the palette target lists the docker sandboxes through the wiring docker seam', async () => {
+    const dockerProc = docker();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, dockerProc });
+    await w.commandTarget(undefined, 'sync');
+    expect(lines(dockerProc).some((l) => l.startsWith('docker ps'))).toBe(true);
+  });
+
+  it('dispose removes an sbx sandbox with the wiring sbx seam and a docker one with the docker seam', async () => {
+    recordPlacement(store, id, { backend: 'sbx', core: 'claude', sandboxName: 'x', reason: null }, 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
+    const proc = fakeSbxProcess();
+    await wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, proc, bridges: () => ({ dispose: vi.fn(async () => {}) }) }).w.dispose(id);
+    expect(lines(proc).some((l) => l.startsWith('sbx rm'))).toBe(true);
+    placeDocker();
+    const dockerProc = docker();
+    await wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, dockerProc, bridges: () => ({ dispose: vi.fn(async () => {}) }) }).w.dispose(id);
+    expect(lines(dockerProc).some((l) => l.startsWith('docker rm'))).toBe(true);
+  });
+
+  it('hasSandbox of a docker ticket whose daemon cannot answer is the docker runner answer (false), not the ssh rule', async () => {
+    placeDocker();
+    const dockerProc = docker({ 'docker volume inspect': { code: 1, stderr: 'Cannot connect to the Docker daemon' } });
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, dockerProc });
+    expect(await w.hasSandbox(id)).toBe(false);
+  });
+
+  it('a ticket with no project root and no worktree names its sandbox from the empty root', async () => {
+    const name = sbxName({ projectRoot: '', ticketId: id, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude running\n` } });
+    const { w } = wiring({ projectRoot: () => undefined, proc });
+    await w.stop(id);
+    expect(proc.calls.some((c) => c.args.join(' ') === `stop ${name}`)).toBe(true);
+  });
+
+  it('ensureInSync without a launch runner reads the core from the listing, not the session provider', async () => {
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
+    const codex = sbxName({ projectRoot: ROOT_FILE, ticketId: id, core: 'codex' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${codex} codex running\n` } });
+    const info = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, proc, info });
+    await w.ensureInSync(id);
+    expect(lines(proc).some((l) => l.includes(codex) && !l.startsWith('sbx ls'))).toBe(true);
+  });
+});

@@ -118,11 +118,14 @@ export async function removeSandboxGuarded(
   const placement = deps.placementOf(target.ticketId);
   // No listing shows an ssh sandbox: the recorded placement names it, and its runner's probe decides (D826).
   if (placement?.backend === 'ssh') {
+    // Stryker disable next-line StringLiteral,LogicalOperator: equivalent, the placement's ssh runner removes it and reads none of these fields
     boxes.push({ runner: 'ssh', name: placement.sandboxName ?? '', ticketId: target.ticketId, core: placement.core ?? target.core ?? '', state: 'stopped' });
   }
   // A failed listing proves nothing gone: fall back to the recorded placement, else the ticket's current core. Callers skip a recorded-host ticket first (arch:AC-32).
   const kind = placement?.backend ?? sandboxKindOfCore(target.core);
-  if (boxes.length === 0 && kind !== 'host' && kind !== 'ssh' && inv.errors.length > 0) {
+  // An ssh placement always pushed its box above, so `kind` is never ssh here.
+  if (boxes.length === 0 && kind !== 'host' && inv.errors.length > 0) {
+    // Stryker disable next-line StringLiteral: equivalent, the removal reads only the runner and core of a fallback box
     boxes.push({ runner: kind, name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
   }
   if (boxes.length === 0) return true;
@@ -143,6 +146,12 @@ export async function removeSandboxGuarded(
   return true;
 }
 
+/** The deps for a listed sbx or docker box: no placement, so its own runner removes it (D826). */
+function listedBoxDeps(deps: SandboxLifecycleDeps): SandboxLifecycleDeps {
+  // Stryker disable next-line ArrowFunction: equivalent, sandboxRunnerFor reads only `placement?.backend`
+  return { ...deps, placementOf: () => null };
+}
+
 async function removeOneGuarded(
   deps: SandboxLifecycleDeps,
   target: SandboxSyncTarget,
@@ -157,7 +166,7 @@ async function removeOneGuarded(
       return true;
     }
     // A listed sbx or docker box is removed by its own runner, even when the placement says ssh (a box left from before).
-    const runner = sandboxRunnerFor(box.runner === 'ssh' ? deps : { ...deps, placementOf: () => null }, target.core, target.ticketId);
+    const runner = sandboxRunnerFor(box.runner === 'ssh' ? deps : listedBoxDeps(deps), target.core, target.ticketId);
     if (!runner) return true;
     if (box.runner === 'ssh') {
       const probe = await probeOf(runner);
@@ -258,8 +267,6 @@ export interface ReconcileTicket {
   readonly sessionProvider: string | null;
   /** The recorded placement backend; `null`/absent = none recorded, so the core's sandbox kind is the fallback. */
   readonly placementBackend?: BackendKind | null;
-  /** The remote of an `ssh` placement: only that remote's listing error counts for this ticket. */
-  readonly placementRemote?: string;
 }
 
 export interface ReconcileResult {
@@ -284,7 +291,7 @@ export function reconcileSandboxes(
   clearSession: (ticketId: number) => void,
 ): ReconcileResult {
   const liveIds = new Set(live.map((t) => t.id));
-  const listed = (t: ReconcileTicket, kind: BackendKind): boolean => !listingFailedFor(inv.errors, kind, t.placementRemote);
+  const listed = (kind: BackendKind): boolean => !listingFailedFor(inv.errors, kind);
   const running: number[] = [], stopped: number[] = [], missing: number[] = [];
   for (const t of live) {
     if (!owns(t.id)) continue;
@@ -294,7 +301,7 @@ export function reconcileSandboxes(
       // Recorded placement decides (arch:AC-32); a core only tells which sandbox kind it would use.
       const kind = t.placementBackend ?? sandboxKindOfCore(t.sessionProvider);
       // No ssh inventory exists yet (T1387, D826): a recorded ssh placement proves nothing missing.
-      if (kind !== 'host' && kind !== 'ssh' && t.sessionId !== null && listed(t, kind)) {
+      if (kind !== 'host' && kind !== 'ssh' && t.sessionId !== null && listed(kind)) {
         clearSession(t.id);
         missing.push(t.id);
       }
@@ -358,7 +365,8 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
       if (o.invalidCore) await removeInvalidCoreSandbox(deps, o);
       else {
         // A listed orphan is removed by its own runner, never by the placement's (D826).
-        const removal = await removeRunner(deps, sandboxRunnerFor({ ...deps, placementOf: () => null }, o.core, o.ticketId)!, { hostWorktreePath: deps.worktreeOf?.(o.ticketId) ?? '', branch: '' }, (s) => s.name === o.name);
+        // Stryker disable next-line StringLiteral: equivalent, a removal reads no branch
+        const removal = await removeRunner(deps, sandboxRunnerFor(listedBoxDeps(deps), o.core, o.ticketId)!, { hostWorktreePath: deps.worktreeOf?.(o.ticketId) ?? '', branch: '' }, (s) => s.name === o.name);
         if (!removal.ok) throw new Error(disposeFailures(removal));
         if (!deps.worktreeOf?.(o.ticketId)) deps.debug?.(`sandbox orphan ${o.name}: no recorded worktree, skipped the host remote step`);
       }

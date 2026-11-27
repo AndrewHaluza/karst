@@ -102,18 +102,15 @@ export interface TicketSandbox {
 export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number, coreOverride?: string | null): TicketSandbox | undefined {
   const placement = deps.placementOf?.(ticketId) ?? null;
   if (placement?.backend === 'host') return undefined;
+  // The recorded placement picks the runner (D826): an ssh ticket gets the ssh runner, or one that
+  // refuses with the reason (never `undefined`, so no gate runs on the host clone).
+  // Only a recorded placement is `ssh` (the configured value is `ssh:<remote>`).
+  if (placement?.backend === 'ssh') return sshTicketSandbox(deps, ticketId, placement);
   const core = coreOverride === undefined ? (placement?.core ?? deps.coreOf(ticketId)) : coreOverride;
   if (core === null) return undefined;
   const backend = placement ? placement.backend : backendForCore(deps.backends(), core);
   const bridge = deps.bridgeOf?.(ticketId);
   const projectRoot = deps.projectRoot(ticketId);
-  // The recorded placement picks the runner (D826): an ssh ticket gets the ssh runner, or one that
-  // refuses with the reason (never `undefined`, so no gate runs on the host clone).
-  // Only a recorded placement is `ssh` (the configured value is `ssh:<remote>`).
-  if (placement?.backend === 'ssh') {
-    const runner = sshRunnerFor(deps.sshRunner, placement, { ticketId, projectRoot, hostWorktreePath: deps.worktreeOf?.(ticketId) });
-    return { runner, sandboxName: placement.sandboxName ?? '' };
-  }
   if (backend === 'sbx' && (SBX_CORES as readonly string[]).includes(core)) {
     const name = sbxName({ projectRoot, ticketId, core });
     const runner = createSbxSessionRunner({
@@ -174,12 +171,19 @@ export async function resolveTicketSandbox(deps: TicketSandboxDeps, ticketId: nu
   return { found, listed, ...(listingError !== undefined ? { listingError } : {}) };
 }
 
+/** The runner of a recorded ssh placement: the ssh runner, or one that refuses with the reason. Its core does not matter. */
+function sshTicketSandbox(deps: TicketSandboxDeps, ticketId: number, placement: TicketPlacement): TicketSandbox {
+  const runner = sshRunnerFor(deps.sshRunner, placement, { ticketId, projectRoot: deps.projectRoot(ticketId), hostWorktreePath: deps.worktreeOf?.(ticketId) });
+  return { runner, sandboxName: placement.sandboxName ?? '' };
+}
+
 /** The runner of a recorded ssh placement and its probe; undefined for every other placement. The listing has no ssh entries. */
 export async function sshTicketProbe(deps: TicketSandboxDeps, ticketId: number): Promise<{ readonly found: TicketSandbox; readonly probe: SandboxProbe } | undefined> {
-  if (deps.placementOf?.(ticketId)?.backend !== 'ssh') return undefined;
-  const found = ticketSandboxRunner(deps, ticketId);
-  if (found === undefined) return undefined;
-  const probe = await (found.runner.probeSandbox?.() ?? Promise.resolve<SandboxProbe>({ state: 'unknown', reason: 'ssh runner has no probe' }))
+  const placement = deps.placementOf?.(ticketId);
+  if (placement?.backend !== 'ssh') return undefined;
+  const found = sshTicketSandbox(deps, ticketId, placement);
+  // `sshRunnerFor` gives the ssh runner or `blockedSshRunner`; both implement the probe.
+  const probe = await found.runner.probeSandbox!()
     .catch((err: unknown): SandboxProbe => ({ state: 'unknown', reason: err instanceof Error ? err.message : String(err) }));
   return { found, probe };
 }
@@ -231,14 +235,14 @@ export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number, opt
     // An ssh ticket's gate runs on its remote or is refused (D826): never `runProcess` on the host.
     const ssh = await sshTicketProbe(deps, ticketId);
     if (ssh !== undefined) {
-      const remoteGate = ssh.found.runner.runGate;
-      if (ssh.probe.state !== 'present' || remoteGate === undefined) {
+      if (ssh.probe.state !== 'present') {
         const reason = `gate refused: ${sshRefusal(ticketId, ssh.probe)}`;
         deps.debug?.(`[gate] ${reason}`);
         return { kind: 'spawnFailed', message: reason, output: reason };
       }
       deps.debug?.(`[gate] ticket ${ticketId}: ${command} runs in ssh (${ssh.found.sandboxName})`);
-      return slot(remoteGate)(command, args, cwd, options);
+      // The ssh runner and `blockedSshRunner` both implement the gate.
+      return slot(ssh.found.runner.runGate!)(command, args, cwd, options);
     }
     const { found, listed } = await resolveTicketSandbox(deps, ticketId);
     const sandboxGate = found?.runner.runGate;

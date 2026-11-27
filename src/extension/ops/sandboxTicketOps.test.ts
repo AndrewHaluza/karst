@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -980,6 +980,68 @@ describe('an ssh placement routes every ticket step to the ssh runner (D826)', (
     const ssh = fakeSshProcess({ [PROBE]: { code: ABSENT_EXIT } });
     expect(await ticketGateProcess(sshTicket(ssh), 7)!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining('remote clone is gone') });
     expect(runProcess).not.toHaveBeenCalled();
+  });
+
+  it('the context runner of a present remote is the real one; an absent remote gives a refusing one', async () => {
+    const hostGate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: 'remote' }));
+    const up = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const present = await ticketSandboxContext(sshTicket(up, { sshRunner: fakeSshRunnerDeps(up, { gateProcess: hostGate }) }), 7);
+    await present!.runner.runGate!('true', [], '/wt');
+    expect(hostGate).toHaveBeenCalledTimes(1);
+    const absent = await ticketSandboxContext(sshTicket(fakeSshProcess({ [PROBE]: { code: ABSENT_EXIT } })), 7);
+    expect(await absent!.runner.runGate!('true', [], '/wt')).toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining('remote clone is gone') });
+  });
+
+  it('the gate logs where it runs and why it refuses', async () => {
+    const debug = vi.fn();
+    const hostGate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: 'remote' }));
+    const up = fakeSshProcess({ [PROBE]: { code: 0 } });
+    await ticketGateProcess(sshTicket(up, { debug, sshRunner: fakeSshRunnerDeps(up, { gateProcess: hostGate }) }), 7)!('npm', ['test'], '/wt');
+    expect(debug).toHaveBeenCalledWith(`[gate] ticket 7: npm runs in ssh (${PLACED.sandboxName})`);
+    await ticketGateProcess(sshTicket(fakeSshProcess({ [PROBE]: { code: ABSENT_EXIT } }), { debug }), 7)!('true', [], '/wt');
+    expect(debug).toHaveBeenCalledWith('[gate] gate refused: ticket 7 runs on ssh and its remote clone is gone; nothing runs on the host for it');
+  });
+
+  it('a probe that throws is unknown with its reason', async () => {
+    const { sshTicketProbe } = await import('./sandboxTicketOps.js');
+    const ssh = { ...fakeSshProcess(), run: async () => { throw new Error('ssh died'); } } as unknown as FakeSshProcess;
+    expect((await sshTicketProbe(sshTicket(ssh), 7))?.probe).toEqual({ state: 'unknown', reason: 'ssh died' });
+  });
+
+  it('an ssh placement with no core still gets the ssh runner, never undefined', () => {
+    const found = ticketSandboxRunner(sshTicket(fakeSshProcess(), { placementOf: () => ({ ...PLACED, core: null }), coreOf: () => null }), 7);
+    expect(found?.runner.kind).toBe('ssh');
+  });
+
+  it('bindings without worktreeOf map the gate from the cloned worktree, else the first worktree, else refuse', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = openStore(':memory:');
+    const id = createTicket(store, { key: 'K-1', title: 'k' }).id;
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const hostGate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: 'remote' }));
+    const root = mkdtempSync(join(tmpdir(), 'ssh-wt-'));
+    try {
+      let bridge: string | undefined;
+      const bind = createTicketSandboxBindings({
+        ...sshTicket(ssh, { sshRunner: fakeSshRunnerDeps(ssh, { gateProcess: hostGate }) }), worktreeOf: undefined,
+        store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => bridge,
+      });
+      expect(await bind.probeSandbox(id)).toEqual({ state: 'unknown', reason: `ssh: ticket ${id} has no worktree` });
+      const insert = store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)');
+      insert.run(id, 'a', '/wt/a', 'feat/a');
+      insert.run(id, 'b', '/wt/b', 'feat/b');
+      await bind.gateProcessFor(id)!('true', [], '/wt/a');
+      expect((hostGate.mock.calls.at(-1) as unknown[])[2]).toBe('/wt/a');
+      bridge = root;
+      await bind.gateProcessFor(id)!('true', [], '/wt/a');
+      expect((hostGate.mock.calls.at(-1) as unknown[])[2]).toBe('/wt/a');
+      mkdirSync(join(root, 'events', String(id)), { recursive: true });
+      writeFileSync(join(root, 'events', String(id), 'cloned-worktree.json'), JSON.stringify({ path: '/wt/b' }));
+      await bind.gateProcessFor(id)!('true', [], '/wt/b');
+      expect((hostGate.mock.calls.at(-1) as unknown[])[2]).toBe('/wt/b');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('a present remote gives the real context; never undefined for an ssh ticket', async () => {

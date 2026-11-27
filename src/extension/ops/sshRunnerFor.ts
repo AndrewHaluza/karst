@@ -115,6 +115,7 @@ function withControlDir(runner: SessionRunner, ensure: () => Promise<SshControlR
   const guarded: Partial<Record<(typeof REMOTE_OPS)[number], AnyOp>> = {};
   for (const key of REMOTE_OPS) {
     const op = runner[key] as AnyOp | undefined;
+    // Stryker disable next-line ConditionalExpression: equivalent, the ssh runner implements every REMOTE_OPS op
     if (op === undefined) continue;
     guarded[key] = async (...args: unknown[]): Promise<unknown> => {
       const control = await check().catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err) }));

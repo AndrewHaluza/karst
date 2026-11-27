@@ -22,7 +22,6 @@ import { ticketToastLabel } from '../ticketToastLabel.js';
 import { rebuildSandboxOp, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, probeOf, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { SshRunnerDeps } from './sshRunnerFor.js';
-import { sshPlacementTarget } from './sshPlacementOps.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import type { QueuedMarker } from '../../agent/bridge/markerFlow.js';
@@ -110,6 +109,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
   };
   // The recorded placement picks the runner of every host step (D826): one reader for every deps object.
   const placementOf = (ticketId: number): TicketPlacement | null => getPlacement(w.store, ticketId);
+  // Stryker disable next-line BlockStatement,OptionalChaining: equivalent, the catch gives undefined and an empty catch or a throw on a missing worktree gives undefined too
   const worktreeOf = (id: number): string | undefined => { try { return target(id).worktree?.path; } catch { return undefined; } };
   /** What `sandboxRunnerFor` reads to route a ticket: its placement, its worktree and the ssh deps. */
   const placementTrack = { placementOf, worktreeOf, ...(w.sshRunner ? { sshRunner: w.sshRunner } : {}) };
@@ -191,11 +191,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     return projectId === undefined ? [] : listTickets(w.store, { projectId }).filter((t) => t.archivedAt === null && !merged.has(t.id));
   };
   /** Live tickets for the reconcile: each carries its recorded placement, the only source of host-vs-sandbox (arch:AC-32). */
-  const reconcileTickets = () => liveTickets().map((t) => {
-    const placement = getPlacement(w.store, t.id);
-    const remote = sshPlacementTarget(placement)?.remote;
-    return { id: t.id, sessionId: t.sessionId, sessionProvider: t.sessionProvider, placementBackend: placement?.backend ?? null, ...(remote === undefined ? {} : { placementRemote: remote }) };
-  });
+  const reconcileTickets = () => liveTickets().map((t) => ({ id: t.id, sessionId: t.sessionId, sessionProvider: t.sessionProvider, placementBackend: getPlacement(w.store, t.id)?.backend ?? null }));
   /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
   const resolved = async (ticketId: number, projectRoot: string): Promise<SandboxSyncTarget> => {
     const t = target(ticketId);
@@ -210,10 +206,11 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       return t;
     }
   };
-  const manual = async (ticketId: number) => {
+  /** `launched`: a launch resolved the runner (D826), so no listing picks the core. */
+  const manual = async (ticketId: number, launched?: boolean) => {
     const t0 = target(ticketId);
     const projectRoot = w.projectRoot() ?? t0.worktree?.path ?? '';
-    return { t: await resolved(ticketId, projectRoot), projectRoot };
+    return { t: launched === true ? t0 : await resolved(ticketId, projectRoot), projectRoot };
   };
   /** The dashboard's sync reader of "Open shell in sandbox" availability (a background probe, refreshed on a short TTL). */
   const shellCache = createShellAvailabilityCache({
@@ -253,11 +250,9 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
    * Both directions (F8/F12): before gates, and before a session resumes in an existing sandbox. Dirty clone or divergence = refused.
    * `launchRunner` = the runner a launch resolved (D826): it wins over the placement, and no listing picks the core.
    */
-  const ensureInSync = async (ticketId: number, refresh = true, allowDirtyClone = false, launchRunner?: SessionRunner) => {
+  const ensureInSync = async (ticketId: number, refresh?: boolean, allowDirtyClone?: boolean, launchRunner?: SessionRunner) => {
     if (!w.backendOn()) return { ok: true as const };
-    const t0 = target(ticketId);
-    const projectRoot = w.projectRoot() ?? t0.worktree?.path ?? '';
-    const t = launchRunner ? t0 : await resolved(ticketId, projectRoot);
+    const { t, projectRoot } = await manual(ticketId, launchRunner !== undefined);
     return ensureSandboxInSync({
       notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}),
       ...syncTrack, ...(launchRunner ? { launchRunner } : {}),

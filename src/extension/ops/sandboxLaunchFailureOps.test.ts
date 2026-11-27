@@ -336,3 +336,39 @@ describe('sbx exit 137 is reported as an out-of-memory kill', () => {
     expect(markNotStarted).toHaveBeenCalledWith(7);
   });
 });
+
+describe('the OOM and transport verdicts fit only their runners and codes (D826)', () => {
+  it('a docker exit 137 is a launch failure with the memory help, never the OOM lookup', async () => {
+    const oomReport = vi.fn(async () => 'ran out of memory');
+    const { notified, opts } = setup(undefined, { oomReport });
+    opts.onSandboxLaunchFailed({ runner: 'docker', exitCode: 137, tail: '' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(oomReport).not.toHaveBeenCalled();
+    expect(notified[0]).toContain('The docker sandbox of T704 failed to launch (exit 137)');
+  });
+
+  it('an sbx or ssh exit other than 137 never runs the OOM lookup', async () => {
+    const oomReport = vi.fn(async () => 'ran out of memory');
+    const a = setup(undefined, { oomReport });
+    a.opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: '' });
+    const b = setup(undefined, { oomReport, sshRemote: 'devbox' });
+    b.opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 1, tail: '' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(oomReport).not.toHaveBeenCalled();
+    expect(a.notified[0]).toContain('The sbx sandbox of T704 failed to launch (exit 1)');
+    expect(b.notified[0]).toContain('The ssh sandbox of T704 failed to launch (exit 1)');
+  });
+
+  it('only an ssh exit 255 is a transport failure; an sbx exit 255 is a launch failure', () => {
+    const { notified, opts } = setup();
+    opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 255, tail: '' });
+    expect(notified[0]).toContain('The sbx sandbox of T704 failed to launch (exit 255)');
+    expect(notified[0]).not.toContain('ssh transport failed');
+  });
+
+  it('an ssh exit 255 with no remote name says "the remote"', () => {
+    const { notified, opts } = setup();
+    opts.onSandboxLaunchFailed({ runner: 'ssh', exitCode: 255, tail: '' });
+    expect(notified[0]).toBe('The agent of T704 did not start: ssh transport failed (the remote, exit 255). Retry, or set agentBackends.claude=host.');
+  });
+});

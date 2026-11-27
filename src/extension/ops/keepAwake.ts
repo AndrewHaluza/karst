@@ -205,6 +205,7 @@ export function keepAwakeLiveKeys(
         keys.add(`agent:${row.id}`);
         continue;
       }
+      // Stryker disable next-line ConditionalExpression: equivalent, Date.parse(null) is NaN and the freshness test below is then false
       if (row.last_hook_at === null) continue;
       const at = Date.parse(row.last_hook_at);
       if (now - at <= KEEP_AWAKE_AGENT_FRESH_MS) keys.add(`agent:${row.id}`);

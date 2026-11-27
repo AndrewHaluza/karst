@@ -19,6 +19,7 @@ export function fakeSshPlacement(ticketId = 7, core = 'claude'): TicketPlacement
 
 /** A globalStorage dir whose trust file holds `entries` (default: `devbox` confirmed). */
 export function fakeTrustDir(entries: Record<string, string> = { devbox: remoteTrustKey('devbox', FAKE_REMOTE) }): string {
+  // Stryker disable next-line StringLiteral: equivalent, the prefix only names the temp dir
   const dir = mkdtempSync(join(tmpdir(), 'karst-ssh-trust-'));
   writeFileSync(join(dir, REMOTE_TRUST_FILE), JSON.stringify(entries));
   return dir;
