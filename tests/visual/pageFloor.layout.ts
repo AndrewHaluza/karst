@@ -63,7 +63,7 @@ const EDITOR_CASES: readonly FloorCase[] = [
 ];
 
 for (const target of EDITOR_CASES) {
-  test(`${target.view} keeps the ${PAGE_FLOOR} px page floor at ${BELOW_FLOOR} px`, async ({ gotoView, page }) => {
+  test(`${target.view}/page-floor-${BELOW_FLOOR}: keeps the ${PAGE_FLOOR} px page floor`, async ({ gotoView, page }) => {
     test.skip(!AVAILABLE.has(target.view), `${target.view} is out of this run's fixture scope`);
     await page.setViewportSize({ width: BELOW_FLOOR, height: LAYOUT_HEIGHT });
     await gotoView(
@@ -83,7 +83,7 @@ for (const target of EDITOR_CASES) {
   });
 }
 
-test(`sidebar stays its own narrow layout and does not scroll at ${BELOW_FLOOR} px (D860)`, async ({ gotoView, page }) => {
+test(`sidebar/page-floor-${BELOW_FLOOR}: keeps its own narrow layout and does not scroll (D860)`, async ({ gotoView, page }) => {
   test.skip(!AVAILABLE.has('sidebar'), 'sidebar is out of this run\'s fixture scope');
   await page.setViewportSize({ width: BELOW_FLOOR, height: LAYOUT_HEIGHT });
   await gotoView('sidebar', { variant: firstTargetVariant('sidebar') });
