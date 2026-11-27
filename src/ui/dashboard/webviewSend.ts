@@ -284,5 +284,9 @@ export function createSender(api: WebviewApi) {
       text: Msg<'env-overrides-save'>['text'],
       requestId?: string,
     ) => send({ type: 'env-overrides-save', scope, text }, requestId),
+    planOpen: (sessionId: Msg<'plan-open'>['sessionId'], requestId?: string) =>
+      send({ type: 'plan-open', sessionId }, requestId),
+    planArtifacts: (sessionId: Msg<'plan-artifacts'>['sessionId'], requestId?: string) =>
+      send({ type: 'plan-artifacts', sessionId }, requestId),
   };
 }

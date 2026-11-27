@@ -29,6 +29,7 @@ import type { PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import type { PathContext } from '../worktreePath.js';
 import type { TicketRefView } from '../shared/ticketRefView.js';
 import type { PriorityLevel } from '../../model/priority.js';
+import type { PlanningStatus } from '../../store/planningSessions.js';
 
 export type DashboardBlocker = TicketRefView;
 import type { Glyph } from '../../model/glyph.js';
@@ -75,6 +76,34 @@ export interface CapabilityIdentity {
   provider: AgentProvider;
   model: string | null;
   effort: string | null;
+}
+
+/**
+ * The planning session a ticket was filed from, as the header's `P<n>` link and its card render it
+ * (T1400, `@ui:UI-R31`). Every fact is host-built: the webview formats nothing and re-derives nothing.
+ */
+export interface DashboardOriginSession {
+  readonly id: number;
+  /** `P<n>` — the same ref the planning sidebar paints. */
+  readonly ref: string;
+  readonly title: string;
+  readonly status: PlanningStatus;
+  readonly core: string;
+  readonly model: string | null;
+  /** This session's drafts by outcome (every status, the accepted one includes this ticket's). */
+  readonly drafts: { readonly accepted: number; readonly pending: number; readonly discarded: number };
+  /** Stored SQLite/ISO timestamp; the card formats it with the dashboard's date helper. */
+  readonly createdAt: string;
+}
+
+/**
+ * Where the ticket came from: the draft it was filed from (`D<n>`) and that draft's planning session.
+ * Null for a hand-made ticket, and for a session that no longer exists (`planning_proposals` cascades
+ * with its session, so a deleted session cannot leave a half-filled view behind).
+ */
+export interface DashboardOriginView {
+  readonly draftRef: string;
+  readonly session: DashboardOriginSession;
 }
 
 /**
@@ -195,10 +224,11 @@ export interface DashboardState {
   key: string | null;
   title: string | null;
   /**
-   * `from D88 (P17)` when the ticket was filed from a planning draft; null for
-   * a hand-made ticket. Host-built through `entityId.ts`.
+   * The planning session this ticket was filed from: its draft ref and the session's facts, built
+   * host-side (T1400). Null for a hand-made ticket or a session that no longer exists. The header
+   * renders it as the `P<n>` link + card; the ticket details drawer keeps the `from D… (P…)` line.
    */
-  origin: string | null;
+  origin: DashboardOriginView | null;
   /**
    * The parent ticket's key + title, when this ticket is a follow-up; null
    * otherwise. Relationship metadata for the roomy dashboard's secondary line

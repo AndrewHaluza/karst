@@ -234,5 +234,9 @@ export function routeAction(
       return;
     case 'env-overrides-save':
       return actions.saveEnvOverrides(msg.scope, msg.text);
+    case 'plan-open':
+      return actions.planOpen(msg.sessionId);
+    case 'plan-artifacts':
+      return actions.planArtifacts(msg.sessionId);
   }
 }

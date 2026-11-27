@@ -115,6 +115,8 @@ function actions(): DashboardActions {
     serverLogsNewCount: vi.fn(),
     copyServerLogs: vi.fn(),
     openResources: vi.fn(),
+    planOpen: vi.fn(),
+    planArtifacts: vi.fn(),
   };
 }
 
@@ -917,6 +919,28 @@ describe('env-overrides-save', () => {
     const a = actions();
     routeAction({ type: 'env-overrides-save', scope: 'api', text: 'A=1' }, a);
     expect(a.saveEnvOverrides).toHaveBeenCalledWith('api', 'A=1');
+  });
+});
+
+describe('plan-open and plan-artifacts (T1400)', () => {
+  it('parses both with a finite session id', () => {
+    expect(parseWebviewMessage({ type: 'plan-open', sessionId: 28 })).toEqual({ type: 'plan-open', sessionId: 28 });
+    expect(parseWebviewMessage({ type: 'plan-artifacts', sessionId: 0 })).toEqual({ type: 'plan-artifacts', sessionId: 0 });
+  });
+
+  it('drops a string, NaN, Infinity or a missing session id rather than coercing it', () => {
+    for (const sessionId of ['28', Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined, null, {}]) {
+      expect(parseWebviewMessage({ type: 'plan-open', sessionId })).toBeNull();
+      expect(parseWebviewMessage({ type: 'plan-artifacts', sessionId })).toBeNull();
+    }
+  });
+
+  it('routes each message to the action of the same name', () => {
+    const a = actions();
+    routeAction({ type: 'plan-open', sessionId: 28 }, a);
+    routeAction({ type: 'plan-artifacts', sessionId: 29 }, a);
+    expect(a.planOpen).toHaveBeenCalledWith(28);
+    expect(a.planArtifacts).toHaveBeenCalledWith(29);
   });
 });
 
