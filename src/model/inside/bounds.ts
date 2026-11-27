@@ -13,6 +13,25 @@ export function bounded<T>(
 
 import type { EvidenceRow, TypedInsideAction } from './types.js';
 
+/**
+ * When fewer than this many rows sit past a cap, show them all rather than
+ * trading 1-2 rows for a button.
+ */
+export const SHOW_ALL_BELOW = 3;
+
+/**
+ * The semantic form of a cap: ship EVERY row, marking the ones past `limit`
+ * `collapsed` so the webview can hide them until the reader expands. Nothing is
+ * dropped, so an expanded list replays the exact original sequence.
+ *
+ * Below the `SHOW_ALL_BELOW` floor the rows come back untouched and uncollapsed:
+ * hiding one or two rows behind a control costs more space than it saves.
+ */
+export function collapseAfter(rows: readonly EvidenceRow[], limit: number): EvidenceRow[] {
+  if (rows.length - limit < SHOW_ALL_BELOW) return [...rows];
+  return rows.map((r, i) => (i < limit ? r : { ...r, collapsed: true }));
+}
+
 /** Bound repository evidence while retaining a host-owned continuation. */
 export function boundedEvidenceRows(
   rows: readonly EvidenceRow[],

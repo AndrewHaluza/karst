@@ -311,3 +311,17 @@ describe('the narrow Deliver row (T1072)', () => {
     expect(narrow).toMatch(/#inside \.op summary>\.op-tail,#inside \.op-static>\.op-tail\{grid-column:2\/-1;grid-row:2/);
   });
 });
+
+describe('the collapsed evidence toggle (T1393)', () => {
+  const rule = (sel: string): string => new RegExp(`${escapeRegExp(sel)}\\{([^}]*)\\}`).exec(CSS)?.[1] ?? '';
+  it('keeps the toggle on one line and gives it a container under the list', () => {
+    expect(rule('#inside .overflow-btn')).toContain('white-space:nowrap');
+    expect(rule('#inside .evidence-overflow')).toContain('padding:');
+    expect(rule('#inside .evidence-overflow .overflow-btn')).toContain('min-height:var(--k-hit-min)');
+  });
+  it('flips the chevron only while expanded, and stops the motion when asked', () => {
+    expect(rule('#inside .overflow-btn[aria-expanded="true"] svg')).toContain('rotate(180deg)');
+    const reduced = /@media \(prefers-reduced-motion: reduce\)\{[\s\S]*?\n\}/.exec(CSS)?.[0] ?? '';
+    expect(reduced).toContain('#inside .overflow-btn svg');
+  });
+});

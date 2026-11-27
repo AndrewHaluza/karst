@@ -3,7 +3,7 @@
  * gates, the findings (with the repository scope chips) and the recovery history. Every string is the host's; this
  * file only lays it out.
  */
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { EvidenceRow, InsideProcessView, ProcessEvidenceView } from '../../../model/inside/types.js';
 import type { GateStage } from '../../../store/ticketGates.js';
 import { useDashboardSend } from './DashboardAppContext.js';
@@ -11,6 +11,7 @@ import { StopNowConfirm } from './AutofixParts.js';
 import { STEP_GATES_AGAIN } from '../../../model/inside/autofix.js';
 import { EvAction, EvGlyph, EvOutput, EvTiming, PrState } from './EvidenceParts.js';
 import { GraphDag, GraphNodeList, GraphViewToggle } from './EvidenceGraph.js';
+import { Icon } from './Icon.js';
 import { useDagShown } from './InsideMemory.js';
 import { ObjLink } from './InsideParts.js';
 import { INSIDE_ACTION_TITLE, withKeys } from './insideText.js';
@@ -18,6 +19,41 @@ import { INSIDE_ACTION_TITLE, withKeys } from './insideText.js';
 const rowKey = (r: EvidenceRow): string => r.label;
 
 type Of<K extends ProcessEvidenceView['kind']> = Extract<ProcessEvidenceView, { kind: K }>;
+
+/** The list's element id, so the toggle's `aria-controls` points at the rows it expands. */
+const listIdOf = (stage: string, id: string): string => `inside-${stage}-${id}-list`;
+
+/**
+ * The one control under a capped list. The host ships all rows and marks the ones past the cap `collapsed`; this
+ * button flips local state and never posts: the reader is not asking the host for a different page.
+ */
+function CollapsedToggle({
+  expanded,
+  collapsedCount,
+  controlsId,
+  onToggle,
+}: {
+  readonly expanded: boolean;
+  readonly collapsedCount: number;
+  readonly controlsId: string;
+  readonly onToggle: () => void;
+}) {
+  return (
+    <div className="evidence-overflow">
+      <button
+        type="button"
+        className="k-btn k-btn--link k-btn--sm overflow-btn"
+        data-act="toggle-evidence-rows"
+        aria-expanded={expanded}
+        aria-controls={controlsId}
+        onClick={onToggle}
+      >
+        <Icon name="chevron-down" />
+        {expanded ? 'Show fewer' : `Show ${collapsedCount} more`}
+      </button>
+    </div>
+  );
+}
 
 /** The Deliver row's two regions (T1018): the running gate is the progress line, a kept failure is a gate failure. */
 function deliverRegion(id: string, r: EvidenceRow): string | undefined {
@@ -28,11 +64,17 @@ function deliverRegion(id: string, r: EvidenceRow): string | undefined {
 
 export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceView; readonly stage: string; readonly id: string }) {
   const shown = useDagShown();
+  const [expanded, setExpanded] = useState(false);
   const rich = ev.kind === 'rows' ? ev : null;
   const hasDag = !!(rich?.dag && rich.dag.columns && rich.dag.columns.length);
   const lead = rich?.nodes && rich.nodes.length ? Math.min(rich.leadRows ?? 0, ev.rows.length) : 0;
-  const keyed = withKeys(ev.rows, rowKey);
-  const renderRow = ([key, r]: (typeof keyed)[number], index: number) => (
+  const collapsedCount = ev.rows.filter((r) => r.collapsed).length;
+  const listId = listIdOf(stage, id);
+  // Pair every row with its ORIGINAL index before the collapse filter: the live clock is read by index, so the row's
+  // position in the host's array is what identifies it, never its position on screen.
+  const indexed = withKeys(ev.rows, rowKey).map(([key, r], index) => ({ key, r, index }));
+  const visible = expanded || collapsedCount === 0 ? indexed : indexed.filter(({ r }) => !r.collapsed);
+  const renderRow = ({ key, r, index }: (typeof indexed)[number]) => (
     <div className="evidence-row" key={key} data-region={deliverRegion(id, r)}>
       <EvGlyph r={r} />
       <span className="ev-key" role="group" aria-label={r.label}>{r.label}</span>
@@ -45,17 +87,25 @@ export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceVi
       <EvTiming r={r} cls="ev-state" stage={stage} id={id} index={index} />
     </div>
   );
-  return (
+  const body = (
     <>
-      {keyed.slice(0, lead).map((k, i) => renderRow(k, i))}
+      {visible.filter((v) => v.index < lead).map(renderRow)}
       {rich?.nodes && rich.nodes.length ? (
         <>
           {hasDag ? <GraphViewToggle /> : null}
           {hasDag && shown && rich.dag ? <GraphDag dag={rich.dag} /> : <GraphNodeList nodes={rich.nodes} stage={stage} id={id} />}
         </>
       ) : null}
-      {keyed.slice(lead).map((k, i) => renderRow(k, i + lead))}
+      {visible.filter((v) => v.index >= lead).map(renderRow)}
       {id === 'autofix' ? <StopNowConfirm gatesRun={ev.rows.some((r) => r.label === STEP_GATES_AGAIN)} /> : null}
+    </>
+  );
+  // No collapsed rows: the exact DOM of an uncapped body, so no existing baseline or layout path moves.
+  if (collapsedCount === 0) return body;
+  return (
+    <>
+      <div id={listId}>{body}</div>
+      <CollapsedToggle expanded={expanded} collapsedCount={collapsedCount} controlsId={listId} onToggle={() => setExpanded((v) => !v)} />
     </>
   );
 }
@@ -63,11 +113,18 @@ export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceVi
 /** The recorded repository is its own column. A body whose rows name none (pre-v21 gate rows) drops the column instead of drawing it empty. */
 export function EvidenceGates({ ev, stage, id }: { readonly ev: Of<'gates'>; readonly stage: string; readonly id: string }) {
   const hasRepo = ev.rows.some((r) => !!r.repo);
+  const [expanded, setExpanded] = useState(false);
+  const collapsedCount = ev.rows.filter((r) => r.collapsed).length;
+  const listId = listIdOf(stage, id);
+  // The original index travels with the row: a running row or a host re-run row after the cap must still read its own
+  // clock from `rowTiming(stage, id, index)`.
+  const indexed = withKeys(ev.rows, (r) => `${r.repo ?? ''}/${r.label}`).map(([key, r], index) => ({ key, r, index }));
+  const visible = expanded || collapsedCount === 0 ? indexed : indexed.filter(({ r }) => !r.collapsed);
   return (
     <>
     {ev.caption ? <p className="gates-caption">{ev.caption}</p> : null}
-    <div className={`gates${hasRepo ? '' : ' no-repo'}`}>
-      {withKeys(ev.rows, (r) => `${r.repo ?? ''}/${r.label}`).map(([key, r], index) => (
+    <div className={`gates${hasRepo ? '' : ' no-repo'}`} id={collapsedCount > 0 ? listId : undefined}>
+      {visible.map(({ key, r, index }) => (
         <div className={`gate-row${r.status === 'run' ? ' active' : ''}`} key={key}>
           <EvGlyph r={r} />
           {hasRepo ? <span className="gate-repo">{r.repo || ''}</span> : null}
@@ -77,6 +134,7 @@ export function EvidenceGates({ ev, stage, id }: { readonly ev: Of<'gates'>; rea
         </div>
       ))}
     </div>
+    {collapsedCount > 0 ? <CollapsedToggle expanded={expanded} collapsedCount={collapsedCount} controlsId={listId} onToggle={() => setExpanded((v) => !v)} /> : null}
     </>
   );
 }
@@ -116,12 +174,16 @@ function Scope({ filter, stageKey }: { readonly filter: NonNullable<InsideProces
  */
 export function EvidenceFindings({ ev, p, stageKey }: { readonly ev: Of<'findings'>; readonly p: InsideProcessView; readonly stageKey: string }) {
   const filter = p.repoFilter;
+  const [expanded, setExpanded] = useState(false);
+  const collapsedCount = ev.rows.filter((r) => r.collapsed).length;
+  const listId = listIdOf(stageKey, p.id);
+  const rows = expanded || collapsedCount === 0 ? ev.rows : ev.rows.filter((r) => !r.collapsed);
   return (
     <>
       {filter && filter.repos && filter.repos.length >= 2 ? <Scope filter={filter} stageKey={stageKey} /> : null}
       {ev.stall ? <StallSummary stall={ev.stall} /> : null}
-      <div className="findings">
-        {withKeys(ev.rows, (r) => `${r.label}/${r.detail ?? ''}/${r.location ?? ''}`).map(([key, r]) => (
+      <div className="findings" id={collapsedCount > 0 ? listId : undefined}>
+        {withKeys(rows, (r) => `${r.label}/${r.detail ?? ''}/${r.location ?? ''}`).map(([key, r]) => (
           <div className="finding" key={key}>
             <span className={`sev${r.severity ? ` sev-${r.severity}` : ''}`}>{r.label}</span>
             <span className="finding-title">{r.detail || ''}</span>
@@ -132,6 +194,7 @@ export function EvidenceFindings({ ev, p, stageKey }: { readonly ev: Of<'finding
           </div>
         ))}
       </div>
+      {collapsedCount > 0 ? <CollapsedToggle expanded={expanded} collapsedCount={collapsedCount} controlsId={listId} onToggle={() => setExpanded((v) => !v)} /> : null}
     </>
   );
 }

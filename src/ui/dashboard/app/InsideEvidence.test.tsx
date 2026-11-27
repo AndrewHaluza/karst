@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { fireEvent } from '@testing-library/react';
+import type { HostMessage } from '../messages.js';
 import { renderStateFor } from '../renderFixtures.js';
 import { installRuntimeDoubles } from './fixtures/prsPanelKit.js';
 import { all, cleanupInside, insideState, must, mountInside, proc, q, text, view } from './fixtures/insideKit.js';
@@ -171,6 +172,130 @@ describe('Evidence — findings', () => {
     cleanupInside();
     withEvidence(findings, { repoFilter: { repos: ['/repos/web'], selected: null } });
     expect(q('.findings-scope')).toBeNull();
+  });
+});
+
+describe('Evidence — a capped list expands in place', () => {
+  const rows = (n: number, over: (i: number) => Record<string, unknown> = () => ({})) =>
+    Array.from({ length: n }, (_, i) => ({ status: 'pass', label: `g${i}`, detail: 'exit 0', ...over(i) }));
+  const capped = (n: number) => rows(n, (i) => (i >= 8 ? { collapsed: true } : {}));
+  const gates = (n: number) => ({ kind: 'gates', rows: capped(n), passed: n, failed: 0, skipped: 0 });
+  const toggle = () => must<HTMLButtonElement>('[data-act="toggle-evidence-rows"]');
+
+  it('renders the first 8 rows and one Show 3 more button after the list, and expands all 11 in place', () => {
+    const h = withEvidence(gates(11));
+    expect(all('.gate-row')).toHaveLength(8);
+    const btn = toggle();
+    expect(btn.tagName).toBe('BUTTON');
+    expect(btn.type).toBe('button');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(btn.getAttribute('aria-controls')).toBe(must('.gates').id);
+    expect(must('.gates').id).not.toBe('');
+    expect(text(btn)).toBe('Show 3 more');
+    expect(btn.querySelector('svg')).not.toBeNull();
+    // The control stays after the list, never inside its border (GEOMETRY-STABLE).
+    expect(must('.gates').nextElementSibling!.contains(btn)).toBe(true);
+
+    fireEvent.click(btn);
+    expect(all('.gate-row')).toHaveLength(11);
+    expect(must('.gates').nextElementSibling!.contains(toggle())).toBe(true);
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(text(toggle())).toBe('Show fewer');
+
+    fireEvent.click(toggle());
+    expect(all('.gate-row')).toHaveLength(8);
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    expect(text(toggle())).toBe('Show 3 more');
+    // Local view state only: the toggle never posts a host message.
+    expect(h.send.insideAction.mock.calls).toEqual([]);
+  });
+
+  it('shows a 9- or 10-row list whole, with no toggle at all', () => {
+    for (const n of [9, 10]) {
+      cleanupInside();
+      withEvidence({ kind: 'gates', rows: rows(n), passed: n, failed: 0, skipped: 0 });
+      expect(all('.gate-row')).toHaveLength(n);
+      expect(q('[data-act="toggle-evidence-rows"]')).toBeNull();
+    }
+  });
+
+  it('keeps each row bound to its ORIGINAL index, so a host re-run row after the cap reads its own clock', () => {
+    // Indices 8..10 are collapsed; index 11 is a host re-run row the host appended uncollapsed. Filtering without the
+    // original index would make it read row 8's clock ('10:08').
+    const timed = rows(12, (i) => ({
+      time: `10:${String(i).padStart(2, '0')}`,
+      duration: `${i + 1}s`,
+      ...(i >= 8 && i <= 10 ? { collapsed: true } : {}),
+    }));
+    withEvidence({ kind: 'gates', rows: timed, passed: 12, failed: 0, skipped: 0 });
+    const shown = all('.gate-row');
+    expect(shown).toHaveLength(9);
+    expect(text(shown.at(-1)!.querySelector('.ev-time'))).toBe('10:11');
+  });
+
+  it('expands findings with the same rule and the cap of 6', () => {
+    const findings = (n: number, collapsedFrom: number) => ({
+      kind: 'findings',
+      blocking: n,
+      rows: Array.from({ length: n }, (_, i) => ({ label: 'high', detail: `f${i}`, ...(i >= collapsedFrom ? { collapsed: true } : {}) })),
+    });
+    withEvidence(findings(8, 8));
+    expect(all('.finding')).toHaveLength(8);
+    expect(q('[data-act="toggle-evidence-rows"]')).toBeNull();
+    cleanupInside();
+
+    withEvidence(findings(10, 6));
+    expect(all('.finding')).toHaveLength(6);
+    expect(toggle().getAttribute('aria-controls')).toBe(must('.findings').id);
+    expect(text(toggle())).toBe('Show 4 more');
+    expect(must('.findings').nextElementSibling!.contains(toggle())).toBe(true);
+    fireEvent.click(toggle());
+    expect(all('.finding')).toHaveLength(10);
+    expect(text(toggle())).toBe('Show fewer');
+    fireEvent.click(toggle());
+    expect(all('.finding')).toHaveLength(6);
+    expect(text(toggle())).toBe('Show 4 more');
+  });
+
+  it('expands the generic rows body too, without wrapping an uncollapsed body in a new container', () => {
+    cleanupInside();
+    withEvidence({ kind: 'rows', rows: [{ label: 'a', detail: '1' }, { label: 'b', detail: '2' }] });
+    expect(q('#inside-uat-p-list')).toBeNull();
+    expect(q('[data-act="toggle-evidence-rows"]')).toBeNull();
+    cleanupInside();
+
+    withEvidence({ kind: 'rows', rows: [
+      { label: 'a', detail: '1' },
+      { label: 'b', detail: '2', collapsed: true },
+      { label: 'c', detail: '3', collapsed: true },
+      { label: 'd', detail: '4', collapsed: true },
+    ] });
+    expect(all('.evidence-row')).toHaveLength(1);
+    expect(toggle().getAttribute('aria-controls')).toBe('inside-uat-p-list');
+    expect(must('#inside-uat-p-list')).not.toBeNull();
+    fireEvent.click(toggle());
+    expect(all('.evidence-row')).toHaveLength(4);
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('resets to collapsed when the round changes, and survives a live clock push on the same round', () => {
+    const attempts = [
+      { key: 'sr:1', label: 'R1', status: 'fail', statusLabel: 'failed', tail: 'of 2', latest: false },
+      { key: 'sr:2', label: 'R2', status: 'pass', statusLabel: 'passed', tail: 'of 2', latest: true },
+    ];
+    const state = (selectedAttempt: string, clock: string) =>
+      insideState({ stageCurrent: 'uat', views: { uat: view('uat', { clock, attempts, selectedAttempt, processes: [proc('gates', { evidence: gates(11) })] }) } });
+    const h = mountInside(state('sr:2', '10:00:00 · 1s'));
+    fireEvent.click(toggle());
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+
+    h.emit({ type: 'state', state: state('sr:2', '10:00:01 · 2s') } as HostMessage);
+    expect(toggle().getAttribute('aria-expanded')).toBe('true');
+    expect(all('.gate-row')).toHaveLength(11);
+
+    h.emit({ type: 'state', state: state('sr:1', '10:00:02 · 3s') } as HostMessage);
+    expect(toggle().getAttribute('aria-expanded')).toBe('false');
+    expect(all('.gate-row')).toHaveLength(8);
   });
 });
 

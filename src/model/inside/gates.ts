@@ -19,7 +19,7 @@ import { isPermissionDenialDetail } from '../../agent/cliFailure.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
-import { bounded } from './bounds.js';
+import { collapseAfter } from './bounds.js';
 import { hostRerunRows } from './hostRerunRows.js';
 import { insertCausalFix, recoveryProcess } from './recovery.js';
 import {
@@ -751,17 +751,17 @@ function gatesProcess(
       }))
     : [...recordedRows, ...waitingRows];
   const runIndex = allRows.findIndex((r) => (r.status === 'run' && r.detail === 'running…') || r.status === 'wait');
-  // The running row must never be the one cut off: keep it as the last shown row.
-  const boundedRows =
-    runIndex >= GATES_EVIDENCE_LIMIT
-      ? {
-          shown: [...allRows.slice(0, GATES_EVIDENCE_LIMIT - 1), allRows[runIndex]!],
-          remaining: allRows.length - GATES_EVIDENCE_LIMIT,
-        }
-      : bounded(allRows, GATES_EVIDENCE_LIMIT);
-  const rows = [...boundedRows.shown];
-  if (boundedRows.remaining > 0) {
-    rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
+  // Every row ships; the ones past the cap are marked collapsed and the webview
+  // hides them until the reader expands. The running row must never be one of
+  // the hidden ones, so when it sits past the cap it takes the slot of the last
+  // visible row: rows keep their original order (an expansion replays the
+  // configured sequence) and the collapsed view still shows 8 rows, the running
+  // one among them.
+  const rows = collapseAfter(allRows, GATES_EVIDENCE_LIMIT);
+  if (runIndex >= GATES_EVIDENCE_LIMIT && rows[runIndex]?.collapsed) {
+    rows[GATES_EVIDENCE_LIMIT - 1] = { ...rows[GATES_EVIDENCE_LIMIT - 1]!, collapsed: true };
+    const { collapsed: _drop, ...visibleRun } = rows[runIndex]!;
+    rows[runIndex] = visibleRun;
   }
   if (!eff.empty && !eff.historical) rows.push(...hostRerunRows(hostRerunRuns, stageKey, repoLabel, latestBatch(runs, stageKey)[0]?.runAt ?? null));
 
@@ -1043,7 +1043,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
   const threshold = input.testerBlockingSeverity ?? UAT_TESTER_BLOCKING_SEVERITY;
   const blocking = observations.filter((f) => isBlockingFinding(f, threshold)).length;
   const ordered = sortBySeverityDesc(scoped.rows);
-  const boundedRows = bounded(
+  const rows = collapseAfter(
     // Rendered by the SAME blueprint the Review findings use — severity key,
     // title, linked location — because a reader must not have to learn which
     // stage they are looking at to read a level or open a file.
@@ -1067,10 +1067,6 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     }),
     FINDINGS_EVIDENCE_LIMIT,
   );
-  const rows = [...boundedRows.shown];
-  if (boundedRows.remaining > 0) {
-    rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
-  }
 
   const base = aiProcessBase(input.cell, run, input.configured, shownTokens(input, eff, 'tester'), input.now, {
     id: 'tester',
@@ -1158,7 +1154,7 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
     : undefined;
   const scoped = scopeFindings(batch, input.findingsRepo);
   const ordered = sortBySeverityDesc(scoped.rows);
-  const boundedRows = bounded(
+  const rows = collapseAfter(
     ordered.map((f): EvidenceRow => {
       const op = findingOp(f, threshold);
       return {
@@ -1180,10 +1176,6 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
     }),
     FINDINGS_EVIDENCE_LIMIT,
   );
-  const rows = [...boundedRows.shown];
-  if (boundedRows.remaining > 0) {
-    rows.push({ status: 'note', label: 'more', detail: `+${boundedRows.remaining} more` });
-  }
 
   const base = aiProcessBase(input.cell, run, input.configured, shownTokens(input, eff, 'review'), input.now, {
     id: 'review',

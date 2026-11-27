@@ -475,6 +475,11 @@ export interface EvidenceRow {
    * none; absence is stated by omission, never by a placeholder.
    */
   time?: string;
+  /**
+   * A row after the cap of a bounded list; the webview hides it until the
+   * reader expands the list.
+   */
+  collapsed?: boolean;
 }
 
 /**

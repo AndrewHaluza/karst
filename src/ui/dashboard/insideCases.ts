@@ -214,6 +214,13 @@ function exhaustedFacts(stage: Gate): CaseFacts {
 
 const uatTesterRun = (over: Parameters<typeof caseProcessRun>[0] extends infer P ? Partial<P> : never = {}) =>
   caseProcessRun({ id: 11, stageKey: 'uat', processId: 'tester', ...over });
+
+/** T1393: enough realistic UAT gates to pass the 8-row cap (11 hides 3, 9 hides 1: 1 and 2 hidden rows show all). */
+const CAPPED_GATE_NAMES = ['unit', 'integration', 'visual', 'docs', 'docs-gate', 'docs-graph', 'typecheck', 'layer-rules', 'lint-react', 'build', 'sast'] as const;
+const cappedGateRuns = (count: number) =>
+  CAPPED_GATE_NAMES.slice(0, count).map((gateName, i) =>
+    caseGate({ id: i + 1, stageKey: 'uat', gateName, exitCode: 0 }),
+  );
 const reviewRun = (over: Parameters<typeof caseProcessRun>[0] extends infer P ? Partial<P> : never = {}) =>
   caseProcessRun({ id: 21, stageKey: 'review', processId: 'review', agentName: 'reviewer', ...over });
 
@@ -847,6 +854,36 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     state: fromFacts('uat', {
       cells: { uat: { status: 'passed' } },
       gateRuns: [caseGate({ id: 1, stageKey: 'uat', gateName: 'test (web)', exitCode: 0 })],
+      processRuns: [uatTesterRun()],
+    }),
+  },
+  {
+    // T1393: 11 gates -> 8 rows + "Show 3 more" (the collapsed baseline).
+    stage: 'uat',
+    id: 'gates-capped-collapsed',
+    state: fromFacts('uat', {
+      cells: { uat: { status: 'passed' } },
+      gateRuns: cappedGateRuns(11),
+      processRuns: [uatTesterRun()],
+    }),
+  },
+  {
+    // T1393: the same 11 gates after the toggle -> all 11 rows + "Show fewer".
+    stage: 'uat',
+    id: 'gates-capped-expanded',
+    state: fromFacts('uat', {
+      cells: { uat: { status: 'passed' } },
+      gateRuns: cappedGateRuns(11),
+      processRuns: [uatTesterRun()],
+    }),
+  },
+  {
+    // T1393: 9 gates hide only 1 row, so SHOW_ALL_BELOW shows all 9 and no toggle renders.
+    stage: 'uat',
+    id: 'gates-nine',
+    state: fromFacts('uat', {
+      cells: { uat: { status: 'passed' } },
+      gateRuns: cappedGateRuns(9),
       processRuns: [uatTesterRun()],
     }),
   },

@@ -298,6 +298,22 @@ const findingsFilterState = (): DashboardState => {
   return { ...s, insideViews: { ...s.insideViews, review: { ...view, processes } } } as unknown as DashboardState;
 };
 
+/** T1393: a UAT gates body with 11 rows (8 visible + 3 `collapsed`), so the local toggle renders. */
+const cappedGatesState = (): DashboardState => {
+  const s = populatedStateFor('uat');
+  const view = s.insideViews.uat;
+  const rows = Array.from({ length: 11 }, (_, i) => ({
+    status: 'pass' as const,
+    label: `gate-${i + 1}`,
+    detail: 'exit 0',
+    ...(i >= 8 ? { collapsed: true } : {}),
+  }));
+  const processes = view.processes.map((p) =>
+    p.id === 'gates' ? { ...p, evidence: { kind: 'gates', rows, passed: 11, failed: 0, skipped: 0 } } : p,
+  );
+  return { ...s, insideViews: { ...s.insideViews, uat: { ...view, processes } } } as unknown as DashboardState;
+};
+
 // ---- case machinery -------------------------------------------------------
 
 export interface ParityCase {
@@ -772,6 +788,19 @@ export const COVERED: readonly ParityCase[] = [
   {
     act: 'toggle-graph-view', state: graphState, sel: act('toggle-graph-view'), posts: [], pendingSel: false,
     after: (h) => expect(q(h, act('toggle-graph-view'))!.getAttribute('aria-pressed')).toBe('true'),
+  },
+  {
+    // T1393: the capped gate list expands in place, from local state only.
+    act: 'toggle-evidence-rows', state: cappedGatesState,
+    prep: (h) => {
+      const gates = q(h, '[data-proc-id="uat:gates"]');
+      if (gates && !(gates as HTMLDetailsElement).open) clickEl(q(h, '[data-proc-id="uat:gates"] > summary')!);
+    },
+    sel: act('toggle-evidence-rows'), posts: [], pendingSel: false,
+    after: (h) => {
+      expect(q(h, act('toggle-evidence-rows'))!.getAttribute('aria-expanded')).toBe('true');
+      expect(h.queryAll('.gate-row').length).toBe(11);
+    },
   },
   {
     act: 'artifact-findings-repo', state: artifactFindingsState,

@@ -373,7 +373,13 @@
 
 /* The timeline overflow: a text button under the rail, aligned with the rail's name column. */
 #inside .timeline-overflow{padding:0 var(--p-s2) var(--p-s1) calc(var(--p-s3) + 20px + var(--p-s1))}
-#inside .overflow-btn{display:inline-flex;min-height:20px;align-items:center;gap:var(--p-s1);color:var(--p-running)}
+#inside .overflow-btn{display:inline-flex;min-height:20px;align-items:center;gap:var(--p-s1);color:var(--p-running);white-space:nowrap}
+/* A capped evidence list: the toggle sits under the list, never inside it, so expanding does not move the list's border.
+   Its own hit target is the shared minimum; the timeline's existing button keeps its compact 20 px row. */
+#inside .evidence-overflow{padding:var(--p-s1) var(--p-s2) 0}
+#inside .evidence-overflow .overflow-btn{min-height:var(--k-hit-min)}
+#inside .overflow-btn svg{transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+#inside .overflow-btn[aria-expanded="true"] svg{transform:rotate(180deg)}
 /* A failed Deliver row's error text: closed behind 'Show'; long output wraps (UI-R44). */
 #inside .ev-output{margin-top:var(--p-s1)}
 /* The row rule `#inside .op summary` (grid columns, padding, hover) reaches this nested disclosure too: reset it so 'Show' is one inline word. */
