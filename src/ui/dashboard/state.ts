@@ -9,7 +9,7 @@ import { getPlacement } from '../../store/placement.js';
 import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentProvider, ReviewStallDetection, Severity, TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
-import { effectiveTicketPriority } from '../../model/priority.js';
+import { effectiveTicketPriority, ticketPrioritySource, type TicketPriorityFields } from '../../model/priority.js';
 import { buildStepper, markPausedCells, type StepperCell } from '../../model/stepper.js';
 import { listStageRuns } from '../../store/stageRuns.js';
 import { buildShipSlot } from '../../model/shipSlot.js';
@@ -26,7 +26,7 @@ import { listRecentlyUsedModels } from '../../store/tokenUsage.js';
 import type { InsideActionRegistry } from './insideActions.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { isKarstCheckout } from '../../commands/launchWorktree.js';
-import type { DashboardAgentContext, DashboardState, PathContext } from './stateTypes.js';
+import type { DashboardAgentContext, DashboardPriorityView, DashboardState, PathContext } from './stateTypes.js';
 import { buildAgentState, emptyCapabilityIdentity, buildSandbox, resolveSessionCore } from './stateAgent.js';
 import { buildDashboardRows } from './stateRows.js';
 import { readRelations, readRounds, originLabel } from './stateRelations.js';
@@ -46,6 +46,7 @@ import type { ResolvedGate } from '../../model/inside/gates.js';
 
 export type {
   DashboardAgentContext,
+  DashboardPriorityView,
   DashboardState,
   DashboardWorktreeView,
   MergeCheckPanelRow,
@@ -54,6 +55,24 @@ export type {
   StageRail,
   StepperCell,
 } from './stateTypes.js';
+
+/**
+ * The ticket's priority for the header chip and the details drawer (T1396). The level is what
+ * `effectiveTicketPriority` resolves (the user's override, else the provider's, else the planner's);
+ * `text` keeps the provider's own word so a label that names no level (`P2`) still shows, in the
+ * neutral look. `normal` keeps its level: the shared chip renders nothing for it. The planner's
+ * reason rides along only while the planner is the source it came from.
+ */
+export function buildDashboardPriority(
+  ticket: TicketPriorityFields,
+  reason?: string,
+): DashboardPriorityView | null {
+  const level = effectiveTicketPriority(ticket);
+  const text = ((level ?? ticket.priority) ?? '').trim();
+  if (!level && !text) return null;
+  const source = ticketPrioritySource(ticket);
+  return { level, text, source, ...(source === 'planner' && reason ? { reason } : {}) };
+}
 
 /**
  * Gather everything a ticket dashboard renders, in one snapshot. The stepper is
@@ -367,7 +386,8 @@ export function buildDashboardState(
   });
 
   const draft = getProposalForTicket(store, ticket.id);
-  const acceptedDraftId = draft?.status === 'accepted' ? draft.id : null;
+  const acceptedDraft = draft?.status === 'accepted' ? draft : null;
+  const acceptedDraftId = acceptedDraft?.id ?? null;
 
   // A blocked graph run's recovery verdict (T1359, D793) rides the snapshot ONLY
   // while the run is actually blocked and the host projection supplies one: the
@@ -421,7 +441,7 @@ export function buildDashboardState(
     provider: ticketing?.provider ?? null,
     sourceRef: ticket.sourceRef,
     ticketUrl: providerTicketUrl(ticketing?.provider, ticket.sourceRef),
-    priority: effectiveTicketPriority(ticket) ?? ticket.priority,
+    priority: buildDashboardPriority(ticket, acceptedDraft?.payload.priorityReason),
     description: ticket.description,
     brief: ticket.brief,
     briefSource: deriveBriefSource(ticket, ticketing?.provider ?? null, acceptedDraftId),

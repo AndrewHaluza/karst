@@ -5,7 +5,6 @@ describe('ticketStatus', () => {
   const base = { stageCurrent: 'impl', paused: false, agentState: 'running' };
   it.each([
     [{ ...base, stageCurrent: 'closed' }, 'Closed', 'info'],
-    [{ ...base, stageCurrent: 'done' }, 'Done', 'passed'],
     [{ ...base, paused: true }, 'Paused', 'attention'],
     [{ ...base, agentState: 'waiting' }, 'Needs you', 'attention'],
     [{ ...base, agentState: 'not-started' }, 'Needs you', 'attention'],
@@ -18,14 +17,24 @@ describe('ticketStatus', () => {
     expect(ticketStatus({ ...base, agentState })).toBeNull();
   });
 
-  it('paused wins over a waiting agent, and a finished ticket over both', () => {
-    expect(ticketStatus({ stageCurrent: 'impl', paused: true, agentState: 'waiting' })?.word).toBe('Paused');
-    expect(ticketStatus({ stageCurrent: 'done', paused: true, agentState: 'waiting' })?.word).toBe('Done');
+  it('gives a done ticket no chip at all: the stepper already ends in DONE', () => {
+    expect(ticketStatus({ ...base, stageCurrent: 'done' })).toBeNull();
   });
 
-  it('paused, done and closed each win over an interrupted agent', () => {
-    expect(ticketStatus({ stageCurrent: 'impl', paused: true, agentState: 'interrupted' })?.word).toBe('Paused');
-    expect(ticketStatus({ stageCurrent: 'done', paused: false, agentState: 'interrupted' })?.word).toBe('Done');
+  it('keeps done quiet even while paused, waiting, not started or interrupted', () => {
+    for (const input of [
+      { paused: true },
+      { agentState: 'waiting' },
+      { agentState: 'not-started' },
+      { agentState: 'interrupted' },
+    ]) {
+      expect(ticketStatus({ ...base, stageCurrent: 'done', ...input }), JSON.stringify(input)).toBeNull();
+    }
+  });
+
+  it('paused wins over a waiting agent, and closed wins over both and over interrupted', () => {
+    expect(ticketStatus({ stageCurrent: 'impl', paused: true, agentState: 'waiting' })?.word).toBe('Paused');
+    expect(ticketStatus({ stageCurrent: 'closed', paused: true, agentState: 'waiting' })?.word).toBe('Closed');
     expect(ticketStatus({ stageCurrent: 'closed', paused: false, agentState: 'interrupted' })?.word).toBe('Closed');
   });
 });

@@ -52,7 +52,7 @@ describe('buildTicketDetails', () => {
   it('builds the Karst group from the state and only when it has rows', () => {
     const v = buildTicketDetails(
       state({
-        origin: 'from D88 (P17)', subtaskParent: { key: 'K-1', ref: 'T1 · K-1', title: null }, priority: 'high',
+        origin: 'from D88 (P17)', subtaskParent: { key: 'K-1', ref: 'T1 · K-1', title: null }, priority: { level: 'high', text: 'high', source: 'provider' },
         approach: { id: 'tdd', phases: ['red', 'green'], reported: [] },
         worktrees: [{ serviceName: 'api', repoDisplay: '/x/api' }, { serviceName: undefined, repoDisplay: 'web' }],
       }),

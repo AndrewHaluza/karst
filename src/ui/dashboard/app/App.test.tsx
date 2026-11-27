@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { createSender } from '../webviewSend.js';
+import { populatedStateFor } from '../renderFixtures.js';
+import type { DashboardState } from '../state.js';
 import { App } from './App.js';
 import { pageHostBridge } from './hostBridge.js';
 
@@ -42,8 +44,21 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     expect(screen.getByTestId('dashboard-app-root').hasAttribute('data-react-owned')).toBe(true);
   });
 
-  it('renders the RuntimeStrip when dashboard state has a sandbox view', () => {
+  it('mounts a snapshot persisted before T1396 (priority as a legacy string) without throwing', () => {
+    // `vscode.setState` is the upgrade contract: a tab restored after the upgrade starts from the old shape. Before
+    // the guard in headerSlices, `priority.text.trim()` threw and React unmounted the whole panel before subscribing.
+    const legacy = { ...populatedStateFor('impl'), priority: 'high' } as unknown as DashboardState;
     const bridge = {
+      send: createSender({ postMessage: () => {} }),
+      getState: () => ({ state: legacy }),
+      setState: vi.fn(),
+      subscribe: () => () => {},
+    };
+    expect(() => render(<App bridge={bridge} />)).not.toThrow();
+    expect(document.querySelector('#priorityChip')?.textContent).toBe('HIGH');
+  });
+
+  it('renders the RuntimeStrip when dashboard state has a sandbox view', () => {    const bridge = {
       send: createSender({ postMessage: () => {} }),
       getState: () => ({
         state: {

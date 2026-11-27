@@ -14,6 +14,7 @@
 import { createRoot } from 'react-dom/client';
 import type { SidebarHostMessage } from '../messages.js';
 import type { PageVsCodeApi } from './hostBridge.js';
+import { installTooltip } from '../../shared/kTooltip.js';
 import { App } from './App.js';
 
 declare function acquireVsCodeApi(): PageVsCodeApi;
@@ -47,4 +48,7 @@ globals.__karstSubscribe = (listener) => {
 const container = document.getElementById('root');
 if (!container) throw new Error('sidebar app: #root element is missing from the document');
 
+// A `.k-pri[data-tip]` chip (and any other icon-only control) gets its hint on hover and focus; the
+// node is created lazily, so the resting DOM stays as rendered (@ui:11.18).
+installTooltip(document);
 createRoot(container).render(<App />);

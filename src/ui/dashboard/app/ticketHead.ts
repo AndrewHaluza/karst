@@ -13,12 +13,13 @@ export interface StatusInput {
 }
 
 /**
- * One word for where the ticket is: finished beats paused beats the agent state (`Needs you` or `Interrupted`).
- * Running and idle are the runtime strip's states (it owns the agent state), so they give no pill.
+ * One word for where the ticket is: done says nothing (the stepper already ends in DONE), then closed
+ * beats paused, which beats the agent state (`Needs you` or `Interrupted`). Running and idle are the
+ * runtime strip's states (it owns the agent state), so they give no pill.
  */
 export function ticketStatus(t: StatusInput): TicketStatus | null {
+  if (t.stageCurrent === 'done') return null;
   if (t.stageCurrent === 'closed') return { word: 'Closed', tone: 'info' };
-  if (t.stageCurrent === 'done') return { word: 'Done', tone: 'passed' };
   if (t.paused) return { word: 'Paused', tone: 'attention' };
   if (t.agentState === 'waiting' || t.agentState === 'not-started') return { word: 'Needs you', tone: 'attention' };
   if (t.agentState === 'interrupted') return { word: 'Interrupted', tone: 'attention' };

@@ -6,35 +6,81 @@ import { $, has, headerState, installHeaderDoubles, mountHeader } from './fixtur
 installHeaderDoubles();
 
 describe('Header — identity', () => {
-  it('paints id, key, title and the provider mark', () => {
-    mountHeader(headerState({ provider: 'clickup', priority: ' urgent ', ticketUrl: 'https://x/t' }));
+  it('paints id, key, title, the provider mark and the shared priority chip', () => {
+    mountHeader(headerState({ provider: 'clickup', priority: { level: 'urgent', text: 'urgent', source: 'provider' }, ticketUrl: 'https://x/t' }));
     expect($('#idBadge').textContent).toBe('T7');
     expect($('#keyBtn').textContent).toBe('FEAT-7');
     expect($('#keyBtn').getAttribute('aria-label')).toBe('Copy ticket key FEAT-7');
+    expect($('#keyBtn').getAttribute('data-tip')).toBe('Copy ticket key FEAT-7');
+    expect($('#keyBtn').getAttribute('title')).toBeNull();
     expect($('#title').textContent).toBe('Add the thing');
     expect($('#providerMark .provicon')).toBeTruthy();
-    expect($('#priorityChip').textContent).toBe('urgent');
-    expect($('#priorityChip').getAttribute('aria-label')).toBe('Priority: urgent');
+    expect($('#priorityChip').textContent).toBe('URG');
+    expect($('#priorityChip').classList.contains('k-pri--urgent')).toBe(true);
+    expect($('#priorityChip').getAttribute('data-tip')).toBe('Urgent · ClickUp');
+    expect($('#priorityChip').getAttribute('aria-label')).toBe('Urgent · ClickUp');
+    expect($('#priorityChip').getAttribute('title')).toBe('');
     expect($('#boardLink').hasAttribute('hidden')).toBe(false);
     expect($('#boardLink').getAttribute('data-url')).toBe('https://x/t');
   });
 
-  it('keeps the full identity in title= and the accessible name, with a status chip that never hides', () => {
+  it('keeps the accessible name on the identity without a native title, and a status chip that never hides', () => {
     mountHeader(headerState({ paused: true }));
     const full = 'T7 · FEAT-7 · Add the thing';
-    expect($('.ticketIdentity').getAttribute('title')).toBe(full);
+    expect($('.ticketIdentity').getAttribute('title')).toBeNull();
     expect($('.ticketIdentity').getAttribute('aria-label')).toBe(full);
     expect($('#title').getAttribute('title')).toBe(full);
     expect($('#statusChip').textContent).toBe('Paused');
     expect($('#statusChip').hasAttribute('hidden')).toBe(false);
   });
 
+  it('gives a done ticket no status chip, even while paused or waiting', () => {
+    mountHeader(headerState({ stageCurrent: 'done', paused: true, agentState: 'waiting' }));
+    expect($('#statusChip').hasAttribute('hidden')).toBe(true);
+    expect($('#statusChip').textContent).toBe('');
+  });
+
+  it('renders the sidebar chip look per level, a neutral chip for a provider label, and none for normal', () => {
+    const chip = (priority: Record<string, unknown> | null): string | null => {
+      mountHeader(headerState({ priority }));
+      return document.querySelector<HTMLElement>('#priorityChip')?.textContent ?? null;
+    };
+    expect(chip({ level: 'high', text: 'high', source: 'you' })).toBe('HIGH');
+    expect(chip({ level: 'low', text: 'low', source: 'provider' })).toBe('LOW');
+    expect(chip({ level: null, text: 'P2', source: 'provider' })).toBe('P2');
+    expect(chip({ level: 'normal', text: 'normal', source: 'provider' })).toBeNull();
+    expect(chip(null)).toBeNull();
+  });
+
+  it('names the priority source in the chip tooltip, and leaves a label with no source alone', () => {
+    mountHeader(headerState({ priority: { level: 'high', text: 'high', source: 'you' } }));
+    expect($('#priorityChip').getAttribute('data-tip')).toBe('High · set by you');
+    mountHeader(headerState({ priority: { level: 'high', text: 'high', source: 'planner', reason: 'blocks the release' } }));
+    expect($('#priorityChip').getAttribute('data-tip')).toBe('High · planner: "blocks the release"');
+    mountHeader(headerState({ priority: { level: null, text: 'P2', source: null } }));
+    expect($('#priorityChip').classList.contains('k-pri--low')).toBe(true);
+    expect($('#priorityChip').getAttribute('data-tip')).toBe('P2');
+  });
+
+  it('orders the identity provider mark, id, status, priority, key, board link, details', () => {
+    mountHeader(headerState({ provider: 'clickup', priority: { level: 'high', text: 'high', source: 'provider' }, ticketUrl: 'https://x/t' }));
+    expect([...$('.ticketIdentity').children].map((el) => el.id)).toEqual([
+      'providerMark',
+      'idBadge',
+      'statusChip',
+      'priorityChip',
+      'keyBtn',
+      'boardLink',
+      'ticketDataBtn',
+    ]);
+  });
+
   it('hides the key, priority and board link when the ticket has none, and shows "(untitled)"', () => {
     mountHeader(headerState({ key: null, title: null }));
     expect($('#keyBtn').hasAttribute('hidden')).toBe(true);
-    expect($('#priorityChip').hasAttribute('hidden')).toBe(true);
+    expect(document.querySelector("#priorityChip")).toBeNull();
     expect($('#boardLink').hasAttribute('hidden')).toBe(true);
-    expect($('#boardLink').hasAttribute('data-url')).toBe(false);
+    expect($('#boardLink').getAttribute('data-url')).toBeNull();
     expect($('#title').textContent).toBe('(untitled)');
   });
 

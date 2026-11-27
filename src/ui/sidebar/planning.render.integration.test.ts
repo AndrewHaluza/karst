@@ -499,8 +499,9 @@ describe('sidebar planning tree keyboard', () => {
     it('names the level and its source in the tooltip and the accessible name', async () => {
       const h = await renderSidebarApp();
       await withPriority(h);
-      expect(chip(h, 101)!.getAttribute('title')).toBe('Urgent · planner: "Gate runs leak processes after a reload"');
+      expect(chip(h, 101)!.getAttribute('data-tip')).toBe('Urgent · planner: "Gate runs leak processes after a reload"');
       expect(chip(h, 101)!.getAttribute('aria-label')).toBe('Urgent · planner: "Gate runs leak processes after a reload"');
+      expect(chip(h, 101)!.getAttribute('title')).toBe('');
       expect(chip(h, 102)!.getAttribute('aria-label')).toBe('High · set by you');
       expect(chip(h, 104)!.getAttribute('aria-label')).toBe('Low · planner');
     });

@@ -338,7 +338,7 @@ const DETAILS_DRAFT_BRIEF = [
 
 const detailsState = (patch: Partial<DashboardState>) => (s: DashboardState): DashboardState => ({ ...s, ...patch });
 const DETAILS_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState]> = [
-  ['rich', detailsState({ brief: DETAILS_RICH_BRIEF, description: 'Original description from the tracker.', provider: 'jira', ticketUrl: 'https://example.test/browse/FEAT-142', briefSource: { kind: 'provider', provider: 'jira' }, priority: 'high' } as Partial<DashboardState>)],
+  ['rich', detailsState({ brief: DETAILS_RICH_BRIEF, description: 'Original description from the tracker.', provider: 'jira', ticketUrl: 'https://example.test/browse/FEAT-142', briefSource: { kind: 'provider', provider: 'jira' }, priority: { level: 'high', text: 'high', source: 'provider' } } as Partial<DashboardState>)],
   ['draft', detailsState({ brief: DETAILS_DRAFT_BRIEF, description: '', provider: null, ticketUrl: null, briefSource: { kind: 'draft', draftId: 400 } } as Partial<DashboardState>)],
   ['plain', detailsState({ brief: '', description: 'Fix the login modal so it traps focus.', provider: 'github', ticketUrl: 'https://example.test/issues/9', briefSource: { kind: 'manual' } } as Partial<DashboardState>)],
   ['empty', detailsState({ brief: '', description: '', provider: null, ticketUrl: null, briefSource: { kind: 'manual' } } as Partial<DashboardState>)],
@@ -578,6 +578,73 @@ const emptyPanels = (s: DashboardState): DashboardState => ({
   prs: [],
 });
 
+/**
+ * T1396 (@ui:UI-R57): the ticket header at the four container tiers (@ui:RD-TIERS). Four states: a graph ticket with a
+ * planner's HIGH and a long key, a provider label that names no level (`P2`, the neutral chip), a closed ticket (the
+ * status chip says Closed and there is no Done chip), and the scrolled sticky row with the tier's own width.
+ *
+ * Screenshot-only (`skipLayout`), like the other header-changing dashboard states (`graph-header`, `layout-*`,
+ * `ticket-menu-*`): the page is the running dashboard, whose header CSS every existing dashboard layout route already
+ * exercises at 1280/900/700/699/480 (and every `inside-*` route at 400/399/320). A layout run of these exact pages
+ * measures nothing about the header and two PRE-EXISTING clips outside this ticket's scope, which the ledger cannot
+ * take as new entries: the graph identity's row-2 `.capModel` (HeaderMeta, out of scope by design) is ellipsised with no
+ * accessible name, and at 480 the impl ledger's `.switch-value` timeline cell ellipsises without one.
+ */
+const HEADER_TIERS = [['wide', 1100], ['mid', 800], ['narrow', 500], ['tight', 360]] as const;
+
+const headerCorpus = (patch: (s: DashboardState) => DashboardState) => dashboardScenario('running', 2, patch);
+
+const headerVariants = (): Variant[] => {
+  const graphHigh = (s: DashboardState): DashboardState => ({
+    ...s,
+    key: 'FEAT-DASHBOARD-THE-TICKET-HEADER-LONG',
+    provider: 'clickup',
+    ticketUrl: 'https://example.test/t/1396',
+    priority: { level: 'high', text: 'high', source: 'planner', reason: 'blocks release' },
+    capabilityIdentity: {
+      ...s.capabilityIdentity,
+      graphExpert: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+      graphWorker: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
+      graphFast: { provider: 'claude', model: 'claude-sonnet-5', effort: 'low' },
+    },
+  });
+  const providerLabel = (s: DashboardState): DashboardState => ({
+    ...s,
+    key: 'PLATFORM-PROVIDER-PRIORITY-LABEL-99',
+    provider: 'jira',
+    ticketUrl: 'https://example.test/browse/P2-99',
+    priority: { level: null, text: 'P2', source: null },
+  });
+  const closed = (s: DashboardState): DashboardState => ({
+    ...s,
+    stageCurrent: 'closed',
+    canClose: false,
+    canReopen: true,
+    priority: { level: 'urgent', text: 'urgent', source: 'you' },
+  });
+  const stuck = (s: DashboardState): DashboardState => ({
+    ...s,
+    priority: { level: 'high', text: 'high', source: 'provider' },
+  });
+  const tier = (id: string, corpus: () => ViewCorpus, name: string, width: number): Variant =>
+    variant('dashboard', `header-${id}-${name}`, corpus, { width, skipLayout: true });
+  return [
+    ...HEADER_TIERS.map(([name, width]) => tier('graph-high', headerCorpus(graphHigh), name, width)),
+    ...HEADER_TIERS.map(([name, width]) => tier('provider-label', headerCorpus(providerLabel), name, width)),
+    ...HEADER_TIERS.map(([name, width]) => tier('closed', headerCorpus(closed), name, width)),
+    ...HEADER_TIERS.map(([name, width]) =>
+      variant('dashboard', `header-stuck-${name}`, headerCorpus(stuck), {
+        width,
+        skipLayout: true,
+        // T1396: every page is taller than the 720 px viewport at all four widths, so 240 px puts row 1 under the top
+        // edge (data-stuck) and row 2 out of the shot. The sticky shadow is deterministic.
+        scrollY: 240,
+        capture: 'viewport',
+      }),
+    ),
+  ];
+};
+
 export const dashboardVariants = (): Variant[] => [
   ...CHIP_TIERS.map(([tier, width]) =>
     variant('dashboard', `stage-chip-${tier}`, dashboardScenario('running', 2, chipBlockers), { width, themes: CHIP_THEMES }),
@@ -683,6 +750,7 @@ export const dashboardVariants = (): Variant[] => [
   ...insideCaseVariants(),
   ...insideTierVariants(),
   ...insideGraphDagNarrow(),
+  ...headerVariants(),
   ...stageMenuOpenVariants(),
   ...liveTokenVariants(),
   ...agentPopoverVariants(),

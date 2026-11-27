@@ -35,6 +35,53 @@ describe('TicketMenu — items', () => {
   });
 });
 
+describe('TicketMenu — tight-tier items', () => {  it('offers Open in provider as the tightOnly twin of the board link and posts once', () => {
+    const h = mountHeader(headerState({ ticketUrl: 'https://x/t' }));
+    const item = $('#menuBoardLink');
+    expect(item.closest('#menuPopover')).toBeTruthy();
+    expect(item.classList.contains('menuButton')).toBe(true);
+    expect(item.classList.contains('tightOnly')).toBe(true);
+    expect(item.getAttribute('role')).toBe('menuitem');
+    expect(item.getAttribute('data-url')).toBe('https://x/t');
+    expect(item.hasAttribute('hidden')).toBe(false);
+    fireEvent.click(item);
+    fireEvent.click(item);
+    expect(h.send.openTicketLink).toHaveBeenCalledTimes(1);
+    expect(h.send.openTicketLink).toHaveBeenCalledWith('https://x/t', 'req-1');
+  });
+
+  it('hides Open in provider while the ticket has no board url', () => {
+    mountHeader(headerState({ ticketUrl: null }));
+    expect(has('#menuBoardLink', 'hidden')).toBe(true);
+  });
+
+  it('offers Ticket details, which opens the drawer and posts nothing', () => {
+    const h = mountHeader(headerState({ brief: 'The brief' }));
+    const item = $('#menuTicketData');
+    expect(item.closest('#menuPopover')).toBeTruthy();
+    expect(item.classList.contains('tightOnly')).toBe(true);
+    const seen: Array<string | undefined> = [];
+    h.overlays().subscribe(() => seen.push(h.overlays().getSnapshot().drawer?.text));
+    fireEvent.click(item);
+    expect(seen).toEqual(['The brief']);
+    expect(Object.values(h.send).every((fn) => fn.mock.calls.length === 0)).toBe(true);
+  });
+
+  it('closes the menu behind the details drawer and returns focus to the ⋯ trigger', () => {
+    const h = mountHeader(headerState({ brief: 'The brief' }));
+    fireEvent.click($('#moreBtn'));
+    expect(has('#menuPopover', 'hidden')).toBe(false);
+    fireEvent.click($('#menuTicketData'));
+    // The drawer covers the page; the menu it was opened from must not stay open behind it (or behind the focus
+    // return when the drawer closes).
+    expect(has('#menuPopover', 'hidden')).toBe(true);
+    expect(h.overlays().getSnapshot().drawer).not.toBeNull();
+    expect(document.activeElement).toBe($('#moreBtn'));
+    h.overlays().closeTicketData();
+    expect(document.activeElement).toBe($('#moreBtn'));
+  });
+});
+
 describe('TicketMenu — Archive and labels', () => {
   it('posts archive-ticket once, runtime-pending, from a danger item after a divider', () => {
     const h = mountHeader(headerState());

@@ -49,6 +49,11 @@ export interface Variant {
   readonly captureTarget?: string;
   /** Screenshot viewport height override (px): a short window puts an open popover's trigger near the bottom edge. */
   readonly viewportHeight?: number;
+  /**
+   * T1396 (@ui:VISUAL-VARIANTS): scroll the page to this y before the shot, so a sticky row records its scrolled state.
+   * Screenshot-only (the layout gate never scrolls), so a scrolled variant sets `skipLayout`.
+   */
+  readonly scrollY?: number;
   /** Dashboard drill-downs: pill names clicked, in order, after the page loads (the restored artifact index shows the pills). */
   readonly pills?: readonly string[];
   /** Dashboard agent popover: open it after load, then pick a core, type a query, pick a capability tab (in that order). */
@@ -182,6 +187,7 @@ export function variant(
     capture?: CaptureMode;
     captureTarget?: string;
     viewportHeight?: number;
+    scrollY?: number;
     pills?: readonly string[];
     agentPopover?: AgentPopoverSteps;
     ticketDetails?: TicketDetailsSteps;
@@ -204,6 +210,7 @@ export function variant(
     ...(opts.capture === undefined ? {} : { capture: opts.capture }),
     ...(opts.captureTarget === undefined ? {} : { captureTarget: opts.captureTarget }),
     ...(opts.viewportHeight === undefined ? {} : { viewportHeight: opts.viewportHeight }),
+    ...(opts.scrollY === undefined ? {} : { scrollY: opts.scrollY }),
     ...(opts.pills === undefined ? {} : { pills: opts.pills }),
     ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
     ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),

@@ -302,11 +302,27 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     }
   });
 
-  it('captures the viewport for the ticket-details drawer variants only', () => {
+  it('captures the viewport for the ticket-details drawer and the scrolled header variants only', () => {
     const viewport = VARIANTS.dashboard.filter((v) => v.capture === 'viewport');
-    expect(viewport).toHaveLength(12);
-    for (const v of viewport) expect(v.id.startsWith('ticket-details-'), v.id).toBe(true);
+    expect(viewport).toHaveLength(16);
+    for (const v of viewport) expect(v.id.startsWith('ticket-details-') || v.id.startsWith('header-stuck-'), v.id).toBe(true);
     const all = Object.values(VARIANTS).flat();
-    for (const v of all.filter((x) => x.id.startsWith('ticket-details-'))) expect(v.capture, v.id).toBe('viewport');
+    for (const v of all.filter((x) => x.id.startsWith('ticket-details-') || x.id.startsWith('header-stuck-'))) expect(v.capture, v.id).toBe('viewport');
+  });
+
+  it('scrolls only the sticky-header variants, and every header state opts out of the layout gate (T1396)', () => {
+    const scrolled = Object.values(VARIANTS).flat().filter((v) => v.scrollY !== undefined);
+    expect(scrolled.map((v) => v.id).sort()).toEqual([
+      'header-stuck-mid',
+      'header-stuck-narrow',
+      'header-stuck-tight',
+      'header-stuck-wide',
+    ]);
+    for (const v of scrolled) expect(v.capture, v.id).toBe('viewport');
+    // The four screenshot-only header states: the shared header CSS is measured by every existing dashboard layout
+    // route at 1280/900/700/699/480 (and the inside-* routes at 400/399/320), so these pages add no layout run.
+    const headers = VARIANTS.dashboard.filter((v) => v.id.startsWith('header-'));
+    expect(headers).toHaveLength(16);
+    for (const v of headers) expect(v.skipLayout, v.id).toBe(true);
   });
 });

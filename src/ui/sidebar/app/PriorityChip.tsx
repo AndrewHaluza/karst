@@ -1,12 +1,12 @@
 /**
- * The priority chip: a short level label (URG / HIGH / LOW) after the id. No
- * chip for `normal` or no priority, so most rows stay quiet. The level word is
- * the text, so colour is never the only carrier; the tooltip and the accessible
- * name give the level and who set it (the planner's reason, the provider, or you).
+ * The sidebar's priority chip: the shared `src/ui/shared/PriorityChip.tsx` (T1396) plus the raised
+ * arrow the queue draws when an item waits on this one. TicketRow, QueuePane and PlanDraft keep this
+ * component and its props; the shared chip owns the word, the tint and the tooltip.
  */
 import type { PriorityLevel } from '../../../planning/proposal.js';
+import { PriorityChip as SharedPriorityChip } from '../../shared/PriorityChip.js';
+import type { PriorityChipSource, ProviderPriority } from '../../shared/priorityLabels.js';
 import { Icon } from './Icon.js';
-import { levelLabel, levelShort, priorityTitle, type PriorityChipSource, type ProviderPriority } from './priority.js';
 
 export interface PriorityChipProps {
   readonly level: PriorityLevel | null | undefined;
@@ -19,12 +19,13 @@ export interface PriorityChipProps {
 }
 
 export function PriorityChip({ level, source, reason, provider, raised }: PriorityChipProps) {
-  if (!level || level === 'normal') return null;
-  const title = source ? priorityTitle(level, source, reason, provider) : levelLabel(level);
   return (
-    <span className={`k-pri k-pri--${level}`} role="img" aria-label={title} title={title}>
-      {levelShort(level)}
-      {raised ? <Icon name="arrow-up" size={9} cls="k-pri-up" /> : null}
-    </span>
+    <SharedPriorityChip
+      level={level}
+      source={source}
+      reason={reason}
+      provider={provider}
+      trailing={raised ? <Icon name="arrow-up" size={9} cls="k-pri-up" /> : undefined}
+    />
   );
 }

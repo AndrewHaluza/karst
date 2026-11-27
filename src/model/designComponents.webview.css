@@ -257,6 +257,14 @@ button.k-ticket-ref::before{content:"";position:absolute;inset:var(--k-border-w)
   display:inline-block;flex:none;
   font-family:var(--k-font-mono);font-size:var(--k-text-2xs);line-height:var(--k-leading-tight);
   color:var(--k-text-dim);white-space:nowrap}
+/* The priority chip (T1396): the level word is the text. Urgent is the filled danger pair; high and low are
+   tinted, because only danger/success own a filled foreground pair (UI-R29). One rule set for the sidebar
+   rows and the dashboard ticket header; `trailing` carries the sidebar's raised arrow. */
+.k-pri{flex:none;font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);line-height:var(--k-text-base);padding:0 var(--k-space-2);border-radius:var(--k-radius-sm);letter-spacing:var(--k-pri-tracking);white-space:nowrap;vertical-align:baseline}
+.k-pri--urgent{color:var(--k-danger);background:color-mix(in srgb,var(--k-danger) 16%,transparent);border:var(--k-border-w) solid var(--k-danger)}
+.k-pri--high{color:var(--k-warning);background:color-mix(in srgb,var(--k-warning) 16%,transparent);border:var(--k-border-w) solid var(--k-warning)}
+.k-pri--low{color:var(--k-text-dim);background:var(--k-surface-hover)}
+.k-pri-up{margin-left:var(--k-border-w);vertical-align:var(--k-pri-up-align)}
 .k-dot{
   display:inline-block;flex:none;
   width:var(--k-space-4);height:var(--k-space-4);

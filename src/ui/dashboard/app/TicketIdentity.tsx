@@ -1,10 +1,13 @@
 /**
- * The header's ticket identity: provider mark, id badge, copy-key button, priority chip, board link and the
- * ticket-data preview button, then the title. Same DOM as the vanilla `renderTicketIdentity` it replaced.
+ * The header's ticket identity: provider mark, id badge, status chip, priority chip, copy-key button,
+ * board link and the ticket-data preview button, then the title. Same DOM as the vanilla
+ * `renderTicketIdentity` it replaced, plus the sidebar's priority chip (T1396).
  * The key click copies (host-side) and the board link opens the board (a separate control).
  */
 import { memo, useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
+import { ticketProviderLabel } from '../../../model/priority.js';
+import { PriorityChip } from '../../shared/PriorityChip.js';
 import { Icon } from './Icon.js';
 import { useDashboardSend, useOverlays } from './DashboardAppContext.js';
 import { RuntimeIcon } from './AgentIcon.js';
@@ -36,7 +39,7 @@ function CopyKeyButton({ label }: { readonly label: string }) {
       className="ticketKey"
       data-act="copy-ticket-key"
       data-copy=""
-      title="Copy ticket key"
+      data-tip={`Copy ticket key ${label}`}
       aria-label={`Copy ticket key ${label}`}
       hidden={!label}
       disabled={copied}
@@ -72,13 +75,32 @@ function BoardLink({ url }: { readonly url: string | null }) {
   );
 }
 
+const DataButton = memo(function DataButton() {
+  const overlays = useOverlays();
+  return (
+    <button
+      id="ticketDataBtn"
+      type="button"
+      className="k-iconbtn"
+      data-act="preview-ticket-data"
+      aria-label="Ticket details"
+      title="Ticket details"
+      // Synchronous, like the class toggle it replaced: the drawer is open the moment the click returns.
+      onClick={() => flushSync(overlays.openTicketData)}
+    >
+      <Icon name="file-text" />
+    </button>
+  );
+});
+
 export const TicketIdentity = memo(function TicketIdentity() {
   const slice = useSlice(selectIdentity);
-  const overlays = useOverlays();
-  const priority = slice?.priority ?? '';
+  const priority = slice?.priority ?? null;
   const full = slice ? ticketIdentityText(slice.idLabel, slice.key, slice.title) : undefined;
+  // The provider's display name only ever rides the priority tooltip; with no provider there is none.
+  const provider = slice?.provider ? { label: ticketProviderLabel(slice.provider), level: null } : undefined;
   return (
-    <div className="ticketIdentity" title={full} aria-label={full} role="group">
+    <div className="ticketIdentity" aria-label={full} role="group">
       <span id="providerMark" className="provicon" aria-hidden="true">
         <RuntimeIcon kind="provider" provider={slice?.provider ?? ''} />
       </span>
@@ -88,23 +110,17 @@ export const TicketIdentity = memo(function TicketIdentity() {
       <span id="statusChip" className={`k-chip ticketStatus ${slice?.statusTone ?? 'info'}`} hidden={!slice?.statusWord}>
         {slice?.statusWord}
       </span>
+      <PriorityChip
+        id="priorityChip"
+        level={priority?.level}
+        text={priority?.text}
+        source={priority?.source}
+        reason={priority?.reason}
+        provider={provider}
+      />
       <CopyKeyButton label={slice?.key ?? ''} />
-      <span id="priorityChip" className="prio" hidden={!priority} aria-label={priority ? `Priority: ${priority}` : ''}>
-        {priority}
-      </span>
       <BoardLink url={slice?.ticketUrl ?? null} />
-      <button
-        id="ticketDataBtn"
-        type="button"
-        className="k-iconbtn"
-        data-act="preview-ticket-data"
-        aria-label="Ticket details"
-        title="Ticket details"
-        // Synchronous, like the class toggle it replaced: the drawer is open the moment the click returns.
-        onClick={() => flushSync(overlays.openTicketData)}
-      >
-        <Icon name="file-text" />
-      </button>
+      <DataButton />
     </div>
   );
 });

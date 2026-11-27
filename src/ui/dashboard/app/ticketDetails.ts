@@ -57,7 +57,7 @@ function karstRows(state: DashboardState): FactRow[] {
   const rows: FactRow[] = [];
   if (state.origin) rows.push({ label: 'From', value: state.origin });
   if (state.subtaskParent) rows.push({ label: 'Sub-task of', value: state.subtaskParent.ref, ref: state.subtaskParent.ref });
-  if (state.priority) rows.push({ label: 'Priority', value: state.priority });
+  if (state.priority?.text) rows.push({ label: 'Priority', value: state.priority.text });
   if (state.approach) rows.push({ label: 'Approach', value: [state.approach.id, ...state.approach.phases].join(' · ') });
   const repos = [...new Set(state.worktrees.map((w) => w.serviceName ?? w.repoDisplay))];
   if (repos.length) rows.push({ label: 'Repos', value: repos.join(', ') });

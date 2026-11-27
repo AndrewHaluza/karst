@@ -194,6 +194,17 @@ describe('design system components', () => {
     expect(rulesFor('.k-empty')).toContain('color:var(--k-text-dim)');
   });
 
+  it('draws the priority chip once for the sidebar and the dashboard (T1396)', () => {
+    // The chip moved out of the sidebar's own stylesheet so both views render the
+    // same word, tint and raised-arrow nudge: one rule set, no per-view copy.
+    expect(rulesFor('.k-pri')).toContain('font-weight:var(--k-weight-semibold)');
+    expect(rulesFor('.k-pri')).toContain('letter-spacing:var(--k-pri-tracking)');
+    expect(rulesFor('.k-pri--urgent')).toContain('var(--k-danger)');
+    expect(rulesFor('.k-pri--high')).toContain('var(--k-warning)');
+    expect(rulesFor('.k-pri--low')).toContain('var(--k-text-dim)');
+    expect(rulesFor('.k-pri-up')).toContain('vertical-align:var(--k-pri-up-align)');
+  });
+
   it('draws the shared page header with a high-contrast boundary and a narrow actions row (@ui:11.22)', () => {
     // One header primitive for the simple panels (Getting Started, Diffs,
     // Usage, Resources, Doctor). The boundary is contrastBorder, not the

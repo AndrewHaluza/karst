@@ -153,7 +153,7 @@ const click = (sel: string): Drive => async (v) => { v.click(sel); };
 
 const HEADER: Case[] = [
   ['header', '.dhead', 'empty ticket', () => renderStateFor('impl')],
-  ['header', '.dhead', 'populated impl with board link and priority', () => ({ ...populated(), provider: 'clickup', ticketUrl: 'fixture:https://app.clickup.com/t/abc', sourceRef: 'CU-abc', priority: 'urgent' })],
+  ['header', '.dhead', 'populated impl with board link and priority', () => ({ ...populated(), provider: 'clickup', ticketUrl: 'fixture:https://app.clickup.com/t/abc', sourceRef: 'CU-abc', priority: { level: 'urgent', text: 'urgent', source: 'provider' } })],
   ['header', '.dhead', 'sub-task that can detach', () => ({ ...populated(), canDetachSubtask: true })],
   ['header', '.dhead', 'closed ticket that can reopen', () => ({ ...populated('ship'), stageCurrent: 'closed', canClose: false, canReopen: true })],
   ['header', '.dhead', 'ship confirm', () => shipPreviewStateFor('ready')],

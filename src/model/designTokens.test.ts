@@ -156,6 +156,22 @@ describe('design tokens', () => {
     expect(DESIGN_TOKENS['--k-dur-flash-attention']).toBe('1000ms');
   });
 
+  it('keeps the sticky row below the attention ring and every scrim (T1396)', () => {
+    // The dashboard ticket header sticks at 10; the attention ring (20) must still
+    // paint over it, and so must every popover layer above the scrim (30).
+    expect(DESIGN_TOKENS['--k-z-sticky']).toBe('10');
+    expect(Number(DESIGN_TOKENS['--k-z-sticky'])).toBeLessThan(20);
+    expect(Number(DESIGN_TOKENS['--k-z-sticky'])).toBeLessThan(Number(DESIGN_TOKENS['--k-z-scrim']));
+  });
+
+  it('raises the sticky row above the page popover layer only while its menu is open', () => {
+    // `.dhead` is a stacking context, so its #menuPopover cannot outrank .wbase-popover/.vp-menu at the page level
+    // unless the row itself rises. Stay below toast and tooltip, which are transient and must remain on top.
+    expect(Number(DESIGN_TOKENS['--k-z-sticky-open'])).toBeGreaterThan(Number(DESIGN_TOKENS['--k-z-modal']));
+    expect(Number(DESIGN_TOKENS['--k-z-sticky-open'])).toBeLessThan(Number(DESIGN_TOKENS['--k-z-toast']));
+    expect(Number(DESIGN_TOKENS['--k-z-sticky-open'])).toBeLessThan(Number(DESIGN_TOKENS['--k-z-tooltip']));
+  });
+
   it('pins the page floor token to the tier floor (UI-R43)', () => {
     // The shared base rule reads this token, so every editor webview gets the
     // floor from one place; the sidebar opts out with data-k-floor="off".

@@ -226,7 +226,8 @@ Columns: audited element → ladder → target at each tier. Grid templates use 
 
 | Region | Element | Ladder | wide | mid | narrow | tight |
 |---|---|---|---|---|---|---|
-| header | title row | ticket id + title | one row | one row | title own line, actions row below | same, actions = primary + ⋯ |
+| header | title row | ticket id + title | one row; row 1 sticks (`--k-z-sticky`), row 2 (`#headerMeta`) scrolls | same | title own line, actions row below; priority chip stays | same, actions = primary + ⋯; provider icon, ↗ and ▤ move to ⋯ as "Open in provider" / "Ticket details" |
+| header | identity chips | id, status, priority, key | id + state pill; priority = the sidebar chip (`URG`/`HIGH`/`LOW`, none for normal, `P2` neutral) | same | same: the chip never drops | same; key one line, ellipsis, full key in `data-tip` |
 | header | core identity | core | full | short model | name | icon |
 | header | `.headerActions` | action row | all | 3 + ⋯ | primary + 2 icons | primary + ⋯ |
 | stage rail | `.stepper` | measured steps | labels | labels | current label (`IMPL`) | marker + `IMPL` |
