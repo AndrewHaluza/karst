@@ -96,7 +96,6 @@ export const PAGE_KNOWN_DRIFT: Readonly<Record<string, number>> = Object.freeze(
   'dark/sidebar--stage-chip-320.png': 256,
   'dark/sidebar--stage-chip-460.png': 256,
   'dark/status-primitives.png': 234,
-  'dark-grayscale/status-primitives.png': 34,
   'dark-reduced-motion/status-primitives.png': 234,
   'hc/settings--accounts-sbx-token.png': 69,
   'hc/agents-profile.png': 36,

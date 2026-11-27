@@ -515,7 +515,11 @@ export const COVERED: readonly ParityCase[] = [
     sel: forRepo('change-base-ref'), posts: [{ type: 'change-base-ref', repo: REPO, baseRef: 'origin/develop', rebase: true }], rid: true,
   },
   { act: 'open-pr', variant: 'PR number', state: () => st('impl'), sel: act('open-pr', `[data-url="${PR_URL}"]`), posts: [{ type: 'open-pr', url: PR_URL }], rid: true },
-  { act: 'copy-pr-url', state: () => st('impl'), sel: act('copy-pr-url', `[data-url="${PR_URL}"]`), posts: [{ type: 'copy-pr-url', url: PR_URL }], rid: true },
+  {
+    act: 'copy-pr-url', state: () => st('impl'),
+    prep: ensureClick(forRepo('toggle-pr-info'), act('copy-pr-url', `[data-url="${PR_URL}"]`)),
+    sel: act('copy-pr-url', `[data-url="${PR_URL}"]`), posts: [{ type: 'copy-pr-url', url: PR_URL }], rid: true,
+  },
   { act: 'toggle-pr-info', state: () => st('impl'), sel: forRepo('toggle-pr-info'), posts: [], pendingSel: false },
 
   // --- pull requests -------------------------------------------------------
