@@ -1,10 +1,27 @@
+import { access } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { RemoteDef } from '../../manifest/types.js';
+import { accountLaunchFor } from '../accounts/registry.js';
+import { dockerNames } from '../docker/dockerNames.js';
+import { OPENCODE_IMAGE } from '../docker/dockerImage.js';
+import { queryDockerMemTotal, resolveDockerMemoryLimits, type SandboxMemoryConfig } from '../docker/dockerMemory.js';
+import { dockerPreflight } from '../docker/dockerPreflight.js';
+import { prepareDockerSandbox } from '../docker/dockerRunner.js';
+import { stopProxySidecar } from '../docker/proxySidecar.js';
+import { DOCKER_ASSETS_DIR, linuxUser } from '../docker/resolveDocker.js';
+import { opencode2Command, opencode2Config, opencode2IsolationEnv } from '../opencode2Binary.js';
 import { OPENCODE2_AUTH_LIST_ARGS, opencode2HasCredentials } from '../opencode2Auth.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../sbx/sbxProcess.js';
-import { SSH_CORES, type SshCore } from '../sandboxCores.js';
+import { SSH_CORES, SSH_DOCKER_CORES, type SshCore, type SshDockerCore } from '../sandboxCores.js';
 import type { SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
+import { PROXY_BUNDLE, ensureRemoteDockerAssets } from './sshDockerAssets.js';
 import { ensureSshClone, sshRemotePaths, type SshCloneContext } from './sshClone.js';
+import { ensureSshDockerClone, type SshDockerCloneContext } from './sshDockerClone.js';
 import { ensureSshControlDir, sshControlDir } from './sshControlDir.js';
+import { probeSshDockerEgress } from './sshDockerEgress.js';
+import { SSH_DOCKER_HOST_SERVICES_ERROR, createSshDockerSessionRunner, sshDockerMountRoot } from './sshDockerRunner.js';
+import { sshDockerProcess } from './sshDockerProcess.js';
 import type { SshGateRegistry } from './sshGateRegistry.js';
 import { sshProjectPrefix, sshSandboxName } from './sshNames.js';
 import { sshPreflight, type SshPreflightOptions, type SshPreflightResult } from './sshPreflight.js';
@@ -14,11 +31,19 @@ import { createSshSessionRunner } from './sshRunner.js';
 import { ensureRemoteWorkspaceTrusted, type RemoteTrustInput } from './sshTrust.js';
 
 /**
- * Resolve the `ssh:<name>` backend for one launch (D555, edit 7). The trust
- * check is first and makes no ssh call; then the remote lookup, the mode, the
- * preflight, the core login, the names, the clone and the workspace trust, in
- * that order. Every failure is a bare reason (the resolver adds `host (…)`),
- * the whole step is bounded, and this function never throws.
+ * Resolve the `ssh:<name>` backend for one launch (D555 edit 7, D822 docker).
+ * The trust check is first and makes no ssh call; then the remote lookup and the
+ * mode:
+ *
+ * - `mode: direct`: the preflight, the core login, the names, the clone and the
+ *   workspace trust, in that order (a prompted session on the remote).
+ * - `mode: docker`: `resolveDockerSteps` — the core and the declared host ports
+ *   are refused before any ssh call, then the remote facts, the verified asset
+ *   upload, the image, the prepare and the egress probe, and only then a
+ *   sandbox-enforcing runner.
+ *
+ * Every failure is a bare reason (the resolver adds `host (…)`), the whole step
+ * is bounded, and this function never throws.
  */
 
 /** The bound of the whole resolve step. */
@@ -46,6 +71,20 @@ export interface SshResolveDeps {
   readonly warnOnce?: SshWarnOnce;
   readonly warn?: (message: string) => void;
   readonly debug?: (message: string) => void;
+  // `mode: docker` (D822). Every step is a seam so the unit tests drive the
+  // whole resolve with fakes and no remote docker exists here.
+  /** The host dir of the image build context and the uploaded proxy bundle. */
+  readonly assetsDir?: string;
+  readonly ensureAssets?: typeof ensureRemoteDockerAssets;
+  readonly dockerPreflight?: typeof dockerPreflight;
+  readonly prepareDocker?: typeof prepareDockerSandbox;
+  readonly egressProbe?: typeof probeSshDockerEgress;
+  /** The host opencode v1 `auth.json` of the launch account (parity with `resolveDocker`). */
+  readonly hostAuthFile?: (account?: string) => Promise<string | undefined>;
+  /** The host `opencode2 auth export` command and env of the launch account. */
+  readonly opencode2Host?: (account?: string) => { readonly command: string; readonly env: Readonly<Record<string, string>> };
+  /** Progress for a first (slow) remote image build, so the launch is not silent. */
+  readonly onProgress?: (message: string) => void;
 }
 
 export interface SshResolveInput {
@@ -58,6 +97,12 @@ export interface SshResolveInput {
   readonly installId: string;
   readonly ticketId: number;
   readonly worktree: SandboxTicketRef | undefined;
+  /** The account of the launch (`mode: docker` copies its credentials into the container). */
+  readonly account?: string;
+  /** Declared baseline host ports: refused in `mode: docker` before any ssh call (D823). */
+  readonly hostPorts?: readonly number[];
+  /** The manifest's `sandboxMemory` overrides for the remote container limits. */
+  readonly sandboxMemory?: SandboxMemoryConfig;
   readonly deps?: SshResolveDeps;
 }
 
@@ -111,6 +156,121 @@ function isSshCore(core: string): core is SshCore {
   return (SSH_CORES as readonly string[]).includes(core);
 }
 
+function isSshDockerCore(core: string): core is SshDockerCore {
+  return (SSH_DOCKER_CORES as readonly string[]).includes(core);
+}
+
+/**
+ * The host opencode v1 `auth.json` of the launch account. Same rule as
+ * `docker/resolveDocker.ts` (its helper is not exported): the launch account's
+ * `XDG_DATA_HOME`, else the process one. Absent → the container is seeded
+ * without a v1 credential (the core then asks for a login inside the sandbox).
+ */
+async function defaultHostAuthFile(account?: string): Promise<string | undefined> {
+  // @arch:AC-55: the sign-in of the launch account, not the process one.
+  const dataHome = accountLaunchFor('opencode', 'opencode', account).env.XDG_DATA_HOME || process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share');
+  const file = join(dataHome, 'opencode', 'auth.json');
+  try {
+    await access(file);
+    return file;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The host side of the opencode2 credential seed, under the account of the launch (@arch:AC-55). */
+function defaultOpencode2Host(account?: string): { command: string; env: Record<string, string> } {
+  const launch = accountLaunchFor('opencode2', opencode2Command(), account);
+  return { command: launch.binary, env: { ...opencode2IsolationEnv(opencode2Config().home), ...launch.env } };
+}
+
+/**
+ * `mode: docker` on an SSH remote (D822): the local docker backend against the
+ * remote daemon. Order matters and mirrors the local resolve: refuse what can
+ * never work FIRST (an unsupported core, declared host ports — zero ssh calls),
+ * then the preflight facts, the verified asset upload, the verified image, the
+ * prepare, and finally the egress probe. `enforcesSandbox: true` is only
+ * reached when the probe proved the isolation on that daemon.
+ */
+async function resolveDockerSteps(
+  input: SshResolveInput,
+  name: string,
+  remote: RemoteDef,
+  deps: SshResolveDeps,
+): Promise<SshResolution> {
+  if (!isSshDockerCore(input.core)) {
+    return { ok: false, reason: `${input.core}: ssh docker mode supports only opencode, opencode2` };
+  }
+  // D823: a baseline host port names THIS machine; on a remote daemon
+  // `host-gateway` is the VM. Refused before a single ssh command runs.
+  if (input.hostPorts !== undefined && input.hostPorts.length > 0) {
+    return { ok: false, reason: SSH_DOCKER_HOST_SERVICES_ERROR };
+  }
+  const worktree = input.worktree;
+  if (!worktree?.branch) return { ok: false, reason: 'ssh: ticket has no worktree branch to clone' };
+  const ssh = deps.ssh ?? NODE_SSH_PROCESS;
+  const sshBin = deps.sshBin ?? SSH_BIN;
+  const controlDir = deps.controlDir ?? sshControlDir();
+  const control = await (deps.ensureControlDir ?? ensureSshControlDir)(controlDir);
+  if (!control.ok) return control;
+  // The remote preflight already probes `docker version` in docker mode and
+  // reports the REMOTE uid/gid the container must run as.
+  const pre = await (deps.preflight ?? sshPreflight)(name, remote, ssh, { controlDir, core: input.core });
+  if (!pre.ok) return pre;
+  const user = linuxUser('linux', pre.facts.uid, pre.facts.gid);
+  const names = dockerNames({ projectRoot: input.projectRoot, ticketId: input.ticketId, core: input.core, installId: input.installId });
+  const mountRoot = sshDockerMountRoot(remote.remoteDir, names.container, input.ticketId);
+  const dockerProc = sshDockerProcess(remote, ssh, { controlDir, sshBin });
+  const assetsDir = deps.assetsDir ?? DOCKER_ASSETS_DIR;
+  const assets = await (deps.ensureAssets ?? ensureRemoteDockerAssets)({
+    ssh, sshBin, remote, remoteName: name, controlDir, hostAssetsDir: assetsDir,
+    ...(deps.debug ? { debug: deps.debug } : {}),
+  });
+  if (!assets.ok) return assets;
+  // A remote build streams the tar context over stdin (`proc.pipe`): the remote
+  // daemon can see neither the host context dir nor the host tar.
+  const check = await (deps.dockerPreflight ?? dockerPreflight)(dockerProc, assetsDir, deps.debug, {
+    streamContext: true,
+    ...(deps.onProgress ? { onProgress: deps.onProgress } : {}),
+  });
+  if (!check.ok) return check;
+  const memory = resolveDockerMemoryLimits(await queryDockerMemTotal(dockerProc), input.sandboxMemory);
+  const hostAuthFile = input.core === 'opencode' ? await (deps.hostAuthFile ?? defaultHostAuthFile)(input.account) : undefined;
+  const opencode2Host = input.core === 'opencode2' ? (deps.opencode2Host ?? defaultOpencode2Host)(input.account) : undefined;
+  const cloneCtx: SshDockerCloneContext = {
+    ssh, sshBin, host: deps.host ?? NODE_SBX_PROCESS, remote, remoteName: name, controlDir,
+    image: OPENCODE_IMAGE, volume: names.repoVolume, ...(deps.debug ? { debug: deps.debug } : {}),
+  };
+  const prepared = await (deps.prepareDocker ?? prepareDockerSandbox)({
+    proc: dockerProc, core: input.core, names, user, ticket: worktree,
+    proxyScript: `${mountRoot.assetsDir}/${PROXY_BUNDLE}`,
+    mountRoot,
+    // D554: host git stays local and only bundles cross the ssh pipe. A host
+    // temp dir bind mount would point at nothing on the remote daemon.
+    seedClone: (t: SandboxTicketRef) => ensureSshDockerClone(cloneCtx, {
+      hostWorktreePath: t.hostWorktreePath, branch: t.branch, ...(t.baseRef ? { baseRef: t.baseRef } : {}),
+    }),
+    ...(hostAuthFile !== undefined ? { opencode1HostAuthFile: hostAuthFile } : {}),
+    ...(opencode2Host !== undefined ? { opencode2Host } : {}),
+    ...(deps.debug ? { debug: deps.debug } : {}),
+  });
+  if (!prepared.ok) return prepared;
+  // @arch:AC-53 (d): measured on the remote daemon, not assumed from the image.
+  const egress = await (deps.egressProbe ?? probeSshDockerEgress)(dockerProc, names, user, deps.debug);
+  if (!egress.ok) {
+    // Never leave the one object with egress up for a ticket that falls back.
+    await stopProxySidecar(dockerProc, names.proxy);
+    return { ok: false, reason: `ssh docker egress not enforced: ${egress.reason}` };
+  }
+  const runner = createSshDockerSessionRunner({
+    ssh, sshBin, host: cloneCtx.host, remote, remoteName: name, controlDir, core: input.core,
+    ticketId: input.ticketId, names, user, hostWorktreePath: worktree.hostWorktreePath,
+    projectPrefix: sshProjectPrefix(input.projectRoot, input.installId), memory,
+    ...(deps.debug ? { debug: deps.debug } : {}),
+  });
+  return { ok: true, runner, names: { remote: name, name: names.container }, warnings: pre.warnings };
+}
+
 async function checkLogin(ssh: SshProcess, remote: RemoteDef, controlDir: string, name: string, core: SshCore, coreBin: string): Promise<string | undefined> {
   const check = loginCheck(core, coreBin);
   const out = await ssh.run(sshArgv(remote, controlDir, `# karst-ssh-login\n${check.script}`), { maxStdoutBytes: LOGIN_STDOUT_BYTES });
@@ -124,7 +284,7 @@ async function resolveSteps(input: SshResolveInput, signal: AbortSignal): Promis
   const deps = input.deps ?? {};
   const remote = input.remotes?.[name];
   if (remote === undefined) return { ok: false, reason: `ssh: remote '${name}' is not in remotes` };
-  if (remote.mode === 'docker') return { ok: false, reason: 'ssh docker mode not available yet' };
+  if (remote.mode === 'docker') return resolveDockerSteps(input, name, remote, deps);
   if (!isSshCore(input.core)) return { ok: false, reason: `${input.core}: ssh backend unsupported` };
   const worktree = input.worktree;
   if (!worktree?.branch) return { ok: false, reason: 'ssh: ticket has no worktree branch to clone' };

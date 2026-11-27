@@ -86,9 +86,18 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   const backend = backendForCore(input.backends, input.core);
   if (backend === 'host') return onHost(`agentBackends.${input.core}: host`);
   const sshRemote = isSshBackend(backend) ? parseSshBackend(backend) : undefined;
+  const remoteDef = sshRemote !== undefined ? input.remotes?.[sshRemote] : undefined;
   // @arch:AC-55: a command account is a host binary; a sandbox cannot run it.
+  // `mode: docker` copies a folder account's credentials INTO the isolated
+  // container, so it follows the docker rule; `mode: direct` has only the
+  // remote's own login (D555/D822).
   const accountBlock = (ACCOUNT_CORES as readonly string[]).includes(input.core)
-    ? sandboxAccountBlock(input.core as AccountCore, input.account, sshRemote !== undefined ? 'ssh' : backend === 'sbx' ? 'sbx' : 'docker', input.oauth?.tokenAccounts)
+    ? sandboxAccountBlock(
+        input.core as AccountCore,
+        input.account,
+        sshRemote !== undefined ? (remoteDef?.mode === 'docker' ? 'docker' : 'ssh') : backend === 'sbx' ? 'sbx' : 'docker',
+        input.oauth?.tokenAccounts,
+      )
     : undefined;
   if (accountBlock) {
     return { ...onHost(accountBlock), blocked: { kind: 'account', reason: accountBlock } };
@@ -102,6 +111,11 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
       remoteName: sshRemote, remotes: input.remotes, remoteTrusted: input.remoteTrusted, core: input.core,
       projectRoot: input.projectRoot, installId: input.installId, ticketId: input.ticketId,
       worktree: input.worktree,
+      ...(input.account !== undefined ? { account: input.account } : {}),
+      ...(input.sandboxMemory !== undefined ? { sandboxMemory: input.sandboxMemory } : {}),
+      // The declared baseline host ports: `mode: docker` refuses them (D823),
+      // `mode: direct` ignores them (it has no proxy).
+      ...(input.docker?.hostPorts !== undefined ? { hostPorts: input.docker.hostPorts } : {}),
       ...(input.ssh ? { deps: input.ssh } : {}),
     });
     if (!out.ok) return onHost(out.reason);
