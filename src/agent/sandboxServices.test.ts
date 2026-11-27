@@ -4,7 +4,8 @@ import type { GateProcessRunner, ProcessOutcome } from '../workflow/gates/run.js
 import type { PortMapping, PublishResult } from './sessionRunner.js';
 import {
   parseSandboxHandle, reverifySandboxServices, sandboxHandle, serviceToken, startSandboxService,
-  STOP_SCRIPT, stopSandboxService, stopTicketSandboxServices, type SandboxServiceRunner, type SandboxServiceStart,
+  START_SCRIPT, START_SCRIPT_SD, STOP_SCRIPT, STOP_SCRIPT_SD, stopSandboxService, stopTicketSandboxServices,
+  type SandboxServiceRunner, type SandboxServiceStart,
 } from './sandboxServices.js';
 
 const OK: ProcessOutcome = { kind: 'completed', exitCode: 0, output: '' };
@@ -58,6 +59,90 @@ describe('sandbox handle', () => {
     });
     expect(parseSandboxHandle('ssh::3000')).toBeNull();
     expect(parseSandboxHandle('ssh:name:999999')).toBeNull();
+  });
+
+  it('round-trips a remote-qualified ssh handle and rejects a traversal or a space', () => {
+    const name = 'devbox/karst-abcd1234-7-claude';
+    expect(parseSandboxHandle(sandboxHandle('ssh', name, 8080))).toEqual({ kind: 'ssh', name, sandboxPort: 8080 });
+    // A bare name is what `mode: docker` on a remote records: no remote part.
+    expect(parseSandboxHandle('ssh:karst-abcd1234-7-opencode:4100')).toEqual({
+      kind: 'ssh', name: 'karst-abcd1234-7-opencode', sandboxPort: 4100,
+    });
+    expect(parseSandboxHandle('ssh:../x:80')).toBeNull();
+    expect(parseSandboxHandle('ssh:a b/x:80')).toBeNull();
+    expect(parseSandboxHandle('ssh:a/b/c:80')).toBeNull();
+  });
+});
+
+describe('service state dir (direct ssh, D823)', () => {
+  /** A remote runner whose scripts write their pid and log files under `stateDir`. */
+  function sdRunner(stateDir: string) {
+    const execs: string[][] = [];
+    const unpublished: PortMapping[] = [];
+    const runGate = vi.fn<GateProcessRunner>((_c, args) => {
+      execs.push([...args]);
+      return Promise.resolve(OK);
+    });
+    const runner: SandboxServiceRunner = {
+      kind: 'ssh',
+      serviceStateDir: stateDir,
+      publishPort: () => Promise.resolve({ ok: true }),
+      unpublishPort: (m) => { unpublished.push(m); return Promise.resolve(); },
+      listPorts: () => Promise.resolve([]),
+      runGate,
+    };
+    return { runner, execs, unpublished };
+  }
+
+  it('passes the state dir as the first argv element and uses the _SD scripts', async () => {
+    const store = openStore(':memory:');
+    const f = sdRunner('/home/dev/karst/ws/svc');
+    await expect(startSandboxService(input(store, f.runner, {
+      waitHealthy: () => Promise.reject(new Error('timeout')),
+    }))).rejects.toThrow('api: not healthy on 127.0.0.1:4100: timeout');
+    expect(f.execs[0]!.slice(1)).toEqual([
+      START_SCRIPT_SD, 'karst-svc', '/home/dev/karst/ws/svc', 'api', '/wt/apps/api',
+      'env', 'PORT=4100', 'npm', 'run', 'dev',
+    ]);
+    // The stop after a failed health check names the same dir and no other.
+    expect(f.execs[1]!.slice(1)).toEqual([
+      STOP_SCRIPT_SD, 'karst-svc-stop', '/home/dev/karst/ws/svc', 'api',
+    ]);
+  });
+
+  it('gives two tickets with the same unit key different pid and log paths, and stops only its own', async () => {
+    const store = openStore(':memory:');
+    const a = sdRunner('/ws/a/svc');
+    const b = sdRunner('/ws/b/svc');
+    await startSandboxService(input(store, a.runner, { ticketId: 7 }));
+    await startSandboxService(input(store, b.runner, { ticketId: 8 }));
+    expect(a.execs[0]![3]).toBe('/ws/a/svc');
+    expect(b.execs[0]![3]).toBe('/ws/b/svc');
+    // Both scripts keep the files INSIDE the state dir, never in shared /tmp.
+    expect(START_SCRIPT_SD).toContain('"$sd/karst-svc-$k.pid"');
+    expect(START_SCRIPT_SD).toContain('"$sd/karst-svc-$k.log"');
+    expect(STOP_SCRIPT_SD).toContain('"$sd/karst-svc-$k.pid"');
+    const id = (store.db.prepare('SELECT id FROM servers WHERE ticket_id = 7').get() as { id: number }).id;
+    await stopSandboxService(store, id, a.runner);
+    expect(a.execs.at(-1)!.slice(3)).toEqual(['/ws/a/svc', 'api']);
+    expect(b.execs).toHaveLength(1);
+  });
+
+  it('never removes the env file from the _SD stop script (removeServiceEnv owns it)', () => {
+    expect(STOP_SCRIPT_SD).not.toContain('svc-$k.env');
+    expect(STOP_SCRIPT_SD).not.toContain('.env');
+  });
+
+  it('refuses a symlinked or foreign-owned state dir before and after the mkdir', () => {
+    expect(START_SCRIPT_SD).toContain('[ -L "$sd" ]');
+    expect(STOP_SCRIPT_SD).toContain('[ -L "$sd" ]');
+    expect(START_SCRIPT_SD).toContain('[ -O "$sd" ]');
+    expect(STOP_SCRIPT_SD).toContain('[ -O "$sd" ]');
+    expect(START_SCRIPT_SD).toContain('mkdir -p -m 700 "$sd"');
+    expect(STOP_SCRIPT_SD).toContain('mkdir -p -m 700 "$sd"');
+    // The old scripts stay exactly as they were for a runner without a state dir.
+    expect(START_SCRIPT).toContain('/tmp/karst-svc-$k.pid');
+    expect(STOP_SCRIPT).toContain('/tmp/karst-svc-$1.pid');
   });
 });
 
