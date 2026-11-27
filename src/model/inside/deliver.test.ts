@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deliverFailureLine, deliverHint, deliverProgressLine, deliverTakeOverLine, groupFailuresByHead, mergeStateWording, wordResolvedConflict, shortSha, type DeliverFacts } from './deliver.js';
+import { deliverFailureLine, deliverHint, deliverProgressLine, deliverTakeOverLine, groupFailuresByHead, mergeStateWording, wordResolvedConflict, shortSha, withDeliverWait, type DeliverFacts } from './deliver.js';
 import { deliverProcess } from './shipDeliver.js';
 
 const A = 'a'.repeat(40);
@@ -115,5 +115,39 @@ describe('deliverProcess wording for a base check (D541)', () => {
   it('does not change when the deliver button shows', () => {
     expect(row(false, { n: 2, m: 5, gate: 'visual', baseCheck: true }).deliver).toBeUndefined();
     expect(row(true, { n: 2, m: 5, gate: 'visual', baseCheck: true }).deliver).toBeDefined();
+  });
+});
+
+describe('withDeliverWait and the gate facts (T1403)', () => {
+  const facts = (): DeliverFacts => ({
+    running: { n: 2, m: 3, gate: 'docs' },
+    failures: [],
+    takenOver: null,
+    roundActive: true,
+    headSha: 'a'.repeat(40),
+    gates: [
+      { name: 'unit', repo: 'r', status: 'pass', startedAt: 'T1', endedAt: 'T2', exitCode: 0 },
+      { name: 'docs', repo: 'r', status: 'run', startedAt: null, endedAt: null, exitCode: null },
+      { name: 'visual', repo: 'r', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+    ],
+  });
+
+  it('marks the running gate fact as waiting with the live state', () => {
+    const f = withDeliverWait(facts(), { docs: { kind: 'wait' } })!;
+    expect(f.running?.waiting).toBe(true);
+    expect(f.gates?.map((g) => g.status)).toEqual(['pass', 'wait', 'pending']);
+  });
+
+  it('leaves the gate facts alone when no live gate waits', () => {
+    const f = facts();
+    expect(withDeliverWait(f, { docs: { kind: 'run' } })).toBe(f);
+    expect(withDeliverWait(f, undefined)).toBe(f);
+  });
+
+  it('adds no gate facts to facts that carry none', () => {
+    const { gates: _g, ...without } = facts();
+    const waited = withDeliverWait(without, { docs: { kind: 'wait' } })!;
+    expect(waited.running?.waiting).toBe(true);
+    expect('gates' in waited).toBe(false);
   });
 });
