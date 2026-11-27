@@ -83,6 +83,53 @@ for (const target of EDITOR_CASES) {
   });
 }
 
+/**
+ * A full-pane fixed surface does not move with a page scroll: below the floor it
+ * must be reachable in full (the tester saw the right 40 px of Server logs and
+ * 20 px on each side of the Settings modal out of reach at 280 px).
+ */
+test(`serverLogs/page-floor-${BELOW_FLOOR}: the logs surface scrolls into reach`, async ({ gotoView, page }) => {
+  test.skip(!AVAILABLE.has('serverLogs'), 'serverLogs is out of this run\'s fixture scope');
+  await page.setViewportSize({ width: BELOW_FLOOR, height: LAYOUT_HEIGHT });
+  await gotoView('serverLogs', { variant: firstTargetVariant('serverLogs') });
+  const edges = await page.evaluate(() => {
+    const root = document.documentElement;
+    window.scrollTo(root.scrollWidth, 0);
+    const box = document.querySelector('.logsview')?.getBoundingClientRect();
+    return box === undefined ? null : { left: box.left, right: box.right, width: box.width, view: window.innerWidth };
+  });
+  expect(edges, 'serverLogs: no .logsview on the page').not.toBeNull();
+  expect(edges!.width).toBeGreaterThanOrEqual(PAGE_FLOOR);
+  expect(edges!.right, 'serverLogs: the right edge stays out of reach after a full sideways scroll').toBeLessThanOrEqual(
+    edges!.view + 1,
+  );
+});
+
+test(`settings/page-floor-${BELOW_FLOOR}: the modal scrolls into reach on both sides`, async ({ gotoView, page }) => {
+  test.skip(!AVAILABLE.has('settings'), 'settings is out of this run\'s fixture scope');
+  await page.setViewportSize({ width: BELOW_FLOOR, height: LAYOUT_HEIGHT });
+  await gotoView('settings', { variant: settings.variant, route: settings.route });
+  const edges = await page.evaluate(() => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.textContent = 'page-floor probe';
+    backdrop.append(modal);
+    document.body.append(backdrop);
+    backdrop.scrollLeft = 0;
+    const atStart = modal.getBoundingClientRect().left - backdrop.getBoundingClientRect().left;
+    backdrop.scrollLeft = backdrop.scrollWidth;
+    const atEnd = backdrop.getBoundingClientRect().right - modal.getBoundingClientRect().right;
+    const width = modal.getBoundingClientRect().width;
+    backdrop.remove();
+    return { atStart, atEnd, width };
+  });
+  expect(edges.width).toBeGreaterThanOrEqual(PAGE_FLOOR);
+  expect(edges.atStart, 'settings: the left edge of the modal is out of reach').toBeGreaterThanOrEqual(-1);
+  expect(edges.atEnd, 'settings: the right edge of the modal is out of reach').toBeGreaterThanOrEqual(-1);
+});
+
 test(`sidebar/page-floor-${BELOW_FLOOR}: keeps its own narrow layout and does not scroll (D860)`, async ({ gotoView, page }) => {
   test.skip(!AVAILABLE.has('sidebar'), 'sidebar is out of this run\'s fixture scope');
   await page.setViewportSize({ width: BELOW_FLOOR, height: LAYOUT_HEIGHT });

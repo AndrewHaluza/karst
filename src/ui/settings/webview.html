@@ -159,11 +159,15 @@
   }
 
   /* ---- unsaved-changes modal (leaving a dirty tab) ---- */
+  /* The backdrop scrolls and the modal centers with auto margins: below the page
+     floor the modal is wider than the pane, and flex centering would push its
+     left edge out of scroll reach. */
   .modal-backdrop{
-    position:fixed;inset:0;z-index:var(--k-z-modal);display:flex;align-items:center;justify-content:center;
+    position:fixed;inset:0;z-index:var(--k-z-modal);display:flex;overflow:auto;
     background:var(--k-scrim);
   }
   .modal{
+    margin:auto;flex:none;
     width:min(calc(var(--k-space-8) * 21.5),88vw);min-inline-size:var(--k-page-floor);padding:var(--k-space-7) var(--k-space-8);border-radius:var(--k-radius-xl);
     background:var(--k-surface);
     border:var(--k-border-w) solid var(--vscode-panel-border);
