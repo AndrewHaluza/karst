@@ -59,11 +59,21 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** `name=sha256` lines; a missing file prints an empty hash, so it never matches. */
+/**
+ * `name=sha256` lines; a missing file prints an empty hash, so it never matches.
+ *
+ * The same round trip first makes every asset WORLD-readable. The upload is
+ * owned by the REMOTE login uid, while the proxy sidecar runs as the image's own
+ * user (uid 1000): a restrictive remote umask would leave a 0600/0640 bundle the
+ * container cannot open, and the launch would fail closed on a healthy VM.
+ * `a+rX` gives the read bit to every file and the traverse bit to dirs only.
+ */
 function hashProbeScript(destDir: string, files: readonly string[]): string {
   return [
     '# karst-ssh-docker-assets',
     `d=${sshQuote(destDir)}`,
+    // A missing dir is created by the upload path below; chmod only when it exists.
+    '[ -d "$d" ] && chmod -R a+rX "$d"',
     'for f in ' + files.map(sshQuote).join(' ') + '; do',
     '  h=$(sha256sum -- "$d/$f" 2>/dev/null | awk \'NR == 1 { print $1 }\')',
     '  printf \'%s=%s\\n\' "$f" "$h"',

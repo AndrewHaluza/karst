@@ -321,15 +321,16 @@ describe('createSshDockerSessionRunner: dispose', () => {
     expect(scriptsOf(ssh).some((script) => script.includes(`rm -rf -- '${WS}'`))).toBe(true);
   });
 
-  it('refuses the workspace rm -rf outside the project prefix, with zero rm -rf', async () => {
+  it('refuses everything outside the project prefix, with zero docker calls', async () => {
     const ssh = fakeSshProcess();
     const runner = makeRunner({ ssh, projectPrefix: 'karst-ffffffff' });
     const res = await runner.dispose!({ hostWorktreePath: HOST, branch: BRANCH });
     expect(res.ok).toBe(false);
     expect(res.steps).toContainEqual(expect.objectContaining({ step: 'dispose guard', status: 'failed' }));
+    // The guard runs FIRST (like the direct runner): a foreign name deletes nothing, not even
+    // the same-named docker objects, and never an rm -rf.
+    expect(ssh.calls).toHaveLength(0);
     expect(scriptsOf(ssh).some((script) => script.includes('rm -rf'))).toBe(false);
-    // The docker objects are still removed: the guard only protects the path.
-    expect(ssh.calls.length).toBeGreaterThan(0);
   });
 });
 

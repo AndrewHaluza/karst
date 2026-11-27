@@ -24,7 +24,7 @@ import { SSH_DOCKER_HOST_SERVICES_ERROR, createSshDockerSessionRunner, sshDocker
 import { sshDockerProcess } from './sshDockerProcess.js';
 import type { SshGateRegistry } from './sshGateRegistry.js';
 import { sshProjectPrefix, sshSandboxName } from './sshNames.js';
-import { sshPreflight, type SshPreflightOptions, type SshPreflightResult } from './sshPreflight.js';
+import { sshPreflight, noTmuxWarning, type SshPreflightOptions, type SshPreflightResult } from './sshPreflight.js';
 import { NODE_SSH_PROCESS, SSH_BIN, sshArgv, type SshProcess } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
 import { createSshSessionRunner } from './sshRunner.js';
@@ -226,6 +226,8 @@ async function resolveDockerSteps(
   // reports the REMOTE uid/gid the container must run as.
   const pre = await (deps.preflight ?? sshPreflight)(name, remote, ssh, { controlDir, core: input.core });
   if (!pre.ok) return pre;
+  // The deadline may have fired while the preflight ran: nothing else may spawn.
+  if (signal.aborted) return { ok: false, reason: SETUP_ABORTED };
   const user = linuxUser('linux', pre.facts.uid, pre.facts.gid);
   const names = dockerNames({ projectRoot: input.projectRoot, ticketId: input.ticketId, core: input.core, installId: input.installId });
   const mountRoot = sshDockerMountRoot(remote.remoteDir, names.container, input.ticketId);
@@ -236,6 +238,8 @@ async function resolveDockerSteps(
     ...(deps.debug ? { debug: deps.debug } : {}),
   });
   if (!assets.ok) return assets;
+  // An upload can outlive the deadline too: never start a tar/build for a launch that gave up.
+  if (signal.aborted) return { ok: false, reason: SETUP_ABORTED };
   // A remote build streams the tar context over stdin (`proc.pipe`): the remote
   // daemon can see neither the host context dir nor the host tar. The first
   // build names its OWN bound (the preflight's pipe); the resolve deadline is
@@ -276,6 +280,12 @@ async function resolveDockerSteps(
   }
   // @arch:AC-53 (d): measured on the remote daemon, not assumed from the image.
   const egress = await (deps.egressProbe ?? probeSshDockerEgress)(dockerProc, names, user, deps.debug);
+  if (signal.aborted) {
+    // The deadline fired while the probe ran: the runner is discarded, and the proxy is the
+    // one container with egress — it must not stay up for a ticket that runs on the host.
+    await stopProxySidecar(dockerProc, names.proxy);
+    return { ok: false, reason: SETUP_ABORTED };
+  }
   if (!egress.ok) {
     // Never leave the one object with egress up for a ticket that falls back.
     await stopProxySidecar(dockerProc, names.proxy);
@@ -287,7 +297,10 @@ async function resolveDockerSteps(
     projectPrefix: sshProjectPrefix(input.projectRoot, input.installId), memory,
     ...(deps.debug ? { debug: deps.debug } : {}),
   });
-  return { ok: true, runner, names: { remote: name, name: names.container }, warnings: pre.warnings };
+  // tmux carries the direct session only: a docker launch is `ssh -t … docker run -it`, so a
+  // remote without tmux must not warn about it (the free-disk warnings still apply).
+  const warnings = pre.warnings.filter((warning) => warning !== noTmuxWarning(name));
+  return { ok: true, runner, names: { remote: name, name: names.container }, warnings };
 }
 
 async function checkLogin(ssh: SshProcess, remote: RemoteDef, controlDir: string, name: string, core: SshCore, coreBin: string): Promise<string | undefined> {
@@ -353,6 +366,8 @@ export async function resolveSsh(input: SshResolveInput): Promise<SshResolution>
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let boundMs = timeoutMs;
+  /** True once the race is over: a step still in flight must not re-arm the deadline. */
+  let finished = false;
   let expire: (() => void) | undefined;
   const timedOut = new Promise<SshResolution>((resolve) => {
     expire = () => {
@@ -360,11 +375,18 @@ export async function resolveSsh(input: SshResolveInput): Promise<SshResolution>
       resolve({ ok: false, reason: `ssh ${input.remoteName}: setup did not finish in ${String(Math.round(boundMs / 1000))} s` });
     };
   });
-  /** (Re)arm the deadline. A step that names its own longer bound (the remote image build) calls this. */
+  /**
+   * (Re)arm the deadline. A step that names its own longer bound (the remote
+   * image build) calls this; an aborted or finished resolve ignores it, so an
+   * abandoned step cannot arm a 31-minute timer after the race settled. The
+   * timer never holds the process open on its own (`unref`).
+   */
   const extendBound = (ms: number): void => {
+    if (finished || controller.signal.aborted) return;
     boundMs = ms;
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => expire?.(), ms);
+    timer.unref?.();
   };
   extendBound(timeoutMs);
   try {
@@ -372,6 +394,7 @@ export async function resolveSsh(input: SshResolveInput): Promise<SshResolution>
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   } finally {
+    finished = true;
     if (timer !== undefined) clearTimeout(timer);
   }
 }

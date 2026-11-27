@@ -86,6 +86,16 @@ describe('ensureRemoteDockerAssets', () => {
     expect(scriptOf(ssh.calls[0]!.args)).toContain(`d='${DEST}'`);
   });
 
+  it('makes the uploaded bundle world-readable on every round trip (the sidecar runs as uid 1000)', async () => {
+    const dir = await hostDir();
+    const ssh = queuedSsh({ [PROBE]: [{ stdout: hashLines(sha(PROXY_BODY), sha(DOCKERFILE_BODY)) }] });
+    await expect(ensureRemoteDockerAssets(input(ssh, dir))).resolves.toEqual({ ok: true });
+    // The upload is owned by the REMOTE login uid and the sidecar runs as the image's uid 1000:
+    // a restrictive remote umask would leave a 0600/0640 bundle the container cannot open.
+    // The hash probe also fixes the modes, so an already-uploaded set is repaired in the same call.
+    expect(scriptOf(ssh.calls[0]!.args)).toContain(`[ -d "$d" ] && chmod -R a+rX "$d"`);
+  });
+
   it('uploads the bundle with a tar pipe and verifies every sha256 on the first run', async () => {
     const dir = await hostDir();
     const ssh = queuedSsh({ [PROBE]: [{ stdout: '' }, { stdout: hashLines(sha(PROXY_BODY), sha(DOCKERFILE_BODY)) }] });

@@ -5,7 +5,7 @@ import { dockerNames } from '../docker/dockerNames.js';
 import { fakeSbxProcess } from '../sbx/fakeSbxProcess.js';
 import { fakeSshProcess } from './fakeSshProcess.js';
 import { resolveSsh, type SshResolveDeps, type SshResolveInput, type SshWarnOnce } from './resolveSsh.js';
-import type { SshPreflightFacts, SshPreflightResult } from './sshPreflight.js';
+import { noTmuxWarning, type SshPreflightFacts, type SshPreflightResult } from './sshPreflight.js';
 
 const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
 const FACTS: SshPreflightFacts = {
@@ -227,6 +227,53 @@ describe('resolveSsh docker mode (D822)', () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     // The one object with egress is removed on the REMOTE daemon, through the same ssh seam.
     expect(ssh.calls.some((c) => sshScriptOf(c.args).includes('docker') && sshScriptOf(c.args).includes('rm') && sshScriptOf(c.args).includes('-proxy'))).toBe(true);
+  });
+
+  it('a timeout during the egress probe removes the proxy it proved: no egress container outlives the launch', async () => {
+    const ssh = fakeSshProcess();
+    let probed = 0;
+    const out = await resolveSsh(dockerInput(ssh, {}, {
+      timeoutMs: 10,
+      egressProbe: async () => { probed += 1; await new Promise((resolve) => setTimeout(resolve, 100)); return { ok: true }; },
+    }));
+    expect(out).toMatchObject({ ok: false, reason: expect.stringMatching(/did not finish/) });
+    expect(probed).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const stops = ssh.calls.map((c) => sshScriptOf(c.args)).filter((s) => s.includes("'rm'") && s.includes('-proxy'));
+    expect(stops.length).toBeGreaterThan(0);
+  });
+
+  it('a timeout before the build starts no docker build and no prepare', async () => {
+    const spawned: string[] = [];
+    const out = await resolveSsh(dockerInput(fakeSshProcess(), {}, {
+      timeoutMs: 10,
+      preflight: async () => { await new Promise((resolve) => setTimeout(resolve, 100)); return { ok: true, facts: DOCKER_FACTS, warnings: [] }; },
+      dockerPreflight: async () => { spawned.push('build'); return { ok: true }; },
+      prepareDocker: async () => { spawned.push('prepare'); return { ok: true }; },
+    }));
+    expect(out).toMatchObject({ ok: false, reason: expect.stringMatching(/did not finish/) });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(spawned).toEqual([]);
+  });
+
+  it('a timeout during the asset upload starts no docker build', async () => {
+    const spawned: string[] = [];
+    const out = await resolveSsh(dockerInput(fakeSshProcess(), {}, {
+      timeoutMs: 10,
+      ensureAssets: async () => { await new Promise((resolve) => setTimeout(resolve, 100)); return { ok: true }; },
+      dockerPreflight: async () => { spawned.push('build'); return { ok: true }; },
+    }));
+    expect(out).toMatchObject({ ok: false, reason: expect.stringMatching(/did not finish/) });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(spawned).toEqual([]);
+  });
+
+  it('docker mode drops the no-tmux warning but keeps the free-disk ones', async () => {
+    const disk = 'ssh devbox: low disk (9000 MB free in /srv/karst)';
+    const out = await resolveSsh(dockerInput(fakeSshProcess(), {}, {
+      preflight: async () => ({ ok: true, facts: { ...DOCKER_FACTS, tmux: false }, warnings: [noTmuxWarning('devbox'), disk] }),
+    }));
+    expect(out.ok && out.warnings).toEqual([disk]);
   });
 });
 

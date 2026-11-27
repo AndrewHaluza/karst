@@ -268,21 +268,22 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
     },
     /**
      * All five docker objects (the base) plus `<remoteDir>/<name>` — the bridge
-     * dir, the env files and the gate records. The one `rm -rf` stays behind
-     * `disposeTarget`: a name outside this project's prefix, or a path that is
-     * not the workspace, refuses the removal (and still reports the docker
-     * steps it did run).
+     * dir, the env files and the gate records. The `disposeTarget` guard runs
+     * FIRST, exactly like the direct runner: a name outside this project's
+     * prefix, or a path that is not the workspace, refuses the whole dispose
+     * with zero docker calls — a placement row from another project or another
+     * install's id must never delete a foreign clone or volume.
      */
     dispose: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
-      const dockerRes = await base.dispose!(ticket);
       // `remoteDir` is already stripped above, so the guard compares the SAME
       // path the workspace was built from (a manifest entry ending in `/` would
       // otherwise refuse its own workspace).
       const target = disposeTarget(remoteDir, opts.names.container, opts.projectPrefix);
       if (!target.ok || target.path !== workspace) {
         const reason = target.ok ? `ssh dispose: refused ${target.path} (not the workspace ${workspace})` : target.reason;
-        return disposeResult([...dockerRes.steps, { step: 'dispose guard', status: 'failed', stderr: reason }]);
+        return disposeResult([{ step: 'dispose guard', status: 'failed', stderr: reason }]);
       }
+      const dockerRes = await base.dispose!(ticket);
       const removed = await opts.ssh.run(
         sshArgv(opts.remote, opts.controlDir, `# karst-ssh-docker-dispose\nrm -rf -- ${sshQuote(target.path)}`),
         { maxStdoutBytes: TEXT_STDOUT_BYTES },
