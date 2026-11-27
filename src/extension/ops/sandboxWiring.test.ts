@@ -324,6 +324,22 @@ describe('makeSandboxWiring idle sweep', () => {
     const stops = () => proc.calls.filter((c) => c.args[0] === 'stop').map((c) => c.args[1]);
     return { w, n, stops, info };
   }
+  it('an idle sbx box left from before an ssh placement is stopped by sbx, never by the ssh runner (D826)', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'I-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    recordPlacement(store, a, fakeSshPlacement(a), 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(a);
+    store.db.prepare(`UPDATE tickets SET updated_at = datetime('now', '-121 minutes') WHERE id = ?`).run(a);
+    const n = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${n} claude running\n` } });
+    const ssh = fakeSshProcess();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc, sessionOpen: () => false, sshRunner: fakeSshRunnerDeps(ssh) });
+    await expect(w.idleSweep()).resolves.toBe(1);
+    expect(proc.calls.filter((c) => c.args[0] === 'stop').map((c) => c.args[1])).toEqual([n]);
+    expect(ssh.calls.filter((c) => c.args.join(' ').includes('tmux'))).toEqual([]);
+  });
   it('stops a sandbox idle past 120 min with no open session, and logs it', async () => {
     const { w, n, stops, info } = setup(false, 121);
     await expect(w.idleSweep()).resolves.toBe(1);

@@ -32,7 +32,7 @@ import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js
 import { runSandboxReconcile } from './bootSweeps.js';
 import { repairHostSessions } from './hostSessionRepair.js';
 import {
-  sandboxKindOfCore, cleanupOrphansOp, listingFailedFor, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
+  sandboxKindOfCore, cleanupOrphansOp, depsForListedBox, listingFailedFor, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
 export interface SandboxWiringInput {
@@ -569,7 +569,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const tickets = liveTickets().map((t) => ({ id: t.id, updatedAtMs: t.updatedAt === null ? Number.NaN : parseDbTimeMs(t.updatedAt), sessionOpen: w.sessionOpen(t.id) }));
       const idle = idleSandboxes(await inventoryOf(d), tickets, d.owns, (w.now ?? Date.now)(), STUCK_IDLE_MINUTES * 60_000);
       let stopped = 0;
-      for (const box of idle) if (await stopSandboxOp(d, { ...target(box.ticketId), core: box.core })) stopped += 1;
+      // A listed box is stopped by its own runner, never by the placement's (D826).
+      for (const box of idle) if (await stopSandboxOp(depsForListedBox(d, box), { ...target(box.ticketId), core: box.core })) stopped += 1;
       if (stopped > 0) w.info(`karst: stopped ${stopped} idle sandbox(es): ${idle.map((b) => b.name).join(', ')}`);
       return stopped;
     },

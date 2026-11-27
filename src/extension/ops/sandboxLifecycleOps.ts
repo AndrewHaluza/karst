@@ -152,6 +152,14 @@ function listedBoxDeps(deps: SandboxLifecycleDeps): SandboxLifecycleDeps {
   return { ...deps, placementOf: () => null };
 }
 
+/**
+ * The deps that act on a listed box (D826): an ssh box keeps the placement; an
+ * sbx or docker box (a box left from before an ssh placement) gets its own runner.
+ */
+export function depsForListedBox(deps: SandboxLifecycleDeps, box: Pick<ProjectSandbox, 'runner'>): SandboxLifecycleDeps {
+  return box.runner === 'ssh' ? deps : listedBoxDeps(deps);
+}
+
 async function removeOneGuarded(
   deps: SandboxLifecycleDeps,
   target: SandboxSyncTarget,
@@ -166,7 +174,7 @@ async function removeOneGuarded(
       return true;
     }
     // A listed sbx or docker box is removed by its own runner, even when the placement says ssh (a box left from before).
-    const runner = sandboxRunnerFor(box.runner === 'ssh' ? deps : listedBoxDeps(deps), target.core, target.ticketId);
+    const runner = sandboxRunnerFor(depsForListedBox(deps, box), target.core, target.ticketId);
     if (!runner) return true;
     if (box.runner === 'ssh') {
       const probe = await probeOf(runner);

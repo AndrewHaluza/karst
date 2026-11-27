@@ -5,7 +5,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
 import {
-  sandboxKindOfCore, cleanupOrphansOp, listingFailedFor, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
+  sandboxKindOfCore, cleanupOrphansOp, depsForListedBox, listingFailedFor, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
   CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
@@ -666,5 +666,15 @@ describe('removeSandboxGuarded and cleanupOrphansOp pick the runner of a listed 
     const { d, notify } = deps({ choose: vi.fn(async () => REMOVE_ORPHANS), proc });
     await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
     expect(notify.warn).toHaveBeenCalledWith(expect.stringContaining('still listed after removal'));
+  });
+});
+
+describe('depsForListedBox (D826)', () => {
+  it('an ssh box keeps the placement; an sbx or docker box reads no placement', () => {
+    const placement = { backend: 'ssh' as const, core: 'claude', sandboxName: 'devbox/x', reason: null };
+    const base = { placementOf: () => placement } as unknown as Parameters<typeof depsForListedBox>[0];
+    expect(depsForListedBox(base, { runner: 'ssh' })).toBe(base);
+    expect(depsForListedBox(base, { runner: 'sbx' }).placementOf?.(7)).toBeNull();
+    expect(depsForListedBox(base, { runner: 'docker' }).placementOf?.(7)).toBeNull();
   });
 });
