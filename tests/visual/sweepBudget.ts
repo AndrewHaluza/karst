@@ -62,7 +62,12 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1397 (@ui:UI-R57): the ticket ⋯ menu's gate switches in two stage tabs. 3 open-menu states (both stages, both with
   //   off gates on Review, single UAT stage) x 1 theme (dark) (+3 screenshots); skipLayout, because the ticket-menu
   //   route already runs the page.
-  dashboard: { screenshots: 348, layout: 864 },
+  // T1396 (@ui:UI-R57): the ticket header at wide/mid/narrow/tight in four states — a graph ticket with a planner HIGH
+  //   and a long key, a provider label that names no level (P2), a closed ticket, and the scrolled sticky row.
+  //   4 x 4 tiers x 1 theme (dark) (+16 screenshots); skipLayout, because the page is the running dashboard whose
+  //   header CSS every existing dashboard layout route already measures at 1280/900/700/699/480 (inside-* at 320),
+  //   and these pages would only add two pre-existing clips outside this ticket (see `headerVariants`).
+  dashboard: { screenshots: 364, layout: 864 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

@@ -91,7 +91,14 @@ karstTest.describe('full-page screenshots', () => {
           if (steps.model !== undefined) await page.locator(`[data-ap-model="${steps.model}"]`).click();
         }
         if (v.ticketDetails !== undefined) {
-          await page.locator('#ticketDataBtn').click();
+          // T1396: at the tight tier the doc icon moves into ⋯ ("Ticket details"), where the container is narrower
+          // than the 400 px viewport the drawer variants use, so open the drawer from whichever trigger is visible.
+          const inlineData = page.locator('#ticketDataBtn');
+          if (await inlineData.isVisible()) await inlineData.click();
+          else {
+            await page.locator('#moreBtn').click();
+            await page.locator('#menuTicketData').click();
+          }
           if (v.ticketDetails.tab !== undefined) await page.locator(`#tdTab-${v.ticketDetails.tab}`).click();
         }
         if (v.runtimeOpen !== undefined) {
@@ -110,9 +117,17 @@ karstTest.describe('full-page screenshots', () => {
         }
         if (v.hover !== undefined) await page.locator(v.hover).first().hover();
         if (v.blur) await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        if (v.scrollY !== undefined) {
+          // T1396: a sticky-row variant records the page scrolled under it. The stick state comes from an
+          // IntersectionObserver that fires after the scroll, so wait for `data-stuck` (and two frames) instead of
+          // racing the shot: a page too short to scroll fails here rather than recording an unstuck row.
+          await page.evaluate((y) => window.scrollTo(0, y), v.scrollY);
+          await page.locator('.dhead[data-stuck="true"]').waitFor({ state: 'attached', timeout: 5000 });
+          await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+        }
         await waitForPopoversSettled(page);
-        if (v.id.startsWith('drill-')) {
-          // UI-R43: no sideways page scroll at any tier.
+        if (v.id.startsWith('drill-') || v.id.startsWith('header-')) {
+          // UI-R43: no sideways page scroll at any tier. The header states include the tight 360 px shot (T1396).
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
         }
         if (v.id === 'attention') {

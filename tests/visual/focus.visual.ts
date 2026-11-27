@@ -169,9 +169,16 @@ const FOCUS_CAP = 12;
  * `dashboard` 49 → 50 — `#archiveTicket`, a net-new control. No dashboard control
  * archived a ticket before (the sidebar menu had the only one), so it folds into
  * nothing. It is host-gated (`hidden` unless `canArchive`), but the sweep counts it.
+ *
+ * Updated a twentieth time by the sticky header's tight tier (T1396): `dashboard`
+ * 50 → 52 — `#menuBoardLink` ("Open in provider") and `#menuTicketData` ("Ticket
+ * details") in the ⋯ popover. They are the SAME two verbs as the inline ↗ and ▤
+ * (which hide at the tight tier), so the page gains no action; the sweep counts the
+ * controls in the DOM, and these are present at every width (`display:none` above
+ * 399 px and `.hidden` without a provider URL).
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
-  dashboard: 50, // fourteenth note: #closeTicket / #reopenTicket; nineteenth: #archiveTicket
+  dashboard: 52, // fourteenth note: #closeTicket / #reopenTicket; nineteenth: #archiveTicket; twentieth: the tight ⋯ twins
   usage: 37, // sixteenth note: page header, tabs, sort headers, ticket links and the state actions
   resources: 19, // thirteenth note: the Servers / Resources tab buttons
   serverLogs: 14, // seventeenth note: Follow, Wrap and Copy
