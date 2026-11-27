@@ -398,7 +398,7 @@ The shared mapping is:
 |---|---|
 | passed / done | green checkmark |
 | running | blue spinner |
-| needs attention / paused / blocked | amber pause icon |
+| needs attention / paused / blocked on the user | amber pause icon |
 | failed | red cross |
 | pending / not checked | neutral circle/dot |
 
@@ -658,16 +658,8 @@ The application owns how the host and webview communicate that state.
 
 Click feedback has three tiers, chosen per action (`karstAction(el, send, { tier })`
 in the vanilla runtime; `useHostMutation` in React). `mutation` is the default, so a
-quieter tier is always an explicit opt-in:
-
-| Tier | For | At press | Reply > 400ms | Settle |
-|---|---|---|---|---|
-| `view` | view state, navigation (set-range, set-tab, open-dashboard, dismiss, refresh) | selection / `aria-pressed` moves; `aria-busy`, no disable | region progress line + dimmed data | nothing; failure reverts selection + error toast |
-| `mutation` (default) | host mutations (kill-server, measure-disk, create-manifest, attach-pick) | `aria-busy` + duplicate-click guard | spinner in the reserved leading icon slot | nothing; the result is the changed domain state |
-| `confirm` | action with no other visible result (copy-hash) | as `mutation` | as `mutation` | icon morphs to a check in place for 1.2s + role=status tip |
-
-The spinner is never visible before 400ms (a fast reply never flashes one) and,
-once visible, stays at least 500ms. `.is-success` is tier 3 only.
+quieter tier is always an explicit opt-in; the tier table, the 400/500 ms timings
+and the `.is-success` rule live in `ui:UI-R11`.
 
 ### Pending
 
@@ -728,7 +720,7 @@ Save
 
 Solutions include:
 
-- reserve an icon/status slot (the spinner appears only after 400ms and stays 500ms; the tier-3 check reuses the slot);
+- draw the spinner over the label or the glyph (never a permanently reserved empty slot; see `ui:UI-R11`);
 - preserve the control width;
 - display status adjacent to the control;
 - use the changed domain state instead of injecting a glyph.
@@ -915,7 +907,7 @@ Layout (UI-RULES group L):
 - [ ] Linked prototype's regions, order and stacking match (R39); `data-region` names listed
 - [ ] Primary action in header/toolbar; reading order holds (R40)
 - [ ] Alignment, grouping and spacing tokens correct (R41, R42)
-- [ ] Layout holds at all three width tiers; no page horizontal scroll (R43)
+- [ ] Layout holds at every width tier; no page horizontal scroll (R43)
 - [ ] Overflow wraps or has a reachable full text; no overlap; one scroll region per pane (R44, R45)
 - [ ] Empty/loading keep layout; selection survives resize and Back (R46, R47)
 - [ ] Page content capped at the content-width tokens (R48)

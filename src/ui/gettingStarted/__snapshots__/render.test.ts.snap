@@ -54,7 +54,7 @@ exports[`gettingStarted render > agent-checking > snapshot (was: full document r
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -74,7 +74,7 @@ exports[`gettingStarted render > agent-checking > snapshot (was: full document r
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -265,7 +265,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -724,7 +723,7 @@ exports[`gettingStarted render > agent-done > snapshot (was: full document rende
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -744,7 +743,7 @@ exports[`gettingStarted render > agent-done > snapshot (was: full document rende
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -935,7 +934,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -1394,7 +1392,7 @@ exports[`gettingStarted render > agent-error > snapshot (was: full document rend
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -1414,7 +1412,7 @@ exports[`gettingStarted render > agent-error > snapshot (was: full document rend
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -1605,7 +1603,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -2064,7 +2061,7 @@ exports[`gettingStarted render > agent-missing > snapshot (was: full document re
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-mark gs-mark--done" role="img" aria-label="Done"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-mark gs-mark--done" role="img" aria-label="Done"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -2084,7 +2081,7 @@ exports[`gettingStarted render > agent-missing > snapshot (was: full document re
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -2275,7 +2272,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -2718,7 +2714,7 @@ exports[`gettingStarted render > agent-no-manifest > snapshot (was: full documen
       <div class="k-empty" id="checklist-empty" hidden="">
         <div class="k-empty-title">Karst found nothing to check.</div>
       </div>
-      <ul id="checklist" aria-busy="false"><li data-id="manifest"><div class="item-head"><span class="gs-mark gs-mark--todo" role="img" aria-label="To do"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 1</span></div><div class="detail">Detail for step 1</div><div class="item-actions"><button type="button" class="k-btn item-action k-btn--primary k-btn--slot" title="Write a starter karst.yml to the workspace root">Use a starter file</button><button type="button" class="k-btn item-action k-btn--secondary" title="Install the agent CLI first" disabled="" id="btn-setup-agent" aria-describedby="why-manifest">Set up with agent</button></div><p class="step-desc" id="why-manifest">Install the agent CLI first. See the setup checklist.</p></li><li data-id="fixture:setup:1"><div class="item-head"><span class="gs-mark gs-mark--missing" role="img" aria-label="Missing"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li data-id="fixture:setup:2"><div class="item-head"><span class="gs-mark gs-mark--missing" role="img" aria-label="Missing"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
+      <ul id="checklist" aria-busy="false"><li data-id="manifest"><div class="item-head"><span class="gs-mark gs-mark--todo" role="img" aria-label="To do"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 1</span></div><div class="detail">Detail for step 1</div><div class="item-actions"><button type="button" class="k-btn item-action k-btn--primary" title="Write a starter karst.yml to the workspace root">Use a starter file</button><button type="button" class="k-btn item-action k-btn--secondary" title="Install the agent CLI first" disabled="" id="btn-setup-agent" aria-describedby="why-manifest">Set up with agent</button></div><p class="step-desc" id="why-manifest">Install the agent CLI first. See the setup checklist.</p></li><li data-id="fixture:setup:1"><div class="item-head"><span class="gs-mark gs-mark--missing" role="img" aria-label="Missing"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li data-id="fixture:setup:2"><div class="item-head"><span class="gs-mark gs-mark--missing" role="img" aria-label="Missing"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -2734,7 +2730,7 @@ exports[`gettingStarted render > agent-no-manifest > snapshot (was: full documen
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -2754,7 +2750,7 @@ exports[`gettingStarted render > agent-no-manifest > snapshot (was: full documen
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -2945,7 +2941,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -3404,7 +3399,7 @@ exports[`gettingStarted render > agent-open > snapshot (was: full document rende
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -3424,7 +3419,7 @@ exports[`gettingStarted render > agent-open > snapshot (was: full document rende
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -3615,7 +3610,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -4074,7 +4068,7 @@ exports[`gettingStarted render > complete > snapshot (was: full document render)
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -4094,7 +4088,7 @@ exports[`gettingStarted render > complete > snapshot (was: full document render)
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -4285,7 +4279,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -4744,7 +4737,7 @@ exports[`gettingStarted render > empty > snapshot (was: full document render) 1`
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -4764,7 +4757,7 @@ exports[`gettingStarted render > empty > snapshot (was: full document render) 1`
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -4955,7 +4948,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -5398,7 +5390,7 @@ exports[`gettingStarted render > fresh > snapshot (was: full document render) 1`
       <div class="k-empty" id="checklist-empty" hidden="">
         <div class="k-empty-title">Karst found nothing to check.</div>
       </div>
-      <ul id="checklist" aria-busy="false"><li data-id="manifest"><div class="item-head"><span class="gs-mark gs-mark--todo" role="img" aria-label="To do"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 1</span></div><div class="detail">Detail for step 1</div><div class="item-actions"><button type="button" class="k-btn item-action k-btn--primary k-btn--slot" title="Write a starter karst.yml to the workspace root">Use a starter file</button><button type="button" class="k-btn item-action k-btn--secondary" title="Install the agent CLI first" disabled="" id="btn-setup-agent" aria-describedby="why-manifest">Set up with agent</button></div><p class="step-desc" id="why-manifest">Install the agent CLI first. See the setup checklist.</p></li><li data-id="fixture:setup:1"><div class="item-head"><span class="gs-mark gs-mark--missing" role="img" aria-label="Missing"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li data-id="fixture:setup:2"><div class="item-head"><span class="gs-mark gs-mark--missing" role="img" aria-label="Missing"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
+      <ul id="checklist" aria-busy="false"><li data-id="manifest"><div class="item-head"><span class="gs-mark gs-mark--todo" role="img" aria-label="To do"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 1</span></div><div class="detail">Detail for step 1</div><div class="item-actions"><button type="button" class="k-btn item-action k-btn--primary" title="Write a starter karst.yml to the workspace root">Use a starter file</button><button type="button" class="k-btn item-action k-btn--secondary" title="Install the agent CLI first" disabled="" id="btn-setup-agent" aria-describedby="why-manifest">Set up with agent</button></div><p class="step-desc" id="why-manifest">Install the agent CLI first. See the setup checklist.</p></li><li data-id="fixture:setup:1"><div class="item-head"><span class="gs-mark gs-mark--missing" role="img" aria-label="Missing"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 2</span></div><div class="detail">Detail for step 2</div></li><li data-id="fixture:setup:2"><div class="item-head"><span class="gs-mark gs-mark--missing" role="img" aria-label="Missing"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg></span><span class="item-label gs-label" tabindex="-1">Setup step 3</span></div><div class="detail">Detail for step 3</div></li></ul>
       <div class="toolbar">
         <button type="button" class="k-btn k-btn--secondary" id="recheck" title="Re-run the setup checklist against disk and PATH">Re-check</button>
       </div>
@@ -5414,7 +5406,7 @@ exports[`gettingStarted render > fresh > snapshot (was: full document render) 1`
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -5434,7 +5426,7 @@ exports[`gettingStarted render > fresh > snapshot (was: full document render) 1`
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -5625,7 +5617,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -6084,7 +6075,7 @@ exports[`gettingStarted render > hostile > snapshot (was: full document render) 
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">&lt;script&gt;alert(1)&lt;/script&gt;</span></div><div class="step-desc">fixture:&lt;script&gt;&amp;src/main.ts</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">A &amp; B "quoted" &lt;b&gt;</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">&lt;script&gt;alert(1)&lt;/script&gt;</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">A &amp; B "quoted" &lt;b&gt;</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">&lt;script&gt;alert(1)&lt;/script&gt;</span></div><div class="step-desc">fixture:&lt;script&gt;&amp;src/main.ts</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">A &amp; B "quoted" &lt;b&gt;</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">&lt;script&gt;alert(1)&lt;/script&gt;</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">A &amp; B "quoted" &lt;b&gt;</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -6104,7 +6095,7 @@ exports[`gettingStarted render > hostile > snapshot (was: full document render) 
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -6295,7 +6286,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -6754,7 +6744,7 @@ exports[`gettingStarted render > partial > snapshot (was: full document render) 
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Create your first ticket</span></div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -6774,7 +6764,7 @@ exports[`gettingStarted render > partial > snapshot (was: full document render) 
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -6965,7 +6955,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -7424,7 +7413,7 @@ exports[`gettingStarted render > returning > snapshot (was: full document render
 
     <section>
       <h2>How Karst works</h2>
-      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-mark gs-mark--done" role="img" aria-label="Done"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-mark gs-mark--done" role="img" aria-label="Done"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span><span class="gs-step-label">Create a ticket</span></div><div class="step-desc">Describe the work. Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--ghost k-btn--slot" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary k-btn--slot" title="Open the Karst settings panel">Open settings</button></div></li></ol>
+      <ol class="steps" id="tutorial"><li><div class="step-body"><div class="step-label"><span class="gs-mark gs-mark--done" role="img" aria-label="Done"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span><span class="gs-step-label">Set up with agent</span></div><div class="step-desc">Use the manifest row in the setup checklist above.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-mark gs-mark--done" role="img" aria-label="Done"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M9 12l2 2l4 -4"></path></svg></span><span class="gs-step-label">Create a ticket</span></div><div class="step-desc">Describe the work. Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--ghost" title="Open the create-ticket panel">Create ticket</button></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Pick repos + approach and launch the session</span></div><div class="step-desc">Choose the repositories and the approach, then start the session</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Watch stage progress on the ticket dashboard</span></div><div class="step-desc">Follow the ticket through its stages on the ticket dashboard.</div></div></li><li><div class="step-body"><div class="step-label"><span class="gs-step-label">Optional: install an approach package</span></div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--sm step-action k-btn--secondary" title="Open the Karst settings panel">Open settings</button></div></li></ol>
     </section>
 
     <section>
@@ -7444,7 +7433,7 @@ exports[`gettingStarted render > returning > snapshot (was: full document render
         </p>
       </details>
       <div class="toolbar">
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
+        <button type="button" class="k-btn k-btn--secondary" id="report-issue" title="Collect redacted Karst diagnostics and open a prefilled GitHub issue">Report an issue</button>
       </div>
     </section>
 
@@ -7635,7 +7624,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).

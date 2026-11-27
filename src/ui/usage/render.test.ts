@@ -124,6 +124,21 @@ describe('usage render', () => {
       } finally { h.close(); }
     });
 
+    it('shows one refresh control per tab: the header Refresh on Spend, Refresh quota on Quota (US-11, US-31)', () => {
+      const spend = open('single-page');
+      try {
+        expect(spend.h.query('#refreshBtn')!.classList.contains('hidden')).toBe(false);
+        expect(spend.h.query('#quota')!.classList.contains('hidden')).toBe(true);
+      } finally { spend.h.close(); }
+      const quota = open('quota-near');
+      try {
+        // The header control re-reads spend data; on the Quota tab it sat beside "Refresh quota" as a redundant pair.
+        expect(quota.h.query('#refreshBtn')!.classList.contains('hidden')).toBe(true);
+        expect(quota.h.query('#quota')!.classList.contains('hidden')).toBe(false);
+        expect(quota.h.query('#refreshQuotaBtn')!.closest('.hidden')).toBeNull();
+      } finally { quota.h.close(); }
+    });
+
     it('shows "All time" when nothing was recorded', () => {
       const { h } = open('empty');
       try {

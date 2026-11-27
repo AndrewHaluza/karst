@@ -213,6 +213,8 @@
     </div>
     <div class="k-pagehead-actions">
       <span class="updated" id="updated"></span>
+      <!-- The spend refresh. It is shown on the Spend tab only: the Quota tab carries its own "Refresh quota",
+           and two refresh controls on one tab is a defect (US-11, US-31). -->
       <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshBtn">Refresh</button>
     </div>
   </header>
@@ -606,6 +608,9 @@
     const quotaTab = state.tab === 'quota';
     el('spend').classList.toggle('hidden', quotaTab);
     el('quota').classList.toggle('hidden', !quotaTab);
+    // One refresh per tab (US-11, US-31): the header control re-reads the spend data, so it belongs to the Spend
+    // tab. The Quota tab has its own "Refresh quota"; showing both there was the redundant pair the user saw.
+    el('refreshBtn').classList.toggle('hidden', quotaTab);
 
     el('sub').textContent = quotaTab ? state.quota.subtitle : state.scopeLabel;
     el('updated').textContent = state.updatedLabel;

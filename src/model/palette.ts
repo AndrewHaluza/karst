@@ -25,7 +25,7 @@ export const PALETTE_TOKENS = {
   attention: 'var(--vscode-charts-yellow, #cca700)',
   /** passed · done · server online */
   passed: 'var(--vscode-charts-green, #4bb64b)',
-  /** failed · blocked */
+  /** failed */
   failed: 'var(--vscode-charts-red, #f14c4c)',
 } as const;
 

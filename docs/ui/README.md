@@ -1,16 +1,13 @@
 <!-- AGENT INSTRUCTIONS:
-This file uses an agent-optimized block format. DO NOT read this file entirely.
-1. TABLE OF CONTENTS: Run this to list all available keys:
+Start-here file for docs/ui — read this file in full, or extract one block:
   grep -F "## [@" docs/ui/README.md
-
-2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:README-ORDER'):
   awk "/^## \[@ui:README-ORDER\]/,/END_DOC_BLOCK: \[@ui:README-ORDER\]/" docs/ui/README.md
 -->
 # docs/ui — start here
 
 Every UI ticket (planner, implementer, UAT tester, reviewer) follows this order.
-Read keyed blocks only (`grep -F "## [@" <file>`, then extract one block); never
-read a whole file.
+This file may be read in full; every other docs file is block-only
+(`grep -F "## [@" <file>`, then extract one block).
 
 ## [@ui:README-ORDER] Read order
 
@@ -19,7 +16,7 @@ read a whole file.
    `npm run -s proto:shot -- <html> --regions` (Docker is not needed; view aid,
    not a gate) and compare each region with your baseline.
 1. **Group L** — `UI-RULES.md` `ui:UI-R39`..`ui:UI-R48`: layout and placement.
-   Below 700 px (split editor groups, down to the 320 px floor) also read **group E**
+   Below 700 px (split editor groups, down to the 320 px floor) also read **group R** (`ui:GROUP-E`)
    (`ui:UI-R49`..`ui:UI-R56`) and `RESPONSIVE-DENSITY.md` (tiers `ui:RD-TIERS`, ladders `ui:RD-LADDERS`).
 2. **Rules for the touched controls** — the other `UI-RULES.md` blocks, plus
    `UI-INVARIANTS.md` keys that apply.
@@ -84,6 +81,7 @@ END_DOC_BLOCK: [@ui:LEDGER-SHIFT]
 | `DESIGN-SYSTEM.md` | Tokens, primitives, layout primitives |
 | `STYLE-GUIDE.md` | Composition choices; `ui:SG-25` is the review checklist |
 | `UI-INVARIANTS.md` | Rationale, title keys, React views, Getting Started |
+| `V3-CONFORMANCE-GAPS.md` | Open v3.0 targets |
 | `ICONS.md` | Any icon |
 | `VISUAL-COVERAGE.md` | What the sweep and layout gate prove, and what is manual |
 | `KARST-UI-CATALOG.html` | Rendered reference of primitives |
@@ -91,13 +89,14 @@ END_DOC_BLOCK: [@ui:README-WHEN]
 
 ## [@ui:README-HISTORICAL] Historical — not guidance
 
-`V3-CONFORMANCE-GAPS.md`, `REMEDIATION-PLAN.md`, `inside-redesign-designer-handoff.md`
-and `.html`, `PRESETS-REDESIGN-PREVIEW.html`. Kept for history; do not follow them.
+`REMEDIATION-PLAN.md`, `inside-redesign-designer-handoff.md` and `.html`,
+`PRESETS-REDESIGN-PREVIEW.html`. Kept for history; do not follow them.
 END_DOC_BLOCK: [@ui:README-HISTORICAL]
 
 ## [@ui:README-VOCAB] Vocabulary shared with the layout gate
 
-Check letters a–i, width tiers ≥1000 / 700–999 / ≤699
+Check letters a–i, width tiers wide ≥1000 / mid 700–999 / narrow 400–699 /
+tight 320–399
 (`src/ui/layout/layoutBreakpoints.ts`), `data-region` landmarks, and the ledger
 above. If the gate code has not landed, these docs describe the contract it
 implements.

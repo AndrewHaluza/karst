@@ -67,11 +67,12 @@ A source grep is not accepted as proof of visual behavior that it cannot observe
 
 ## [@ui:UI-R01] No unapproved UI framework/runtime dependency
 
-Karst remains framework-free unless an explicit architecture decision approves a
-new frontend runtime or component dependency.
+React is the approved webview runtime (`CLAUDE.md` "UI/UX (binding)",
+`ui:REACT-VIEWS`). An explicit architecture decision is required to add any other
+runtime, component framework or dependency.
 
-Routine UI work must not add React, Vue, Tailwind, a component framework, or
-another frontend runtime dependency.
+Routine UI work must not add any other frontend runtime, component framework, CSS
+framework or global-state library (same rule as R-X7).
 
 **Verification:** STATIC
 
@@ -388,15 +389,12 @@ quieter tier is always an explicit opt-in:
 
 | Tier | For | At press | Reply > 400ms | Settle |
 |---|---|---|---|---|
-| `view` | view state, navigation (set-range, set-tab, open-dashboard, dismiss, refresh) | selection / `aria-pressed` moves; `aria-busy`, no disable | region progress line + dimmed data | nothing; failure reverts selection + error toast |
-| `mutation` (default) | host mutations (kill-server, measure-disk, create-manifest, attach-pick) | `aria-busy` + duplicate-click guard | spinner in the reserved leading icon slot | nothing; the result is the changed domain state |
+| `view` | view state, navigation (set-range, set-tab, open-dashboard, dismiss, refresh) | selection / `aria-pressed` moves; `aria-busy`, no disable | region progress line + dimmed data | nothing; failure shows an error toast and reverts selection when the control has one (actions with no selection, such as dismiss and refresh, show an error toast only) |
+| `mutation` (default) | host mutations (kill-server, measure-disk, create-manifest, attach-pick) | `aria-busy` + duplicate-click guard | spinner over the label or glyph | nothing; the result is the changed domain state |
 | `confirm` | action with no other visible result (copy-hash) | as `mutation` | as `mutation` | icon morphs to a check in place for 1.2s + role=status tip |
 
 The spinner is never visible before 400ms (a fast reply never flashes one) and,
 once visible, stays at least 500ms. `.is-success` is tier 3 only.
-
-The visible spinner is delayed 400ms and held 500ms once shown; `aria-busy` is set
-at activation regardless.
 
 **Verification:** RUNTIME
 
@@ -443,12 +441,8 @@ visible result), which shows an in-place check for 1.2s plus a role=status tip.
 A failure never passes through that presentation (UI-R15) and its error toast
 shows a Dismiss button and closes after 15 s (hover or focus pauses it; see `ui:11.17`).
 
-An unparsed message posts NOTHING: no action ran, so there is no outcome to
-report. One exception: a baseline decision message (`baseline-approve`,
-`baseline-approve-all`, `baseline-reject`) that the parse drops, with a valid
-`requestId`, posts an `action-result` with `ok: false` and a warning, because
-the user sent it from a pending button and that button settles only by
-`requestId`. The pump logs the message type, never the payload.
+An unparsed message posts nothing (view-specific exceptions:
+`ui:DASHBOARD-MIGRATION`).
 
 **Verification:** RUNTIME
 
@@ -572,9 +566,12 @@ target or neighboring primary controls enough to disrupt continued interaction.
 
 Avoid unnecessary accessible-name changes during the action.
 
-The spinner renders in a reserved leading icon slot (`.k-btn--slot`), so width and
-label stay fixed through idle→pending→settled; the tier-3 check morphs in the same
-slot.
+An idle button reserves no empty space. A text-only button draws the spinner (and
+the tier-3 check) in its centre over the label, which stays in the DOM but is not
+painted; a button with a glyph draws it in place of the glyph. A glyph written
+without `.k-btn--icon` (an inline `<svg>` inside a text-only button) is hidden
+while the spinner or check shows, so no icon paints under it. Width and
+accessible name stay fixed through idle→pending→settled.
 
 Label changes are allowed when intentional and accessible; they are not
 categorically forbidden.
@@ -783,7 +780,7 @@ Required mapping:
 
 - passed / done → green checkmark;
 - running → blue spinner;
-- needs attention / paused / blocked → amber pause icon;
+- needs attention / paused / blocked on the user → amber pause icon;
 - failed → red cross;
 - bypassed (every gate disabled for the ticket) → neutral ⊘ marker, never the
   green check (the stage advanced without proving a gate pass);
@@ -1056,7 +1053,8 @@ by a generic "no behavior change" rule.
 
 **Verification:** STATIC + RUNTIME
 
-**Check:** `npm test` and `npm run typecheck` pass, and behavior changes introduced
+**Check:** the UAT gates pass (in a ticket the gates run the tests scoped to the
+diff; see skill `gates-and-ci`), and behavior changes introduced
 by UI remediation have dedicated coverage.
 
 This rule also carries the presentation-contract statement: no rule in this
@@ -1077,11 +1075,10 @@ rule, so the search box and facet chips disappeared below the fold.
 
 **Verification:** STATIC + VISUAL
 
-**Check:** the list is the only `overflow-y:auto` container in the webview's main
-`<style>`; the shell (`body`) is `overflow:hidden` and fills the view
-(`html,body{height:100%}`); pinned blocks are `flex:0 0 auto`; the list is
-`flex:1` with `min-height:0`; visual review confirms the controls stay visible
-while the list scrolls.
+**Check:** each pane has one scroll container (UI-R45), and the controls that act
+on the list stay outside it (`flex:0 0 auto`); the scroller is `flex:1` with
+`min-height:0`; visual review confirms the controls stay visible while the list
+scrolls.
 END_DOC_BLOCK: [@ui:UI-R38]
 
 ---
@@ -1178,9 +1175,10 @@ Proximity is the grouping cue. Equal gaps make unrelated controls look related.
 STATIC confirms both come from `--k-space-*` tokens.
 END_DOC_BLOCK: [@ui:UI-R42]
 
-## [@ui:UI-R43] Layout holds at all three width tiers and never scrolls the page sideways
+## [@ui:UI-R43] Layout holds at every width tier and never scrolls the page sideways
 
-Width tiers are ≥1000, 700–999 and ≤699 px (`src/ui/layout/layoutBreakpoints.ts`).
+Width tiers are wide ≥1000, mid 700–999, narrow 400–699 and tight 320–399 px
+(`src/ui/layout/layoutBreakpoints.ts`).
 At ≤699 side-by-side regions stack and the detail view offers Back. A page never
 scrolls horizontally. Below the 320 px floor an editor webview keeps its 320 px layout and scrolls sideways (`--k-page-floor`); the sidebar webview opts out with `data-k-floor="off"`. The tiers bind new and changed pages (pinned via
 `BREAKPOINT_PINNED_FILES`); existing settings CSS (1024/768/800/700px) migrates
@@ -1193,7 +1191,7 @@ wide breaks in real use.
 
 **Check:** VISUAL checks (a), (f) and (g) run each page at one width per tier:
 no horizontal page scroll, the stack applies at ≤699, region order holds.
-See also: group E (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
+See also: group R (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
 END_DOC_BLOCK: [@ui:UI-R43]
 
 ## [@ui:UI-R44] Text wraps by default; truncation always has a reachable full text
@@ -1210,7 +1208,7 @@ mouse-only tooltip hides it from keyboard users.
 
 **Check:** VISUAL check (d) finds clipped text without a visible or
 keyboard-reachable full form.
-See also: group E (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
+See also: group R (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
 END_DOC_BLOCK: [@ui:UI-R44]
 
 ## [@ui:UI-R45] No overlap, no escape, at most one scroll region per pane
@@ -1225,7 +1223,7 @@ neighbours (see also UI-R38).
 
 **Check:** VISUAL checks (b), (c) and (c2) assert no box intersection, no box
 outside its region, and one scroll container per pane.
-See also: group E (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
+See also: group R (`ui:GROUP-E`) and `RESPONSIVE-DENSITY.md` for the 400 / 320 px tiers.
 END_DOC_BLOCK: [@ui:UI-R45]
 
 ## [@ui:UI-R46] Empty and loading states keep the layout
@@ -1284,7 +1282,7 @@ all 6 capped views (the dashboard in Centered mode) are ≤ their cap and center
 `tests/visual/contentCap.visual.ts` (layout gate checks a–i do not assert width).
 END_DOC_BLOCK: [@ui:UI-R48]
 
-## [@ui:GROUP-E] E. Responsive density
+## [@ui:GROUP-E] R. Responsive density
 
 Rules UI-R49..R56. Spec: `RESPONSIVE-DENSITY.md`. Evidence: `responsive-audit/README.md`. Extends group L (UI-R43..R48) down to 320 px.
 END_DOC_BLOCK: [@ui:GROUP-E]
@@ -1297,14 +1295,14 @@ Every webview region that changes layout with width declares `container-type: in
 
 **Verification:** STATIC + VISUAL
 
-**Check:** pinned-px test on `@container`/`@media` literals; layout gate at 1280/900/700/699/480/400/399/320.
+**Check:** pinned-px test on `@container`/`@media` literals; layout gate at the widths from `layoutWidthsFor()` in `src/ui/layout/layoutBreakpoints.ts`.
 END_DOC_BLOCK: [@ui:UI-R49]
 
 ## [@ui:UI-R50] Flexible tracks use minmax(0, …); fixed tracks never sum past the floor
 
 Grid tracks that hold text are `minmax(0, …)` or `1fr`. Fixed-px tracks are reserved for glyphs. The sum of fixed minimums in one row never exceeds 320 minus the page gutters.
 
-Audit offenders: dashboard `:954`, `:1013`, PresetsSection `240px 140px minmax(360px,1fr)`.
+Audit offenders: `src/ui/dashboard/app/InsideEvidence.css` (`#inside .gate-row`, `#inside .session-head`), `src/ui/settings/app/sections/PresetsSection.css` (`240px 140px minmax(360px,1fr)`).
 
 **Verification:** STATIC
 
@@ -1324,7 +1322,7 @@ END_DOC_BLOCK: [@ui:UI-R51]
 
 ## [@ui:UI-R52] Never-collapse list
 
-Primary action label, status glyphs, destructive action names, ticket id and form labels are never icon-only, hidden, ellipsised away or reachable only via tooltip at any tier. Destructive actions in a ⋯ menu are text.
+Primary action label, destructive action names, ticket id and form labels are never icon-only, hidden, ellipsised away or reachable only via tooltip at any tier. Status glyphs are icon-only by design (UI-R28b) and are never hidden, ellipsised away or moved into a menu at any tier. Destructive actions in a ⋯ menu are text.
 
 `ui:RD-NEVER`.
 
@@ -1346,7 +1344,7 @@ END_DOC_BLOCK: [@ui:UI-R53]
 
 ## [@ui:UI-R54] Overflow goes to ⋯, not to scroll
 
-When an action row does not fit, the lowest-priority actions move into one ⋯ menu (arrow-key navigable, Esc closes). The row never wraps into two ragged lines, scrolls horizontally, or hides actions without a path.
+When an action row does not fit, the lowest-priority actions move into one ⋯ menu (arrow-key navigable, Esc closes). The row never wraps into two ragged lines, scrolls horizontally, or hides actions without a path. Secondary buttons go icon-only before they go to ⋯ (`ui:RD-LADDERS`); only the icons that still do not fit move to ⋯.
 
 `ui:RD-LADDERS` action rows.
 
@@ -1431,26 +1429,31 @@ constant* only once R-X1's check covers it; the pinning tests stay until then).
 
 ### 9.2 Rules whose owner moves into one hook/component
 
-- **R11–R15, R17, R18 (async lifecycle)** → single `useHostMutation(kind)` hook.
-  It owns the pending → success/failure/unknown lifecycle, the per-mutation id,
-  duplicate-activation guard (R12), disabled-vs-loading distinction (R17), and
-  stable label/geometry (R18). Components cannot hand-roll pending state. Static
-  test: no `useState` named `*pending*|*loading*` outside the hook. Verification:
-  hook unit tests cover every transition, including unknown ≠ failure (R14) and
-  no premature success (R15).
-- **R14b recovery context** → drafts live in reducer state keyed by form, and are
-  cleared only on terminal success.
-- **R27 announcements** → one `<LiveRegion>` at root plus `announce()` from the
-  hook. A terminal result announces by construction.
-- **R26 ARIA reflects state** → ARIA attributes are derived from props inside
-  primitives. Setting `aria-*` imperatively is banned (no `setAttribute('aria-`
-  in the app).
-- **R09b interaction state stays on its owner** → satisfied structurally: state
-  lives in the owning component. Toggling classes through a
-  `document.querySelector` is banned in the app (static test).
-- **R07/R08 primitives** → `src/ui/settings/app/primitives/` is the only place
-  allowed to emit DS primitive classes (`k-btn`, `k-field`, `k-status`, …).
-  Static test greps `.tsx` outside that directory for those class names.
+Inside one view, pending state has one owner, and each view's
+`architecture.test.ts` guards the invariants that exist there:
+
+- **Settings:** `useHostMutation` and `src/ui/settings/app/primitives/` (React
+  import scope; no inline style/raw HTML; no index keys, imperative ARIA or
+  `document.querySelector`; no raw form controls or DS primitive classes outside
+  `primitives/`; no hand-rolled `pending`/`loading` `useState`).
+- **Dashboard:** `app/pendingOps.ts`, `usePendingAction.ts`, `usePrPending.ts`
+  (its `architecture.test.ts` guards R-X5/R-X6/R-X7: no raw HTML outside
+  `AgentIcon.tsx`/`Icon.tsx`; no index keys or `document.querySelector`; no
+  imperative style or ARIA except `stickyHeader.ts`. The Settings guards — raw form
+  controls, DS classes outside `primitives/`, hand-rolled pending state — do not
+  apply: the dashboard has no `primitives/`.)
+- **Resources:** `useHostAction.ts` plus the Settings `Button`, `LiveRegion` and
+  `useHostMutation` (same guards; one `acquireVsCodeApi()` in `main.tsx`; typed
+  sender only, no raw `.postMessage({`).
+- **Sidebar:** the design-system runtime (`karstBeginPending` / `karstSettle`)
+  (one `acquireVsCodeApi()` in `main.tsx`; no runtime host imports; raw HTML only
+  in `Icon.tsx`; file size < 400 lines).
+- **Shared React primitives:** `src/ui/shared/` (`Status.tsx`,
+  `TicketRefChip.tsx`, `PriorityChip.tsx`).
+
+R14b drafts live in reducer state keyed by form, cleared only on terminal
+success. Hooks and RUNTIME rules keep their unit tests, including unknown ≠
+failure (R14) and no premature success (R15).
 
 ### 9.3 Rules unchanged in substance (same check, new target)
 
@@ -1490,7 +1493,8 @@ needs at least one rendered-Settings test through `renderWebviewReady`. The
 cross-view RUNTIME sweep and VISUAL remain the final parity gate, and COMPONENT
 never substitutes for VISUAL.
 
-**Check:** `npm run test:unit` (settings suite), `npm run test:visual`, and the
+**Check:** `npm run test:unit` (settings suite), the docker visual sweep
+(`@ui:README-ORDER` step 5), and the
 e2e suite pass; the rendered-Settings tests run against the chain-mounted app
 (`renderWebviewReady('settings')`), never a test-only second mount.
 END_DOC_BLOCK: [@ui:APPX-V31]

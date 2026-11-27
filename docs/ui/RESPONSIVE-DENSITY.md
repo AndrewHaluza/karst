@@ -5,7 +5,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 -->
 # Responsive density spec (T764 / D240)
 
-Status: **proposal for user review**. No product code changes with this spec. Evidence: [`responsive-audit/README.md`](responsive-audit/README.md) (screenshots + `measurements.json`). Example: [`RESPONSIVE-DENSITY-EXAMPLE.html`](RESPONSIVE-DENSITY-EXAMPLE.html). Rules: UI-R49..R56 in `UI-RULES.md` group E.
+Status: **proposal for user review**. No product code changes with this spec. Evidence: [`responsive-audit/README.md`](responsive-audit/README.md) (screenshots + `measurements.json`). Example: [`RESPONSIVE-DENSITY-EXAMPLE.html`](RESPONSIVE-DENSITY-EXAMPLE.html). Rules: UI-R49..R56 in `UI-RULES.md` group R (`ui:GROUP-E`).
 
 Goal: every webview usable at 320 px (floor) with 3–4 editor groups on a 14" laptop (~1212 / 600 / 400 / 300 px panes), no sideways scroll (UI-R43), no clipped required information (UI-R44), no nested scroll (UI-R45).
 
@@ -86,8 +86,8 @@ Abbreviation reuses `model/tokenFormat.ts` `formatTokens` (never rounds non-zero
 
 | Class | wide | mid | narrow | tight |
 |---|---|---|---|---|
-| primary (`.k-btn.primary`) | icon + label | icon + label | icon + label | **label kept**, icon dropped if label > 60 % of width; wraps to full-width row |
-| secondary (`.k-btn`) | icon + label | icon + label | icon only + tooltip (while ≤ 3 in the row) | goes to ⋯ menu |
+| primary (`.k-btn.primary`) | icon + label | icon + label | icon + label | **label kept**; wraps to full-width row |
+| secondary (`.k-btn`) | icon + label | icon + label | icon only + tooltip (while ≤ 3 in the row) | icon only + tooltip (`ui:UI-R53`) |
 | destructive (`.k-btn.danger`) | icon + verb + noun | icon + verb + noun | icon + verb (`Delete`) | in ⋯ menu **as text** `Delete branch`; never icon-only |
 
 ### Action rows → ⋯ overflow (`k-actions`)
@@ -97,7 +97,7 @@ Abbreviation reuses `model/tokenFormat.ts` `formatTokens` (never rounds non-zero
 | wide | all, labelled | none |
 | mid | primary + up to 3 secondary labelled | rest |
 | narrow | primary + up to 2 secondary icon-only | rest |
-| tight | primary (label) + ⋯ | all secondary + destructive |
+| tight | primary (label) + secondary icon-only + ⋯ | destructive, and the secondary icons that do not fit |
 
 Order inside ⋯ equals DOM order; the primary is never inside ⋯ (`ui:RD-NEVER`). Keyboard: ⋯ is a `menu` button, arrow keys move, Esc closes (UI-R19).
 
