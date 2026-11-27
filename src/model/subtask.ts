@@ -96,7 +96,8 @@ export function canAddSubtask(parent: {
  * is the parent's leave-impl gate, a done sub-task is already leaving the
  * stack (a closed one is not: its work was never merged, so it may still leave
  * the stack and Reopen stays possible, T1391), a child with open children
- * would be rewritten out from under them, and Karst never rewrites a tree under a live agent.
+ * would be rewritten out from under them, and Karst never rewrites a tree
+ * under a live agent.
  *
  * `openChildren` is the count of this ticket's own non-archived direct
  * sub-tasks. Presentation derives from this so the dashboard never offers an
