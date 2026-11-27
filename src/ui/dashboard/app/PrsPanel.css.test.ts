@@ -7,8 +7,7 @@ import { fileURLToPath } from 'node:url';
 const CSS = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'PrsPanel.css'), 'utf8');
 
 describe('PrsPanel.css — guards moved with the rules', () => {
-  it('resolves the merged badge and timestamp to the shared series token', () => {
-    expect(CSS).toMatch(/\.pr \.pst-merged\{background:var\(--k-series-2\)/);
+  it('resolves the merged lead icon to the shared series token', () => {
     expect(CSS).toMatch(/\.pr-lead\.merged\{color:var\(--k-series-2\)/);
   });
 

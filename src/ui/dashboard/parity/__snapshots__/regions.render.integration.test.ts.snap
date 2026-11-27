@@ -1924,20 +1924,16 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
   <div.prrow>
     <div.krow.pr>
       <span.krow-lead>
-        <span.ok.pr-lead data-status="open">
+        <span.ok.pr-lead aria-label="Open pull request" data-status="open" role="img" title="Open pull request">
           <svg.k-icon aria-hidden="true">
       <div.krow-main>
         <span.prepo title="fixture:/repos/web"> "web"
         <span.pnum>
           <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" href="#" title="Open this pull request"> "#421"
-        <button.ib.k-iconbtn.t-copy.url-copy aria-label="Copy pull request URL" data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Copy pull request URL" type="button">
-          <svg.k-icon aria-hidden="true">
         <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/web" title="Pull request details" type="button">
           <svg.k-icon aria-hidden="true">
-        <span.k-chip.pst.pst-open> "open"
-        <span.k-chip.pck.pck-passing title="3 checks passed"> "3 passed"
+        <span#_r_1_.k-chip.pck.pck-passing title="3 checks passed"> "3 passed"
           <svg.k-icon aria-hidden="true">
-        <span.k-chip.pblock title> "blocked · 1 reason"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>
         <span.pacts>
@@ -1971,27 +1967,23 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
   <div.prrow>
     <div.krow.pr>
       <span.krow-lead>
-        <span.ok.pr-lead data-status="open">
+        <span.ok.pr-lead aria-label="Open pull request" data-status="open" role="img" title="Open pull request">
           <svg.k-icon aria-hidden="true">
       <div.krow-main>
         <span.prepo title="fixture:/repos/api"> "api"
         <span.pnum>
           <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/api/pull/88" href="#" title="Open this pull request"> "#88"
-        <button.ib.k-iconbtn.t-copy.url-copy aria-label="Copy pull request URL" data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/api/pull/88" title="Copy pull request URL" type="button">
-          <svg.k-icon aria-hidden="true">
         <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/api" title="Pull request details" type="button">
           <svg.k-icon aria-hidden="true">
-        <span.k-chip.pst.pst-open> "open"
-        <span.k-chip.pck.pck-failing title="1 failing"> "1 failing"
+        <span#_r_4_.k-chip.pck.pck-failing title="1 failing"> "1 failing"
           <svg.k-icon aria-hidden="true">
-        <span.k-chip.pblock title="merge conflicts"> "blocked · 1 reason"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="dismiss-pr" data-repo="fixture:/repos/api" title="Stop waiting on this pull request — it will never land" type="button"> "Dismiss"
-          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_2_" disabled title="merge conflicts" type="button"> "Merge"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_3_" disabled title="merge conflicts" type="button"> "Merge"
       <div.krow-sub>
-        <div#_r_2_.prblock data-state="blocked">
+        <div#_r_3_.prblock data-state="blocked">
           <div.prblock-head>
             <svg.k-icon aria-hidden="true">
             <b> "Merge blocked"
@@ -2008,14 +2000,12 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
   <div.dismissed.prrow>
     <div.krow.pr>
       <span.krow-lead>
-        <span.bad.pr-lead data-status="closed">
+        <span.bad.pr-lead aria-label="Closed pull request" data-status="closed" role="img" title="Closed pull request">
           <svg.k-icon aria-hidden="true">
       <div.krow-main>
         <span.prepo title="fixture:/repos/docs"> "docs"
         <span.pnum>
           <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/docs/pull/7" href="#" title="Open this pull request"> "#7"
-        <button.ib.k-iconbtn.t-copy.url-copy aria-label="Copy pull request URL" data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/docs/pull/7" title="Copy pull request URL" type="button">
-          <svg.k-icon aria-hidden="true">
         <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/docs" title="Pull request details" type="button">
           <svg.k-icon aria-hidden="true">
         <span.k-chip.pst.pst-closed> "closed"
@@ -2023,8 +2013,8 @@ exports[`dashboard region parity (DOM contract) > prs #prs · multi-repo: merge,
       <span.krow-trail>
         <span.pacts>
           <button.k-btn.k-btn--ghost.k-btn--sm.mgbtn data-act="undismiss-pr" data-repo="fixture:/repos/docs" title="Wait on this pull request again" type="button"> "Undo dismiss"
-          <span#_r_5_.pmreason> "awaiting review"
-          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_5_" disabled title="awaiting review" type="button"> "Merge"
+          <span#_r_8_.pmreason> "awaiting review"
+          <button.k-btn.k-btn--secondary.k-btn--sm.mgbtn aria-describedby="_r_8_" disabled title="awaiting review" type="button"> "Merge"
       <div.krow-sub>"
 `;
 
@@ -2035,18 +2025,14 @@ exports[`dashboard region parity (DOM contract) > prs #prs · one open PR awaiti
   <div.prrow>
     <div.krow.pr>
       <span.krow-lead>
-        <span.ok.pr-lead data-status="open">
+        <span.ok.pr-lead aria-label="Open pull request" data-status="open" role="img" title="Open pull request">
           <svg.k-icon aria-hidden="true">
       <div.krow-main>
         <span.prepo title="fixture:/repos/web"> "web"
         <span.pnum>
           <a data-act="open-pr" data-url="fixture:https://github.com/fixture-org/web/pull/421" href="#" title="Open this pull request"> "#421"
-        <button.ib.k-iconbtn.t-copy.url-copy aria-label="Copy pull request URL" data-act="copy-pr-url" data-copy data-url="fixture:https://github.com/fixture-org/web/pull/421" title="Copy pull request URL" type="button">
-          <svg.k-icon aria-hidden="true">
         <button.ib.k-iconbtn.pinfo-btn aria-expanded="false" aria-haspopup="dialog" aria-label="Pull request details" data-act="toggle-pr-info" data-repo="fixture:/repos/web" title="Pull request details" type="button">
           <svg.k-icon aria-hidden="true">
-        <span.k-chip.pst.pst-open> "open"
-        <span.k-chip.pblock title="awaiting review"> "blocked · 1 reason"
         <span.pstamp title="opened Aug 11, 2026, 2:04 PM"> "opened 2 days ago"
       <span.krow-trail>
         <span.pacts>

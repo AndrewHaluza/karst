@@ -12,19 +12,14 @@
 .pr .pwhy{font-size:var(--k-text-sm);color:var(--k-text-dim)}
 @container (max-width:520px){.pr{grid-template-columns:calc(var(--k-space-6) + var(--k-space-3)) minmax(0,1fr)}.pr .krow-trail{grid-column:2;justify-content:flex-start}}
 /* Built on `.k-chip` (UI-R08: the same pill primitive as keypill/fixtoggle/
-   approach .aid); only the monospace uppercase treatment stays local. Every
-   status renders one of the variants below, so the chip's own default fill
-   never shows in practice. */
+   approach .aid); only the monospace uppercase treatment stays local. Only the
+   two states a reader must notice keep a text chip (draft, closed); the lead
+   icon carries every other state (T1401, UI-R28). */
 .pr .pst{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);letter-spacing:.4px}
-/* Live PR state at a glance: open green, merged purple (the shared
-   categorical token, UI-R08), closed red, draft muted — every fill is paired
-   with the SAME "text on a filled surface" token the design system already
-   defines for success/danger (UI-R29: paired tokens, never a hand-picked
-   foreground). */
-.pr .pst-open{background:var(--k-success);color:var(--k-success-fg)}
-.pr .pst-merged{background:var(--k-series-2);color:var(--k-success-fg)}
+/* A text chip rides only the two states the reader must notice: draft and closed. Every other
+   state is the lead icon's shape + colour + accessible name (UI-R28); no chip repeats it. */
 .pr .pst-closed{background:var(--k-danger);color:var(--k-danger-fg)}
-.pr .pst-draft,.pr .pst-unknown{background:var(--k-text-faint);color:var(--k-success-fg)}
+.pr .pst-draft{background:var(--k-text-faint);color:var(--k-success-fg)}
 /* v60: the CI rollup and GitHub's refusal. Both are host-worded and host-
    counted (`p.checks`, `p.mergeBlockLabel`); these rules only paint them, and
    every fill pairs with the "text on a filled surface" token the vocabulary
@@ -36,8 +31,6 @@
 /* Stale (T1217): the last known counts of the previous commit. Dimmed, same size; the cue is text, so it does not rely on colour (UI-R28). */
 .pr .pck-stale{opacity:.6}
 .pr .pck-cue{margin-left:var(--k-space-1);font-style:italic}
-.pr .pwait{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);letter-spacing:.4px;background:transparent;color:var(--k-running);box-shadow:inset 0 0 0 var(--k-border-w) var(--k-running)}
-.pr .pblock{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);letter-spacing:.4px;background:var(--k-danger);color:var(--k-danger-fg)}
 /* The PR number IS the open control (UI-R09c): an underlined link-coloured
    anchor, keyboard-focusable, in the same visual language as the ship view's
    `pr-link`. With no recorded URL it degrades to plain text — a link that
