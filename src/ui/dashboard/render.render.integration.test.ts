@@ -46,12 +46,14 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('paints the prefixed id in the header, the origin line and each sub-task row', async () => {
+  it('paints the prefixed id in the header, the planning-session link and each sub-task row', async () => {
     const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: populatedStateFor('impl') });
     await drainReactWork(h);
     expect(h.query('#idBadge')!.textContent).toMatch(/^T\d+$/);
-    expect(h.query('#parentRef')!.textContent).toContain('from D88 (P17)');
+    // T1400: the session is the row-1 `P17` link, not row-2 text.
+    expect(h.query('#planLink')!.textContent).toBe('P17');
+    expect(h.query('#parentRef')!.textContent).not.toContain('from D');
     expect(h.queryAll('.subtask .k-id').map((e) => e.textContent)).toEqual(['T942018', 'T942019', 'T942020']);
     h.close();
   });
