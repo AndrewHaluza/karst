@@ -29,6 +29,10 @@ import { sessionQuotaLine } from '../../model/quotaText.js';
  * no gate, sync or service of the ticket runs on the host (`@arch:AC-36`).
  * `hasSandbox` is true and `probeSandbox` is `unknown`: an unreadable remote
  * never proves that the ticket has no sandbox (`@arch:AC-39`). It runs no ssh.
+ *
+ * The `mode: docker` remote ops are refused here too (D822), so an unsafe
+ * control dir or an unusable remote closes the setup window, the port relays,
+ * the service env files and the host-service allow — never a host action.
  */
 export function blockedSshRunner(reason: string): SessionRunner {
   const refused = (): { readonly ok: false; readonly reason: string } => ({ ok: false, reason });
@@ -57,6 +61,17 @@ export function blockedSshRunner(reason: string): SessionRunner {
     rebuild: refusedDispose,
     oomReport: async () => reason,
     runGate: async () => ({ kind: 'spawnFailed', message: reason, output: reason }),
+    // `mode: docker` remote ops (D822): refused, so no setup window, port relay
+    // or service env file is ever attempted for a remote that cannot be used.
+    setupWindow: async () => ({ ok: false, reason }),
+    canHostServices: async () => false,
+    stopServices: async () => undefined,
+    publishPort: async () => ({ ok: false, reason, portTaken: false }),
+    unpublishPort: async () => undefined,
+    listPorts: async () => null,
+    allowHostPorts: async () => refused(),
+    writeServiceEnv: async () => thrown(),
+    removeServiceEnv: async () => undefined,
   };
 }
 

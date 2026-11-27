@@ -57,6 +57,13 @@ export interface ResolveBackendInput {
   readonly installId?: string;
   /** Test seam for `resolveSsh` (the ssh process, preflight, clone and trust steps). */
   readonly ssh?: SshResolveDeps;
+  /**
+   * Raises the caller's own launch bound (`boundedBackendStep`). A cold remote
+   * image build runs here and names its longer bound, so the 180 s guard does
+   * not kill a healthy first launch (and never leaves the build running as an
+   * orphan behind a discarded step).
+   */
+  readonly extendBackendStep?: (ms: number) => void;
 }
 
 /** Why a launch's account cannot run in the sandbox, as data: callers never parse `line`. */
@@ -86,9 +93,18 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   const backend = backendForCore(input.backends, input.core);
   if (backend === 'host') return onHost(`agentBackends.${input.core}: host`);
   const sshRemote = isSshBackend(backend) ? parseSshBackend(backend) : undefined;
+  const remoteDef = sshRemote !== undefined ? input.remotes?.[sshRemote] : undefined;
   // @arch:AC-55: a command account is a host binary; a sandbox cannot run it.
+  // `mode: docker` copies a folder account's credentials INTO the isolated
+  // container, so it follows the docker rule; `mode: direct` has only the
+  // remote's own login (D555/D822).
   const accountBlock = (ACCOUNT_CORES as readonly string[]).includes(input.core)
-    ? sandboxAccountBlock(input.core as AccountCore, input.account, sshRemote !== undefined ? 'ssh' : backend === 'sbx' ? 'sbx' : 'docker', input.oauth?.tokenAccounts)
+    ? sandboxAccountBlock(
+        input.core as AccountCore,
+        input.account,
+        sshRemote !== undefined ? (remoteDef?.mode === 'docker' ? 'docker' : 'ssh') : backend === 'sbx' ? 'sbx' : 'docker',
+        input.oauth?.tokenAccounts,
+      )
     : undefined;
   if (accountBlock) {
     return { ...onHost(accountBlock), blocked: { kind: 'account', reason: accountBlock } };
@@ -102,7 +118,14 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
       remoteName: sshRemote, remotes: input.remotes, remoteTrusted: input.remoteTrusted, core: input.core,
       projectRoot: input.projectRoot, installId: input.installId, ticketId: input.ticketId,
       worktree: input.worktree,
-      ...(input.ssh ? { deps: input.ssh } : {}),
+      ...(input.account !== undefined ? { account: input.account } : {}),
+      ...(input.sandboxMemory !== undefined ? { sandboxMemory: input.sandboxMemory } : {}),
+      // The declared baseline host ports: `mode: docker` refuses them (D823),
+      // `mode: direct` ignores them (it has no proxy).
+      ...(input.docker?.hostPorts !== undefined ? { hostPorts: input.docker.hostPorts } : {}),
+      ...(input.ssh !== undefined || input.extendBackendStep !== undefined
+        ? { deps: { ...(input.ssh ?? {}), ...(input.extendBackendStep !== undefined ? { extendDeadline: input.extendBackendStep } : {}) } }
+        : {}),
     });
     if (!out.ok) return onHost(out.reason);
     return {

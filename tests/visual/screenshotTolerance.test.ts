@@ -57,7 +57,7 @@ const PAGE_AREA_LARGEST = 7_530_240;
 const OLD_PAGE_ALLOWANCE_PX = 400;
 
 /** PAGE_KNOWN_DRIFT is a ratchet: lower this count when an entry goes, never raise it. */
-const KNOWN_DRIFT_ENTRIES = 56;
+const KNOWN_DRIFT_ENTRIES = 55;
 
 /** PAGE_SUBTLE_DRIFT is a ratchet too: lower this count when a key goes, never raise it. */
 const SUBTLE_DRIFT_ENTRIES = 16;

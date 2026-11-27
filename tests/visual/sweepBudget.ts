@@ -70,7 +70,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1400 (@ui:UI-R57): the planning session link's hover card — `header-planning-card` at wide/mid/narrow (focus
   //   opens it at 0 ms) and the tight twin's ⋯ menu, 4 x 1 theme (dark) (+4 screenshots); skipLayout, because the page
   //   is the running dashboard whose header CSS every existing layout route already measures (as T1396 above).
-  dashboard: { screenshots: 368, layout: 864 },
+  // T1401 (@ui:UI-R57): panel-pr-checks-pending-wide — an open PR waiting on pending checks alone
+  //   (no status chip, no wait/blocked chip, no readiness box) beside a draft that keeps its chip.
+  //   1 theme (dark), wide only (+1 screenshot); skipLayout, because the panel routes already measure the page.
+  dashboard: { screenshots: 369, layout: 864 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

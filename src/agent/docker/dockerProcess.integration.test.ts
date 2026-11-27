@@ -23,4 +23,23 @@ describe('NODE_DOCKER_PROCESS.pipe (real child processes)', () => {
     );
     expect(missing.fromCode).toBe(127);
   });
+
+  it('kills both ends at the caller\'s bound and on abort, so neither outlives the step', async () => {
+    // A remote image build names its own (long) bound; the default 60 s would SIGKILL it.
+    const timed = await NODE_DOCKER_PROCESS.pipe(
+      { command: node, args: ['-e', 'setTimeout(() => undefined, 60000)'] },
+      { command: node, args: ['-e', 'process.stdin.resume(); setTimeout(() => undefined, 60000)'] },
+      { timeoutMs: 100 },
+    );
+    expect(timed).not.toEqual({ fromCode: 0, toCode: 0 });
+
+    const controller = new AbortController();
+    const aborted = NODE_DOCKER_PROCESS.pipe(
+      { command: node, args: ['-e', 'setTimeout(() => undefined, 60000)'] },
+      { command: node, args: ['-e', 'process.stdin.resume(); setTimeout(() => undefined, 60000)'] },
+      { signal: controller.signal },
+    );
+    controller.abort();
+    expect(await aborted).not.toEqual({ fromCode: 0, toCode: 0 });
+  });
 });

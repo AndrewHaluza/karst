@@ -121,6 +121,35 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
   });
 });
 
+describe('docker runner gates: remote env file (T1399)', () => {
+  const ENV_FILE = '/karst/ws/env/gate.env';
+
+  it('passes gateOpts.envFile into the docker exec argv, and nothing when absent', async () => {
+    const execProc = fakeDockerProcess(RUNNING);
+    const execGate = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
+    const runner = createDockerSessionRunner({ ...base, proc: execProc, gateProcess: execGate });
+    await runner.runGate!('npm', ['test'], '/w/t7', { envFile: ENV_FILE });
+    expect(execGate.mock.calls[0]![1]).toEqual(
+      expect.arrayContaining(['--env-file', ENV_FILE]),
+    );
+    const plain = createDockerSessionRunner({ ...base, proc: fakeDockerProcess(RUNNING), gateProcess: execGate });
+    await plain.runGate!('npm', ['test'], '/w/t7');
+    expect(execGate.mock.calls[1]![1]).not.toContain('--env-file');
+  });
+
+  it('passes gateOpts.envFile into a one-shot gate container argv', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false\n' } });
+    const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
+    const runner = createDockerSessionRunner({ ...base, proc, gateProcess });
+    await runner.runGate!('npm', ['test'], '/w/t7', { envFile: ENV_FILE });
+    const argv = gateProcess.mock.calls[0]![1];
+    const at = argv.indexOf('--env-file');
+    expect(at).toBeGreaterThan(0);
+    expect(argv[at + 1]).toBe(ENV_FILE);
+    expect(argv.slice(-2)).toEqual(['npm', 'test']);
+  });
+});
+
 describe('docker canHostServices (review fix #109, T-B F15)', () => {
   it('is true while the interactive container runs, without starting a service container', async () => {
     const proc = fakeDockerProcess(RUNNING);

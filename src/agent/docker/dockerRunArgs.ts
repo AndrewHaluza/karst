@@ -26,14 +26,46 @@ const XDG_DIRS: Readonly<Record<string, string>> = {
   XDG_STATE_HOME: 'state',
 };
 
-/** The v2 XDG dirs inside the container, on the data volume so credentials persist. */
-export function containerXdgEnv(): Record<string, string> {
+/**
+ * The XDG remap of ONE core, inside the container.
+ *
+ * opencode v2 keeps every dir under `${CONTAINER_DATA}/xdg/…` (its isolated
+ * store, whose values persist on the data volume). opencode V1's own data dir
+ * IS `${CONTAINER_DATA}`: the app appends `/opencode` to `XDG_DATA_HOME`, and
+ * that is exactly where `seedOpencode1Credentials` writes `auth.json`. A v1
+ * launch under a folder/managed account (whose adapter env carries the HOST
+ * `XDG_DATA_HOME`) must therefore resolve to `${CONTAINER_HOME}/.local/share`,
+ * never to the v2 `xdg/data` subtree — that would launch it signed out.
+ */
+export function containerXdgEnv(core: DockerRunnerCore): Record<string, string> {
+  if (core === 'opencode') {
+    return {
+      XDG_DATA_HOME: `${CONTAINER_HOME}/.local/share`,
+      XDG_CONFIG_HOME: `${CONTAINER_HOME}/.config`,
+      XDG_CACHE_HOME: `${CONTAINER_HOME}/.cache`,
+      XDG_STATE_HOME: `${CONTAINER_HOME}/.local/state`,
+    };
+  }
   return Object.fromEntries(Object.entries(XDG_DIRS).map(([key, dir]) => [key, `${CONTAINER_DATA}/xdg/${dir}`]));
 }
 
+/**
+ * `--user` + a private tmpfs HOME for the container's user.
+ *
+ * `--env HOME` is not optional: a uid that is not in the image's `/etc/passwd`
+ * (the normal case for a remote login uid, e.g. 1001) makes runc fall back to
+ * `HOME=/`, where opencode v1 would look for `/.local/share/opencode/auth.json`
+ * instead of the seeded `/home/node/.local/share/opencode/auth.json`, and every
+ * cache/config write under `/` fails closed. The image's own `node` user already
+ * has this home; naming it makes the two cases identical.
+ */
 export function userArgs(user: LinuxUser | undefined): string[] {
   if (!user) return [];
-  return ['--user', `${user.uid}:${user.gid}`, '--tmpfs', `${CONTAINER_HOME}:uid=${user.uid},gid=${user.gid},mode=0700`];
+  return [
+    '--user', `${user.uid}:${user.gid}`,
+    '--env', `HOME=${CONTAINER_HOME}`,
+    '--tmpfs', `${CONTAINER_HOME}:uid=${user.uid},gid=${user.gid},mode=0700`,
+  ];
 }
 
 export const HARDENING = ['--cap-drop', 'ALL', '--security-opt', 'no-new-privileges'];
@@ -79,19 +111,48 @@ export function withoutHostAccountDirs(env: Readonly<Record<string, string>>): R
 }
 
 /**
- * `--env` flags for the adapter's env. Host XDG paths (opencode2's isolated
- * store) are remapped onto the data volume, with their value in the argv:
- * a container path is no secret. Every other key is passed BY NAME, so its
- * value comes from the docker client's own env and never lands in the argv
- * (`ps`, `docker inspect` of the client). Terminal type keys ride along.
+ * `--env` flags for the adapter's env. Host XDG paths (an account's isolated
+ * store, or the opencode2 one) are remapped onto the container's store for
+ * THIS core, with their value in the argv: a container path is no secret.
+ * Every other key is passed BY NAME, so its value comes from the docker
+ * client's own env and never lands in the argv (`ps`, `docker inspect` of the
+ * client). Terminal type keys ride along.
  */
-export function envArgs(env: Readonly<Record<string, string>>): string[] {
-  const xdg = containerXdgEnv();
+export function envArgs(env: Readonly<Record<string, string>>, core: DockerRunnerCore): string[] {
+  const xdg = containerXdgEnv(core);
   const flags: string[] = [];
   for (const key of Object.keys(withoutHostAccountDirs(env)).sort()) {
     flags.push('--env', key in xdg ? `${key}=${xdg[key]!}` : key);
   }
   for (const entry of [...PROXY_ENV, 'TERM', 'COLORTERM']) flags.push('--env', entry);
+  return flags;
+}
+
+/** `--env-file` is read by the docker CLIENT, so its path can inject nothing but must still be one argv token. */
+function checkEnvFile(envFile: string): string {
+  if (/[\n\r]/.test(envFile)) throw new Error(`docker: unsafe env file path ${JSON.stringify(envFile)}`);
+  return envFile;
+}
+
+/**
+ * `--env` flags for a REMOTE daemon (`mode: docker`): the docker client there
+ * reads `<remote>/env/docker.env`, so values live in that file (0600, written
+ * over stdin) and the argv carries only:
+ *
+ * - the XDG remaps in value form (a container path is no secret), and
+ * - `PROXY_ENV` (fixed literals that must exist before the agent's own env
+ *   does; today the proxy URL and NO_PROXY).
+ *
+ * ZERO by-name flags: a name has nothing to resolve when the client's env is
+ * not the agent's env — the file is the one channel. TERM/COLORTERM ride there too.
+ */
+function envFileArgs(env: Readonly<Record<string, string>>, envFile: string, core: DockerRunnerCore): string[] {
+  const xdg = containerXdgEnv(core);
+  const flags: string[] = ['--env-file', checkEnvFile(envFile)];
+  for (const key of Object.keys(withoutHostAccountDirs(env)).sort()) {
+    if (key in xdg) flags.push('--env', `${key}=${xdg[key]!}`);
+  }
+  for (const entry of PROXY_ENV) flags.push('--env', entry);
   return flags;
 }
 
@@ -131,6 +192,12 @@ export interface InteractiveArgsInput {
   readonly bridgeDir?: string;
   /** Resolved memory limits (arch:AC-33); absent = no memory flags. */
   readonly memory?: DockerMemoryLimits;
+  /**
+   * Remote (`mode: docker`): the env file on the remote host that carries the
+   * launch env, mounted with `--env-file`. Absent on the local backend, whose
+   * argv stays byte-identical (`envArgs`).
+   */
+  readonly envFile?: string;
 }
 
 /**
@@ -205,7 +272,8 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
     '--network', input.names.network, ...HARDENING,
     ...memoryArgs(input.memory?.interactiveMemory, input.memory?.interactiveReservation),
     ...volumeMounts(input.names), ...auth, ...bridge, ...gemini, ...userArgs(input.user),
-    ...envArgs(input.env), '--workdir', CONTAINER_REPO,
+    ...(input.envFile !== undefined ? envFileArgs(input.env, input.envFile, input.core) : envArgs(input.env, input.core)),
+    '--workdir', CONTAINER_REPO,
     OPENCODE_IMAGE, ...launch,
   ];
 }
@@ -227,9 +295,12 @@ export function headlessExecArgs(
   command: string,
   args: readonly string[],
   env: Readonly<Record<string, string>> = {},
+  /** Remote: the env file the remote docker client reads (`--env-file`); absent on the local backend. */
+  envFile?: string,
 ): string[] {
   // Only karst-made, non-secret values (a container path) ride here as `K=V`.
   const envFlags = Object.entries(withoutHostAccountDirs(env)).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+  if (envFile !== undefined) envFlags.push('--env-file', checkEnvFile(envFile));
   return [
     'exec', '--interactive', ...envFlags, '--workdir', CONTAINER_REPO, container,
     'sh', '-c', PID_SCRIPT, 'karst-run', checkRunId(runId), command, ...args,
@@ -258,8 +329,11 @@ export function gateRunArgs(
   args: readonly string[],
   env: Readonly<Record<string, string>>,
   memory?: DockerMemoryLimits,
+  /** Remote: the env file the remote docker client reads (`--env-file`); absent on the local backend. */
+  envFile?: string,
 ): string[] {
   const envFlags = Object.entries(withoutHostAccountDirs(env)).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+  if (envFile !== undefined) envFlags.push('--env-file', checkEnvFile(envFile));
   return [
     'run', '--rm', ...REAPER, '--name', runName, '--network', names.network, ...HARDENING,
     ...memoryArgs(memory?.gateMemory, memory?.gateReservation),

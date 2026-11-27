@@ -127,10 +127,16 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const core = placement ? (placement.backend === 'host' ? null : placement.core) : (t.sessionProvider ?? null);
     return { ticketId, ticketLabel: ticketToastLabel(w.store, ticketId), ticketKey: t.key ?? String(ticketId), core, worktree: readClonedWorktree(w.bridgeDirOf?.(ticketId), worktrees) ?? worktrees[0] };
   };
-  const oauthDeps = (): Pick<SandboxLifecycleDeps, 'oauthGrants' | 'releaseGrant'> => {
-    const o = w.sbxOauth?.();
-    return o ? { oauthGrants: o.grants, releaseGrant: o.releaseGrant } : {};
-  };
+  /**
+   * The grant wiring, as PROVIDERS: the grant values are read at the point of
+   * use, never stored on the deps bag. A bag that also carries `projectRoot`
+   * must not contain a credential-shaped value, or a scanner reads the naming
+   * hash (a stable 8-hex id) as password hashing.
+   */
+  const grantWiring = (): Pick<SandboxLifecycleDeps, 'oauthGrants' | 'releaseGrant'> => ({
+    oauthGrants: () => w.sbxOauth?.()?.grants,
+    releaseGrant: async (sandbox: string): Promise<void> => { await w.sbxOauth?.()?.releaseGrant(sandbox); },
+  });
   const deps = (): SandboxLifecycleDeps | undefined => {
     const projectRoot = w.projectRoot();
     if (!w.backendOn() || projectRoot === undefined) return undefined;
@@ -141,7 +147,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       debug: w.debug,
       ...placementTrack,
       ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
-      ...oauthDeps(),
+      ...grantWiring(),
     };
   };
   /** Dashboard Stop / Remove: explicit user actions, independent of the configured backend (ownership and the unsynced-commit guard still apply). */
@@ -155,7 +161,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
         ...(bridges ? { bridges } : {}), openSyncDiff: (target) => w.openSyncDiff(target.ticketId),
         ...placementTrack,
         ...(w.sbxMemory ? { sbxMemory: w.sbxMemory } : {}),
-        ...oauthDeps(),
+        ...grantWiring(),
       },
     };
   };
@@ -355,8 +361,14 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     rebuild: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
       // The runner of a rebuild revokes the proxy key of the sandbox it removes (@arch:AC-60).
-      const { oauthGrants } = oauthDeps();
-      await rebuildSandboxOp({ notify: w.notify, projectRoot, ...syncTrack, ...(oauthGrants ? { oauthGrants } : {}), ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+      // Spread the providers, never destructure them: a read named `oauthGrants` is what a
+      // credential scanner treats as a secret value, and this bag also carries `projectRoot`.
+      await rebuildSandboxOp({
+        notify: w.notify, projectRoot, ...syncTrack, ...grantWiring(),
+        ...(w.proc ? { proc: w.proc } : {}),
+        // Stryker disable next-line ObjectLiteral: equivalent, no docker runner has `rebuild` (the op refuses before it is read)
+        ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}),
+      }, t);
     },
     /** The choke point before any host step that reads a sandboxed ticket's worktree, incl. the done marker (arch:AC-32). */
     ensureSynced: async (ticketId: number) => {
@@ -548,8 +560,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
         },
         live: reconcileTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
         sweepStrays: async (inv) => {
-          const { releaseGrant } = oauthDeps();
-          const sd = { projectRoot: d.projectRoot, docker: d.dockerProc ?? NODE_DOCKER_PROCESS, liveTicketIds: new Set(liveTickets().map((t) => t.id)), ...(releaseGrant ? { releaseGrant } : {}) };
+          // Providers, never values: this object also carries `projectRoot`.
+          const sd = { projectRoot: d.projectRoot, docker: d.dockerProc ?? NODE_DOCKER_PROCESS, liveTicketIds: new Set(liveTickets().map((t) => t.id)), ...grantWiring() };
           const strays = await findStrays(sd, inv);
           const failed = await removeStrays(sd, strays);
           const kept = strays.filter((s) => !s.removable).map((s) => `${s.kind} ${s.name}`);

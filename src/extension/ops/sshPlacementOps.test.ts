@@ -51,6 +51,19 @@ describe('blockedSshRunner (D826)', () => {
     expect(await runner.hasSandbox!()).toBe(true);
     expect(await runner.probeSandbox!()).toEqual({ state: 'unknown', reason: REASON });
   });
+
+  it('refuses every docker remote op too (D822), with no host action', async () => {
+    const runner = blockedSshRunner(REASON);
+    expect(await runner.setupWindow!(['registry.npmjs.org'])).toEqual({ ok: false, reason: REASON });
+    expect(await runner.canHostServices!()).toBe(false);
+    expect(await runner.stopServices!()).toBeUndefined();
+    expect(await runner.publishPort!({ hostPort: 3000, sandboxPort: 3000 })).toEqual({ ok: false, reason: REASON, portTaken: false });
+    expect(await runner.unpublishPort!({ hostPort: 3000, sandboxPort: 3000 })).toBeUndefined();
+    expect(await runner.listPorts!()).toBeNull();
+    expect(await runner.allowHostPorts!([3000])).toEqual({ ok: false, reason: REASON });
+    await expect(runner.writeServiceEnv!('svc', { A: '1' })).rejects.toThrow(REASON);
+    expect(await runner.removeServiceEnv!('svc')).toBeUndefined();
+  });
 });
 
 describe('liveRemoteSession (D555 recovery)', () => {

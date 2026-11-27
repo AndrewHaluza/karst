@@ -126,10 +126,10 @@ export function PrInfo({ p, open, onToggle }: PrInfoProps) {
           <Fact label="Merge" value={p.mergeBlockedReason} />
           {p.url ? (
             <div className="pinfo-foot">
+              <CopyUrl url={p.url} label="Copy URL" />
               <OpenLink url={p.url} title="Open this pull request on GitHub">
                 Open on GitHub
               </OpenLink>
-              <CopyUrl url={p.url} label="Copy URL" />
             </div>
           ) : null}
         </div>

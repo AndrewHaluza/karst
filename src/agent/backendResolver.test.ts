@@ -6,6 +6,7 @@ import { fakeSshProcess } from './ssh/fakeSshProcess.js';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
 import type { RemoteDef } from '../manifest/types.js';
 import type { SshPreflightFacts, SshPreflightResult } from './ssh/sshPreflight.js';
+import type { SshResolveDeps } from './ssh/resolveSsh.js';
 
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -161,6 +162,23 @@ function sshDeps(ssh: ReturnType<typeof fakeSshProcess>, over: { readonly prefli
   };
 }
 
+/** The `mode: docker` seams (D822): every remote step is faked; nothing here touches a daemon. */
+function dockerSshDeps(ssh: ReturnType<typeof fakeSshProcess>, over: Partial<SshResolveDeps> = {}): SshResolveDeps {
+  return {
+    ...sshDeps(ssh),
+    preflight: async () => ({ ok: true as const, facts: { ...SSH_FACTS, docker: '27.0.3' }, warnings: [] }),
+    ensureAssets: async () => ({ ok: true as const }),
+    dockerPreflight: async () => ({ ok: true as const }),
+    prepareDocker: async () => ({ ok: true as const }),
+    egressProbe: async () => ({ ok: true as const }),
+    hostAuthFile: async () => undefined,
+    opencode2Host: () => ({ command: 'opencode2', env: {} }),
+    ...over,
+  };
+}
+
+const DOCKER_BASE = { ...base, core: 'opencode', backends: { opencode: 'ssh:devbox' as const }, remotes: { devbox: { ...SSH_REMOTE, mode: 'docker' as const } }, installId: 'install1', remoteTrusted: () => true, worktree };
+
 describe('resolveBackend ssh backend (D555)', () => {
   afterEach(() => resetAccounts());
   const sshBase = { ...base, core: 'claude', backends: { claude: 'ssh:devbox' as const }, remotes: { devbox: SSH_REMOTE }, installId: 'install1', remoteTrusted: () => true, worktree };
@@ -181,10 +199,35 @@ describe('resolveBackend ssh backend (D555)', () => {
     expect(out.line).toBe('host (ssh devbox: git not found)');
   });
 
-  it('docker mode is the host placeholder, with no ssh call', async () => {
+  it('docker mode: an egress failure falls back to the host with the reason', async () => {
     const ssh = fakeSshProcess();
-    const out = await resolveBackend({ ...sshBase, remotes: { devbox: { ...SSH_REMOTE, mode: 'docker' } }, ssh: sshDeps(ssh) });
-    expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: 'host (ssh docker mode not available yet)' });
+    const out = await resolveBackend({
+      ...DOCKER_BASE,
+      ssh: dockerSshDeps(ssh, { egressProbe: async () => ({ ok: false, reason: 'direct IPv6 egress succeeded' }) }),
+    });
+    expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: 'host (ssh docker egress not enforced: direct IPv6 egress succeeded)' });
+  });
+
+  it('docker mode: a verified remote daemon resolves to an ssh runner that enforces the sandbox', async () => {
+    const out = await resolveBackend({ ...DOCKER_BASE, ssh: dockerSshDeps(fakeSshProcess()) });
+    expect(out.runner.kind).toBe('ssh');
+    expect(out.runner.enforcesSandbox).toBe(true);
+    expect(out.runner.autonomous).toBe(true);
+    expect(out.line).toMatch(/^ssh \(devbox\/karst-[0-9a-f]{8}-7-opencode\)$/);
+    expect(out.blocked).toBeUndefined();
+  });
+
+  it('docker mode: a folder account is allowed (its credentials go into the container), not the ssh rule', async () => {
+    configureAccounts({ opencode: { active: 'work', list: { work: { kind: 'subscription', source: 'folder', dir: '/h/work' } } } });
+    const out = await resolveBackend({ ...DOCKER_BASE, ssh: dockerSshDeps(fakeSshProcess()) });
+    expect(out.blocked).toBeUndefined();
+    expect(out.runner.kind).toBe('ssh');
+  });
+
+  it('docker mode: a declared baseline host port is refused before any ssh call (D823)', async () => {
+    const ssh = fakeSshProcess();
+    const out = await resolveBackend({ ...DOCKER_BASE, docker: { hostPorts: [5432] }, ssh: dockerSshDeps(ssh) });
+    expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: 'host (ssh docker mode: host services are not supported)' });
     expect(ssh.calls).toHaveLength(0);
     expect(ssh.stdinCalls).toHaveLength(0);
   });

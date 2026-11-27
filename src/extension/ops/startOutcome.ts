@@ -54,21 +54,37 @@ export type BackendStep<T> = { readonly kind: 'done'; readonly value: T } | { re
  * Bounds the pre-launch backend step. On timeout the caller gets `timed-out`
  * and must not launch; a result that arrives later goes to `onLate` only, so
  * the timed-out attempt can never start a second session.
+ *
+ * `work` may RAISE the bound: a step that names its own longer bound (a cold
+ * remote image build compiles the image on the daemon) calls `extend(ms)`; the
+ * timer is re-armed from that moment, so the guard does not kill a healthy but
+ * slow first launch. An already timed-out step ignores `extend`.
  */
 export async function withBackendTimeout<T>(
-  work: () => Promise<T>,
+  work: (extend: (ms: number) => void) => Promise<T>,
   ms: number,
   onLate: (value: T) => void,
 ): Promise<BackendStep<T>> {
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const pending = work();
+  let expire: () => void = () => undefined;
   const timeout = new Promise<BackendStep<T>>((resolve) => {
-    timer = setTimeout(() => {
+    expire = () => {
       timedOut = true;
       resolve({ kind: 'timed-out' });
-    }, ms);
+    };
   });
+  /**
+   * (Re)arm the bound. A step the guard already gave up on must not arm another
+   * timer: its result is discarded anyway, and a late timer would outlive it.
+   */
+  const rearm = (nextMs: number): void => {
+    if (timedOut) return;
+    clearTimeout(timer);
+    timer = setTimeout(expire, nextMs);
+  };
+  rearm(ms);
+  const pending = work(rearm);
   const done = pending.then((value): BackendStep<T> => {
     if (timedOut) {
       onLate(value);
@@ -79,7 +95,7 @@ export async function withBackendTimeout<T>(
   try {
     return await Promise.race([done, timeout]);
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
     // A late rejection after timeout is already handled by the race; keep it quiet.
     pending.catch(() => {});
   }
@@ -123,10 +139,15 @@ export function makeStartGuards(deps: StartGuardsDeps) {
       deps.log(`open session ${ticketId}: not launched: ${reason}`);
       return { kind: 'failed', reason };
     },
-    /** Bounds the backend step; a late result is logged, never launched, and handed to `discard` (it frees what the step took, such as a proxy key). */
-    async boundedBackendStep<T>(ticketId: number, label: string, work: () => Promise<T>, discard?: (late: T) => Promise<void>): Promise<T> {
+    /**
+     * Bounds the backend step; a late result is logged, never launched, and handed to `discard` (it frees what the step took, such as a proxy key).
+     *
+     * `work` receives `extend`: a step that names its own longer bound (a cold
+     * remote image build) raises the guard instead of being killed at 180 s.
+     */
+    async boundedBackendStep<T>(ticketId: number, label: string, work: (extend: (ms: number) => void) => Promise<T>, discard?: (late: T) => Promise<void>): Promise<T> {
       if (hung.has(ticketId)) throw new Error(`the earlier sandbox backend step for ${label} is still running; try again when it ends`);
-      const tracked = (): Promise<T> => work().finally(() => hung.delete(ticketId));
+      const tracked = (extend: (ms: number) => void): Promise<T> => work(extend).finally(() => hung.delete(ticketId));
       const step = await withBackendTimeout(tracked, LAUNCH_BACKEND_TIMEOUT_MS, (late) => {
         deps.warn(`open session ${ticketId}: backend result for ${label} arrived after the timeout; ignored`);
         Promise.resolve().then(() => discard?.(late)).catch((e: unknown) => deps.logError(`open session ${ticketId}: could not discard the late backend result of ${label}`, e));

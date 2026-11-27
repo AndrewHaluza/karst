@@ -172,7 +172,7 @@ describe('React Pull requests island / vanilla page interop', () => {
     const v = await openWith(mergeable());
     v.click('#agentButton');
     expect(v.query('#agentPopover')!.classList.contains('open')).toBe(true);
-    await click(v, '#prs .pst');
+    await click(v, '#prs .prepo');
     expect(v.query('#agentPopover')!.classList.contains('open')).toBe(false);
   });
 

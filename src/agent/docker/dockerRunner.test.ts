@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HeadlessSpawnResult } from '../headlessSpawn.js';
+import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import { interactiveRunArgs } from './dockerRunArgs.js';
@@ -267,6 +268,15 @@ describe('createDockerSessionRunner.probeSandbox (arch:AC-39)', () => {
     await expect(mk({ code: 1, stderr: 'Cannot connect to the Docker daemon' }).probeSandbox!()).resolves.toMatchObject({ state: 'unknown' });
     await expect(mk({ code: 1, stderr: 'Cannot connect' }).hasSandbox!()).resolves.toBe(false);
   });
+
+  it('a TRANSPORT failure is unknown even when the stderr echoes "No such volume"', async () => {
+    const proc = fakeDockerProcess({ 'docker volume inspect': { code: 255, stderr: 'Warning: No such volume (ssh)', transport: true } });
+    const runner = createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined });
+    await expect(runner.probeSandbox!()).resolves.toEqual({
+      state: 'unknown', reason: '`docker volume inspect` did not reach the remote daemon: Warning: No such volume (ssh)',
+    });
+    await expect(runner.hasSandbox!()).resolves.toBe(false);
+  });
 });
 
 describe('createDockerSessionRunner.shellCommand', () => {
@@ -297,5 +307,141 @@ describe('createDockerSessionRunner.shellCommand', () => {
     const out = await runner.shellCommand!(ticket);
     expect(out).toMatchObject({ ok: false });
     expect(out.ok === false && out.reason).toContain('docker');
+  });
+});
+
+describe('DockerMountRoot (remote docker, T1399)', () => {
+  const REMOTE_ASSETS = '/home/dev/.karst/assets/r4';
+  const spec = { ticketId: 7, hostWorktreePath: WT, command: 'opencode', args: [WT], env: {}, bridgeDir: '/host/bridge/7' };
+
+  it('leaves the local launch argv untouched: host proxy script, host bridge source', () => {
+    const local = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined });
+    const placed = local.placeInteractive(spec);
+    expect(placed.shellArgs).toContain('type=bind,source=/host/bridge/7,target=/karst-bridge/7');
+    expect(placed.shellArgs.join(' ')).not.toContain(REMOTE_ASSETS);
+  });
+
+  it('changes ONLY the mount sources; the bridge target stays /karst-bridge/<ticketId>', () => {
+    const local = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined }).placeInteractive(spec);
+    const remote = createDockerSessionRunner({
+      proc: fakeDockerProcess(), core: 'opencode', names, user: undefined,
+      mountRoot: { assetsDir: `${REMOTE_ASSETS}/`, bridgeDir: '/remote/ws/bridge/7' },
+    }).placeInteractive(spec);
+    expect(remote.shellArgs).toContain('type=bind,source=/remote/ws/bridge/7,target=/karst-bridge/7');
+    expect(remote.shellArgs).not.toContain('type=bind,source=/host/bridge/7,target=/karst-bridge/7');
+    // Everything except the bridge mount value is the local argv.
+    const withoutBridge = (argv: readonly string[], source: string) =>
+      argv.filter((t) => t !== `type=bind,source=${source},target=/karst-bridge/7`);
+    expect(withoutBridge(remote.shellArgs, '/remote/ws/bridge/7')).toEqual(withoutBridge(local.shellArgs, '/host/bridge/7'));
+  });
+
+  it('abortLaunch stops the proxy it may have started, and is a no-op without one', async () => {
+    const proxied = fakeDockerProcess();
+    await createDockerSessionRunner({ proc: proxied, core: 'opencode', names, user: undefined, proxy: { script: '/ext/allowlist-proxy.mjs' } }).abortLaunch!();
+    // A discarded launch (a timed-out guard) is never placed: the proxy is the one egress object to stop.
+    expect(proxied.calls.map((c) => c.args.join(' '))).toContain(`rm --force ${names.proxy}`);
+    const plain = fakeDockerProcess();
+    await createDockerSessionRunner({ proc: plain, core: 'opencode', names, user: undefined }).abortLaunch!();
+    expect(plain.calls).toHaveLength(0);
+  });
+
+  it('mounts the proxy bundle from the remote assets dir; local uses the host script', async () => {
+    const gateProcess = vi.fn<GateProcessRunner>(() => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }));
+    const localProc = fakeDockerProcess({ 'docker container inspect': { code: 1 } });
+    await createDockerSessionRunner({
+      proc: localProc, core: 'opencode', names, user: undefined, gateProcess, proxy: { script: '/ext/allowlist-proxy.mjs' },
+    }).runGate!('npm', ['test'], WT);
+    expect(localProc.calls.map((c) => c.args.join(' ')).find((l) => l.startsWith('run --detach --name'))).toContain(
+      'source=/ext/allowlist-proxy.mjs',
+    );
+
+    const remoteProc = fakeDockerProcess({ 'docker container inspect': { code: 1 } });
+    await createDockerSessionRunner({
+      proc: remoteProc, core: 'opencode', names, user: undefined, gateProcess, proxy: { script: '/ext/allowlist-proxy.mjs' },
+      mountRoot: { assetsDir: `${REMOTE_ASSETS}/` },
+    }).runGate!('npm', ['test'], WT);
+    const remoteRun = remoteProc.calls.map((c) => c.args.join(' ')).find((l) => l.startsWith('run --detach --name'))!;
+    expect(remoteRun).toContain(`source=${REMOTE_ASSETS}/allowlist-proxy.mjs`);
+    expect(remoteRun).not.toContain('source=/ext/allowlist-proxy.mjs');
+  });
+
+  it('does not need assetsDir to keep the proxy on the provided script', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { code: 1 } });
+    const runner = createDockerSessionRunner({
+      proc, core: 'opencode', names, user: undefined, proxy: { script: '/ext/allowlist-proxy.mjs' },
+      mountRoot: { bridgeDir: '/remote/ws/bridge/7' },
+    });
+    await runner.runGate!('npm', ['test'], WT);
+    expect(proc.calls.map((c) => c.args.join(' ')).find((l) => l.startsWith('run --detach --name'))).toContain(
+      'source=/ext/allowlist-proxy.mjs',
+    );
+  });
+});
+
+describe('prepareDockerSandbox remote seams (T1399)', () => {
+  const base = { core: 'opencode' as const, names, user: undefined, ticket, proxyScript: '/ext/proxy.mjs', temp };
+  /** The remote clone is the caller's job (D554 bundles); these tests are about the later seeds. */
+  const okSeed = () => Promise.resolve({ ok: true as const });
+
+  it('mounts the proxy bundle from the remote assets dir', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { code: 1 } });
+    await prepareDockerSandbox({ ...base, proc, mountRoot: { assetsDir: '/remote/assets/r4/' } });
+    const run = lines(proc).find((l) => l.startsWith('docker run --detach --name'))!;
+    expect(run).toContain('source=/remote/assets/r4/allowlist-proxy.mjs');
+    expect(run).not.toContain('source=/ext/proxy.mjs');
+  });
+
+  it('seeds the clone through seedClone and then makes ZERO host git calls', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
+    const seedClone = vi.fn(() => Promise.resolve({ ok: true as const }));
+    await expect(prepareDockerSandbox({ ...base, proc, seedClone })).resolves.toEqual({ ok: true });
+    expect(seedClone).toHaveBeenCalledWith(ticket);
+    expect(proc.calls.some((c) => c.command === 'git')).toBe(false);
+  });
+
+  it('a failing seedClone is the prepare reason and stops the proxy', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
+    const seedClone = () => Promise.resolve({ ok: false as const, reason: 'bundle push failed' });
+    await expect(prepareDockerSandbox({ ...base, proc, seedClone })).resolves.toEqual({ ok: false, reason: 'bundle push failed' });
+    expect(lines(proc).at(-1)).toBe(`docker rm --force ${names.proxy}`);
+  });
+
+  it('a throwing seedClone becomes a reason, never an exception', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
+    const seedClone = () => Promise.reject(new Error('ssh down'));
+    await expect(prepareDockerSandbox({ ...base, proc, seedClone })).resolves.toEqual({ ok: false, reason: 'ssh down' });
+  });
+
+  it('seeds the v1 auth.json over stdin for opencode when a host file is given', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-auth-'));
+    const hostAuthFile = join(dir, 'auth.json');
+    writeFileSync(hostAuthFile, '{"x":{"key":"s"}}');
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' }, 'docker run --rm --network none': { code: 1 } });
+    await expect(prepareDockerSandbox({ ...base, proc, seedClone: okSeed, opencode1HostAuthFile: hostAuthFile })).resolves.toEqual({ ok: true });
+    expect(proc.pipes).toHaveLength(1);
+    expect(proc.pipes[0]!.to.command).toBe('docker');
+    expect(proc.pipes[0]!.from.args.at(-1)).toBe(hostAuthFile);
+    expect(proc.pipes[0]!.to.args.join(' ')).not.toContain('type=bind');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('never seeds v1 credentials for another core', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' }, 'docker run --rm --network none': { code: 1 } });
+    await expect(prepareDockerSandbox({ ...base, core: 'opencode2', proc, seedClone: okSeed, opencode1HostAuthFile: '/h/auth.json' })).resolves.toEqual({ ok: true });
+    expect(proc.pipes).toHaveLength(0);
+  });
+
+  it('fails the prepare when the v1 seed fails', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-auth-'));
+    const hostAuthFile = join(dir, 'auth.json');
+    writeFileSync(hostAuthFile, '{}');
+    const proc = fakeDockerProcess(
+      { 'docker container inspect': { stdout: 'true' }, 'docker run --rm --network none': { code: 1 } },
+      { fromCode: 0, toCode: 2 },
+    );
+    await expect(prepareDockerSandbox({ ...base, proc, seedClone: okSeed, opencode1HostAuthFile: hostAuthFile })).resolves.toEqual({
+      ok: false, reason: 'opencode credential write in the sandbox failed (exit 2)',
+    });
+    rmSync(dir, { recursive: true, force: true });
   });
 });

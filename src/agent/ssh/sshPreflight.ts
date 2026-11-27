@@ -28,6 +28,10 @@ export const MIN_REMOTE_NODE = '18';
 export const MIN_REMOTE_FREE_MB = 2048;
 /** Below this the remote works today but a sweep or a build can fill it. */
 export const WARN_REMOTE_FREE_MB = 10240;
+/** The warning a remote without tmux gets: `mode: direct` needs it, `mode: docker` never does. */
+export function noTmuxWarning(name: string): string {
+  return `ssh ${name}: tmux not found; the agent stops when the connection drops (install tmux)`;
+}
 /** The whole preflight, one ssh round trip, must not hang a launch. */
 export const SSH_PREFLIGHT_TIMEOUT_MS = 30_000;
 /** The script is a fixed set of facts; anything larger is a broken remote. */
@@ -264,7 +268,7 @@ function interpret(name: string, remote: RemoteDef, core: SshCore, result: SshRe
 
   const tmux = raw('tmux') === 'yes';
   const warnings: string[] = [];
-  if (!tmux) warnings.push(`ssh ${name}: tmux not found; the agent stops when the connection drops (install tmux)`);
+  if (!tmux) warnings.push(noTmuxWarning(name));
 
   // `df -Pk` reports 1024-byte blocks; the thresholds are MB.
   const freeKb = decimalOrNull(raw('freeKb'));

@@ -3,6 +3,7 @@ import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import {
   bindMount,
+  CONTAINER_DATA,
   containerXdgEnv,
   envArgs,
   gateRunArgs,
@@ -28,7 +29,7 @@ describe('interactiveRunArgs', () => {
       '--network', names.network, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       '--mount', `type=volume,source=${names.repoVolume},target=/work`,
       '--mount', `type=volume,source=${names.dataVolume},target=/home/node/.local/share/opencode`,
-      ...envArgs({}), '--workdir', '/work/repo',
+      ...envArgs({}, 'opencode'), '--workdir', '/work/repo',
       OPENCODE_IMAGE, 'opencode1', '/work/repo',
     ]);
   });
@@ -45,7 +46,7 @@ describe('interactiveRunArgs', () => {
 
   it('runs as the host uid with a writable HOME on linux', () => {
     const argv = interactiveRunArgs({ ...base, user: { uid: 1001, gid: 1002 } });
-    expect(argv.join(' ')).toContain('--user 1001:1002 --tmpfs /home/node:uid=1001,gid=1002,mode=0700');
+    expect(argv.join(' ')).toContain('--user 1001:1002 --env HOME=/home/node --tmpfs /home/node:uid=1001,gid=1002,mode=0700');
   });
 
   it('launches opencode2 by its image name', () => {
@@ -79,8 +80,8 @@ describe('interactiveRunArgs', () => {
 });
 
 describe('envArgs', () => {
-  it('passes adapter keys by name, remaps XDG onto the data volume, adds proxy and terminal keys', () => {
-    expect(envArgs({ OPENCODE_CONFIG_CONTENT: '{"secret":1}', XDG_DATA_HOME: '/host/x/data' })).toEqual([
+  it('passes adapter keys by name, remaps XDG onto the core store, adds proxy and terminal keys', () => {
+    expect(envArgs({ OPENCODE_CONFIG_CONTENT: '{"secret":1}', XDG_DATA_HOME: '/host/x/data' }, 'opencode2')).toEqual([
       '--env', 'OPENCODE_CONFIG_CONTENT',
       '--env', 'XDG_DATA_HOME=/home/node/.local/share/opencode/xdg/data',
       '--env', 'HTTPS_PROXY=http://karst-proxy:3128', '--env', 'HTTP_PROXY=http://karst-proxy:3128',
@@ -90,8 +91,21 @@ describe('envArgs', () => {
     ]);
   });
 
-  it('maps all four XDG dirs', () => {
-    expect(containerXdgEnv()).toEqual({
+  it('maps the V1 data home to where its auth.json is seeded, never the v2 xdg subtree', () => {
+    // A folder/managed account sets the HOST XDG_DATA_HOME; opencode v1 appends `/opencode` to it,
+    // and `seedOpencode1Credentials` writes `/home/node/.local/share/opencode/auth.json`.
+    expect(envArgs({ XDG_DATA_HOME: '/host/accounts/a/share' }, 'opencode')).toContain('XDG_DATA_HOME=/home/node/.local/share');
+    expect(envArgs({ XDG_DATA_HOME: '/host/accounts/a/share' }, 'opencode')).not.toContain('XDG_DATA_HOME=/home/node/.local/share/opencode/xdg/data');
+    expect(containerXdgEnv('opencode').XDG_DATA_HOME).toBe('/home/node/.local/share');
+  });
+
+  it('the v1 data home is the parent of the seeded auth.json (one store, one lookup)', () => {
+    // opencode v1 reads `$XDG_DATA_HOME/opencode/auth.json`; the seed writes `${CONTAINER_DATA}/auth.json`.
+    expect(`${containerXdgEnv('opencode').XDG_DATA_HOME!}/opencode/auth.json`).toBe(`${CONTAINER_DATA}/auth.json`);
+  });
+
+  it('maps all four XDG dirs of the v2 store', () => {
+    expect(containerXdgEnv('opencode2')).toEqual({
       XDG_DATA_HOME: '/home/node/.local/share/opencode/xdg/data',
       XDG_CONFIG_HOME: '/home/node/.local/share/opencode/xdg/config',
       XDG_CACHE_HOME: '/home/node/.local/share/opencode/xdg/cache',
@@ -221,9 +235,111 @@ describe('host account folders stay out of the container', () => {
     expect(withoutHostAccountDirs(env)).toEqual({ KARST_X: '1' });
   });
   it('applies to envArgs, headlessExecArgs and gateRunArgs', () => {
-    expect(envArgs(env).join(' ')).not.toMatch(/CLAUDE_CONFIG_DIR|CODEX_HOME|ANTIGRAVITY/);
-    expect(envArgs(env)).toContain('KARST_X');
+    expect(envArgs(env, 'opencode').join(' ')).not.toMatch(/CLAUDE_CONFIG_DIR|CODEX_HOME|ANTIGRAVITY/);
+    expect(envArgs(env, 'opencode')).toContain('KARST_X');
     expect(headlessExecArgs('c', 'r1', 'x', [], env).join(' ')).not.toMatch(/\/h\//);
     expect(gateRunArgs(names, undefined, 'run', 'npm', [], env).join(' ')).not.toMatch(/\/h\//);
+  });
+});
+
+/** The value of every `--env` flag, in argv order. */
+const envValues = (argv: readonly string[]): string[] =>
+  argv.flatMap((token, i) => (token === '--env' && argv[i + 1] !== undefined ? [argv[i + 1]!] : []));
+
+describe('--env-file mode (remote docker, T1399)', () => {
+  const ENV_FILE = '/karst/ws/env/docker.env';
+  const env = {
+    OPENCODE_CONFIG_CONTENT: '{"permission":{"edit":"allow"}}',
+    KARST_OPENCODE2_MODEL_STATE_JSON: '{"recent":[]}',
+    XDG_DATA_HOME: '/host/x/data',
+    XDG_STATE_HOME: '/host/x/state',
+    TERM: 'xterm-256color',
+    CLAUDE_CONFIG_DIR: '/h/c',
+  };
+
+  it('leaves the LOCAL argv byte-identical: envArgs, not one --env-file', () => {
+    const local = interactiveRunArgs({ ...base, env });
+    const expected = envArgs(env, base.core);
+    expect(local).not.toContain('--env-file');
+    const workdir = local.indexOf('--workdir');
+    expect(local.slice(workdir - expected.length, workdir)).toEqual(expected);
+    expect(envValues(local)).toEqual(envValues(expected));
+  });
+
+  it('emits --env-file, value-form XDG remaps and PROXY_ENV only', () => {
+    const argv = interactiveRunArgs({ ...base, env, envFile: ENV_FILE });
+    const i = argv.indexOf('--env-file');
+    expect(i).toBeGreaterThan(0);
+    expect(argv[i + 1]).toBe(ENV_FILE);
+    expect(envValues(argv)).toEqual([
+      // opencode v1: its data home is the PARENT of the seeded auth.json dir.
+      'XDG_DATA_HOME=/home/node/.local/share',
+      'XDG_STATE_HOME=/home/node/.local/state',
+      'HTTPS_PROXY=http://karst-proxy:3128', 'HTTP_PROXY=http://karst-proxy:3128',
+      'https_proxy=http://karst-proxy:3128', 'http_proxy=http://karst-proxy:3128',
+      'NO_PROXY=localhost,127.0.0.1', 'no_proxy=localhost,127.0.0.1',
+    ]);
+  });
+
+  it('remaps XDG to the v2 store for an opencode2 launch', () => {
+    const argv = interactiveRunArgs({ ...base, core: 'opencode2', env, envFile: ENV_FILE });
+    expect(envValues(argv)).toEqual([
+      'XDG_DATA_HOME=/home/node/.local/share/opencode/xdg/data',
+      'XDG_STATE_HOME=/home/node/.local/share/opencode/xdg/state',
+      'HTTPS_PROXY=http://karst-proxy:3128', 'HTTP_PROXY=http://karst-proxy:3128',
+      'https_proxy=http://karst-proxy:3128', 'http_proxy=http://karst-proxy:3128',
+      'NO_PROXY=localhost,127.0.0.1', 'no_proxy=localhost,127.0.0.1',
+    ]);
+  });
+
+  it('emits ZERO by-name --env flags: every value is a K=V, and no secret or host path lands in the argv', () => {
+    const argv = interactiveRunArgs({ ...base, env, envFile: ENV_FILE });
+    for (const value of envValues(argv)) expect(value).toContain('=');
+    const joined = argv.join(' ');
+    expect(joined).not.toContain('OPENCODE_CONFIG_CONTENT');
+    expect(joined).not.toContain('"permission"');
+    expect(joined).not.toContain('TERM');
+    expect(joined).not.toContain('COLORTERM');
+    expect(joined).not.toContain('/h/c');
+    expect(joined).not.toContain('/host/x');
+  });
+
+  it('keeps the opencode2 model-state prelude, with the seed in the env file only', () => {
+    const seed = '{"recent":[{"providerID":"p","modelID":"m"}],"favorite":[],"variant":{}}';
+    const argv = interactiveRunArgs({ ...base, core: 'opencode2', args: ['--standalone'], env: { KARST_OPENCODE2_MODEL_STATE_JSON: seed }, envFile: ENV_FILE });
+    expect(argv.slice(-6, -1)).toEqual(['sh', '-c', expect.any(String), 'karst-opencode2', 'opencode2']);
+    expect(argv[argv.indexOf('-c') + 1]).toContain('exec "$@"');
+    expect(argv).not.toContain(seed);
+    expect(argv).not.toContain('KARST_OPENCODE2_MODEL_STATE_JSON');
+  });
+
+  it('refuses an env file path with a newline, in every entry point', () => {
+    expect(() => interactiveRunArgs({ ...base, envFile: '/a\nb' })).toThrow(/unsafe env file path/);
+    expect(() => headlessExecArgs('c', 'r1', 'x', [], {}, '/a\rb')).toThrow(/unsafe env file path/);
+    expect(() => gateRunArgs(names, undefined, 'run', 'npm', [], {}, undefined, '/a\nb')).toThrow(/unsafe env file path/);
+  });
+
+  it('headlessExecArgs adds --env-file after the non-secret karst flags, bytes unchanged without it', () => {
+    expect(headlessExecArgs('c', 'r1', 'x', [], { KARST_X: '1' }, ENV_FILE)).toEqual([
+      'exec', '--interactive', '--env', 'KARST_X=1', '--env-file', ENV_FILE, '--workdir', '/work/repo', 'c',
+      'sh', '-c', 'echo $$ > "/tmp/karst-run-$1.pid"; shift; exec "$@"', 'karst-run', 'r1', 'x',
+    ]);
+    expect(headlessExecArgs('c', 'r1', 'x', [], { KARST_X: '1' })).toEqual([
+      'exec', '--interactive', '--env', 'KARST_X=1', '--workdir', '/work/repo', 'c',
+      'sh', '-c', 'echo $$ > "/tmp/karst-run-$1.pid"; shift; exec "$@"', 'karst-run', 'r1', 'x',
+    ]);
+    expect(headlessExecArgs('c', 'r1', 'x', [], {})).not.toContain('--env-file');
+  });
+
+  it('gateRunArgs adds --env-file and keeps hardening, volumes and PROXY_ENV; bytes unchanged without it', () => {
+    const plain = gateRunArgs(names, undefined, 'run', 'npm', ['test'], { KARST_X: '1' });
+    const remote = gateRunArgs(names, undefined, 'run', 'npm', ['test'], { KARST_X: '1' }, undefined, ENV_FILE);
+    expect(plain).not.toContain('--env-file');
+    const at = remote.indexOf('--env-file');
+    expect(remote[at + 1]).toBe(ENV_FILE);
+    // Removing exactly the `--env-file <path>` pair gives back the local argv, byte for byte.
+    expect(remote.filter((_, i) => i !== at && i !== at + 1)).toEqual(plain);
+    expect(remote.slice(-2)).toEqual(['npm', 'test']);
+    expect(remote).toEqual(expect.arrayContaining(['--cap-drop', 'ALL', 'no-new-privileges', '--init']));
   });
 });

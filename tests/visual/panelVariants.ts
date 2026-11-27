@@ -114,6 +114,25 @@ const DISMISSED = pr({
   dismissedLabel: 'dismissed 3h ago', canDismiss: false,
 });
 
+// T1401 (D869): an open PR waiting on pending checks alone — the `.pck` chip is the one CI fact
+// (no `.pwait`, no `.pblock`, no readiness box), and a draft beside it keeps its one status chip.
+const CHECKS_PENDING = pr({
+  repo: 'fixture:/repos/web', repoDisplay: 'web', number: 421, status: 'open',
+  checks: checks('pending', '3 pending'), canMerge: false,
+  mergeBlockedReason: 'Checks running — 3 of 3 pending',
+  readiness: {
+    ready: false, headline: 'Merge waits on checks', facts: '',
+    reasons: [{ kind: 'checks', state: 'run', label: 'Checks running', short: 'checks running · 3', detail: '3 of 3 pending', count: 3 }],
+  },
+});
+const DRAFT = pr({
+  repo: 'fixture:/repos/api', repoDisplay: 'api', number: 88, status: 'draft', canDismiss: false,
+  readiness: {
+    ready: false, headline: 'Merge blocked', facts: '',
+    reasons: [{ kind: 'draft', state: 'bad', label: 'Draft', short: 'draft', detail: 'mark it ready for review on GitHub' }],
+  },
+});
+
 const CHECKS_FAIL: Reason = { kind: 'checks', state: 'bad', label: 'Checks failing', short: 'checks failing · 2', detail: '1 failing · 2 passed', action: { act: 'send-ci-failure', label: 'Send CI failure to agent' } };
 const RULE = prOf(blocked({ kind: 'github-rule', state: 'warn', label: 'Blocked by a GitHub rule', short: 'GitHub rule', detail: 'GitHub refuses the merge; karst cannot see which rule', action: { act: 'open-pr', label: 'Open on GitHub', url: 'fixture:https://github.com/fixture-org/api/pull/88' } }));
 const UNKNOWN = prOf(blocked({ kind: 'checks', state: 'run', label: 'Checks unknown', short: 'checks unknown', detail: 'karst has not read the checks yet', why: 'The last probe did not state the checks.', disclosure: 'why karst cannot tell' }));
@@ -173,5 +192,7 @@ export const PANEL_VARIANTS: readonly PanelVariantSpec[] = [
   { id: 'pr-blocked-2-open', patch: withPrs([BLOCKED_2]), click: '.prblock-fold > summary', multiWidth: true },
   { id: 'pr-blocked-2-autofix', patch: withPrs([FIX_RUNNING_2]) },
   { id: 'pr-blocked-1', patch: withPrs([BLOCKED_1]) },
+  // T1401 (D869): the deduplicated line — checks-pending alone states CI once, and a draft keeps its chip.
+  { id: 'pr-checks-pending', patch: withPrs([CHECKS_PENDING, DRAFT]) },
   { id: 'pr-empty', patch: withPrs([]) },
 ];

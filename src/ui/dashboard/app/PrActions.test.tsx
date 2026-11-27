@@ -41,16 +41,20 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
     expect(h.send.openPr).toHaveBeenCalledWith('https://x.test/run/1', 'req-1');
   });
 
-  it('copy-pr-url posts once, flashes through data-copied without touching className, and reverts', () => {
+  it('copy-pr-url posts once from the details popover, flashes through data-copied without touching className, and reverts', () => {
     vi.useFakeTimers();
     const h = mount(stateWith([pr()]));
+    expect(document.querySelector('[data-act="copy-pr-url"]')).toBeNull();
+    fireEvent.click(one('toggle-pr-info'));
     const b = one('copy-pr-url');
     const cls = b.className;
+    expect(b.textContent).toBe('Copy URL');
     fireEvent.click(b);
     expect(h.send.copyPrUrl).toHaveBeenCalledTimes(1);
     expect(h.send.copyPrUrl).toHaveBeenCalledWith(URL, 'req-1');
     expect(b.hasAttribute('data-copied')).toBe(true);
-        keepsClass(b, cls);
+    expect(b.textContent).toBe('Copied ✓');
+    keepsClass(b, cls);
     expect(b.getAttribute('aria-busy')).toBe('true');
     fireEvent.click(b);
     expect(h.send.copyPrUrl).toHaveBeenCalledTimes(1);
@@ -58,6 +62,7 @@ describe('PrsPanel — acts that carry a request id (settled by the host action-
       vi.advanceTimersByTime(1300);
     });
     expect(b.hasAttribute('data-copied')).toBe(false);
+    expect(b.textContent).toBe('Copy URL');
   });
 
   it('a conflict reason draws no Resolve in the panel: the blocked banner owns block recovery (DB-3, UI-R40)', () => {
@@ -339,15 +344,16 @@ describe('PrsPanel — the blocked box describes the Merge button (DB-16, UI-R17
 
 describe('PrsPanel — every act posts exactly once', () => {
   it.each([
-    ['merge-pr', 'mergePr', stateWith([pr({ canMerge: true, mergeBlockedReason: '' })])],
-    ['dismiss-pr', 'dismissPr', stateWith([pr({ canDismiss: true, status: 'closed' })])],
-    ['undismiss-pr', 'undismissPr', stateWith([pr({ dismissed: true, status: 'closed' })])],
-    ['open-pr', 'openPr', stateWith([pr()])],
-    ['copy-pr-url', 'copyPrUrl', stateWith([pr()])],
-    ['send-ci-failure', 'sendCiFailure', stateWith([pr({ readiness: ciReason() })], { ci: { available: true, repos: [REPO] } })],
-    ['refresh-prs', 'refreshPrs', stateWith([pr()])],
-  ] as const)('%s calls %s once and no other sender', (act, fn, state) => {
+    ['merge-pr', 'mergePr', stateWith([pr({ canMerge: true, mergeBlockedReason: '' })]), undefined],
+    ['dismiss-pr', 'dismissPr', stateWith([pr({ canDismiss: true, status: 'closed' })]), undefined],
+    ['undismiss-pr', 'undismissPr', stateWith([pr({ dismissed: true, status: 'closed' })]), undefined],
+    ['open-pr', 'openPr', stateWith([pr()]), undefined],
+    ['copy-pr-url', 'copyPrUrl', stateWith([pr()]), 'toggle-pr-info'],
+    ['send-ci-failure', 'sendCiFailure', stateWith([pr({ readiness: ciReason() })], { ci: { available: true, repos: [REPO] } }), undefined],
+    ['refresh-prs', 'refreshPrs', stateWith([pr()]), undefined],
+  ] as const)('%s calls %s once and no other sender', (act, fn, state, prep) => {
     const h = mount(state);
+    if (prep) fireEvent.click(one(prep));
     fireEvent.click(one(act));
     const calls = Object.entries(h.send).filter(([, f]) => f.mock.calls.length > 0);
     expect(calls.map(([name, f]) => [name, f.mock.calls.length])).toEqual([[fn, 1]]);

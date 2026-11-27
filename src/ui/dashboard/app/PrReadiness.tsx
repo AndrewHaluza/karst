@@ -7,7 +7,7 @@
  * recovery: a conflict's Resolve lives in the blocked banner only (Q1, DB-3, UI-R40); the box mirrors the state.
  */
 import { memo } from 'react';
-import { isBlocking, showsBlockedBox } from '../../../model/prMergeReadiness.js';
+import { isBlocking, showsBlockedBox, waitsOnChecksOnly } from '../../../model/prMergeReadiness.js';
 import type { Reason, ReasonAction, ReasonListItem } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CiButton, OpenButton, OpenLink, SingleFlightButton } from './PrActionButtons.js';
@@ -188,6 +188,8 @@ export const PrReadiness = memo(function PrReadiness({ p, ciBusy, mergeOpen, onM
       </>
     );
   }
+  // The `.pck` chip already states the only fact a checks-running-only block has; a box would repeat it (T1401).
+  if (waitsOnChecksOnly(readiness.reasons)) return null;
   // Notes only (GitHub did not confirm the merge, so the PR is not ready): show the notes, not an empty blocked box.
   if (!showsBlockedBox(p)) return readiness.reasons.length > 0 ? notes : null;
   const blockers = readiness.reasons.filter(isBlocking);

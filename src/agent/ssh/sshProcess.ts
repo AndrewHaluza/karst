@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { Readable } from 'node:stream';
-import { PIPE_TIMEOUT_MS, type PipeEnd, type PipeResult } from '../docker/dockerProcess.js';
+import { PIPE_TIMEOUT_MS, type PipeEnd, type PipeOptions, type PipeResult } from '../docker/dockerProcess.js';
 import type { ProcessRunOptions } from '../sbx/sbxProcess.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import { remoteSh } from './sshQuote.js';
@@ -18,7 +18,7 @@ import { remoteSh } from './sshQuote.js';
  */
 
 export { PIPE_TIMEOUT_MS };
-export type { PipeEnd, PipeResult, ProcessResult, ProcessRunOptions } from '../docker/dockerProcess.js';
+export type { PipeEnd, PipeOptions, PipeResult, ProcessResult, ProcessRunOptions } from '../docker/dockerProcess.js';
 
 /**
  * `stdoutBuffer` is always present: the git bundle transport (Part C sync)
@@ -58,7 +58,7 @@ export interface SshSpawnOptions {
 export interface SshProcess {
   run(args: readonly string[], opts?: ProcessRunOptions): Promise<SshResult>;
   runWithStdin(args: readonly string[], stdin: Buffer | Readable, opts?: ProcessRunOptions): Promise<SshResult>;
-  pipe(from: PipeEnd, to: PipeEnd): Promise<PipeResult>;
+  pipe(from: PipeEnd, to: PipeEnd, opts?: PipeOptions): Promise<PipeResult>;
   spawnStream(args: readonly string[], opts?: SshSpawnOptions): ChildProcess;
 }
 
@@ -147,7 +147,7 @@ function exitOf(child: ChildProcess): Promise<number> {
 }
 
 /** A pipe that outlives this (a hung transfer) is killed; the step then fails closed. */
-function pipeEnds(from: PipeEnd, to: PipeEnd): Promise<PipeResult> {
+function pipeEnds(from: PipeEnd, to: PipeEnd, opts?: PipeOptions): Promise<PipeResult> {
   const source = spawn(from.command, [...from.args], {
     env: { ...process.env, ...from.env },
     stdio: ['ignore', 'pipe', 'ignore'],
@@ -160,8 +160,18 @@ function pipeEnds(from: PipeEnd, to: PipeEnd): Promise<PipeResult> {
   sink.stdin.on('error', () => source.kill());
   source.on('error', () => sink.stdin.end());
   source.stdout.pipe(sink.stdin);
-  const timer = setTimeout(() => { source.kill('SIGKILL'); sink.kill('SIGKILL'); }, PIPE_TIMEOUT_MS);
-  return codes.finally(() => { clearTimeout(timer); }).then(([fromCode, toCode]) => ({ fromCode, toCode }));
+  /** SIGKILL both ends: a hung transfer and an abandoned step both end here. */
+  const kill = (): void => { source.kill('SIGKILL'); sink.kill('SIGKILL'); };
+  const timer = setTimeout(kill, opts?.timeoutMs ?? PIPE_TIMEOUT_MS);
+  const signal = opts?.signal;
+  signal?.addEventListener('abort', kill, { once: true });
+  if (signal?.aborted === true) kill();
+  return codes
+    .finally(() => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', kill);
+    })
+    .then(([fromCode, toCode]) => ({ fromCode, toCode }));
 }
 
 /**
@@ -250,7 +260,7 @@ export function createNodeSshProcess(opts: NodeSshProcessOptions = {}): SshProce
   return {
     run: (args, runOpts) => collect(sshBin, args, runOpts),
     runWithStdin: (args, stdin, runOpts) => collect(sshBin, args, runOpts, stdin),
-    pipe: (from, to) => pipeEnds(from, to),
+    pipe: (from, to, pipeOpts) => pipeEnds(from, to, pipeOpts),
     spawnStream: (args, spawnOpts) => spawn(sshBin, [...args], {
       cwd: spawnOpts?.cwd,
       signal: spawnOpts?.signal,

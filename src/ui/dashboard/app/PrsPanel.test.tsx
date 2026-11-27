@@ -77,11 +77,11 @@ describe('PrsPanel — header and empty states', () => {
 });
 
 describe('PrsPanel — the PR line', () => {
-  it('lays out lead icon, repo, number, copy, details, chips, stamp and branch, with the actions in the trail', () => {
+  it('lays out lead icon, repo, number, details, one CI chip, stamp and branch, with the actions in the trail', () => {
     mount(stateWith([pr({ canMerge: true, mergeBlockedReason: '', canDismiss: true, checks: { state: 'passing', label: '3 passed', title: 'all green', detailsLabel: '', failing: [], stale: false, cue: '' } })]));
     const line = row().querySelector('.pr')!;
     expect([...line.querySelector('.krow-main')!.children].map((c) => c.className)).toEqual([
-      'prepo', 'pnum', 'k-iconbtn ib t-copy url-copy', 'k-iconbtn ib pinfo-btn', 'k-chip pst pst-open', 'k-chip pck pck-passing', 'pstamp', 'pbranch',
+      'prepo', 'pnum', 'k-iconbtn ib pinfo-btn', 'k-chip pck pck-passing', 'pstamp', 'pbranch',
     ]);
     expect(line.querySelector('.pr-lead')!.getAttribute('data-status')).toBe('open');
     expect([...line.querySelectorAll('.krow-trail button')].map((c) => c.textContent)).toEqual(['Dismiss', 'Merge']);
@@ -95,21 +95,48 @@ describe('PrsPanel — the PR line', () => {
     expect(a.getAttribute('data-act')).toBe('open-pr');
   });
 
-  it('shows the copy control as a labelled icon button with the data-copy hook', () => {
+  it.each([
+    ['open', 'Open pull request'],
+    ['draft', 'Draft pull request'],
+    ['closed', 'Closed pull request'],
+    ['merged', 'Merged pull request'],
+    ['', 'Unknown pull request status'],
+  ])('names the %s lead icon for a reader that cannot see the glyph', (status, label) => {
+    mount(stateWith([pr({ status })]));
+    const lead = document.querySelector('.pr-lead')!;
+    expect(lead.getAttribute('role')).toBe('img');
+    expect(lead.getAttribute('aria-label')).toBe(label);
+    expect(lead.getAttribute('title')).toBe(label);
+    expect(lead.getAttribute('data-status')).toBe(status || 'unknown');
+    expect(lead.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+    cleanup();
+  });
+
+  it('moves Copy URL into the details popover: the line has one icon and no copy control', () => {
     mount(stateWith([pr()]));
-    const copy = one('copy-pr-url');
+    expect(byAct('copy-pr-url')).toHaveLength(0);
+    expect(byAct('toggle-pr-info')).toHaveLength(1);
+    fireEvent.click(one('toggle-pr-info'));
+    const foot = document.querySelector('.pinfo-foot')!;
+    const copy = foot.querySelector<HTMLElement>('[data-act="copy-pr-url"]')!;
+    expect(foot.firstElementChild).toBe(copy);
+    expect(copy.textContent).toBe('Copy URL');
     expect(copy.getAttribute('data-copy')).toBe('');
     expect(copy.getAttribute('data-url')).toBe(URL);
     expect(copy.title).toBe('Copy pull request URL');
-    expect(copy.getAttribute('aria-label')).toBe('Copy pull request URL');
-    expect(copy.querySelector('svg.k-icon')).not.toBeNull();
+    expect(copy.className).toBe('k-btn k-btn--ghost k-btn--sm mgbtn url-copy');
+    expect(foot.querySelector('[data-act="open-pr"]')!.textContent).toBe('Open on GitHub');
   });
 
-  it('with no recorded URL has no copy control and the number is plain text', () => {
+  it('with no recorded URL has no copy control in the row or the popover, and the number is plain text', () => {
     mount(stateWith([pr({ url: null })]));
     expect(byAct('copy-pr-url')).toHaveLength(0);
     expect(byAct('open-pr')).toHaveLength(0);
     expect(text('.pnum')).toBe('#42');
+    fireEvent.click(one('toggle-pr-info'));
+    expect(document.querySelector('.pinfo-pop')).not.toBeNull();
+    expect(document.querySelector('.pinfo-foot')).toBeNull();
+    expect(byAct('copy-pr-url')).toHaveLength(0);
   });
 
   it('with neither URL nor number leaves an empty number slot', () => {
@@ -127,27 +154,42 @@ describe('PrsPanel — the PR line', () => {
     expect(document.querySelector('.prepo')!.hasAttribute('title')).toBe(false);
   });
 
-  it.each(['open', 'merged', 'closed', 'draft'])('puts a %s status in its chip variant', (status) => {
+  it.each(['draft', 'closed'])('keeps a text chip only for the %s state the reader must notice', (status) => {
     mount(stateWith([pr({ status })]));
     expect(document.querySelector('.pst')!.className).toBe(`k-chip pst pst-${status}`);
     expect(text('.pst')).toBe(status);
     cleanup();
   });
 
-  it('renders an empty status as the unknown variant with no word', () => {
-    mount(stateWith([pr({ status: '' })]));
-    expect(document.querySelector('.pst')!.className).toBe('k-chip pst pst-unknown');
-    expect(text('.pst')).toBe('');
+  it.each(['open', 'merged', ''])('renders no status chip for %s: the lead icon carries the state', (status) => {
+    mount(stateWith([pr({ status })]));
+    expect(document.querySelector('.pst')).toBeNull();
   });
 
-  it('chips a pending-only wait as "waits on N checks", not as a blocked count (T1140)', () => {
-    mount(stateWith([pr({ readiness: waitsOnChecks(3) })]));
-    expect(text('.pwait')).toBe('waits on 3 checks');
+  it('states a checks-running-only wait once: no wait chip, no blocked chip, no readiness box', () => {
+    mount(stateWith([pr({ readiness: waitsOnChecks(3), checks: { ...failing(['lint', null]), state: 'pending', label: '3 pending', title: '3 checks pending' } })]));
+    expect(document.querySelector('.pwait')).toBeNull();
     expect(document.querySelector('.pblock')).toBeNull();
-    expect(text('.prblock-head b')).toBe('Merge waits on checks');
-    cleanup();
-    mount(stateWith([pr({ readiness: waitsOnChecks(1) })]));
-    expect(text('.pwait')).toBe('waits on 1 check');
+    expect(document.querySelector('.prblock')).toBeNull();
+    expect(document.querySelector('.prready')).toBeNull();
+    expect(document.querySelector('.pmreason')).toBeNull();
+    const chip = document.querySelector('.pck')!;
+    expect(chip.id).toBeTruthy();
+    expect(chip.textContent).toContain('3 pending');
+    const merge = document.querySelector<HTMLButtonElement>('.pacts .mgbtn:last-child')!;
+    expect(merge.disabled).toBe(true);
+    expect(merge.getAttribute('aria-describedby')).toBe(chip.id);
+    expect(merge.title).toBe('awaiting review');
+  });
+
+  it('keeps the inline reason when checks block but the host sent no chip to describe', () => {
+    mount(stateWith([pr({ readiness: waitsOnChecks(3), checks: { state: 'none', label: '', title: '', detailsLabel: '', failing: [], stale: false, cue: '' } })]));
+    expect(document.querySelector('.pck')).toBeNull();
+    expect(document.querySelector('.prblock')).toBeNull();
+    const inline = document.querySelector('.pmreason')!;
+    expect(inline.textContent).toBe('awaiting review');
+    const merge = document.querySelector<HTMLButtonElement>('.pacts .mgbtn:last-child')!;
+    expect(merge.getAttribute('aria-describedby')).toBe(inline.id);
   });
 
   it('renders a stale chip dimmed with the cue, aria-busy and the host tooltip, and only while the PR is live (T1217)', () => {
@@ -171,16 +213,16 @@ describe('PrsPanel — the PR line', () => {
     expect(document.querySelector('.pck-cue')).toBeNull();
   });
 
-  it('chips the CI rollup and the blocked-reason count with their tooltips, only while the PR is live', () => {
+  it('renders the CI rollup as the one CI chip, with its tooltip, only while the PR is live', () => {
     const base = { checks: { ...failing(['lint', null]), label: '1 failing', title: 'one failed' }, mergeBlockedReason: 'CI failing — 1 check', readiness: blockedBy(['checks', 'bad']) };
     mount(stateWith([pr(base)]));
     expect(document.querySelector('.pck')!.className).toBe('k-chip pck pck-failing');
     expect(document.querySelector('.pck')!.getAttribute('title')).toBe('one failed');
-    expect(text('.pblock')).toBe('blocked · 1 reason');
-    expect(document.querySelector('.pblock')!.getAttribute('title')).toBe('CI failing — 1 check');
+    expect(document.querySelector('.pblock')).toBeNull();
     cleanup();
     mount(stateWith([pr({ ...base, readiness: blockedBy(['checks', 'bad'], ['conflicts', 'bad']) })]));
-    expect(text('.pblock')).toBe('blocked · 2 reasons');
+    expect(document.querySelector('.pblock')).toBeNull();
+    expect(document.querySelector('.pck')).not.toBeNull();
     cleanup();
     mount(stateWith([pr({ ...base, status: 'merged' })]));
     expect(document.querySelector('.pck')).toBeNull();
@@ -481,7 +523,8 @@ describe('PrsPanel — slice selection (migration plan A4)', () => {
 
     h.emit({ type: 'state', state: stateWith([pr(), pr({ repo: '/repos/api', repoDisplay: 'api', status: 'merged' })]), live: true });
     expect(onRender.mock.calls.length).toBeGreaterThan(before);
-    expect(row(1).querySelector('.pst')!.textContent).toBe('merged');
+    expect(row(1).querySelector('.pr-lead')!.getAttribute('data-status')).toBe('merged');
+    expect(row(1).querySelector('.pst')).toBeNull();
   });
 
   it('keeps unchanged rows as the very same DOM nodes when another row changes', () => {
@@ -521,6 +564,8 @@ describe('PrsPanel — summary, the details popover and the blocked reason', () 
     expect(pop.textContent).toContain('all green');
     expect(pop.textContent).toContain('awaiting review');
     expect(pop.querySelector('[data-act="open-pr"]')!.textContent).toBe('Open on GitHub');
+    const foot = pop.querySelector('.pinfo-foot')!;
+    expect(foot.firstElementChild!.getAttribute('data-act')).toBe('copy-pr-url');
     expect(pop.querySelector('[data-act="copy-pr-url"]')!.textContent).toBe('Copy URL');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(document.querySelector('.pinfo-pop')).toBeNull();

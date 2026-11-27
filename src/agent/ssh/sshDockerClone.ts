@@ -16,6 +16,7 @@ import { hostBundleHaves } from '../cloneSyncClass.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { DiffResult, RefreshOptions, SyncResult } from '../sessionRunner.js';
 import type { SbxProcess } from '../sbx/sbxProcess.js';
+import { userArgs, type LinuxUser } from '../docker/dockerRunArgs.js';
 import {
   SSH_BUNDLE_STDOUT_MAX_BYTES,
   SSH_TEXT_STDOUT_MAX_BYTES,
@@ -71,6 +72,13 @@ export interface SshDockerCloneContext {
   readonly image: string;
   /** The named volume mounted at `/work` (D822). Validated before any spawn; never a host path. */
   readonly volume: string;
+  /**
+   * The REMOTE uid/gid (`sshPreflight`), or `undefined` when the caller does not
+   * know it. The volume was chowned to it (`chownVolumes`), so a helper that
+   * writes there must run as that user; the image's own user (uid 1000) can
+   * only write when the remote user happens to be 1000.
+   */
+  readonly user: LinuxUser | undefined;
   readonly debug?: (message: string) => void;
 }
 
@@ -83,6 +91,9 @@ function nameError(kind: 'image' | 'volume', value: string): Error {
  * ssh options, `--`, the destination, then ONE remote command (`remoteSh`)
  * whose payload is `docker run … sh -c <script>`. `image` and `volume` are
  * validated before the argv exists, so a bad value never reaches a spawn.
+ *
+ * `user` is the REMOTE uid/gid the volume was chowned to: the helper writes
+ * into it, so it must run as that user, never the image's own (uid 1000).
  */
 export function sshDockerHelper(
   remote: RemoteDef,
@@ -90,12 +101,13 @@ export function sshDockerHelper(
   image: string,
   volume: string,
   script: string,
+  user?: LinuxUser,
 ): string[] {
   if (!SSH_DOCKER_NAME.test(image)) throw nameError('image', image);
   if (!SSH_DOCKER_NAME.test(volume)) throw nameError('volume', volume);
   const inner = [
     'docker', 'run', '--rm', '-i', '--network', 'none', '--cap-drop', 'ALL',
-    '--security-opt', 'no-new-privileges', '-v', `${volume}:${CONTAINER_WORK}`, image,
+    '--security-opt', 'no-new-privileges', ...userArgs(user), '-v', `${volume}:${CONTAINER_WORK}`, image,
     'sh', '-c', sshQuote(script),
   ].join(' ');
   return sshArgv(remote, controlDir, inner);
@@ -114,7 +126,7 @@ function nameProblem(ctx: SshDockerCloneContext): NameProblem | undefined {
 }
 
 function remoteArgv(ctx: SshDockerCloneContext, script: string): string[] {
-  return sshDockerHelper(ctx.remote, ctx.controlDir, ctx.image, ctx.volume, script);
+  return sshDockerHelper(ctx.remote, ctx.controlDir, ctx.image, ctx.volume, script, ctx.user);
 }
 
 /** Every remote stdout is collected in memory, so every call is bounded (a bundle by its own, larger cap). */

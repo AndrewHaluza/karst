@@ -4,6 +4,13 @@ export interface ProcessResult {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
+  /**
+   * The command never reached the tool it names: an SSH transport failure
+   * (exit 255 on the client, no remote exit code). A caller must never read a
+   * transport result as the tool's own answer — not as `absent`, not as the
+   * tool's exit code (`@arch:AC-39`).
+   */
+  readonly transport?: true;
 }
 
 export interface ProcessRunOptions {

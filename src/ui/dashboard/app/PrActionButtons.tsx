@@ -6,7 +6,7 @@
  */
 import { memo, useCallback, useEffect, useId, useState, type MouseEvent } from 'react';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
-import { showsBlockedBox } from '../../../model/prMergeReadiness.js';
+import { showsBlockedBox, waitsOnChecksOnly } from '../../../model/prMergeReadiness.js';
 import { useDashboardSend, useOps, usePendingOps } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import type { PrPendingApi } from './usePrPending.js';
@@ -39,10 +39,10 @@ export function OpenLink({ url, title, children }: { readonly url: string; reado
 }
 
 /**
- * Copies the PR URL: an icon button by default, a text button when `label` is given (the popover footer).
+ * Copies the PR URL as the popover footer's text button; the row line carries one icon (the ⓘ details).
  * The host does the clipboard write, so the confirmation is optimistic (UI-R15).
  */
-export function CopyUrl({ url, label }: { readonly url: string; readonly label?: string }) {
+export function CopyUrl({ url, label = 'Copy URL' }: { readonly url: string; readonly label?: string }) {
   const send = useDashboardSend();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -63,16 +63,15 @@ export function CopyUrl({ url, label }: { readonly url: string; readonly label?:
   return (
     <button
       type="button"
-      className={label ? `${GHOST} url-copy` : 'k-iconbtn ib t-copy url-copy'}
+      className={`${GHOST} url-copy`}
       data-act="copy-pr-url"
       data-url={url}
       data-copy=""
       data-copied={copied ? '' : undefined}
-      aria-label={label ? undefined : name}
       title={name}
       onClick={onClick}
     >
-      {label ? <span className="u">{copied ? COPIED_TEXT : label}</span> : <Icon name="copy" size={13} />}
+      <span className="u">{copied ? COPIED_TEXT : label}</span>
     </button>
   );
 }
@@ -89,7 +88,7 @@ const MERGE_UNAVAILABLE = 'Merge is not available';
  * chooses the strategy) before anything runs. The webview posts only `{type:'merge-pr', repo}` (UI-R37).
  * `.k-btn--primary` is its treatment per UI-R10b. Offered or not is the host's verdict, never this file's.
  */
-export const MergeButton = memo(function MergeButton({ p, busy, readinessId }: { readonly p: PrPanelRow; readonly busy: boolean; readonly readinessId?: string }) {
+export const MergeButton = memo(function MergeButton({ p, busy, readinessId, checksId }: { readonly p: PrPanelRow; readonly busy: boolean; readonly readinessId?: string; readonly checksId?: string }) {
   const send = useDashboardSend();
   // Held in the state the stage rail's Merge shares (pendingOps.ts): one operation, one dialog.
   const ops = usePendingOps();
@@ -116,16 +115,23 @@ export const MergeButton = memo(function MergeButton({ p, busy, readinessId }: {
   if (!p.canMerge) {
     const reason = p.mergeBlockedReason || MERGE_UNAVAILABLE;
     // DB-16: when the readiness block's own blocked box is on screen, it is the visible reason, so the inline copy is
-    // gone and the button points at the box instead of repeating it (UI-R17). Without the box the reason stays inline.
-    const boxed = showsBlockedBox(p);
+    // gone and the button points at the box instead of repeating it (UI-R17). When pending checks alone block, the
+    // ready box is absent (T1401) and the `.pck` chip is the visible reason, so the button points at it. With neither
+    // on screen the reason stays inline, so aria-describedby never names a hidden or absent element.
+    const blocked = showsBlockedBox(p);
+    const checksOnly = blocked && waitsOnChecksOnly(p.readiness.reasons);
+    const describedByBox = blocked && !checksOnly;
+    const describedByChip = checksOnly && checksId !== undefined;
+    const hideInline = describedByBox || describedByChip;
+    const describedBy = describedByBox ? readinessId : describedByChip ? checksId : reasonId;
     return (
       <>
-        {boxed ? null : (
+        {hideInline ? null : (
           <span className="pmreason" id={reasonId}>
             {reason}
           </span>
         )}
-        <button type="button" className={SECONDARY} disabled title={p.mergeBlockedReason} aria-describedby={boxed ? readinessId : reasonId}>
+        <button type="button" className={SECONDARY} disabled title={p.mergeBlockedReason} aria-describedby={describedBy}>
           Merge
         </button>
       </>

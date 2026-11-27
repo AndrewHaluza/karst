@@ -6,9 +6,8 @@
  * only places them, and never decides that a PR is mergeable or that a check failed.
  */
 import { memo, useId } from 'react';
-import { isBlocking, waitsOnChecksOnly } from '../../../model/prMergeReadiness.js';
 import type { PrPanelRow } from '../../../model/prPanelView.js';
-import { CopyUrl, DismissButton, MergeButton, OpenLink } from './PrActionButtons.js';
+import { DismissButton, MergeButton, OpenLink } from './PrActionButtons.js';
 import { Icon } from './Icon.js';
 import { PrInfo } from './PrInfo.js';
 import { PrReadiness } from './PrReadiness.js';
@@ -27,14 +26,17 @@ function keyed<T>(items: readonly T[], content: (item: T) => string): Array<read
   });
 }
 
-/** The lead status icon: shape carries the status, the tone class only adds colour (UI-R28). */
-const STATUS_ICON: Readonly<Record<string, { readonly icon: string; readonly tone: string }>> = {
-  open: { icon: 'git-pull-request', tone: 'ok' },
-  draft: { icon: 'git-pull-request-draft', tone: 'dim' },
-  closed: { icon: 'git-pull-request-closed', tone: 'bad' },
-  merged: { icon: 'git-merge', tone: 'merged' },
+/**
+ * The lead status icon: shape carries the status, the tone class only adds colour (UI-R28), and the
+ * label carries the word for a reader that cannot see the glyph (UI-R28, UI-R17).
+ */
+const STATUS_ICON: Readonly<Record<string, { readonly icon: string; readonly tone: string; readonly label: string }>> = {
+  open: { icon: 'git-pull-request', tone: 'ok', label: 'Open pull request' },
+  draft: { icon: 'git-pull-request-draft', tone: 'dim', label: 'Draft pull request' },
+  closed: { icon: 'git-pull-request-closed', tone: 'bad', label: 'Closed pull request' },
+  merged: { icon: 'git-merge', tone: 'merged', label: 'Merged pull request' },
 };
-const STATUS_ICON_FALLBACK = { icon: 'git-pull-request', tone: 'dim' };
+const STATUS_ICON_FALLBACK = { icon: 'git-pull-request', tone: 'dim', label: 'Unknown pull request status' };
 
 const CHECK_ICON: Readonly<Record<string, string>> = { passing: 'check', failing: 'circle-x', pending: 'loader-2' };
 
@@ -86,14 +88,15 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
   const repoLabel = p.repoDisplay || p.repo;
   // One id for the readiness box: the Merge button's accessible description points at whatever this row renders.
   const readinessId = useId();
+  // The checks chip is the ONE CI fact on the line; a disabled Merge points at it when pending checks are the only blocker.
+  const checksId = useId();
   // Suppressed on a merged PR: it landed, and a stale rollup beside `merged` would state a question that is closed.
   const live = p.status !== 'merged';
   const status = STATUS_ICON[p.status] ?? STATUS_ICON_FALLBACK;
   const stamp = lineStamp(p);
   const head = prHead(p.branches);
   const showBranches = p.branches !== '' && (head === '' || head !== headerBranch);
-  const blocking = live && !p.dismissed ? p.readiness.reasons.filter(isBlocking).length : 0;
-  const waitCount = live && !p.dismissed && waitsOnChecksOnly(p.readiness.reasons) ? (p.readiness.reasons.find((r) => r.state === 'run')?.count ?? blocking) : 0;
+  const hasChecksChip = live && Boolean(p.checks && p.checks.label);
   const sub = (
     <>
       <PrReadiness p={p} ciBusy={ciBusy} mergeOpen={mergeOpen} onMergeToggle={onMergeToggle} boxId={readinessId} />
@@ -105,14 +108,14 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
       <Row
         className="pr"
         lead={
-          <span className={`pr-lead ${status.tone}`} data-status={p.status || 'unknown'}>
+          <span className={`pr-lead ${status.tone}`} data-status={p.status || 'unknown'} role="img" aria-label={status.label} title={status.label}>
             <Icon name={status.icon} size={14} />
           </span>
         }
         trail={
           <span className="pacts">
             <DismissButton p={p} api={api} busy={dismissBusy} />
-            <MergeButton p={p} busy={mergeBusy} readinessId={readinessId} />
+            <MergeButton p={p} busy={mergeBusy} readinessId={readinessId} checksId={hasChecksChip ? checksId : undefined} />
           </span>
         }
         sub={sub}
@@ -130,11 +133,13 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
             `#${p.number}`
           ) : null}
         </span>
-        {p.url ? <CopyUrl url={p.url} /> : null}
         <PrInfo p={p} open={infoOpen} onToggle={onInfoToggle} />
-        <span className={`k-chip pst pst-${p.status || 'unknown'}`}>{p.status || ''}</span>
-        {live && p.checks && p.checks.label ? (
+        {p.status === 'draft' || p.status === 'closed' ? (
+          <span className={`k-chip pst pst-${p.status}`}>{p.status}</span>
+        ) : null}
+        {hasChecksChip ? (
           <span
+            id={checksId}
             className={`k-chip pck pck-${p.checks.state}${p.checks.stale ? ' pck-stale' : ''}`}
             title={p.checks.title}
             aria-busy={p.checks.stale ? 'true' : undefined}
@@ -142,15 +147,6 @@ export const PrRow = memo(function PrRow({ p, headerBranch, mergeBusy, dismissBu
             <Icon name={CHECK_ICON[p.checks.state] ?? 'check'} size={11} />
             {p.checks.label}
             {p.checks.stale && p.checks.cue ? <span className="pck-cue">{p.checks.cue}</span> : null}
-          </span>
-        ) : null}
-        {waitCount > 0 ? (
-          <span className="k-chip pwait" title={p.mergeBlockedReason}>
-            {`waits on ${waitCount} ${waitCount === 1 ? 'check' : 'checks'}`}
-          </span>
-        ) : blocking > 0 ? (
-          <span className="k-chip pblock" title={p.mergeBlockedReason}>
-            {`blocked · ${blocking} ${blocking === 1 ? 'reason' : 'reasons'}`}
           </span>
         ) : null}
         {stamp ? (

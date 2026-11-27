@@ -41,7 +41,7 @@ import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
 import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
 import { blockedSshRunner } from './sshPlacementOps.js';
-import { sshRunnerFor, type SshRunnerDeps } from './sshRunnerFor.js';
+import { sshDockerKillContextFor, sshRunnerFor, type SshRunnerDeps } from './sshRunnerFor.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -173,7 +173,15 @@ export async function resolveTicketSandbox(deps: TicketSandboxDeps, ticketId: nu
 
 /** The runner of a recorded ssh placement: the ssh runner, or one that refuses with the reason. Its core does not matter. */
 function sshTicketSandbox(deps: TicketSandboxDeps, ticketId: number, placement: TicketPlacement): TicketSandbox {
-  const runner = sshRunnerFor(deps.sshRunner, placement, { ticketId, projectRoot: deps.projectRoot(ticketId), hostWorktreePath: deps.worktreeOf?.(ticketId) });
+  const runner = sshRunnerFor(deps.sshRunner, placement, {
+    ticketId,
+    projectRoot: deps.projectRoot(ticketId),
+    hostWorktreePath: deps.worktreeOf?.(ticketId),
+    // A one-shot gate container on a remote docker daemon gets the same memory limits as a local one.
+    // The VM size is NOT passed: the only size this host step knows is its LOCAL daemon's, and a
+    // remote limit derived from it could exceed the remote VM (the launch resolve probes the remote).
+    ...(deps.sandboxMemory ? { sandboxMemory: deps.sandboxMemory() } : {}),
+  });
   return { runner, sandboxName: placement.sandboxName ?? '' };
 }
 
@@ -199,6 +207,19 @@ function sshRefusal(ticketId: number, probe: SandboxProbe): string {
   return probe.state === 'unknown'
     ? `ticket ${ticketId} runs on ssh and its remote cannot be used: ${probe.reason}; nothing runs on the host for it`
     : `ticket ${ticketId} runs on ssh and its remote clone is gone; nothing runs on the host for it`;
+}
+
+/**
+ * The kill-context reader of a ticket's sandbox setup: what explains a killed
+ * (137) setup. An ssh placement reads its REMOTE daemon (D822, through the same
+ * trust check as every host step); every other placement keeps the local docker
+ * one, and a non-docker ticket has none.
+ */
+export function ticketKillContextOf(deps: TicketSandboxDeps, ticketId: number): (() => Promise<string | undefined>) | undefined {
+  const placement = deps.placementOf?.(ticketId);
+  if (placement?.backend === 'ssh') return sshDockerKillContextFor(deps.sshRunner, placement);
+  // Stryker disable next-line StringLiteral: equivalent, `backendForCore` only needs a core NAME and '' selects the host
+  return (placement?.backend ?? backendForCore(deps.backends(), deps.coreOf(ticketId) ?? '')) === 'docker' ? () => dockerKillContext(deps.dockerProc) : undefined;
 }
 
 /**
@@ -476,7 +497,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         },
         ...(input.debug ? { debug: input.debug } : {}),
         windowOf: (id) => ticketSandboxRunner(deps, id)?.runner,
-        killContextOf: (id) => { return (deps.placementOf?.(id)?.backend ?? backendForCore(deps.backends(), deps.coreOf(id) ?? '')) === 'docker' ? () => dockerKillContext(deps.dockerProc) : undefined; },
+        killContextOf: (id) => ticketKillContextOf(deps, id),
         turnActive: (id) => { try { return getTicket(input.store, id).agentState === 'running'; } catch { return false; } },
       }, ticketId, opts);
     },
