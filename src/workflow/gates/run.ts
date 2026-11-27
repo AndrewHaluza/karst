@@ -100,6 +100,12 @@ export interface RunProcessOptions extends RunCommandOptions {
    * a button that appears to do nothing.
    */
   signal?: AbortSignal;
+  /**
+   * Sandbox runners only (`mode: docker` on a remote): the env file the remote
+   * docker client reads with `--env-file`, so service env values never land on
+   * an SSH argv. The host `runProcess` ignores it.
+   */
+  envFile?: string;
 }
 
 /**

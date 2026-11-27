@@ -117,6 +117,17 @@ describe('SshProcess.pipe against the fake ssh', () => {
     );
     expect(result).toEqual({ fromCode: 4, toCode: 5 });
   });
+
+  it('kills both ends at the caller\'s bound and on abort, so neither outlives the step', async () => {
+    const hung = { command: process.execPath, args: ['-e', 'setTimeout(() => undefined, 60000)'] };
+    const timed = await proc.pipe(hung, { ...hung, args: ['-e', 'process.stdin.resume(); setTimeout(() => undefined, 60000)'] }, { timeoutMs: 100 });
+    expect(timed).not.toEqual({ fromCode: 0, toCode: 0 });
+
+    const controller = new AbortController();
+    const aborted = proc.pipe(hung, { ...hung, args: ['-e', 'process.stdin.resume(); setTimeout(() => undefined, 60000)'] }, { signal: controller.signal });
+    controller.abort();
+    expect(await aborted).not.toEqual({ fromCode: 0, toCode: 0 });
+  });
 });
 
 describe('the login shell contract (Part A.4)', () => {

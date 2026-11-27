@@ -38,6 +38,7 @@ const ctx = (ssh: Ssh, host: Host = fakeSbxProcess(), extra: Partial<SshDockerCl
   controlDir: CONTROL,
   image: IMAGE,
   volume: VOLUME,
+  user: undefined,
   ...extra,
 });
 
@@ -74,6 +75,17 @@ describe('sshDockerHelper', () => {
     expect(tokens[at + 1]).toBe(`${VOLUME}:/work`);
     expect(tokens[at + 1]!.startsWith('/')).toBe(false);
     expect(argv.join(' ')).not.toContain(WT);
+  });
+
+  it('runs the helper as the REMOTE uid/gid when the caller knows it (the volume was chowned to it)', () => {
+    // The image's own user is uid 1000; on a remote whose login uid differs, the chowned
+    // volume is writable only by that uid, so every helper that writes it names `--user`.
+    const argv = sshDockerHelper(REMOTE, CONTROL, IMAGE, VOLUME, 'echo hi', { uid: 1001, gid: 1002 });
+    const tokens = scriptOf({ args: argv }).split(' ');
+    const at = tokens.indexOf('--user');
+    expect(at).toBeGreaterThan(0);
+    expect(tokens[at + 1]).toBe('1001:1002');
+    expect(tokens.join(' ')).toContain('uid=1001,gid=1002');
   });
 
   it('rejects a host path as the image or the volume before any spawn', async () => {

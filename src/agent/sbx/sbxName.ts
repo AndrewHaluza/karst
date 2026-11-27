@@ -10,6 +10,13 @@ export interface SbxNameInput {
   readonly projectRoot: string;
   readonly ticketId: number;
   readonly core: string;
+  /**
+   * A remote install id (`@arch:AC-39`): hashed together with the project
+   * root, so two hosts that use the SAME absolute project path on one shared
+   * VM never collide. Local docker omits it and the hash input stays the bare
+   * project root, so every local name is byte-identical to before.
+   */
+  readonly installId?: string;
 }
 
 /**
@@ -25,7 +32,8 @@ export function sbxName(input: SbxNameInput): string {
     throw new Error(`sbx name: core ${JSON.stringify(input.core)} is not a sandbox core`);
   }
   const core = input.core === 'agy' ? 'antigravity' : input.core;
-  const hash = createHash('sha256').update(input.projectRoot).digest('hex').slice(0, 8);
+  const hashInput = input.installId !== undefined ? `${input.projectRoot}\0${input.installId}` : input.projectRoot;
+  const hash = createHash('sha256').update(hashInput).digest('hex').slice(0, 8);
   const name = `karst-${hash}-${input.ticketId}-${core}`;
   if (!SAFE.test(core) || name.length > MAX_LEN) {
     throw new Error(`sbx name: unsafe name ${JSON.stringify(name)}`);

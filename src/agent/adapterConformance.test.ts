@@ -24,6 +24,14 @@ import type { AdapterSurfaces, SurfaceSupport } from './surfaces.js';
 import { INSTRUCTIONS_POINTER_MARKER } from './instructions.js';
 import { autonomousLaunch } from './autonomousLaunch.js';
 import { SSH_CORES } from './sandboxCores.js';
+import { createDockerSessionRunner } from './docker/dockerRunner.js';
+import { fakeDockerProcess } from './docker/fakeDockerProcess.js';
+import { dockerNames } from './docker/dockerNames.js';
+import { createSshDockerSessionRunner } from './ssh/sshDockerRunner.js';
+import { createSshSessionRunner } from './ssh/sshRunner.js';
+import { fakeSshProcess } from './ssh/fakeSshProcess.js';
+import { fakeSbxProcess } from './sbx/fakeSbxProcess.js';
+import type { RemoteDef } from '../manifest/types.js';
 import { UsageLimitError } from './cliFailure.js';
 import { PROCESS_WIDE_KILL_COMMANDS, claudeProcessKillDeny } from './processKillGuard.js';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -109,6 +117,79 @@ describe('direct ssh launch keeps prompts (D555)', () => {
     for (const flag of SANDBOX_BYPASS_FLAGS) expect(launch.args, `${core} ${flag}`).not.toContain(flag);
     const env = { OPENCODE_CONFIG_CONTENT: '{"permission":{"edit":"ask"}}', OPENCODE_PERMISSION: '{"edit":"ask"}' };
     expect(launch.env(env)).toEqual(env);
+  });
+});
+
+// `mode: docker` on an SSH remote is a REAL container boundary, so it must grant
+// the exact autonomy local docker does — and nothing else (D822, @arch:AC-31).
+// The runner object is built, not described: the allow-all config is read from
+// the env file the launch actually writes and compared with the local launch.
+describe('ssh docker mode is as autonomous as local docker, and only then (D822)', () => {
+  const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'docker', remoteDir: '/srv/karst' };
+  const APPROVAL_ENV = {
+    OPENCODE_CONFIG_CONTENT: '{"permission":{"edit":"ask"}}',
+    OPENCODE_PERMISSION: '{"edit":"ask"}',
+  };
+  const SPEC = { ticketId: 7, hostWorktreePath: '/wt', command: 'opencode', args: [] as string[], env: APPROVAL_ENV };
+
+  function parseEnvFile(body: string): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const line of body.split('\n')) {
+      if (line === '') continue;
+      const at = line.indexOf('=');
+      env[line.slice(0, at)] = line.slice(at + 1);
+    }
+    return env;
+  }
+
+  it.each(['opencode', 'opencode2'] as const)(
+    '%s: the ssh docker runner writes the same allow-all config local docker places, and no check is skipped',
+    async (core) => {
+      const names = dockerNames({ projectRoot: '/p', ticketId: 7, core });
+      const local = createDockerSessionRunner({ proc: fakeDockerProcess(), core, names, user: undefined });
+      const ssh = fakeSshProcess();
+      const runner = createSshDockerSessionRunner({
+        ssh, sshBin: 'ssh', host: fakeSbxProcess(), remote: REMOTE, remoteName: 'devbox', controlDir: '/tmp/karst-ssh-0/',
+        core, ticketId: 7, names: dockerNames({ projectRoot: '/p', ticketId: 7, core, installId: 'install1' }),
+        user: { uid: 1000, gid: 1000 }, hostWorktreePath: '/wt', projectPrefix: 'karst-abcdef12',
+        newRunId: () => 'abcd1234',
+      });
+      expect(runner.enforcesSandbox).toBe(local.enforcesSandbox);
+      expect(runner.enforcesSandbox).toBe(true);
+      expect(runner.autonomous).toBe(local.autonomous);
+      expect(runner.autonomous).toBe(true);
+
+      const spec = { ...SPEC, command: core };
+      const placedLocal = local.placeInteractive(spec);
+      const placedSsh = runner.placeInteractive(spec);
+      await runner.prepareInteractive!(spec);
+      const env = parseEnvFile(ssh.stdinCalls[0]!.stdin.toString('utf8'));
+      // The one thing that matters: the SAME relaxed permission blob, so the
+      // remote agent is neither prompted more nor less than the local one.
+      expect(env.OPENCODE_CONFIG_CONTENT).toBe(placedLocal.env.OPENCODE_CONFIG_CONTENT);
+      expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!).permission.edit).toBe('allow');
+      // No bypass flag can be smuggled by either placement.
+      for (const flag of SANDBOX_BYPASS_FLAGS) {
+        expect(placedLocal.shellArgs, `local ${core} ${flag}`).not.toContain(flag);
+        expect(placedSsh.shellArgs.join(' '), `ssh docker ${core} ${flag}`).not.toContain(flag);
+      }
+    },
+  );
+
+  it('the direct ssh runner (enforcesSandbox: false) grants nothing (D555)', () => {
+    const direct = createSshSessionRunner({
+      ssh: fakeSshProcess(), sshBin: 'ssh', host: fakeSbxProcess(),
+      remote: { ...REMOTE, mode: 'direct' }, remoteName: 'devbox',
+      sandboxName: 'karst-abcdef12-7-opencode', projectPrefix: 'karst-abcdef12', controlDir: '/tmp/karst-ssh-0/',
+      core: 'opencode', ticketId: 7, hostWorktreePath: '/wt', tmux: true,
+    });
+    expect(direct.enforcesSandbox).toBe(false);
+    expect(direct.autonomous).toBe(false);
+    const placed = direct.placeInteractive(SPEC);
+    // The remote env file (not the launch) carries the env; the launch has none.
+    expect(placed.env).toEqual({});
+    expect(JSON.stringify(placed)).not.toContain('"edit":"allow"');
+    for (const flag of SANDBOX_BYPASS_FLAGS) expect(JSON.stringify(placed)).not.toContain(flag);
   });
 });
 

@@ -48,6 +48,102 @@ describe('sandbox handle', () => {
     expect(parseSandboxHandle('sbx:A B:1')).toBeNull();
     expect(serviceToken('Web/API_x')).toBe('web-api-x');
   });
+
+  it('accepts a remote (ssh) handle, including a qualified remote name', () => {
+    expect(parseSandboxHandle(sandboxHandle('ssh', 'karst-ab-7-opencode', 3000))).toEqual({
+      kind: 'ssh', name: 'karst-ab-7-opencode', sandboxPort: 3000,
+    });
+    expect(parseSandboxHandle('ssh:dev@vm.example/karst-ab-7-opencode:8080')).toEqual({
+      kind: 'ssh', name: 'dev@vm.example/karst-ab-7-opencode', sandboxPort: 8080,
+    });
+    expect(parseSandboxHandle('ssh::3000')).toBeNull();
+    expect(parseSandboxHandle('ssh:name:999999')).toBeNull();
+  });
+});
+
+describe('service env file seam (remote docker, T1399)', () => {
+  function fakeEnvRunner(opts: { start?: ProcessOutcome; failWrite?: string } = {}) {
+    const written: Array<{ key: string; env: Readonly<Record<string, string>> }> = [];
+    const removed: string[] = [];
+    const gateOpts: Array<{ envFile?: string } | undefined> = [];
+    const execs: string[][] = [];
+    const runGate = vi.fn<GateProcessRunner>((_c, args, _cwd, options) => {
+      execs.push([...args]);
+      gateOpts.push(options);
+      return Promise.resolve(opts.start ?? OK);
+    });
+    const runner: SandboxServiceRunner = {
+      kind: 'docker',
+      publishPort: () => Promise.resolve({ ok: true }),
+      unpublishPort: () => Promise.resolve(),
+      listPorts: () => Promise.resolve([]),
+      runGate,
+      writeServiceEnv: (key, env) => {
+        if (opts.failWrite) return Promise.reject(new Error(opts.failWrite));
+        written.push({ key, env });
+        return Promise.resolve(`/karst/ws/env/svc-${key}.env`);
+      },
+      removeServiceEnv: (key) => { removed.push(key); return Promise.resolve(); },
+    };
+    return { runner, written, removed, gateOpts, execs };
+  }
+
+  it('writes the env file, passes it as a gate option, and keeps every value off the gate argv', async () => {
+    const store = openStore(':memory:');
+    const f = fakeEnvRunner();
+    const rec = await startSandboxService(input(store, f.runner, { env: { PORT: '4100', SECRET_TOKEN: 'sk-live-x' }, sandboxName: 'karst-ab-7-opencode' }));
+    expect(f.written).toEqual([{ key: 'api', env: { PORT: '4100', SECRET_TOKEN: 'sk-live-x' } }]);
+    expect(f.execs[0]!.slice(2)).toEqual(['karst-svc', 'api', '/wt/apps/api', 'npm', 'run', 'dev']);
+    expect(f.execs[0]!.join(' ')).not.toContain('PORT=4100');
+    expect(f.execs[0]!.join(' ')).not.toContain('sk-live-x');
+    expect(f.gateOpts[0]).toMatchObject({ envFile: '/karst/ws/env/svc-api.env', timeoutMs: 30_000 });
+    expect(f.removed).toEqual([]);
+    expect(rec).toMatchObject({ port: 4100, status: 'running' });
+    expect(rows(store)).toEqual([
+      { t: 7, repo: 'api', host: '127.0.0.1', port: 4100, pid: null, status: 'running', sandbox: 'docker:karst-ab-7-opencode:4100' },
+    ]);
+  });
+
+  it('a failed env write unpublishes and throws before any exec', async () => {
+    const store = openStore(':memory:');
+    const f = fakeEnvRunner({ failWrite: 'disk full' });
+    const published: PortMapping[] = [];
+    const runner = { ...f.runner, unpublishPort: (m: PortMapping) => { published.push(m); return Promise.resolve(); } };
+    await expect(startSandboxService(input(store, runner))).rejects.toThrow('api: cannot write the service env file (disk full)');
+    expect(published).toEqual([{ hostPort: 4100, sandboxPort: 4100 }]);
+    expect(f.execs).toEqual([]);
+    expect(rows(store)).toEqual([]);
+  });
+
+  it('a failed start or an unhealthy service removes the env file', async () => {
+    const store = openStore(':memory:');
+    const bad = fakeEnvRunner({ start: { kind: 'completed', exitCode: 1, output: 'boom' } });
+    await expect(startSandboxService(input(store, bad.runner))).rejects.toThrow('start inside the sandbox failed (exit 1: boom)');
+    expect(bad.removed).toEqual(['api']);
+    const sick = fakeEnvRunner();
+    await expect(startSandboxService(input(store, sick.runner, { waitHealthy: () => Promise.reject(new Error('timeout')) })))
+      .rejects.toThrow('api: not healthy on 127.0.0.1:4100: timeout');
+    expect(sick.removed).toEqual(['api']);
+    expect(rows(store)).toEqual([]);
+  });
+
+  it('stop removes the env file after the stop script', async () => {
+    const store = openStore(':memory:');
+    const f = fakeEnvRunner();
+    await startSandboxService(input(store, f.runner));
+    const id = (store.db.prepare('SELECT id FROM servers').get() as { id: number }).id;
+    await stopSandboxService(store, id, f.runner);
+    expect(f.execs.at(-1)!.slice(1)).toEqual([STOP_SCRIPT, 'karst-svc-stop', 'api']);
+    expect(f.removed).toEqual(['api']);
+    expect(rows(store)).toMatchObject([{ status: 'stopped' }]);
+  });
+
+  it('a runner without writeServiceEnv keeps the old in-sandbox env argv', async () => {
+    const store = openStore(':memory:');
+    const f = fakeRunner();
+    await startSandboxService(input(store, f.runner));
+    expect(f.execs[0]!.slice(2)).toEqual(['karst-svc', 'api', '/wt/apps/api', 'env', 'PORT=4100', 'npm', 'run', 'dev']);
+  });
 });
 
 describe('startSandboxService (arch:AC-32)', () => {

@@ -48,8 +48,11 @@ describe('withBackendTimeout', () => {
     expect(LAUNCH_BACKEND_TIMEOUT_MS).toBeGreaterThan(95_000);
   });
 
-  it('passes a result that arrives in time', async () => {
+  it('passes a result that arrives in time, and leaves no timer armed', async () => {
+    vi.useFakeTimers();
     await expect(withBackendTimeout(async () => 'ok', 50, vi.fn())).resolves.toEqual({ kind: 'done', value: 'ok' });
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
   });
 
   it('rejects a backend that fails', async () => {
@@ -74,6 +77,42 @@ describe('withBackendTimeout', () => {
     release('late');
     await vi.advanceTimersByTimeAsync(0);
     expect(onLate).toHaveBeenCalledWith('late');
+    vi.useRealTimers();
+  });
+
+  it('a step that names its own bound survives past the base bound (a cold image build)', async () => {
+    vi.useFakeTimers();
+    let release!: (v: string) => void;
+    const onLate = vi.fn();
+    const p = withBackendTimeout(async (extend) => {
+      // The build announces its own bound before it can take minutes.
+      extend(60_000);
+      return new Promise<string>((r) => { release = r; });
+    }, 1000, onLate);
+    // Far past the base 1 s bound, but well inside the raised one.
+    await vi.advanceTimersByTimeAsync(30_000);
+    release('built');
+    await expect(p).resolves.toEqual({ kind: 'done', value: 'built' });
+    expect(onLate).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('a step that times out before it extends still discards its late result', async () => {
+    vi.useFakeTimers();
+    let release!: (v: string) => void;
+    const onLate = vi.fn();
+    const p = withBackendTimeout(async (extend) => {
+      const value = await new Promise<string>((r) => { release = r; });
+      extend(60_000); // too late: the guard already gave up
+      return value;
+    }, 1000, onLate);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await p).toEqual({ kind: 'timed-out' });
+    release('late');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onLate).toHaveBeenCalledWith('late');
+    // The late extend armed nothing: a discarded step leaves no timer behind.
+    expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
   });
 });

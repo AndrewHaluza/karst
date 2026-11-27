@@ -10,6 +10,11 @@ import type { SshRunnerDeps } from './sshRunnerFor.js';
 
 /** Test double of the `sshRunnerFor` deps (like `agent/ssh/fakeSshProcess.ts`): one trusted direct remote `devbox`. */
 export const FAKE_REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+/**
+ * The same `devbox` in `mode: docker` (D822). The mode is part of the D553
+ * trust hash, so it needs its OWN trust entry (`fakeSshDockerRunnerDeps`).
+ */
+export const FAKE_DOCKER_REMOTE: RemoteDef = { ...FAKE_REMOTE, mode: 'docker' };
 export const FAKE_INSTALL_ID = '0123456789abcdef0123456789abcdef';
 
 /** The recorded ssh placement of ticket `ticketId` (project root `/p`) on `devbox`. */
@@ -30,4 +35,13 @@ export function fakeSshRunnerDeps(ssh: FakeSshProcess, over: Partial<SshRunnerDe
     remotes: () => ({ devbox: FAKE_REMOTE }), installId: () => FAKE_INSTALL_ID, globalStorageDir: fakeTrustDir(), ssh,
     controlDir: '/tmp/karst-ssh-test/', ensureControlDir: async () => ({ ok: true }), ...over,
   };
+}
+
+/** The same deps for a `devbox` in `mode: docker`, confirmed for exactly that definition (`@arch:AC-68`). */
+export function fakeSshDockerRunnerDeps(ssh: FakeSshProcess, over: Partial<SshRunnerDeps> = {}): SshRunnerDeps {
+  return fakeSshRunnerDeps(ssh, {
+    remotes: () => ({ devbox: FAKE_DOCKER_REMOTE }),
+    globalStorageDir: fakeTrustDir({ devbox: remoteTrustKey('devbox', FAKE_DOCKER_REMOTE) }),
+    ...over,
+  });
 }

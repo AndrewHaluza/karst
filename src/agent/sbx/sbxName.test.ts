@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { sbxName } from './sbxName.js';
 
 describe('sbxName', () => {
@@ -32,5 +33,30 @@ describe('sbxName', () => {
     const antiName = sbxName({ projectRoot: '/p/one', ticketId: 7, core: 'antigravity' });
     expect(agyName).toBe(antiName);
     expect(agyName).toMatch(/^karst-[0-9a-f]{8}-7-antigravity$/);
+  });
+});
+
+describe('sbxName installId (remote, T1399)', () => {
+  const digest = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 8);
+
+  it('hashes the bare project root when installId is omitted, exactly as before', () => {
+    expect(sbxName({ projectRoot: '/p/one', ticketId: 7, core: 'opencode' })).toBe(`karst-${digest('/p/one')}-7-opencode`);
+    expect(sbxName({ projectRoot: '/p/one', ticketId: 7, core: 'opencode' })).toBe(
+      sbxName({ projectRoot: '/p/one', ticketId: 7, core: 'opencode' }),
+    );
+  });
+
+  it('hashes projectRoot NUL installId when one is set', () => {
+    const id = 'a'.repeat(32);
+    expect(sbxName({ projectRoot: '/p/one', ticketId: 7, core: 'opencode', installId: id })).toBe(
+      `karst-${digest(`/p/one\0${id}`)}-7-opencode`,
+    );
+  });
+
+  it('keeps two hosts with the SAME project path on one VM apart, and never changes the local name', () => {
+    const a = sbxName({ projectRoot: '/p/one', ticketId: 7, core: 'opencode', installId: 'a'.repeat(32) });
+    const b = sbxName({ projectRoot: '/p/one', ticketId: 7, core: 'opencode', installId: 'b'.repeat(32) });
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(sbxName({ projectRoot: '/p/one', ticketId: 7, core: 'opencode' }));
   });
 });
