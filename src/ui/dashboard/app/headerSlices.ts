@@ -45,6 +45,7 @@ export interface ControlsSlice {
   readonly canDetach: boolean;
   readonly canClose: boolean;
   readonly canReopen: boolean;
+  readonly canArchive: boolean;
   readonly paused: boolean;
   readonly done: boolean;
   readonly ship: DashboardState['ship'];
@@ -102,6 +103,7 @@ export const selectControls = (snapshot: DashboardSnapshot): ControlsSlice | nul
     canDetach: !!s.canDetachSubtask,
     canClose: !!s.canClose,
     canReopen: !!s.canReopen,
+    canArchive: !!s.canArchive,
     paused: !!s.paused,
     done: s.stageCurrent === 'done',
     ship: s.ship || { kind: 'none' },

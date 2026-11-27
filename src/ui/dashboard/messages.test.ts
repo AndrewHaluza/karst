@@ -67,6 +67,7 @@ function actions(): DashboardActions {
     detachSubtask: vi.fn(),
     closeTicket: vi.fn(),
     reopenTicket: vi.fn(),
+    archiveTicket: vi.fn(),
     openStageLog: vi.fn(),
     resolveConflicts: vi.fn(),
     resolveAllConflicts: vi.fn(),
@@ -524,6 +525,14 @@ describe('routeAction', () => {
     expect(a.reopenTicket).not.toHaveBeenCalled();
     routeAction({ type: 'reopen-ticket' }, a);
     expect(a.reopenTicket).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses and dispatches the payload-free archive-ticket', () => {
+    expect(parseWebviewMessage({ type: 'archive-ticket', ticketId: 9 })).toEqual({ type: 'archive-ticket' });
+    const a = actions();
+    routeAction({ type: 'archive-ticket' }, a);
+    expect(a.archiveTicket).toHaveBeenCalledTimes(1);
+    expect(a.reopenTicket).not.toHaveBeenCalled();
   });
 
   it('parses and dispatches create-subtask', () => {

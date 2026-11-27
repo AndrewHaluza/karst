@@ -21,10 +21,10 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
     ...(row.priorityEditable ? [priorityMenuItem({ ticket: id }, row.priority)] : []),
     { key: 'follow', spec: { act: 'create-follow-up', id }, label: 'Create follow-up', icon: 'corner-down-right', title: 'Create a follow-up ticket' },
     ...(row.canDetach
-      ? [{ key: 'detach', spec: { act: 'detach-subtask', id }, label: 'Detach from parent…', icon: 'unlink', title: 'Detach this sub-task from its parent and rebase it onto the root base' }]
+      ? [{ key: 'detach', spec: { act: 'detach-subtask', id }, label: 'Detach from parent', icon: 'unlink', title: 'Detach this sub-task from its parent and rebase it onto the root base' }]
       : []),
     ...(row.canClose
-      ? [{ key: 'close', spec: { act: 'close-ticket', id }, label: 'Close — done outside Karst…', icon: 'circle-x', danger: true, title: 'Mark closed: the work was done outside Karst. Nothing is verified' }]
+      ? [{ key: 'close', spec: { act: 'close-ticket', id }, label: 'Close', icon: 'circle-x', danger: true, title: 'Mark closed: the work was done outside Karst. Nothing is verified' }]
       : []),
     ...(row.canReopen
       ? [{ key: 'reopen', spec: { act: 'reopen-ticket', id }, label: 'Reopen', icon: 'history', title: 'Bring this closed ticket back to implementation' }]
@@ -38,7 +38,7 @@ export function ticketMenuItems(row: TicketRow): MenuItem[] {
       divider: true,
       title: 'Archive ticket, hiding it from the active list',
     },
-    { key: 'cloud-add', spec: { act: 'cloud-session-add', id }, label: 'Link cloud session…', icon: 'cloud', title: 'Link a cloud agent session to this ticket by URL' },
+    { key: 'cloud-add', spec: { act: 'cloud-session-add', id }, label: 'Link cloud session', icon: 'cloud', title: 'Link a cloud agent session to this ticket by URL' },
     ...unlinkItems(row),
   ];
 }

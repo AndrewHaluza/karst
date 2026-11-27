@@ -142,14 +142,14 @@ describe('unlinked cloud session rows', () => {
     expect(h.query('[data-pane="tickets"] .pane-count')!.textContent).toBe('1');
   });
 
-  it('links to a ticket or a pending draft from the Link to… menu', async () => {
+  it('links to a ticket or a pending draft from the Link to menu', async () => {
     const withDraft = fixture('all-sections').planning.length
       ? fixture('all-sections').planning
       : [];
     const pending = withDraft.flatMap((p) => p.proposals).find((d) => d.status === 'pending');
     const h = await mount(stateWith([row(1)], [unlinked(1, URL_A)], { planning: withDraft }));
     const trigger = h.query<HTMLButtonElement>('.cloudrow [data-menu]')!;
-    expect(trigger.getAttribute('aria-label')).toBe('Link to…');
+    expect(trigger.getAttribute('aria-label')).toBe('Link to');
     expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
     await h.click(trigger);
     await h.click(`#ctxMenu [data-act="cloud-session-link"][data-id="${920001}"]`);

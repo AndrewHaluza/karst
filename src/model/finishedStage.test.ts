@@ -30,13 +30,13 @@ describe('a closed ticket is finished at every no-more-work site', () => {
     expect(canAddSubtask({ stageCurrent: 'closed', archivedAt: null })).toBe(false);
   });
 
-  it('cannot be detached as a sub-task, like a done one', () => {
+  it('can still be detached as a sub-task, unlike a done one (T1391)', () => {
     expect(
       canDetachSubtask(
         { subtaskParentId: 1, blocksParent: false, stageCurrent: 'closed', agentState: null },
         0,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('is not a live baseline dependent unless its service still runs', () => {

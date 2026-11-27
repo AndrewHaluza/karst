@@ -1019,6 +1019,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     canDetachSubtask: false,
     canClose: true,
     canReopen: false,
+    canArchive: true,
     envOverrides: { services: [], values: {} },
     paused: false,
     pausedAt: null,

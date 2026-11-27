@@ -369,6 +369,11 @@ describe('buildDashboardState', () => {
     // A done sub-task is already leaving the stack.
     store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(blocking.id);
     expect(buildDashboardState(store, blocking.id).canDetachSubtask).toBe(false);
+
+    // A closed sub-task (and the Reopen it also offers) can still leave the stack.
+    const closed = createTicket(store, { key: 'PROJ-1-s3', title: 'closed', subtaskParentId: parent.id });
+    store.db.prepare("UPDATE tickets SET stage_current = 'closed' WHERE id = ?").run(closed.id);
+    expect(buildDashboardState(store, closed.id)).toMatchObject({ canDetachSubtask: true, canReopen: true, canClose: false });
   });
 
   it('offers Close only to an unfinished, unarchived ticket and Reopen only to a closed one', () => {
@@ -383,6 +388,13 @@ describe('buildDashboardState', () => {
 
     store.db.prepare("UPDATE tickets SET stage_current = 'impl', archived_at = datetime('now') WHERE id = ?").run(t.id);
     expect(buildDashboardState(store, t.id)).toMatchObject({ canClose: false, canReopen: false });
+  });
+
+  it('offers Archive only to a ticket that is not archived yet', () => {
+    const t = createTicket(store, { key: 'PROJ-10', title: 'work' });
+    expect(buildDashboardState(store, t.id).canArchive).toBe(true);
+    store.db.prepare("UPDATE tickets SET archived_at = datetime('now') WHERE id = ?").run(t.id);
+    expect(buildDashboardState(store, t.id).canArchive).toBe(false);
   });
 
   it('offers Deliver to PR only at ship with an open PR and measured missing commits', () => {

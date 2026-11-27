@@ -407,6 +407,7 @@ export const COVERED: readonly ParityCase[] = [
   { act: 'detach-subtask', state: () => st('impl', { canDetachSubtask: true }), prep: headerMenu(act('detach-subtask')), sel: act('detach-subtask'), posts: [{ type: 'detach-subtask' }], rid: true },
   { act: 'close-ticket', state: () => st('impl', { canClose: true }), prep: headerMenu(act('close-ticket')), sel: act('close-ticket'), posts: [{ type: 'close-ticket' }], rid: true },
   { act: 'reopen-ticket', state: () => st('impl', { canReopen: true }), prep: headerMenu(act('reopen-ticket')), sel: act('reopen-ticket'), posts: [{ type: 'reopen-ticket' }], rid: true },
+  { act: 'archive-ticket', state: () => st('impl', { canArchive: true }), prep: headerMenu(act('archive-ticket')), sel: act('archive-ticket'), posts: [{ type: 'archive-ticket' }], rid: true },
   {
     act: 'open-dependency', state: () => st('impl', { blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }] }),
     sel: act('open-dependency'), posts: [{ type: 'open-dependency', ticketId: 42 }], rid: true,

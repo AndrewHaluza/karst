@@ -1,6 +1,6 @@
 /**
  * The header's "..." ticket-controls menu: Edit ticket, Pause / Resume execution, Create follow-up, Detach from
- * parent, Close, Reopen, the
+ * parent, Close, Reopen, Archive, the
  * "Link dashboard and terminal" quick setting and the per-ticket gate toggles. Same DOM as the vanilla markup,
  * `renderPause`, `renderFollowUp`, `renderBind` and `renderMenuGates` it replaced. The open state lives in
  * `Header` (one popover at a time).
@@ -120,6 +120,7 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
   const onDetach = usePendingAction((requestId) => send.detachSubtask(requestId));
   const onClose = usePendingAction((requestId) => send.closeTicket(requestId));
   const onReopen = usePendingAction((requestId) => send.reopenTicket(requestId));
+  const onArchive = usePendingAction((requestId) => send.archiveTicket(requestId));
   return (
     <div className="menuWrap">
       <button
@@ -164,7 +165,7 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
           onClick={onDetach}
         >
           <Icon name="unlink" />
-          <span>Detach from parent…</span>
+          <span>Detach from parent</span>
         </HideableButton>
         {/* Close / Reopen (@arch:STAGEMACH): a person records that the work was done outside karst. Host-gated
             (`canClose` / `canReopen`); the click sends no payload and the host asks for the reason. */}
@@ -178,7 +179,7 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
           onClick={onClose}
         >
           <Icon name="circle-x" />
-          <span>Close — done outside Karst…</span>
+          <span>Close</span>
         </HideableButton>
         <HideableButton
           off={!controls?.canReopen}
@@ -191,6 +192,20 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
         >
           <Icon name="history" />
           <span>Reopen</span>
+        </HideableButton>
+        <div className="menuDivider" />
+        {/* Archive: same as the sidebar item, no confirmation; `karst.unarchiveTicket` undoes it. */}
+        <HideableButton
+          off={!controls?.canArchive}
+          id="archiveTicket"
+          className="menuButton danger"
+          data-act="archive-ticket"
+          role="menuitem"
+          title="Archive ticket, hiding it from the active list"
+          onClick={onArchive}
+        >
+          <Icon name="archive" />
+          <span>Archive</span>
         </HideableButton>
         <div className="menuDivider" />
         <div className="menuHeading">Quick setting</div>

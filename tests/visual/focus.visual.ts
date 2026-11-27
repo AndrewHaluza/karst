@@ -51,7 +51,7 @@ const FOCUS_CAP = 12;
  *
  * Updated a fifth time by the sub-task UI (NDL-76, `#addSubtask`; PR #448,
  * `#detachSubtask`): `dashboard` +2 — the Sub-tasks panel's "Add sub-task…"
- * and the ticket header's "Detach from parent…" controls. Both are net-new
+ * and the ticket header's "Detach from parent" controls. Both are net-new
  * interactive controls on the awaiting-subtask flow and neither folds into an
  * existing focusable: `git diff 65df7194..HEAD -- src/ui/dashboard/webview.html`
  * adds exactly these two focusable elements and removes none (no `tabindex`
@@ -129,7 +129,7 @@ const FOCUS_CAP = 12;
  * Servers pane holds only its "Reading servers…" note), so they add nothing here.
  *
  * Updated a fourteenth time by the human-only `closed` state (arch:STAGEMACH):
- * `dashboard` 47 → 49 — `#closeTicket` ("Close — done outside Karst…") and
+ * `dashboard` 47 → 49 — `#closeTicket` ("Close") and
  * `#reopenTicket` ("Reopen"), the dashboard header's two net-new controls, a
  * recorded vanilla-view exception (ui:REACT-VIEWS). They fold into nothing: no
  * existing control closes or reopens a ticket, and Detach/Pause/Stop act on
@@ -164,9 +164,14 @@ const FOCUS_CAP = 12;
  * count grows because the page now renders the rows the seed left empty: among them the
  * repository rows, the base-branch override, the approach options, the agent presets,
  * the provider ticket search and the attachment.
+ *
+ * Updated a nineteenth time by the dashboard ticket menu Archive item (T1391):
+ * `dashboard` 49 → 50 — `#archiveTicket`, a net-new control. No dashboard control
+ * archived a ticket before (the sidebar menu had the only one), so it folds into
+ * nothing. It is host-gated (`hidden` unless `canArchive`), but the sweep counts it.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
-  dashboard: 49, // fourteenth note: #closeTicket / #reopenTicket
+  dashboard: 50, // fourteenth note: #closeTicket / #reopenTicket; nineteenth: #archiveTicket
   usage: 37, // sixteenth note: page header, tabs, sort headers, ticket links and the state actions
   resources: 19, // thirteenth note: the Servers / Resources tab buttons
   serverLogs: 14, // seventeenth note: Follow, Wrap and Copy

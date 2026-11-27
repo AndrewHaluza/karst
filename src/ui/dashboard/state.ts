@@ -393,6 +393,7 @@ export function buildDashboardState(
     canDetachSubtask: canDetachSubtask(ticket, subtaskList.length),
     canClose: canCloseTicket(ticket),
     canReopen: canReopenTicket(ticket),
+    canArchive: ticket.archivedAt === null,
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
     paused: ticket.pausedAt !== null,

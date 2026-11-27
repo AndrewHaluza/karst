@@ -31,6 +31,7 @@ export const headerState = (over: Record<string, unknown> = {}): DashboardState 
     canDetachSubtask: false,
     canClose: false,
     canReopen: false,
+    canArchive: true,
     paused: false,
     stageCurrent: 'impl',
     currentStage: null,
@@ -67,7 +68,7 @@ function OpsProbe({ onOps, onOverlays }: { readonly onOps: (ops: PendingOps) => 
 }
 
 const SENDERS = [
-  'copyTicketKey', 'copyTicketMarkdown', 'openTicketMarkdown', 'openTicketLink', 'openDependency', 'detachSubtask', 'closeTicket', 'reopenTicket', 'editTicket',
+  'copyTicketKey', 'copyTicketMarkdown', 'openTicketMarkdown', 'openTicketLink', 'openDependency', 'detachSubtask', 'closeTicket', 'reopenTicket', 'archiveTicket', 'editTicket',
   'pauseExecution', 'unpauseExecution', 'createFollowUpTicket', 'setDisabledGates', 'toggleBind', 'setLayout', 'switchAgent', 'shipTicket',
   'sandboxSync', 'sandboxDiff', 'sandboxStashUpdate', 'sandboxShell', 'sandboxStop', 'sandboxRemove', 'sandboxCarry', 'openSettings',
 ] as const;
