@@ -103,4 +103,10 @@ describe('Header.css — guards moved with the rules', () => {
     expect(tight).toContain('.menuButton.tightOnly.hidden{display:none}');
     expect(tight.indexOf('.menuButton.tightOnly.hidden{display:none}')).toBeGreaterThan(tight.indexOf('.menuButton.tightOnly{display:flex}'));
   });
+
+  it('raises the sticky row above the page popover layer only while the menu is open', () => {
+    // The row is a stacking context; its fixed popover cannot outrank the page's .vp-menu/.wbase-popover unless the
+    // row rises. The rule must be scoped to the open menu, so the row at rest stays below the attention ring.
+    expect(CSS).toContain('.dhead:has(.menuPopover.open){z-index:var(--k-z-sticky-open)}');
+  });
 });

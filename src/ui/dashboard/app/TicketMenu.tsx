@@ -175,7 +175,7 @@ function LinkViewsSwitch() {
   );
 }
 
-export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonly open: boolean; readonly onToggle: () => void }) {
+export const TicketMenu = memo(function TicketMenu({ open, onToggle, onCloseMenu }: { readonly open: boolean; readonly onToggle: () => void; readonly onCloseMenu: () => void }) {
   const send = useDashboardSend();
   const moreRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -236,7 +236,14 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
           className="menuButton tightOnly"
           data-act="preview-ticket-data"
           role="menuitem"
-          onClick={() => flushSync(overlays.openTicketData)}
+          onClick={() => {
+            // The drawer returns focus to whatever held it on open: point that at the ⋯ trigger, because this item
+            // leaves with the menu. Then open the drawer and close the menu behind it, so the drawer is not opened
+            // over a menu that later steals the focus-return click (or traps Escape behind an open popover).
+            moreRef.current?.focus();
+            flushSync(overlays.openTicketData);
+            onCloseMenu();
+          }}
         >
           <Icon name="file-text" />
           <span>Ticket details</span>

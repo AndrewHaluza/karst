@@ -44,8 +44,8 @@ describe('ticket row priority chip', () => {
       'Low · set by you (ClickUp: High)',
     ]);
     expect(chips.map((c) => c.getAttribute('aria-label'))).toEqual(chips.map((c) => c.getAttribute('data-tip')));
-    // data-tip feeds the shared k-tooltip; a native title would double the hint.
-    expect(chips.map((c) => c.getAttribute('title'))).toEqual([null, null, null]);
+    // data-tip feeds the shared k-tooltip; the empty title shadows the row button's native tooltip so only one shows.
+    expect(chips.map((c) => c.getAttribute('title'))).toEqual(['', '', '']);
   });
 });
 

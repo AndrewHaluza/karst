@@ -74,20 +74,30 @@ const SENDERS = [
 ] as const;
 
 export function mountHeader(initial: DashboardState | null): HeaderHarness {
-  document.body.innerHTML = '<div class="dhead"></div><div id="headerMeta" class="headerMeta" hidden></div>';
+  resetBody('<div class="dhead"></div><div id="headerMeta" class="headerMeta" hidden></div>');
   return mountInto(initial, <Header />);
 }
 
 /** Mounts the runtime strip (it draws in place: the strip tests do not need the static roots). */
 export function mountRuntime(initial: DashboardState | null): HeaderHarness {
-  document.body.innerHTML = '';
+  resetBody('');
   return mountInto(initial, <RuntimeStrip />);
 }
 
 /** Mounts the body-layout mirror alone (it renders nothing; the harness reads `document.body`). */
 export function mountBodyLayout(initial: DashboardState | null): HeaderHarness {
-  document.body.innerHTML = '';
+  resetBody('');
   return mountInto(initial, <BodyLayout />);
+}
+
+/**
+ * Unmounts whatever a previous `mount*` left before replacing the page. Without it a test that mounts twice
+ * (once per stage) rewrites `document.body` under a live React root, and its body-level portals (`#menuPopover`,
+ * the attention ring) leave React reconciling nodes that are no longer in their container.
+ */
+function resetBody(html: string): void {
+  cleanup();
+  document.body.innerHTML = html;
 }
 
 function mountInto(initial: DashboardState | null, ui: ReactNode): HeaderHarness {

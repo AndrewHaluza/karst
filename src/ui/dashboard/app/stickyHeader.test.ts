@@ -50,13 +50,21 @@ function page(): void {
   document.body.innerHTML =
     '<div class="dhead" data-region="ticket-head"></div>' +
     '<div id="headerMeta" class="headerMeta" hidden></div>' +
-    '<div id="runtimeRoot" data-region="runtime"></div>' +
+    '<div id="runtimeRoot" data-region="runtime"><div class="rs-wrap"></div></div>' +
     '<div id="viewsRoot" class="viewsroot hidden" data-region="views"></div>';
-  vi.spyOn(window, 'getComputedStyle').mockReturnValue({ paddingTop: '24px', paddingBottom: '24px', marginTop: '0px', marginBottom: '0px' } as CSSStyleDeclaration);
+  // The runtime strip owns its bottom margin on `.rs-wrap`, not on `#runtimeRoot`: the root's own margin stays 0
+  // so the test would miss the collapsed gap if the measurement only read the root.
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => ({
+    paddingTop: el === document.body ? '24px' : '0px',
+    paddingBottom: el === document.body ? '24px' : '0px',
+    marginTop: '0px',
+    marginBottom: (el as Element).classList?.contains('rs-wrap') ? '12px' : '0px',
+  }) as CSSStyleDeclaration);
   const dhead = document.getElementsByClassName('dhead')[0]!;
   size(dhead, 64);
   size(document.getElementById('headerMeta')!, 24);
   size(document.getElementById('runtimeRoot')!, 40);
+  size(document.querySelector('.rs-wrap')!, 40);
   size(document.getElementById('viewsRoot')!, 0);
 }
 
@@ -102,8 +110,9 @@ describe('stickyHeader', () => {
     const dhead = document.getElementsByClassName('dhead')[0]!;
     attachStickyHeader(document);
     expect(prop('--k-headbar-h')).toBe('64px');
-    // 24 + 24 (body padding) + 64 (row 1) + 24 (row 2) + 40 (runtime strip) + 0 (view pills).
-    expect(prop('--k-drill-chrome')).toBe('176px');
+    // 24 + 24 (body padding) + 64 (row 1) + 24 (row 2) + 40 (runtime strip) + 12 (its `.rs-wrap` margin that
+    // collapses out of #runtimeRoot) + 0 (view pills).
+    expect(prop('--k-drill-chrome')).toBe('188px');
     expect(FakeRO.instances[0]?.observed).toEqual([
       dhead,
       document.getElementById('headerMeta'),
@@ -127,7 +136,7 @@ describe('stickyHeader', () => {
     size(dhead, 88);
     FakeRO.instances[0]!.trigger();
     expect(prop('--k-headbar-h')).toBe('88px');
-    expect(prop('--k-drill-chrome')).toBe('200px');
+    expect(prop('--k-drill-chrome')).toBe('212px');
   });
 
   it('disconnects both observers and clears the row state and the properties on unmount', () => {

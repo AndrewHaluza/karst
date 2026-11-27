@@ -35,8 +35,7 @@ describe('TicketMenu — items', () => {
   });
 });
 
-describe('TicketMenu — tight-tier items', () => {
-  it('offers Open in provider as the tightOnly twin of the board link and posts once', () => {
+describe('TicketMenu — tight-tier items', () => {  it('offers Open in provider as the tightOnly twin of the board link and posts once', () => {
     const h = mountHeader(headerState({ ticketUrl: 'https://x/t' }));
     const item = $('#menuBoardLink');
     expect(item.closest('#menuPopover')).toBeTruthy();
@@ -66,6 +65,20 @@ describe('TicketMenu — tight-tier items', () => {
     fireEvent.click(item);
     expect(seen).toEqual(['The brief']);
     expect(Object.values(h.send).every((fn) => fn.mock.calls.length === 0)).toBe(true);
+  });
+
+  it('closes the menu behind the details drawer and returns focus to the ⋯ trigger', () => {
+    const h = mountHeader(headerState({ brief: 'The brief' }));
+    fireEvent.click($('#moreBtn'));
+    expect(has('#menuPopover', 'hidden')).toBe(false);
+    fireEvent.click($('#menuTicketData'));
+    // The drawer covers the page; the menu it was opened from must not stay open behind it (or behind the focus
+    // return when the drawer closes).
+    expect(has('#menuPopover', 'hidden')).toBe(true);
+    expect(h.overlays().getSnapshot().drawer).not.toBeNull();
+    expect(document.activeElement).toBe($('#moreBtn'));
+    h.overlays().closeTicketData();
+    expect(document.activeElement).toBe($('#moreBtn'));
   });
 });
 

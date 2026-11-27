@@ -545,7 +545,7 @@ exports[`dashboard region parity (DOM contract) > header .dhead · populated imp
         <svg aria-hidden="true">
     <span#idBadge.k-id> "T942017"
     <span#statusChip.info.k-chip.ticketStatus hidden>
-    <span#priorityChip.k-pri.k-pri--urgent aria-label="Urgent · ClickUp" data-tip="Urgent · ClickUp" role="img"> "URG"
+    <span#priorityChip.k-pri.k-pri--urgent aria-label="Urgent · ClickUp" data-tip="Urgent · ClickUp" role="img" title> "URG"
     <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy data-tip="Copy ticket key FEAT-142" type="button"> "FEAT-142"
     <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" data-url="fixture:https://app.clickup.com/t/abc" href="#" title="Open ticket in provider">
       <svg.k-icon aria-hidden="true">

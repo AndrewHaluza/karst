@@ -191,11 +191,15 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
 
   // ── Layering ───────────────────────────────────────────────────────────────
   // A sticky row (the dashboard ticket header) sits above the page but below the
-  // attention ring (z-index 20) and every scrim/popover layer.
+  // attention ring (z-index 20) and every scrim/popover layer. While that row owns
+  // an open popover it rises above the page's popover layer (--k-z-modal, the height
+  // `.popover`/`.vp-menu`/`.wbase-popover` use), because the row's own stacking
+  // context would otherwise cap the popover below them; toast and tooltip stay on top.
   '--k-z-sticky': '10',
   '--k-z-scrim': '30',
   '--k-z-drawer': '40',
   '--k-z-modal': '50',
+  '--k-z-sticky-open': '55',
   '--k-z-toast': '60',
   '--k-z-tooltip': '70',
 };

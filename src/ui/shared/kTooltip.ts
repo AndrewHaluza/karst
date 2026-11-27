@@ -43,9 +43,22 @@ export function installTooltip(doc: Document): () => void {
     const view = doc.defaultView;
     const r = target.getBoundingClientRect();
     const width = el.offsetWidth;
-    const maxLeft = Math.max(0, (view?.innerWidth ?? 0) - width - GAP_PX);
+    const height = el.offsetHeight;
+    const viewportW = view?.innerWidth ?? 0;
+    const viewportH = view?.innerHeight ?? 0;
+    const maxLeft = Math.max(0, viewportW - width - GAP_PX);
     el.style.left = `${Math.min(Math.max(GAP_PX, r.left), maxLeft)}px`;
-    el.style.top = `${r.bottom + GAP_PX}px`;
+    // Below the control by default; flip above when that would run past the viewport (a row at the bottom edge of the
+    // sidebar pane), and clamp when neither side fits so the hint stays readable instead of clipping off-screen.
+    const below = r.bottom + GAP_PX;
+    const above = r.top - GAP_PX - height;
+    const top =
+      below + height <= viewportH - GAP_PX
+        ? below
+        : above >= GAP_PX
+          ? above
+          : Math.max(GAP_PX, Math.min(below, viewportH - height - GAP_PX));
+    el.style.top = `${top}px`;
   };
 
   const show = (target: HTMLElement): void => {

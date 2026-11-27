@@ -7,9 +7,14 @@
 /* Row 1 is STICKY (T1396): the page scrolls under it, so ticket identity and the ⋯ menu stay reachable. Row 2
    (`#headerMeta`) is not. The negative inline margins cancel the page gutter so the bar spans the page edge to edge;
    that is why the same `--k-space-9` must be both the body padding and this padding. `--k-z-sticky` (10) sits below
-   the attention ring (20) and every scrim/popover. */
+   the attention ring (20) and every scrim/popover; while the row owns an open popover it rises above the page's
+   popover layer instead (see the `:has` rule below). */
 html{scroll-padding-top:var(--k-headbar-h,0px)}
 .dhead{display:flex;align-items:center;gap:var(--k-space-5);margin-bottom:var(--k-space-6);flex-wrap:nowrap;position:sticky;top:0;z-index:var(--k-z-sticky);background:var(--k-bg);margin-inline:calc(var(--k-space-9) * -1);padding-inline:var(--k-space-9)}
+/* A sticky element with a z-index is a stacking context, so its `#menuPopover` (z 50) is capped at the row's layer and
+   would paint under the page-level `.wbase-popover`, `.vp-menu` and `.attention-ring` (20/50). Raise the row only while
+   the menu is open: the popover then outranks those layers, while the row at rest stays below the ring. */
+.dhead:has(.menuPopover.open){z-index:var(--k-z-sticky-open)}
 /* The scroll state, written by `stickyHeader.ts` from an IntersectionObserver on the 1px sentinel before the row. */
 .dhead[data-stuck="true"]{box-shadow:var(--k-elev-1)}
 /* Zero-height, invisible, unclickable: it marks the exact point `.dhead` reaches `top:0` without moving anything.

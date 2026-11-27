@@ -29,6 +29,17 @@ function outerHeight(el: Element | null, view: Window | null): number {
 }
 
 /**
+ * The space the runtime strip occupies. `#runtimeRoot` has no margin, padding or border of its own: its child
+ * `.rs-wrap` owns the bottom margin, and in normal flow that margin collapses out of the root, so the root's own
+ * box does not include the gap. Measuring the child too keeps the gap in `--k-drill-chrome`; miss it and every
+ * drill view (sized `100vh - chrome`) overflows the page by that gap and opens a second scrollbar.
+ */
+function runtimeSpace(doc: Document, view: Window | null): number {
+  const root = doc.getElementById('runtimeRoot');
+  return Math.max(outerHeight(root, view), outerHeight(root?.firstElementChild ?? null, view));
+}
+
+/**
  * Mounts the header observers; returns the cleanup. A document without `.dhead` (another view, or a test
  * that mounts a fragment) gets a no-op so every caller can mount it unconditionally.
  */
@@ -58,7 +69,7 @@ export function attachStickyHeader(doc: Document): () => void {
       bodyPadY +
         outerHeight(dhead, view) +
         outerHeight(doc.getElementById('headerMeta'), view) +
-        outerHeight(doc.getElementById('runtimeRoot'), view) +
+        runtimeSpace(doc, view) +
         outerHeight(doc.getElementById('viewsRoot'), view),
     );
     // A zero reading is "not laid out yet" (jsdom, a hidden page): leave the view's own fallback in place.

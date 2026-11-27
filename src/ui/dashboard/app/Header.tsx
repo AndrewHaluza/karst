@@ -48,7 +48,7 @@ function usePopovers(): { readonly open: Popover; readonly toggle: (which: 'menu
 }
 
 export const Header = memo(function Header() {
-  const { open, toggle } = usePopovers();
+  const { open, toggle, close } = usePopovers();
   const toggleMenu = useCallback(() => toggle('menu'), [toggle]);
   // The sticky row's observers own their DOM (the sentinel, `data-stuck`, the two custom properties).
   useEffect(() => attachStickyHeader(document), []);
@@ -59,7 +59,7 @@ export const Header = memo(function Header() {
         <TicketTitle />
         <div className="headerActions">
           <ShipControls />
-          <TicketMenu open={open === 'menu'} onToggle={toggleMenu} />
+          <TicketMenu open={open === 'menu'} onToggle={toggleMenu} onCloseMenu={close} />
         </div>
       </RegionPortal>
       <HeaderMeta />

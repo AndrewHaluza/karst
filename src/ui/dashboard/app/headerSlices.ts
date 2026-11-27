@@ -4,6 +4,7 @@
  */
 import type { DashboardSnapshot } from './dashboardStore.js';
 import type { DashboardLayout } from '../../../model/dashboardLayout.js';
+import { asPriorityLevel } from '../../../model/priority.js';
 import type { DashboardState } from '../state.js';
 import type { DashboardPriorityView } from '../stateTypes.js';
 import { ticketStatus, type StatusTone } from './ticketHead.js';
@@ -67,9 +68,20 @@ const statusFields = (s: DashboardState): { statusWord: string; statusTone: Stat
   return { statusWord: status?.word ?? '', statusTone: status?.tone ?? 'info' };
 };
 
-/** The priority view with its word trimmed once here, so the chip never re-trims on a push. */
-const priorityView = (p: DashboardPriorityView | null): DashboardPriorityView | null =>
-  p ? { ...p, text: p.text.trim() } : null;
+/**
+ * The priority view with its word trimmed once here, so the chip never re-trims on a push. A snapshot persisted by a
+ * pre-T1396 build holds the old display string (`"high"`, `"P2"`), because `vscode.setState` is the upgrade contract
+ * across builds; upgrade it here so a restored panel draws the same chip instead of throwing on `text.trim()` before
+ * the host pushes a fresh snapshot.
+ */
+const priorityView = (p: DashboardPriorityView | string | null | undefined): DashboardPriorityView | null => {
+  if (!p) return null;
+  if (typeof p === 'string') {
+    const text = p.trim();
+    return text ? { level: asPriorityLevel(text) ?? null, text, source: null } : null;
+  }
+  return { ...p, text: p.text.trim() };
+};
 
 export const selectIdentity = (snapshot: DashboardSnapshot): IdentitySlice | null => {
   const s = snapshot.state;

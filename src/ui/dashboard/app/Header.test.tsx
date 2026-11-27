@@ -19,7 +19,7 @@ describe('Header — identity', () => {
     expect($('#priorityChip').classList.contains('k-pri--urgent')).toBe(true);
     expect($('#priorityChip').getAttribute('data-tip')).toBe('Urgent · ClickUp');
     expect($('#priorityChip').getAttribute('aria-label')).toBe('Urgent · ClickUp');
-    expect($('#priorityChip').getAttribute('title')).toBeNull();
+    expect($('#priorityChip').getAttribute('title')).toBe('');
     expect($('#boardLink').hasAttribute('hidden')).toBe(false);
     expect($('#boardLink').getAttribute('data-url')).toBe('https://x/t');
   });

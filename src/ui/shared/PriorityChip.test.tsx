@@ -19,8 +19,8 @@ describe('PriorityChip', () => {
       expect(el.getAttribute('role')).toBe('img');
       expect(el.getAttribute('aria-label')).toBe(label);
       expect(el.getAttribute('data-tip')).toBe(label);
-      // data-tip is the k-tooltip opt-in; a native title would double the hint.
-      expect(el.getAttribute('title')).toBeNull();
+      // data-tip is the k-tooltip opt-in; the empty title shadows any native ancestor tooltip instead of doubling it.
+      expect(el.getAttribute('title')).toBe('');
       unmount();
     }
   });
@@ -46,7 +46,20 @@ describe('PriorityChip', () => {
     expect(el.className).toBe('k-pri k-pri--low');
     expect(el.getAttribute('aria-label')).toBe('P2');
     expect(el.getAttribute('data-tip')).toBe('P2');
-    expect(el.getAttribute('title')).toBeNull();
+    expect(el.getAttribute('title')).toBe('');
+  });
+
+  it('shadows the native title of a titled ancestor so only the k-tooltip shows', () => {
+    // The sidebar rows sit inside buttons that carry a native title ("Open ticket dashboard"); without a title of its
+    // own, the chip inherits that text and Chromium shows it over the k-tooltip (HTML: nearest titled ancestor).
+    const { container } = render(
+      <button type="button" title="Open ticket dashboard">
+        <PriorityChip level="urgent" />
+      </button>,
+    );
+    const el = chip(container);
+    expect(el.getAttribute('title')).toBe('');
+    expect(el.getAttribute('data-tip')).toBe('Urgent');
   });
 
   it('names the provider beside a non-level label, with and without its provider name', () => {
