@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { OPENCODE_IMAGE, PLAYWRIGHT_VERSION } from './dockerImage.js';
-import { dockerPreflight } from './dockerPreflight.js';
+import { dockerPreflight, REMOTE_BUILD_TIMEOUT_MS } from './dockerPreflight.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
 
 const CTX = '/ext/dist/sandbox/opencode';
@@ -91,12 +91,23 @@ describe('dockerPreflight streamContext (remote daemon, T1399)', () => {
     expect(proc.pipes).toHaveLength(1);
     expect(proc.pipes[0]!.from).toEqual({ command: 'tar', args: ['-c', '-C', CTX, '.'] });
     expect(proc.pipes[0]!.to).toEqual({ command: 'docker', args: BUILD_ARGV });
+    // The build names its own bound: the generic 60 s pipe bound would SIGKILL a cold build.
+    expect(proc.pipes[0]!.opts?.timeoutMs).toBe(REMOTE_BUILD_TIMEOUT_MS);
     // Never a path build, never a pull.
     expect(lines(proc).some((l) => /^docker build /.test(l))).toBe(false);
     expect(lines(proc).some((l) => l.startsWith('docker pull'))).toBe(false);
     expect(proc.pipes[0]!.to.args).not.toContain('--pull');
     expect(lines(proc).some((l) => l.startsWith('docker builder prune'))).toBe(true);
     expect(onProgress).toHaveBeenCalledWith(`building ${OPENCODE_IMAGE} on remote daemon…`);
+  });
+
+  it('hands the caller\'s deadline to the build pipe, so a resolve timeout kills it', async () => {
+    const proc = fakeDockerProcess({ 'docker image inspect': { code: 1 } });
+    const controller = new AbortController();
+    await expect(dockerPreflight(proc, CTX, () => undefined, {
+      streamContext: true, signal: controller.signal, buildTimeoutMs: 1234,
+    })).resolves.toEqual({ ok: true });
+    expect(proc.pipes[0]!.opts).toMatchObject({ timeoutMs: 1234, signal: controller.signal });
   });
 
   it('never pulls when the image exists', async () => {

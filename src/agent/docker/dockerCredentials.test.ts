@@ -109,6 +109,8 @@ describe('seedOpencode1Credentials (remote, T1399)', () => {
     const { from, to } = proc.pipes[0]!;
     // The bytes are STREAMED: the path is argv, the content never a JS string.
     expect(from.command).toBe(process.execPath);
+    // The extension host binary is Electron: only ELECTRON_RUN_AS_NODE runs `-e` there.
+    expect(from.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
     expect(from.args[0]).toBe('-e');
     expect(from.args[1]).toContain('createReadStream');
     expect(from.args[2]).toBe(file);

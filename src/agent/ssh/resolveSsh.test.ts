@@ -163,11 +163,70 @@ describe('resolveSsh docker mode (D822)', () => {
     expect(ssh.calls).toHaveLength(0);
   });
 
+  it('the clone helpers run as the REMOTE uid/gid: the volume was chowned to it', async () => {
+    const ssh = fakeSshProcess({ '# karst-ssh-docker-clone-probe': { code: 0 } });
+    const out = await resolveSsh(dockerInput(ssh, {}, {
+      prepareDocker: async (i) => {
+        await i.seedClone?.({ hostWorktreePath: '/wt', branch: 'feat/x' });
+        return { ok: true };
+      },
+    }));
+    expect(out.ok).toBe(true);
+    const probe = ssh.calls.find((c) => String(c.args.at(-1)).includes('# karst-ssh-docker-clone-probe'));
+    expect(String(probe!.args.at(-1))).toContain('--user 1000:1001');
+  });
+
   it('an untrusted remote makes zero ssh calls in docker mode too', async () => {
     const ssh = fakeSshProcess();
     const out = await resolveSsh(dockerInput(ssh, { remoteTrusted: () => false }));
     expect(out).toEqual({ ok: false, reason: "ssh: remote 'devbox' not confirmed" });
     expect(ssh.calls).toHaveLength(0);
+  });
+
+  it('a first image build raises the resolve deadline, so the 180 s race cannot fire mid-build', async () => {
+    const phases: string[] = [];
+    const out = await resolveSsh(dockerInput(fakeSshProcess(), {}, {
+      timeoutMs: 10,
+      onProgress: (message) => phases.push(message),
+      // Slower than the resolve bound, and announced as a build: the build's own bound applies.
+      dockerPreflight: async (_proc, _dir, _debug, opts) => {
+        opts?.onProgress?.('building the image on the remote daemon…');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return { ok: true };
+      },
+    }));
+    expect(phases).toEqual(['building the image on the remote daemon…']);
+    expect(out.ok).toBe(true);
+  });
+
+  it('a timed-out setup stops: a slow build reaches no prepare and no egress probe', async () => {
+    let prepared = 0;
+    let probed = 0;
+    const out = await resolveSsh(dockerInput(fakeSshProcess(), {}, {
+      timeoutMs: 10,
+      dockerPreflight: async () => { await new Promise((resolve) => setTimeout(resolve, 100)); return { ok: true }; },
+      prepareDocker: async () => { prepared += 1; return { ok: true }; },
+      egressProbe: async () => { probed += 1; return { ok: true }; },
+    }));
+    expect(out).toMatchObject({ ok: false, reason: expect.stringMatching(/did not finish/) });
+    expect(prepared).toBe(0);
+    expect(probed).toBe(0);
+  });
+
+  it('a timeout during prepare stops the proxy it started: never the egress probe on a dead launch', async () => {
+    const ssh = fakeSshProcess();
+    let probed = 0;
+    const out = await resolveSsh(dockerInput(ssh, {}, {
+      timeoutMs: 10,
+      prepareDocker: async () => { await new Promise((resolve) => setTimeout(resolve, 100)); return { ok: true }; },
+      egressProbe: async () => { probed += 1; return { ok: true }; },
+    }));
+    expect(out).toMatchObject({ ok: false, reason: expect.stringMatching(/did not finish/) });
+    expect(probed).toBe(0);
+    // The abandoned setup finishes its prepare in the background, then stops the proxy.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // The one object with egress is removed on the REMOTE daemon, through the same ssh seam.
+    expect(ssh.calls.some((c) => sshScriptOf(c.args).includes('docker') && sshScriptOf(c.args).includes('rm') && sshScriptOf(c.args).includes('-proxy'))).toBe(true);
   });
 });
 

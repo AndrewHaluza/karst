@@ -161,7 +161,7 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
   });
   const cloneCtx: SshDockerCloneContext = {
     ssh: opts.ssh, sshBin, host: opts.host, remote: opts.remote, remoteName: opts.remoteName,
-    controlDir: opts.controlDir, image: OPENCODE_IMAGE, volume: opts.names.repoVolume,
+    controlDir: opts.controlDir, image: OPENCODE_IMAGE, volume: opts.names.repoVolume, user: opts.user,
     ...(opts.debug ? { debug: opts.debug } : {}),
   };
   const cloneInput = (ticket: SandboxTicketRef) => ({

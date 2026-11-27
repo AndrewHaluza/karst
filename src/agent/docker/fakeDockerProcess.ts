@@ -1,10 +1,12 @@
 import { fakeSbxProcess, type FakeCall } from '../sbx/fakeSbxProcess.js';
 import type { ProcessResult } from '../sbx/sbxProcess.js';
-import type { DockerProcess, PipeEnd, PipeResult } from './dockerProcess.js';
+import type { DockerProcess, PipeEnd, PipeOptions, PipeResult } from './dockerProcess.js';
 
 export interface FakePipeCall {
   readonly from: PipeEnd;
   readonly to: PipeEnd;
+  /** The caller's bound/abort, when it named one (a remote image build). */
+  readonly opts?: PipeOptions;
 }
 
 /**
@@ -31,8 +33,8 @@ export function fakeDockerProcess(
       const line = [command, ...args].join(' ');
       return transportKeys.some((key) => line.startsWith(key)) ? { ...out, transport: true } : out;
     },
-    pipe: (from, to) => {
-      pipes.push({ from, to });
+    pipe: (from, to, opts) => {
+      pipes.push({ from, to, ...(opts ? { opts } : {}) });
       return Promise.resolve(pipeResult);
     },
   };

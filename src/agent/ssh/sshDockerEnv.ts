@@ -22,8 +22,8 @@ import { sshQuote } from './sshQuote.js';
  *   symlink could point anywhere, and another user could have made it first).
  */
 
-/** A POSIX shell variable name; docker would reject anything else too. */
-export const DOCKER_ENV_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
+/** A POSIX shell variable name: the same grammar the local service env argv accepts (lowercase included). */
+export const DOCKER_ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** A service key names one file, so it is one plain path segment. */
 const SERVICE_KEY_RE = /^[a-z0-9-]+$/;

@@ -103,6 +103,6 @@ export function sshDockerProcess(
       if (result.transport === true || result.code === 255) return transportFailure(result);
       return { code: result.code, stdout: result.stdout, stderr: result.stderr };
     },
-    pipe: (from, to) => ssh.pipe(mapEnd(from), mapEnd(to)),
+    pipe: (from, to, opts) => ssh.pipe(mapEnd(from), mapEnd(to), opts),
   };
 }

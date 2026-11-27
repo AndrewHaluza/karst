@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import type { Readable } from 'node:stream';
-import type { PipeEnd, PipeResult } from '../docker/dockerProcess.js';
+import type { PipeEnd, PipeOptions, PipeResult } from '../docker/dockerProcess.js';
 import type { ProcessRunOptions } from '../sbx/sbxProcess.js';
 import type { SshProcess, SshResult, SshSpawnOptions } from './sshProcess.js';
 
@@ -27,6 +27,8 @@ export interface FakeSshStdinCall extends FakeSshCall {
 export interface FakeSshPipeCall {
   readonly from: PipeEnd;
   readonly to: PipeEnd;
+  /** The caller's bound/abort, when it named one (a remote image build). */
+  readonly opts?: PipeOptions;
 }
 
 export interface FakeSshStreamCall {
@@ -108,8 +110,8 @@ export function fakeSshProcess(
       stdinCalls.push(call);
       return toResult(answerFor(answers, args));
     },
-    pipe: (from, to) => {
-      pipes.push({ from, to });
+    pipe: (from, to, opts) => {
+      pipes.push({ from, to, ...(opts ? { opts } : {}) });
       return Promise.resolve(pipeResult);
     },
     spawnStream: (args, opts) => {

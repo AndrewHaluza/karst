@@ -55,8 +55,13 @@ describe('dockerEnvFileContent', () => {
     expect(() => dockerEnvFileContent({ KEY: value })).toThrow('ssh docker: env value for KEY holds a newline');
   });
 
+  it('accepts lowercase names, like the local service env argv (`http_proxy`, `npm_config_*`)', () => {
+    expect(dockerEnvFileContent({ http_proxy: 'http://p:3128', NODE_ENV: 'test', _X: '1' })).toBe('NODE_ENV=test\n_X=1\nhttp_proxy=http://p:3128\n');
+  });
+
   it('refuses a name docker could not read', () => {
     expect(() => dockerEnvFileContent({ 'not-a-name': 'x' })).toThrow('ssh docker: invalid env name "not-a-name"');
+    expect(() => dockerEnvFileContent({ '1KEY': 'x' })).toThrow('ssh docker: invalid env name "1KEY"');
   });
 });
 

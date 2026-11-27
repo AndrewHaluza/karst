@@ -80,10 +80,14 @@ const AUTH_HASH_SCRIPT = `sha256sum ${AUTH_FILE} 2>/dev/null | awk '{print $1}'`
 const AUTH_WRITE_SCRIPT = `umask 077 && cat > ${AUTH_FILE}.tmp && chmod 600 ${AUTH_FILE}.tmp && mv -f ${AUTH_FILE}.tmp ${AUTH_FILE}`;
 /**
  * Reads the host file as a STREAM (`createReadStream().pipe(stdout)`), so the
- * secrets never become a JS string. `process.execPath` is the running node, so
- * it works on any host OS; the path is the only argv token.
+ * secrets never become a JS string. `process.execPath` is the running binary:
+ * in the extension host that is ELECTRON, which only runs a JS script with
+ * `ELECTRON_RUN_AS_NODE` set (a plain `node` ignores it), so the read end
+ * carries it; the path is the only argv token.
  */
 const AUTH_READ_JS = 'require("node:fs").createReadStream(process.argv[1]).pipe(process.stdout)';
+/** `process.execPath` (Node OR the extension host's Electron) runs a JS script only with this. */
+const AUTH_READ_ENV: Readonly<Record<string, string>> = { ELECTRON_RUN_AS_NODE: '1' };
 
 /**
  * opencode v1 keeps its sign-in in `auth.json` under the data volume. The
@@ -120,7 +124,7 @@ export async function seedOpencode1Credentials(input: SeedOpencode1Input): Promi
     return { ok: true };
   }
   const piped = await input.proc.pipe(
-    { command: process.execPath, args: ['-e', AUTH_READ_JS, input.hostAuthFile] },
+    { command: process.execPath, args: ['-e', AUTH_READ_JS, input.hostAuthFile], env: AUTH_READ_ENV },
     { command: DOCKER_BIN, args: helper(true, AUTH_WRITE_SCRIPT) },
   );
   debug(`[docker] opencode v1 credential seed: read exit ${piped.fromCode}, write exit ${piped.toCode}`);

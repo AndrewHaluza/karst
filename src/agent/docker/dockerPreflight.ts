@@ -4,6 +4,14 @@ import type { DockerProcess, ProcessResult } from './dockerProcess.js';
 
 export const DOCKER_BIN = 'docker';
 
+/**
+ * The bound of ONE remote image build. A cold build pulls two base images,
+ * compiles git from source and installs Chromium; the generic 60 s pipe bound
+ * would SIGKILL it, so the build names its own. The resolve deadline is raised
+ * to this bound while the build runs (`resolveSsh`).
+ */
+export const REMOTE_BUILD_TIMEOUT_MS = 30 * 60_000;
+
 export type DockerPreflight = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
 export interface DockerPreflightOptions {
@@ -15,6 +23,10 @@ export interface DockerPreflightOptions {
   readonly streamContext?: boolean;
   /** Progress for a first (slow) remote build, so the launch is not silent while it runs. */
   readonly onProgress?: (message: string) => void;
+  /** The caller's deadline (the resolve): an abort kills the build's pipe instead of leaving it behind. */
+  readonly signal?: AbortSignal;
+  /** Test hook: the build's own bound; `REMOTE_BUILD_TIMEOUT_MS` in production. */
+  readonly buildTimeoutMs?: number;
 }
 
 /**
@@ -75,6 +87,7 @@ async function streamBuild(
   const built = await proc.pipe(
     { command: 'tar', args: ['-c', '-C', contextDir, '.'] },
     { command: DOCKER_BIN, args: imageBuildArgs('-') },
+    { timeoutMs: opts.buildTimeoutMs ?? REMOTE_BUILD_TIMEOUT_MS, ...(opts.signal ? { signal: opts.signal } : {}) },
   );
   if (built.fromCode !== 0) return fail(`tar of the docker build context failed (exit ${String(built.fromCode)})`);
   if (built.toCode === 255) return fail(`docker build ${OPENCODE_IMAGE} lost the remote connection (exit 255)`);

@@ -1,13 +1,15 @@
 import { dockerKillContext } from '../../agent/backendProbe.js';
 import { dockerNamesFromContainer } from '../../agent/docker/dockerNames.js';
 import { resolveDockerMemoryLimits, type SandboxMemoryConfig } from '../../agent/docker/dockerMemory.js';
+import { linuxUser } from '../../agent/docker/resolveDocker.js';
+import type { LinuxUser } from '../../agent/docker/dockerRunArgs.js';
 import { isRemoteTrusted, readRemoteTrust } from '../../agent/ssh/remoteTrust.js';
 import { ensureSshControlDir, sshControlDir, type SshControlResult } from '../../agent/ssh/sshControlDir.js';
 import { createSshDockerSessionRunner } from '../../agent/ssh/sshDockerRunner.js';
 import { sshDockerProcess } from '../../agent/ssh/sshDockerProcess.js';
 import { WINDOW_SSH_GATE_REGISTRY, type SshGateRegistry } from '../../agent/ssh/sshGateRegistry.js';
 import { SANDBOX_NAME_RE, sshProjectPrefix } from '../../agent/ssh/sshNames.js';
-import { NODE_SSH_PROCESS, type SshProcess } from '../../agent/ssh/sshProcess.js';
+import { NODE_SSH_PROCESS, sshArgv, type SshProcess } from '../../agent/ssh/sshProcess.js';
 import { createSshSessionRunner } from '../../agent/ssh/sshRunner.js';
 import { SSH_CORES, SSH_DOCKER_CORES, type SshCore, type SshDockerCore } from '../../agent/sandboxCores.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
@@ -61,7 +63,12 @@ export interface SshRunnerTicket {
   readonly hostWorktreePath: string | undefined;
   /** The manifest's `sandboxMemory`: a one-shot gate container on a remote docker gets the same limits. */
   readonly sandboxMemory?: SandboxMemoryConfig;
-  /** The remote Docker VM size (bytes), when known: the base of those limits. */
+  /**
+   * The REMOTE Docker VM size (bytes), when the caller really knows it: the base
+   * of those limits. The launch resolve probes the remote daemon for it; a host
+   * step has no remote preflight, so it must NOT pass this host's VM size
+   * (a limit sized for this machine could exceed the remote VM).
+   */
   readonly memTotalBytes?: number;
 }
 
@@ -97,21 +104,25 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
   if (ticket.hostWorktreePath === undefined || ticket.hostWorktreePath === '') return blockedSshRunner(`ssh: ticket ${String(ticket.ticketId)} has no worktree`);
   const controlDir = deps.controlDir ?? sshControlDir();
   const projectPrefix = sshProjectPrefix(ticket.projectRoot, installId);
+  // Captured here: a closure below cannot rely on the narrowing of a property.
+  const hostWorktreePath = ticket.hostWorktreePath;
   if (def.mode === 'docker') {
     // The remote image ships opencode v1 and v2 only (D822): no claude, no codex, no agy.
     if (!isSshDockerCore(core)) return blockedSshRunner(sshDockerCoreRefusal(core));
     // The name is the ssh sandbox name (already validated): every docker object comes off it.
-    const runner = createSshDockerSessionRunner({
-      ssh: deps.ssh ?? NODE_SSH_PROCESS, sshBin: deps.sshBin,
+    const ssh = deps.ssh ?? NODE_SSH_PROCESS;
+    const build = (user: LinuxUser | undefined): SessionRunner => createSshDockerSessionRunner({
+      ssh, sshBin: deps.sshBin,
       host: deps.host ?? NODE_SBX_PROCESS, remote: def, remoteName: name,
       names: dockerNamesFromContainer(target.sandboxName), projectPrefix, controlDir, core,
-      ticketId: ticket.ticketId, hostWorktreePath: ticket.hostWorktreePath,
-      // A host step has no preflight: the remote uid/gid are unknown here, so the
-      // container keeps the image's own user (the launch resolved runs as the remote one).
-      user: undefined,
+      ticketId: ticket.ticketId, hostWorktreePath,
+      // A host step has no preflight (`withRemoteDockerUser` probes the REMOTE ids
+      // for the ops that need them): the launch resolved runs as the remote user.
+      user,
       memory: resolveDockerMemoryLimits(ticket.memTotalBytes, ticket.sandboxMemory),
       ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
     });
+    const runner = withRemoteDockerUser(build(undefined), build, () => remoteDockerUser(ssh, def, controlDir));
     return withControlDir(runner, () => (deps.ensureControlDir ?? ensureSshControlDir)(controlDir));
   }
   if (!isSshCore(core)) return blockedSshRunner(`${core === '' ? 'no core' : core}: ssh backend unsupported`);
@@ -165,7 +176,60 @@ const REMOTE_OPS = [
   'writeServiceEnv', 'removeServiceEnv',
 ] as const satisfies readonly (keyof SessionRunner)[];
 
+/**
+ * The docker ops whose argv carries `--user`: each spawns a container that
+ * WRITES the clone volume or the bridge dir, both owned by the remote uid.
+ */
+const USER_OPS = ['sync', 'refresh', 'fetchClone', 'diff', 'runGate', 'canHostServices'] as const;
+
+/** One short remote read: the remote uid/gid. */
+const USER_STDOUT_BYTES = 1024;
+/** `id -u; id -g` prints exactly two decimal lines (the seam runs `sh -c`, so no login profile runs). */
+const REMOTE_IDS_RE = /^(\d+)\n(\d+)\n?$/;
+
+/** The uid/gid of the probe's stdout, or undefined when it is not exactly two decimal lines. */
+export function parseRemoteUser(stdout: string): LinuxUser | undefined {
+  const ids = REMOTE_IDS_RE.exec(stdout);
+  if (ids === null) return undefined;
+  return linuxUser('linux', Number(ids[1]), Number(ids[2]));
+}
+
+/**
+ * The REMOTE uid/gid, asked over ssh (one call): the launch's preflight facts
+ * are not in the placement, and the volumes were chowned to that user. A failed
+ * probe is `undefined` (the image's own user), never this host's ids.
+ */
+async function remoteDockerUser(ssh: SshProcess, remote: RemoteDef, controlDir: string): Promise<LinuxUser | undefined> {
+  const out = await ssh.run(sshArgv(remote, controlDir, '# karst-ssh-docker-user\nid -u; id -g'), { maxStdoutBytes: USER_STDOUT_BYTES });
+  if (out.transport === true || out.code !== 0) return undefined;
+  return parseRemoteUser(out.stdout);
+}
+
 type AnyOp = (...args: unknown[]) => Promise<unknown>;
+
+/**
+ * A host step has no preflight, so the remote uid/gid are unknown when its
+ * runner is built — but every container that writes the volume must run as
+ * that user. The ops that spawn one resolve the ids ONCE (one ssh call) and
+ * delegate to a runner built with them; every other op (a `docker exec`, a
+ * probe, a dispose) keeps the preflight-free runner and makes no extra call.
+ */
+function withRemoteDockerUser(
+  provisional: SessionRunner,
+  build: (user: LinuxUser | undefined) => SessionRunner,
+  probe: () => Promise<LinuxUser | undefined>,
+): SessionRunner {
+  let resolved: Promise<SessionRunner> | undefined;
+  const real = (): Promise<SessionRunner> => (resolved ??= probe().then((user) => build(user), () => build(undefined)));
+  const guarded: Partial<Record<(typeof USER_OPS)[number], AnyOp>> = {};
+  for (const key of USER_OPS) {
+    const op = provisional[key] as AnyOp | undefined;
+    // Stryker disable next-line ConditionalExpression: equivalent, the ssh docker runner implements every USER_OPS op
+    if (op === undefined) continue;
+    guarded[key] = async (...args: unknown[]): Promise<unknown> => ((await real())[key] as AnyOp)(...args);
+  }
+  return { ...provisional, ...(guarded as Partial<SessionRunner>) };
+}
 
 /**
  * Every ssh argv names `<controlDir>/%C`, and `resolveSsh` checks that the dir

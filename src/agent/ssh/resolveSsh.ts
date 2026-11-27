@@ -6,7 +6,7 @@ import { accountLaunchFor } from '../accounts/registry.js';
 import { dockerNames } from '../docker/dockerNames.js';
 import { OPENCODE_IMAGE } from '../docker/dockerImage.js';
 import { queryDockerMemTotal, resolveDockerMemoryLimits, type SandboxMemoryConfig } from '../docker/dockerMemory.js';
-import { dockerPreflight } from '../docker/dockerPreflight.js';
+import { dockerPreflight, REMOTE_BUILD_TIMEOUT_MS } from '../docker/dockerPreflight.js';
 import { prepareDockerSandbox } from '../docker/dockerRunner.js';
 import { stopProxySidecar } from '../docker/proxySidecar.js';
 import { DOCKER_ASSETS_DIR, linuxUser } from '../docker/resolveDocker.js';
@@ -48,6 +48,13 @@ import { ensureRemoteWorkspaceTrusted, type RemoteTrustInput } from './sshTrust.
 
 /** The bound of the whole resolve step. */
 export const SSH_RESOLVE_TIMEOUT_MS = 180_000;
+/**
+ * The resolve deadline while the remote image build runs: the build's own pipe
+ * bound (`REMOTE_BUILD_TIMEOUT_MS`) plus a margin, so the build's failure is
+ * what the launch reports instead of a generic "setup did not finish".
+ */
+export const SSH_DOCKER_BUILD_DEADLINE_MS = REMOTE_BUILD_TIMEOUT_MS + 60_000;
+const SETUP_ABORTED = 'ssh: setup aborted after its deadline';
 const LOGIN_STDOUT_BYTES = 16 * 1024;
 
 /** The once-per-window state of the no-tmux warning (one set per extension window). */
@@ -197,6 +204,8 @@ async function resolveDockerSteps(
   name: string,
   remote: RemoteDef,
   deps: SshResolveDeps,
+  signal: AbortSignal,
+  extendBound: (ms: number) => void,
 ): Promise<SshResolution> {
   if (!isSshDockerCore(input.core)) {
     return { ok: false, reason: `${input.core}: ssh docker mode supports only opencode, opencode2` };
@@ -228,18 +237,23 @@ async function resolveDockerSteps(
   });
   if (!assets.ok) return assets;
   // A remote build streams the tar context over stdin (`proc.pipe`): the remote
-  // daemon can see neither the host context dir nor the host tar.
+  // daemon can see neither the host context dir nor the host tar. The first
+  // build names its OWN bound (the preflight's pipe); the resolve deadline is
+  // raised to it here, so the 180 s race cannot fire mid-build, and the signal
+  // kills the build if the raised deadline is reached too.
   const check = await (deps.dockerPreflight ?? dockerPreflight)(dockerProc, assetsDir, deps.debug, {
     streamContext: true,
-    ...(deps.onProgress ? { onProgress: deps.onProgress } : {}),
+    onProgress: (message) => { extendBound(SSH_DOCKER_BUILD_DEADLINE_MS); deps.onProgress?.(message); },
+    signal,
   });
   if (!check.ok) return check;
+  if (signal.aborted) return { ok: false, reason: SETUP_ABORTED };
   const memory = resolveDockerMemoryLimits(await queryDockerMemTotal(dockerProc), input.sandboxMemory);
   const hostAuthFile = input.core === 'opencode' ? await (deps.hostAuthFile ?? defaultHostAuthFile)(input.account) : undefined;
   const opencode2Host = input.core === 'opencode2' ? (deps.opencode2Host ?? defaultOpencode2Host)(input.account) : undefined;
   const cloneCtx: SshDockerCloneContext = {
     ssh, sshBin, host: deps.host ?? NODE_SBX_PROCESS, remote, remoteName: name, controlDir,
-    image: OPENCODE_IMAGE, volume: names.repoVolume, ...(deps.debug ? { debug: deps.debug } : {}),
+    image: OPENCODE_IMAGE, volume: names.repoVolume, user, ...(deps.debug ? { debug: deps.debug } : {}),
   };
   const prepared = await (deps.prepareDocker ?? prepareDockerSandbox)({
     proc: dockerProc, core: input.core, names, user, ticket: worktree,
@@ -255,6 +269,11 @@ async function resolveDockerSteps(
     ...(deps.debug ? { debug: deps.debug } : {}),
   });
   if (!prepared.ok) return prepared;
+  if (signal.aborted) {
+    // The launch already gave up: the proxy `prepare` started is the one object with egress.
+    await stopProxySidecar(dockerProc, names.proxy);
+    return { ok: false, reason: SETUP_ABORTED };
+  }
   // @arch:AC-53 (d): measured on the remote daemon, not assumed from the image.
   const egress = await (deps.egressProbe ?? probeSshDockerEgress)(dockerProc, names, user, deps.debug);
   if (!egress.ok) {
@@ -279,12 +298,12 @@ async function checkLogin(ssh: SshProcess, remote: RemoteDef, controlDir: string
   return `ssh ${name}: ${core} is not signed in on the remote; run \`${check.fix}\` on ${remote.user}@${remote.host}`;
 }
 
-async function resolveSteps(input: SshResolveInput, signal: AbortSignal): Promise<SshResolution> {
+async function resolveSteps(input: SshResolveInput, signal: AbortSignal, extendBound: (ms: number) => void): Promise<SshResolution> {
   const name = input.remoteName;
   const deps = input.deps ?? {};
   const remote = input.remotes?.[name];
   if (remote === undefined) return { ok: false, reason: `ssh: remote '${name}' is not in remotes` };
-  if (remote.mode === 'docker') return resolveDockerSteps(input, name, remote, deps);
+  if (remote.mode === 'docker') return resolveDockerSteps(input, name, remote, deps, signal, extendBound);
   if (!isSshCore(input.core)) return { ok: false, reason: `${input.core}: ssh backend unsupported` };
   const worktree = input.worktree;
   if (!worktree?.branch) return { ok: false, reason: 'ssh: ticket has no worktree branch to clone' };
@@ -333,14 +352,23 @@ export async function resolveSsh(input: SshResolveInput): Promise<SshResolution>
   const timeoutMs = input.deps?.timeoutMs ?? SSH_RESOLVE_TIMEOUT_MS;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let boundMs = timeoutMs;
+  let expire: (() => void) | undefined;
   const timedOut = new Promise<SshResolution>((resolve) => {
-    timer = setTimeout(() => {
+    expire = () => {
       controller.abort();
-      resolve({ ok: false, reason: `ssh ${input.remoteName}: setup did not finish in ${String(Math.round(timeoutMs / 1000))} s` });
-    }, timeoutMs);
+      resolve({ ok: false, reason: `ssh ${input.remoteName}: setup did not finish in ${String(Math.round(boundMs / 1000))} s` });
+    };
   });
+  /** (Re)arm the deadline. A step that names its own longer bound (the remote image build) calls this. */
+  const extendBound = (ms: number): void => {
+    boundMs = ms;
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => expire?.(), ms);
+  };
+  extendBound(timeoutMs);
   try {
-    return await Promise.race([resolveSteps(input, controller.signal), timedOut]);
+    return await Promise.race([resolveSteps(input, controller.signal, extendBound), timedOut]);
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   } finally {

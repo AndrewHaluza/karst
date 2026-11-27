@@ -999,10 +999,16 @@ describe('an ssh placement on a mode: docker remote uses the ssh docker runner (
     expect(script).toContain('docker run');
     expect(script).toContain('--memory 512m');
 
-    // The VM size alone drives the limit when the manifest has no override: 55% of 8 GB, clamped.
-    const sized = dockerTicket(ssh, { sshRunner: fakeSshDockerRunnerDeps(ssh, { gateProcess: gate }), memTotalBytes: () => 8 * 2 ** 30 });
+    // The LOCAL Docker VM size must never size a REMOTE container: with no manifest override the
+    // gate keeps the fixed fallback (3g), not a limit derived from this host's `docker info`.
+    const sized = dockerTicket(ssh, {
+      sshRunner: fakeSshDockerRunnerDeps(ssh, { gateProcess: gate }),
+      memTotalBytes: () => 8 * 2 ** 30,
+    });
     await ticketGateProcess(sized, 7)!('npm', ['test'], '/wt');
-    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).toContain('--memory 4505m');
+    const fallback = remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[]);
+    expect(fallback).toContain('--memory 3g');
+    expect(fallback).not.toContain('--memory 4505m');
   });
 
   it('a non-docker core on the docker remote refuses, with zero ssh calls', async () => {

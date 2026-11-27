@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
 import { remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
-import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import { fakeSshProcess, type FakeSshAnswer, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
 import { sshControlDir } from '../../agent/ssh/sshControlDir.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { createSshGateRegistry, sshGateKey } from '../../agent/ssh/sshGateRegistry.js';
@@ -9,7 +9,7 @@ import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import { FAKE_INSTALL_ID, FAKE_REMOTE, fakeSshDockerRunnerDeps, fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
-import { sshDockerKillContextFor, sshRunnerFor, SSH_DEPS_MISSING, type SshRunnerDeps, type SshRunnerTicket } from './sshRunnerFor.js';
+import { sshDockerKillContextFor, sshRunnerFor, parseRemoteUser, SSH_DEPS_MISSING, type SshRunnerDeps, type SshRunnerTicket } from './sshRunnerFor.js';
 
 const REMOTE = FAKE_REMOTE;
 const PLACEMENT = fakeSshPlacement();
@@ -45,6 +45,18 @@ async function expectRefused(deps: SshRunnerDeps | undefined, reason: string, pl
 }
 
 describe('sshRunnerFor (D826)', () => {
+  it('parseRemoteUser reads exactly two decimal lines and nothing else', () => {
+    expect(parseRemoteUser('1001\n1002\n')).toEqual({ uid: 1001, gid: 1002 });
+    expect(parseRemoteUser('1001\n1002')).toEqual({ uid: 1001, gid: 1002 });
+    expect(parseRemoteUser('0\n0\n')).toEqual({ uid: 0, gid: 0 });
+    expect(parseRemoteUser('1001\n')).toBeUndefined();
+    expect(parseRemoteUser('')).toBeUndefined();
+    expect(parseRemoteUser('uid=1001\n1002\n')).toBeUndefined();
+    expect(parseRemoteUser('1001\ngid=1002\n')).toBeUndefined();
+    expect(parseRemoteUser(' 1001\n1002\n')).toBeUndefined();
+    expect(parseRemoteUser('1001\n1002\nextra\n')).toBeUndefined();
+  });
+
   it('builds the ssh runner of a trusted direct remote: the probe runs over ssh', async () => {
     const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 } });
     const runner = sshRunnerFor(sshDeps(ssh), PLACEMENT, TICKET);
@@ -150,6 +162,68 @@ describe('sshRunnerFor (D826)', () => {
     const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), gateProcess: gate, debug }, fakeSshPlacement(7, 'opencode'), TICKET);
     await runner.runGate!('npm', ['test'], '/wt');
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('exit file unreadable'));
+  });
+
+  it('a host-step container that writes the volume runs as the REMOTE uid/gid, probed once', async () => {
+    const ssh = fakeSshProcess({ '# karst-ssh-docker-user': { stdout: '1001\n1002\n' }, '{{.State.Running}}': { code: 1 } });
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), gateProcess: gate }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.runGate!('npm', ['test'], '/wt');
+    // The one-shot gate container writes the clone volume, which the launch chowned to the remote user.
+    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).toContain('--user 1001:1002');
+    // The service probe container is created with the same user.
+    await runner.canHostServices!();
+    const serviceRun = ssh.calls.map((c) => remoteScript(c.args)).find((s) => s.includes('sleep infinity'));
+    expect(serviceRun).toContain('--user 1001:1002');
+    // One probe, not one per op.
+    expect(ssh.calls.filter((c) => String(c.args.at(-1)).includes('# karst-ssh-docker-user'))).toHaveLength(1);
+    // The probe reads two ids, so it is bounded like every other remote read.
+    const probe = ssh.calls.find((c) => String(c.args.at(-1)).includes('# karst-ssh-docker-user'))!;
+    expect(probe.opts?.maxStdoutBytes).toBe(1024);
+  });
+
+  it('a uid probe that never reached the remote keeps the image user', async () => {
+    const ssh = fakeSshProcess({ '# karst-ssh-docker-user': { code: 255, transport: true, stderr: 'down\n', stdout: '1001\n1002\n' }, '{{.State.Running}}': { code: 1 } });
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), gateProcess: gate }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.runGate!('npm', ['test'], '/wt');
+    // Its stdout is never parsed: a drop is no user, even with a plausible body.
+    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).not.toContain('--user');
+  });
+
+  it.each<[string, FakeSshAnswer]>([
+    ['a transport flag wins over a 0 exit', { code: 0, transport: true as const, stdout: '1001\n1002\n' }],
+    ['a non-zero exit', { code: 7, stdout: '1001\n1002\n' }],
+    ['one line', { stdout: '1001\n' }],
+    ['a banner first', { stdout: 'uid=1001\n1002\n' }],
+    ['a banner second', { stdout: '1001\ngid=1002\n' }],
+    ['an empty body', {}],
+  ])('a uid probe with %s is no user, never NaN', async (_label, answer) => {
+    const ssh = fakeSshProcess({ '# karst-ssh-docker-user': answer, '{{.State.Running}}': { code: 1 } });
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), gateProcess: gate }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.runGate!('npm', ['test'], '/wt');
+    const script = remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[]);
+    expect(script).not.toContain('--user');
+    expect(script).not.toContain('NaN');
+  });
+
+  it('a failed uid probe keeps the image user, never this host\'s ids', async () => {
+    const ssh = fakeSshProcess({ '# karst-ssh-docker-user': { code: 1 }, '{{.State.Running}}': { code: 1 } });
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), gateProcess: gate }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.runGate!('npm', ['test'], '/wt');
+    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).not.toContain('--user');
+  });
+
+  it('a throwing uid probe is ignored: the container keeps the image user', async () => {
+    const ssh = fakeSshProcess({ '{{.State.Running}}': { code: 1 } });
+    const run = ssh.run;
+    ssh.run = (args, opts) => (String(args.at(-1)).includes('# karst-ssh-docker-user') ? Promise.reject(new Error('ssh: transport dropped')) : run(args, opts));
+    const gate = vi.fn(async () => ({ kind: 'completed' as const, exitCode: 0, output: '' }));
+    const runner = sshRunnerFor({ ...fakeSshDockerRunnerDeps(ssh), gateProcess: gate }, fakeSshPlacement(7, 'opencode'), TICKET);
+    await runner.runGate!('npm', ['test'], '/wt');
+    expect(remoteScript((gate.mock.calls.at(-1) as unknown[])[1] as string[])).not.toContain('--user');
   });
 
   it.each([['claude'], ['codex'], ['agy'], ['']])('a docker-mode remote refuses the core %j without an ssh call', async (core) => {

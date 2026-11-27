@@ -178,8 +178,9 @@ function sshTicketSandbox(deps: TicketSandboxDeps, ticketId: number, placement: 
     projectRoot: deps.projectRoot(ticketId),
     hostWorktreePath: deps.worktreeOf?.(ticketId),
     // A one-shot gate container on a remote docker daemon gets the same memory limits as a local one.
+    // The VM size is NOT passed: the only size this host step knows is its LOCAL daemon's, and a
+    // remote limit derived from it could exceed the remote VM (the launch resolve probes the remote).
     ...(deps.sandboxMemory ? { sandboxMemory: deps.sandboxMemory() } : {}),
-    ...(deps.memTotalBytes ? { memTotalBytes: deps.memTotalBytes() } : {}),
   });
   return { runner, sandboxName: placement.sandboxName ?? '' };
 }
