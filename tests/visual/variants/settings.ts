@@ -161,6 +161,24 @@ const rolesGraphVariants = (): Variant[] =>
     route: { section: 'agents', hash: formatAgentsHash(route) },
   }));
 
+/** T1405: the Channels map below 700 px, where each session kind stacks (@ui:UI-R43, @ui:UI-R57). */
+const CHANNELS_NARROW = [
+  ['channels-narrow', 630, { tab: 'channels' }],
+  ['channels-tight', 320, { tab: 'channels', selected: 'antigravity' }],
+] as const;
+
+const channelsNarrowVariants = (): Variant[] =>
+  CHANNELS_NARROW.map(([id, width, route]) => ({
+    ...variant('settings', id, () => stateMessage(REALISTIC_SETTINGS), {
+      baseline: `settings--${id}`,
+      themes: DARK_ONLY,
+      // The channels route layout runs already cover the page at every width.
+      skipLayout: true,
+      width,
+    }),
+    route: { section: 'agents', hash: formatAgentsHash(route) },
+  }));
+
 /**
  * T1297 SET-26: the graph approach card at the wide, mid and narrow tiers (@ui:UI-R57).
  * T1374: the agents, limits and planner prompt moved off the card into the Edit
@@ -399,6 +417,7 @@ export const settingsVariants = (): Variant[] => [
   ...navNarrowVariants(),
   ...rolesNarrowVariants(),
   ...rolesGraphVariants(),
+  ...channelsNarrowVariants(),
   ...approachesGraphVariants(),
   ...approachesRosterVariants(),
   ...approachesDrawerGitVariants(),

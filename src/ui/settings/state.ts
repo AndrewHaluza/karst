@@ -1,5 +1,7 @@
 import { buildBuiltInPrompts, type BuiltInPrompts } from './builtInPrompts.js';
+import { buildChannelMap, type ChannelMapView } from './channelMap.js';
 import type { AgentProvider, ApproachDef, Manifest, OutputDef } from '../../manifest/types.js';
+import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
 import { pendingOutputViews, type PendingOutputsView } from '../../approaches/pendingOutputs.js';
 import type { BackendStatus } from '../../agent/effectiveBackend.js';
 import { sortAgentRowsByProvenance } from './agentGrouping.js';
@@ -119,6 +121,12 @@ export interface SettingsState {
    * package, never from karst.yml.
    */
   pendingOutputs: Record<string, PendingOutputsView>;
+  /**
+   * Settings › Agents › Channels (`@arch:CHANNEL-MAP`): the read-only map of how
+   * each session kind talks to karst on each implemented core. Computed here
+   * from the real adapters and delivery sources, so the webview derives nothing.
+   */
+  readonly channels: ChannelMapView;
 }
 
 /** Host-probed readiness of the sandbox backends, shown next to the Agents backend selector (arch:AC-32). */
@@ -168,5 +176,6 @@ export function buildSettingsState(
     version,
     packagedApproaches,
     pendingOutputs: pendingOutputViews(pendingOutputs),
+    channels: buildChannelMap(IMPLEMENTED_PROVIDERS),
   };
 }
