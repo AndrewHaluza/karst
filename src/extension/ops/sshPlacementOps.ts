@@ -7,6 +7,7 @@ import { disposeResult, type DisposeResult } from '../../agent/disposeResult.js'
 import type { SessionRunner, StepOutcome } from '../../agent/sessionRunner.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { TicketPlacement } from '../../store/placement.js';
+import { sessionQuotaLine } from '../../model/quotaText.js';
 
 /**
  * Host-side wiring of the `ssh` placement (D555).
@@ -112,4 +113,20 @@ export async function liveRemoteSession(input: LiveRemoteSessionInput): Promise<
   const script = `tmux has-session -t ${sshQuote(`=${target.sandboxName}`)} 2>/dev/null`;
   const out = await ssh.run(sshArgv(def, controlDir, script), { maxStdoutBytes: 4 * 1024 });
   return out.transport !== true && out.code === 0;
+}
+
+/**
+ * The session's own quota line for a launch (`@arch:AC-29`, D826). The host
+ * quota probe reads THIS Mac's login, so a direct ssh session shows its own
+ * line instead of the host account label. The remote name comes from the
+ * placement, else `fallbackRemote`, else `remote`. Undefined for every other
+ * placement: the launch then uses the host quota warning.
+ */
+export function sshSessionQuotaLine(
+  placement: Pick<TicketPlacement, 'backend' | 'sandboxName'>,
+  core: string,
+  fallbackRemote: string | undefined,
+): string | undefined {
+  if (placement.backend !== 'ssh') return undefined;
+  return sessionQuotaLine(core, placement.sandboxName?.split('/')[0] ?? fallbackRemote ?? 'remote');
 }

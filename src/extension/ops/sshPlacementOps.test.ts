@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import { remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
 import { fakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
-import { blockedSshRunner, liveRemoteSession, sshPlacementTarget } from './sshPlacementOps.js';
+import { blockedSshRunner, liveRemoteSession, sshPlacementTarget, sshSessionQuotaLine } from './sshPlacementOps.js';
 import type { TicketPlacement } from '../../store/placement.js';
 
 const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
@@ -120,5 +120,18 @@ describe('liveRemoteSession (D555 recovery)', () => {
     const ssh = fakeSshProcess();
     expect(await liveRemoteSession({ placement: placement({ sandboxName: 'devbox/not-a-karst-name' }), remotes: { devbox: REMOTE }, trust: trusted, deps: deps(ssh) })).toBe(false);
     expect(ssh.calls).toHaveLength(0);
+  });
+});
+
+describe('sshSessionQuotaLine', () => {
+  it('gives the remote line for an ssh placement, named from the placement first', () => {
+    expect(sshSessionQuotaLine(placement(), 'claude', 'other')).toBe('claude ssh · devbox quota: unknown (remote login)');
+    expect(sshSessionQuotaLine(placement({ sandboxName: null }), 'codex', 'other')).toBe('codex ssh · other quota: unknown (remote login)');
+    expect(sshSessionQuotaLine(placement({ sandboxName: null }), 'codex', undefined)).toBe('codex ssh · remote quota: unknown (remote login)');
+  });
+
+  it('is undefined for every placement that is not ssh', () => {
+    expect(sshSessionQuotaLine(placement({ backend: 'host', sandboxName: null }), 'claude', 'devbox')).toBeUndefined();
+    expect(sshSessionQuotaLine(placement({ backend: 'sbx' }), 'claude', 'devbox')).toBeUndefined();
   });
 });

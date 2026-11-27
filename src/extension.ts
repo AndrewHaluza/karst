@@ -186,7 +186,6 @@ import type { AgentAdapter, Materialized } from './agent/adapter.js';
 import { bundledModelCatalog } from './agent/modelCatalog.js';
 import { applyAgentSwitchSelection, type AgentSwitchOutcome } from './agent/sessionSwitch.js';
 import { AGENT_PROVIDER_LABELS } from './model/agentIdentity.js';
-import { sessionQuotaLine } from './model/quotaText.js';
 import {
   catalogDiagnosticSeverity,
   formatCatalogDiagnostic,
@@ -361,7 +360,7 @@ import { isRemoteTrusted, readRemoteTrust } from './agent/ssh/remoteTrust.js';
 import { readExistingInstallId, readOrCreateInstallId } from './agent/ssh/sshNames.js';
 import type { SshRunnerDeps } from './extension/ops/sshRunnerFor.js';
 import { confirmRemoteTrust, sshRemoteFor } from './extension/ops/sshTrustOps.js';
-import { liveRemoteSession } from './extension/ops/sshPlacementOps.js';
+import { liveRemoteSession, sshSessionQuotaLine } from './extension/ops/sshPlacementOps.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, wantsSbxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
@@ -7066,12 +7065,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // resolution). A host-only assignment override supplies it verbatim.
       const effort = identity.effort;
 
-      // D826 (@arch:AC-29): the host quota probe reads THIS Mac's login, so a
-      // direct ssh session shows its own line instead of the host account label.
-      const quotaLine =
-        launchBackend.placement.backend === 'ssh'
-          ? sessionQuotaLine(launchProvider, launchBackend.placement.sandboxName?.split('/')[0] ?? sshRemote?.name ?? 'remote')
-          : undefined;
+      const quotaLine = sshSessionQuotaLine(launchBackend.placement, launchProvider, sshRemote?.name); // D826 (@arch:AC-29)
 
       // Terminal name/icon/color are frozen at creation, so the tab carries the
       // status-free brand mark from the start — never a stage-at-launch glyph
