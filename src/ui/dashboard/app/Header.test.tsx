@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
-import { $, has, headerState, installHeaderDoubles, mountHeader } from './fixtures/headerKit.js';
+import { $, has, headerState, installHeaderDoubles, mountHeader, originView } from './fixtures/headerKit.js';
 
 installHeaderDoubles();
 
@@ -73,6 +73,15 @@ describe('Header — identity', () => {
       'boardLink',
       'ticketDataBtn',
     ]);
+  });
+
+  it('puts the planning link right after the details button, and none for a hand-made ticket (T1400)', () => {
+    mountHeader(headerState({ origin: originView() }));
+    const ids = [...$('.ticketIdentity').children].map((el) => el.id);
+    expect(ids.slice(-2)).toEqual(['ticketDataBtn', 'planLink']);
+    expect($('#planLink').textContent).toBe('P17');
+    mountHeader(headerState({ origin: null }));
+    expect(document.querySelector('#planLink')).toBeNull();
   });
 
   it('hides the key, priority and board link when the ticket has none, and shows "(untitled)"', () => {

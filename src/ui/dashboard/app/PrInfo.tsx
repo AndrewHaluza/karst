@@ -9,6 +9,7 @@ import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CopyUrl, OpenLink } from './PrActionButtons.js';
 import { Icon } from './Icon.js';
 import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
+import { announceSurfaceOpen } from './useHoverCard.js';
 
 const POPOVER_WIDTH = 300;
 
@@ -70,6 +71,8 @@ export function PrInfo({ p, open, onToggle }: PrInfoProps) {
   useAnchoredPopover(open, popRef, buttonRef, () => onToggle(repo, false), POPOVER_WIDTH);
   useEffect(() => {
     if (!open) return undefined;
+    // One header surface at a time (T1400): an open hover card or ⋯ menu closes when this popover opens.
+    announceSurfaceOpen('pr-info');
     const close = (): void => {
       onToggle(repo, false);
       buttonRef.current?.focus();

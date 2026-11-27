@@ -1,7 +1,8 @@
 /**
  * The header's ticket identity: provider mark, id badge, status chip, priority chip, copy-key button,
- * board link and the ticket-data preview button, then the title. Same DOM as the vanilla
- * `renderTicketIdentity` it replaced, plus the sidebar's priority chip (T1396).
+ * board link, the ticket-data preview button and, for a ticket filed from a planning draft, the `P<n>` link
+ * (T1400), then the title. Same DOM as the vanilla `renderTicketIdentity` it replaced, plus the sidebar's
+ * priority chip (T1396).
  * The key click copies (host-side) and the board link opens the board (a separate control).
  */
 import { memo, useEffect, useState } from 'react';
@@ -12,6 +13,7 @@ import { Icon } from './Icon.js';
 import { useDashboardSend, useOverlays } from './DashboardAppContext.js';
 import { RuntimeIcon } from './AgentIcon.js';
 import { selectIdentity } from './headerSlices.js';
+import { PlanningLink } from './PlanningCard.js';
 import { usePendingAction } from './usePendingAction.js';
 import { ticketIdentityText } from './ticketHead.js';
 import { useSlice } from './useSlice.js';
@@ -121,6 +123,7 @@ export const TicketIdentity = memo(function TicketIdentity() {
       <CopyKeyButton label={slice?.key ?? ''} />
       <BoardLink url={slice?.ticketUrl ?? null} />
       <DataButton />
+      {slice?.origin ? <PlanningLink origin={slice.origin} /> : null}
     </div>
   );
 });

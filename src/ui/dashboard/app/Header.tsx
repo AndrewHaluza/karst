@@ -14,6 +14,7 @@ import { ShipControls } from './ShipControls.js';
 import { TicketIdentity, TicketTitle } from './TicketIdentity.js';
 import { TicketMenu } from './TicketMenu.js';
 import { attachStickyHeader } from './stickyHeader.js';
+import { announceSurfaceOpen, useSurfaceClose } from './useHoverCard.js';
 import './Header.css';
 
 type Popover = 'menu' | null;
@@ -29,7 +30,17 @@ function usePopovers(): { readonly open: Popover; readonly toggle: (which: 'menu
   const [open, setOpen] = useState<Popover>(null);
   const close = useCallback(() => setOpen(null), []);
   // Synchronous like the class toggle it replaced: the popover is open the moment the click returns.
-  const toggle = useCallback((which: 'menu') => flushSync(() => setOpen((current) => (current === which ? null : which))), []);
+  const toggle = useCallback(
+    (which: 'menu') => {
+      const next: Popover = open === which ? null : which;
+      flushSync(() => setOpen(next));
+      // One header surface at a time: opening the menu closes an open hover card (T1400).
+      if (next !== null) announceSurfaceOpen('header-menu');
+    },
+    [open],
+  );
+  // ...and opening a hover card or a PR popover closes this menu.
+  useSurfaceClose('header-menu', useCallback(() => flushSync(close), [close]));
   useEffect(() => {
     const onDocClick = (e: MouseEvent): void => {
       // A click anywhere outside the header is outside every popover. Synchronous, like the class toggle it replaced.
@@ -37,8 +48,10 @@ function usePopovers(): { readonly open: Popover; readonly toggle: (which: 'menu
         flushSync(close);
         return;
       }
-      // A click inside the header, other than on a trigger (which toggles) or inside a popover, dismisses like any outside click.
-      if (eventWithin(e, '#moreBtn, .popover')) return;
+      // A click inside the header, other than on the menu trigger or inside the menu itself, dismisses it like an
+      // outside click. Matched on `#menuPopover`, not the generic `.popover`: the planning card is a `.popover` too,
+      // and a click on it must not leave the menu open behind the card (T1400).
+      if (eventWithin(e, '#moreBtn, #menuPopover')) return;
       close();
     };
     document.addEventListener('click', onDocClick);

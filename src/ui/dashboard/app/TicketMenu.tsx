@@ -189,6 +189,10 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle, onCloseMenu
   const onBoardLink = usePendingAction((requestId) => {
     if (identity?.ticketUrl) send.openTicketLink(identity.ticketUrl, requestId);
   });
+  // The tight tier hides the row-1 `P<n>` link, so the same session opener lives here (T1400). No card at tight.
+  const onPlanOpen = usePendingAction((requestId) => {
+    if (identity?.origin) send.planOpen(identity.origin.session.id, requestId);
+  });
   const onPause = usePendingAction((requestId) => send.pauseExecution(requestId));
   const onResume = usePendingAction((requestId) => send.unpauseExecution(requestId));
   const onFollowUp = usePendingAction((requestId) => send.createFollowUpTicket(requestId));
@@ -248,6 +252,18 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle, onCloseMenu
           <Icon name="file-text" />
           <span>Ticket details</span>
         </button>
+        <HideableButton
+          off={!identity?.origin}
+          id="menuPlanOpen"
+          className="menuButton tightOnly"
+          data-act="plan-open"
+          data-session-id={identity?.origin?.session.id}
+          role="menuitem"
+          onClick={onPlanOpen}
+        >
+          <Icon name="terminal-2" />
+          <span>{identity?.origin ? `Open planning session ${identity.origin.session.ref}` : 'Open planning session'}</span>
+        </HideableButton>
         <HideableButton off={paused} id="pauseItem" className="menuButton" data-act="pause-execution" role="menuitem" onClick={onPause}>
           <Icon name="player-pause" />
           <span>Pause execution</span>
