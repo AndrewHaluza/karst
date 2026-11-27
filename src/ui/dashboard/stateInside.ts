@@ -45,6 +45,9 @@ import type {
 export interface AttemptSwitchView {
   attempts: readonly GateAttemptView[];
   selectedAttempt: AttemptKey;
+  /** Host-authored muted caption for the tab row (why the round opened, its duration). */
+  attemptCaption?: string;
+  /** Host-authored attention-band text: the fact the reader must act on. */
   attemptNote?: string;
 }
 
@@ -396,7 +399,7 @@ function stageView(
    * looped.
    */
   roundSwitcher?:
-    | { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string }
+    | { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptCaption?: string; attemptNote?: string }
     | { attemptNote: string },
 ): InsideStageView {
   const live = liveFor(processes);

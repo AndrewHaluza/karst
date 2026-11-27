@@ -3,6 +3,7 @@ import type { GateRun } from '../../store/gateRuns.js';
 import type { ProcessRun } from '../../store/processRuns.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { StageKey } from '../types.js';
+import { formatDuration } from './types.js';
 import {
   ATTEMPT_TABS_LIMIT,
   attemptKey,
@@ -213,7 +214,7 @@ describe('listGateAttempts', () => {
     expect(views[1]!.label).toBe('R2');
   });
 
-  it('captions why each attempt opened, its duration and exhaustion', () => {
+  it('captions why each attempt opened and how long it took, with exhaustion as its own warning', () => {
     const at = (m: number, sec = 0) => `2026-07-20T12:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.000Z`;
     const runs = [
       gate('uat', 'lint', 1, { stageRunId: 1, runAt: at(0), startedAt: at(0), endedAt: at(0, 30) }),
@@ -227,18 +228,65 @@ describe('listGateAttempts', () => {
     ];
     const views = listGateAttempts({ gateRuns: runs, processRuns: [], rounds, stageKey: 'uat', running: false });
     expect(views[0]!.caption).toBe('30.0s');
+    expect(views[0]!.warning).toBeUndefined();
     expect(views[1]!.caption).toBe('opened by UAT test failure · 48.0s');
-    expect(views[2]!.caption).toBe('opened by UAT test failure · 10.0s · no fix attempts left');
+    expect(views[1]!.warning).toBeUndefined();
+    // Exhaustion is the fact the reader must act on, so it is a WARNING of its
+    // own — the caption stays a plain statement of what happened.
+    expect(views[2]!.caption).toBe('opened by UAT test failure · 10.0s');
+    expect(views[2]!.caption).not.toContain('no fix attempts left');
+    expect(views[2]!.warning).toBe('no fix attempts left');
   });
 
-  it('omits duration while live and caption when nothing to say', () => {
+  it('shows no duration while an attempt is live, and the settled attempt’s own span', () => {
+    const at = (m: number, sec = 0) => `2026-07-20T12:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.000Z`;
     const runs = [
-      gate('uat', 'lint', 1, { stageRunId: 1, runAt: '2026-07-20T12:00:00.000Z' }),
-      gate('uat', 'lint', 1, { stageRunId: 2, runAt: '2026-07-20T12:10:00.000Z' }),
+      gate('uat', 'lint', 1, { stageRunId: 1, runAt: at(0), startedAt: at(0), endedAt: at(0, 30) }),
+      // The live attempt's gates are recorded and finished — the Tester is not.
+      gate('uat', 'lint', 0, { stageRunId: 2, runAt: at(10), startedAt: at(10), endedAt: at(10, 20) }),
     ];
     const views = listGateAttempts({ gateRuns: runs, processRuns: [], rounds: [], stageKey: 'uat', running: true });
-    expect(views[0]!.caption).toBeUndefined();
+    expect(views[0]!.caption).toBe('30.0s');
     expect(views[1]!.caption).toBeUndefined();
+  });
+
+  it('spans a settled attempt’s gate runs AND its process run of the same attempt', () => {
+    const at = (m: number, sec = 0) => `2026-07-20T12:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.000Z`;
+    const runs = [
+      gate('uat', 'lint', 1, { stageRunId: 1, runAt: at(0), startedAt: at(0), endedAt: at(0, 48) }),
+      gate('uat', 'lint', 0, { stageRunId: 2, runAt: at(10), startedAt: at(10), endedAt: at(10, 20) }),
+    ];
+    // The Tester keeps going after the gates end, so it is what the round's
+    // own duration must reach: 12:00:00 → 12:05:00, not 12:00:00 → 12:00:48.
+    const processRuns = [processRun({ stageRunId: 1, startedAt: at(2), endedAt: at(5) })];
+    const views = listGateAttempts({ gateRuns: runs, processRuns, rounds: [], stageKey: 'uat', running: false });
+    const settled = views[0]!;
+    expect(settled.caption).toBe(formatDuration(at(0), at(5)));
+    expect(settled.caption).toBe('5m 0s');
+  });
+
+  it('emits no duration while any counted run of a settled attempt is still open', () => {
+    const at = (m: number, sec = 0) => `2026-07-20T12:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.000Z`;
+    const runs = [
+      gate('uat', 'lint', 1, { stageRunId: 1, runAt: at(0), startedAt: at(0), endedAt: at(0, 48) }),
+      gate('uat', 'lint', 0, { stageRunId: 2, runAt: at(10), startedAt: at(10), endedAt: at(10, 20) }),
+    ];
+    const processRuns = [processRun({ stageRunId: 1, startedAt: at(2), endedAt: null })];
+    const views = listGateAttempts({ gateRuns: runs, processRuns, rounds: [], stageKey: 'uat', running: false });
+    expect(views[0]!.caption).toBeUndefined();
+  });
+
+  it('counts gate runs only for an attempt keyed by a pre-v25 batch stamp', () => {
+    const at = (m: number, sec = 0) => `2026-07-20T12:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.000Z`;
+    const runs = [
+      gate('uat', 'lint', 1, { stageRunId: null, runAt: at(0), startedAt: at(0), endedAt: at(0, 30) }),
+      gate('uat', 'lint', 0, { stageRunId: 2, runAt: at(10), startedAt: at(10), endedAt: at(10, 20) }),
+    ];
+    // No process run can carry an `ra:` batch stamp, so the legacy attempt's
+    // span is its gate batch alone — and it never borrows another attempt's.
+    const processRuns = [processRun({ stageRunId: 2, startedAt: at(11), endedAt: at(30) })];
+    const views = listGateAttempts({ gateRuns: runs, processRuns, rounds: [], stageKey: 'uat', running: false });
+    expect(views[0]!.caption).toBe('30.0s');
   });
 
   it('derives fail/pass status per attempt from its own batch', () => {

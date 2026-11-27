@@ -60,8 +60,18 @@ export interface GateAttemptView {
   label: string;
   /** Host copy for the SELECTED tab only: `of 3 · latest`. The webview shows it verbatim (UI-R31). */
   tail: string;
-  /** One caption line for the round row: why the attempt opened · duration · exhaustion. */
+  /**
+   * Host copy for the tab row, muted: why the attempt opened (`opened by …`)
+   * and, for a settled attempt, how long it took. Each part present only when
+   * it applies; the webview shows it verbatim (UI-R31).
+   */
   caption?: string;
+  /**
+   * Host copy for the ATTENTION band: the fact the reader must act on, kept
+   * apart from `caption` so a plain round fact is never painted as a warning.
+   * Today only `no fix attempts left` on an exhausted round.
+   */
+  warning?: string;
   status: InsideStatus;
   /** Visible status word, so colour is never the only carrier. */
   statusLabel: string;
@@ -172,9 +182,9 @@ export interface ListGateAttemptsInput {
  *
  * A stage with 0 or 1 recorded attempt emits NO tabs — the control costs
  * nothing on a ticket that never looped, and there would be nothing to
- * switch between. `processRuns` is accepted but unused today: it is part of
- * the T1 selector surface future tasks (T3/T4) read alongside this list, kept
- * here so the input shape does not change again when they land.
+ * switch between. `processRuns` extends a SETTLED attempt's span past its gate
+ * batch: the Tester/Reviewer process run of the same attempt (same stage run
+ * id) ends later than the gates, and a live attempt shows no duration at all.
  */
 export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[] {
   const groups = groupAttempts(input.gateRuns, input.stageKey);
@@ -211,19 +221,29 @@ export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[
     const label = `R${index + 1}`;
     const tail = `of ${groups.length}${isLiveNow ? ' · live' : isLatest && !input.reentryPending ? ' · latest' : ''}`;
     const opener = index > 0 ? roundByKey.get(groups[index - 1]!.key) : undefined;
-    const starts = group.runs.flatMap((r) => (r.startedAt ? [r.startedAt] : []));
-    const ends = group.runs.flatMap((r) => (r.endedAt ? [r.endedAt] : []));
+    // A settled attempt spans its own GATE runs AND the process runs of the
+    // SAME attempt: the gates finish first and the Tester/Reviewer keeps
+    // going, so a gate-only span states a round as shorter than it was. A
+    // process run carries no batch stamp, so it joins the group only through
+    // `attemptKey(run.stageRunId, '')` — an `ra:` (pre-v25) group keys by run
+    // stamp instead and can never match one, and counts its gate runs alone.
+    const spans: readonly { startedAt: string | null; endedAt: string | null }[] = [
+      ...group.runs,
+      ...input.processRuns.filter((r) => attemptKey(r.stageRunId, '') === group.key),
+    ];
+    const starts = spans.flatMap((r) => (r.startedAt ? [r.startedAt] : []));
+    const ends = spans.flatMap((r) => (r.endedAt ? [r.endedAt] : []));
+    // A live attempt has no length yet — its gates are done but the process
+    // that owns the round is not, so any span here would be the gates' slice
+    // presented as the round's duration. Every counted run must have ended.
     const took =
-      starts.length > 0 && ends.length === group.runs.length
+      !isLiveNow && starts.length > 0 && ends.length === spans.length
         ? formatDuration([...starts].sort()[0]!, [...ends].sort().at(-1)!)
         : '';
-    const caption = [
-      opener ? `opened by ${triggerProse(opener)}` : '',
-      took,
-      round?.status === 'exhausted' ? 'no fix attempts left' : '',
-    ]
+    const caption = [opener ? `opened by ${triggerProse(opener)}` : '', took]
       .filter(Boolean)
       .join(' · ');
+    const warning = round?.status === 'exhausted' ? 'no fix attempts left' : '';
     // An attempt that opened a recovery round failed, whatever its gate batch says.
     const status = isLiveNow ? 'run' : round !== undefined ? 'fail' : attemptStatus(group.runs);
     const time = attemptEarliestStart(group.runs);
@@ -232,6 +252,7 @@ export function listGateAttempts(input: ListGateAttemptsInput): GateAttemptView[
       label,
       tail,
       ...(caption ? { caption } : {}),
+      ...(warning ? { warning } : {}),
       status,
       statusLabel: STATUS_LABELS[status],
       ...(time ? { time: formatTime(time) } : {}),
