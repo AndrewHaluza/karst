@@ -555,6 +555,24 @@ describe('PrsPanel — summary, the details popover and the blocked reason', () 
     fireEvent.click(document.body);
     expect(document.querySelector('.pinfo-pop')).toBeNull();
   });
+
+  it('claims the header from the opening click, so a sibling surface closes first (T1400)', () => {
+    mount(stateWith([pr()]));
+    const seen: string[] = [];
+    const onOpen = (e: Event): void => {
+      seen.push((e as CustomEvent<{ id: string }>).detail.id);
+    };
+    document.addEventListener('karst-surface-open', onOpen);
+    try {
+      fireEvent.click(one('toggle-pr-info'));
+      expect(seen).toEqual(['pr-info']);
+      // Closing is not an open: no second claim.
+      fireEvent.click(one('toggle-pr-info'));
+      expect(seen).toEqual(['pr-info']);
+    } finally {
+      document.removeEventListener('karst-surface-open', onOpen);
+    }
+  });
 });
 
 describe('PrsPanel — a non-blocking optional-checks note', () => {

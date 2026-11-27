@@ -17,7 +17,7 @@ Goal: every webview usable at 320 px (floor) with 3–4 editor groups on a 14" l
 | `ui:RD-LADDERS`, `ui:RD-LADDERS2` | Collapse ladder per shared element (2nd: tables, tabs, forms, drawers, toasts) |
 | `ui:RD-NEVER` | Never-collapse list |
 | `ui:RD-A11Y` | Icon-only accessibility contract |
-| `ui:RD-VIEWS` | Per-view region tables |
+| `ui:RD-VIEWS`, `ui:RD-VIEWS2` | Per-view region tables (2nd: sidebar, settings, usage, diffs, ticket form) |
 | `ui:RD-PRIMITIVES` | Primitive API proposals (vanilla + React) |
 | `ui:RD-GATE` | Gate plan and known-failures ledger |
 | `ui:RD-BACKLOG` | Ordered implementation backlog |
@@ -220,9 +220,9 @@ END_DOC_BLOCK: [@ui:RD-A11Y]
 
 ## [@ui:RD-VIEWS] Per-view region tables
 
-Columns: audited element → ladder → target at each tier. Grid templates use `minmax(0,…)`; `S` = `var(--k-space-N)`.
+Columns: audited element → ladder → target at each tier. Grid templates use `minmax(0,…)`; `S` = `var(--k-space-N)`. Source lines are from the audit.
 
-### Dashboard
+### Dashboard (waits for the React migration, see `ui:RD-BACKLOG`)
 
 | Region | Element | Ladder | wide | mid | narrow | tight |
 |---|---|---|---|---|---|---|
@@ -245,7 +245,14 @@ Columns: audited element → ladder → target at each tier. Grid templates use 
 | sandbox | strip + popover | buttons | row | row | wrap | wrap; popover `max-width:min(300px,calc(100vw - 2*S5))`, end-anchored |
 | drawer | `.tdDrawer` | drawers | right | right | right 92vw | sheet 100vw, `visibility:hidden` closed |
 
-### Sidebar
+Sidebar, Settings, Usage/Resources, Diffs and Ticket form: continued in `ui:RD-VIEWS2`.
+END_DOC_BLOCK: [@ui:RD-VIEWS]
+
+## [@ui:RD-VIEWS2] Per-view region tables, continued: sidebar, settings, usage, diffs, ticket form
+
+Split out of `ui:RD-VIEWS`.
+
+### Sidebar (reference, verify only)
 
 Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks. At tight: stage pill `IMPL` stays; filter chips wrap (already do).
 
@@ -253,12 +260,12 @@ Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks.
 
 | Route / region | Element | Target |
 |---|---|---|
-| nav | section list | narrow/tight: horizontally wrapping chip row |
+| nav | section list | narrow/tight: horizontally wrapping chip row (not 7 stacked rows ≈ 190 px) |
 | all forms | `.form-grid` | region < 700 px: label above control (Q12) |
 | general | numeric pairs | pair stacks when each < 80 px; input min 6ch |
 | git | `.k-field-help` variables chip | wraps, `overflow-wrap:anywhere` |
 | services | repo card | `repeat(auto-fill, minmax(min(100%, 290px), 1fr))` |
-| agents → roles | `--agents-cols` matrix (`agents.webview.css:73`) | region container: wide 6-col; mid 4-col; narrow/tight (region < 700 px) a ~64 px summary row per role: line 1 switch slot, name, source chip, pin; line 2 `<profile> · <core> · <model>` + expand button that opens the 4 pickers in place (user choice T1239; UI-R39 reject). Tiers key on the roles region (container query), not the window |
+| agents → roles | `--agents-cols` matrix (`agents.webview.css:73`) | region container: wide 6-col; mid 4-col; narrow/tight (region < 700 px) a ~64 px summary row per role: line 1 switch slot, name, source chip, pin; line 2 `<profile> · <core> · <model>` + expand button that opens the 4 pickers in place (user choice, T1239; supersedes one core per card; differs from the prototype stacking, UI-R39-REJECT). Tiers key on the roles region (container query), not the window |
 | agents → profiles | master/detail (`:227`) | narrow/tight: list OR detail with Back |
 | presets | `240px 140px minmax(360px,1fr)` | wide as is; mid `minmax(0,1fr) minmax(0,1fr)`; narrow/tight single column, label above |
 | all | window `@media` 1024/768/699 | replaced by region container queries |
@@ -267,7 +274,7 @@ Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks.
 
 | Element | wide / mid | narrow | tight |
 |---|---|---|---|
-| `.stats` cards | `repeat(auto-fit,minmax(min(100%,calc(var(--k-space-9)*5)),1fr))` | 3–4 per row | **2 per row**, value + label inline |
+| `.stats` cards | `repeat(auto-fit,minmax(min(100%,calc(var(--k-space-9)*5)),1fr))` | 3–4 per row | **2 per row**, value + label inline (replaces 1/row × 7 screens) |
 | `.panel` / `.brow` | 2-col | 1-col | 1-col, `%` column dropped to tooltip |
 | By-ticket table / attribution table | table | drop priority-3 columns | cards (`ui:RD-LADDERS` tables) |
 | Resources spark `svg#spark` | fixed width | `viewBox` + `width:100%` | same, ticks thinned to 4; scale note moves under chart |
@@ -297,7 +304,7 @@ Layout B′ (prototype: `docs/design/ticket-form-b-prime.html`). Regions in DOM 
 ### gettingStarted, serverLogs
 
 No change; keep in the gate at 400 and 320.
-END_DOC_BLOCK: [@ui:RD-VIEWS]
+END_DOC_BLOCK: [@ui:RD-VIEWS2]
 
 ## [@ui:RD-PRIMITIVES] Primitive API proposals
 

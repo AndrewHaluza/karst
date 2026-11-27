@@ -21,6 +21,7 @@ import { graphRecoveryRefusalNotice, graphRefusalContext, projectMaxReplans, rep
 import type { Notify } from './ops/notify.js';
 import { conflictRounds, armConflictRound } from './ops/autoDeliverOps.js';
 import { makeDependencyOps } from './ops/dependencyOps.js';
+import { makePlanningLinkActions, type DashboardPlanningHost } from './ops/planningLinkOps.js';
 import { addressPrFeedback } from './ops/prFeedbackAction.js';
 import { deliverToPrAction, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput, type CiHost } from './ops/ciActionsWiring.js';
 import { resolveStageLogPath } from './ops/stageLogArtifact.js';
@@ -108,10 +109,7 @@ export interface StallHost {
  * both calls are the SAME ones the sidebar's `plan-open` / `plan-artifacts`
  * bind (`createPlanningOps`), so the two surfaces can never diverge.
  */
-export interface DashboardPlanningHost {
-  open: (id: number) => Promise<void>;
-  openArtifacts: (id: number) => Promise<void>;
-}
+export type { DashboardPlanningHost } from './ops/planningLinkOps.js';
 
 export function makeDashboardActions(
   store: Store,
@@ -314,11 +312,11 @@ export function makeDashboardActions(
       void vscode.env.clipboard.writeText(key);
     },
     // The header's `P<n>` link (T1400): the SAME planning ops the sidebar's
-    // `plan-open` / `plan-artifacts` call. The caught promise is returned so the
-    // webview's pending state settles on the real outcome (UI-R13) while a
-    // failure still lands in the log instead of an unhandled rejection.
-    planOpen: (id) => planning.open(id).catch((e) => logError('planning: open failed', e)),
-    planArtifacts: (id) => planning.openArtifacts(id).catch((e) => logError('planning: open artifacts failed', e)),
+    // `plan-open` / `plan-artifacts` call. The returned promise settles the
+    // webview's pending state on the REAL outcome (UI-R13): the rejection is
+    // logged and re-thrown, because swallowing it here would resolve the
+    // promise and `reportAction` would post `action-result { ok: true }`.
+    ...makePlanningLinkActions(planning, logError),
     copyTicketMarkdown: (text) => void vscode.env.clipboard.writeText(text),
     openTicketMarkdown: async (text) => {
       const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: text });

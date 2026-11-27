@@ -71,8 +71,6 @@ export function PrInfo({ p, open, onToggle }: PrInfoProps) {
   useAnchoredPopover(open, popRef, buttonRef, () => onToggle(repo, false), POPOVER_WIDTH);
   useEffect(() => {
     if (!open) return undefined;
-    // One header surface at a time (T1400): an open hover card or ⋯ menu closes when this popover opens.
-    announceSurfaceOpen('pr-info');
     const close = (): void => {
       onToggle(repo, false);
       buttonRef.current?.focus();
@@ -105,7 +103,12 @@ export function PrInfo({ p, open, onToggle }: PrInfoProps) {
         aria-expanded={open}
         aria-label="Pull request details"
         title="Pull request details"
-        onClick={() => onToggle(repo, !open)}
+        onClick={() => {
+          // One header surface at a time (T1400): claim the header BEFORE the popover opens. Doing this from
+          // the click rather than the `open` effect keeps the sibling's synchronous close out of a React commit.
+          if (!open) announceSurfaceOpen('pr-info');
+          onToggle(repo, !open);
+        }}
       >
         <Icon name="info-circle" size={13} />
       </button>

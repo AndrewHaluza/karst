@@ -108,12 +108,13 @@ describe('PlanningCard — one header surface at a time', () => {
     mountHeader(headerState({ origin: originView() }));
     act(() => ($('#planLink') as HTMLButtonElement).focus());
     expect(document.querySelector('#planCard')).not.toBeNull();
-    // A PR popover opened on mount claims the surface, the same way the toggle's click does.
+    // A PR popover claims the surface from its opening click, the same way the ⋯ menu does.
     render(
       <DashboardAppProvider bridge={{ send: createSender({ postMessage: () => {} }), getState: () => null, setState: () => {}, subscribe: () => () => {} }}>
-        <PrInfo p={pr()} open onToggle={() => {}} />
+        <PrInfo p={pr()} open={false} onToggle={() => {}} />
       </DashboardAppProvider>,
     );
+    fireEvent.click(document.querySelector('[data-act="toggle-pr-info"]')!);
     expect(document.querySelector('#planCard')).toBeNull();
   });
 });

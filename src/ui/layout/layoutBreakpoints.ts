@@ -28,7 +28,7 @@ export const LAYOUT_HEIGHT = 900;
 
 /**
  * The Settings page's form grid collapses its label/control columns below 700 px (Q12,
- * `@ui:RD-VIEWS`), so the settings routes also open both sides of the tight boundary and the
+ * `@ui:RD-VIEWS2`), so the settings routes also open both sides of the tight boundary and the
  * 320 px floor. Other views keep the shared 480 px floor until their own ticket.
  */
 export const SETTINGS_LAYOUT_WIDTHS: readonly number[] = [...LAYOUT_WIDTHS, 399, 320];
