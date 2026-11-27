@@ -263,8 +263,14 @@ export interface SandboxSyncDeps {
   readonly dockerProc?: DockerProcess;
   /** The sbx memory ceiling, so a runner built here can name it in an OOM report. */
   readonly sbxMemory?: () => string | undefined;
-  /** The proxy grants: a runner built here revokes the key of its sandbox at dispose (@arch:AC-51). */
-  readonly oauthGrants?: SbxOauthGrants;
+  /**
+   * The proxy grants: a runner built here revokes the key of its sandbox at dispose (@arch:AC-51).
+   *
+   * A PROVIDER, not the value: the grants are read at the point of use, so no
+   * credential sits on the deps bag that also carries `projectRoot` (the naming
+   * hash reads only project facts, and a scanner must not see a secret flow into it).
+   */
+  readonly oauthGrants?: () => SbxOauthGrants | undefined;
   readonly temp?: TempDirs;
   readonly platform?: NodeJS.Platform;
   /** The bridge dir as the host sees it: sbx hands the host's bundle to the sandbox through its `xfer/` (F8). */
@@ -307,7 +313,19 @@ export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, tic
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
     const evidenceDir = deps.evidenceDirOf?.(ticketId);
     const memory = deps.sbxMemory?.();
-    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}), ...(memory ? { memory } : {}), ...(deps.oauthGrants ? { oauth: { grants: deps.oauthGrants } } : {}) });
+    // Read lazily: the grant value must never ride the object that names the sandbox.
+    const grants = deps.oauthGrants?.();
+    return createSbxSessionRunner({
+      proc: deps.proc ?? NODE_SBX_PROCESS,
+      core,
+      name,
+      // Stryker disable next-line ArrayDeclaration: equivalent, the runner only asks whether ITS name is in the set
+      existing: [],
+      cloneDir: sbxCloneDir(deps.projectRoot, name),
+      ...(evidenceDir ? { evidenceDir } : {}),
+      ...(memory ? { memory } : {}),
+      ...(grants ? { oauth: { grants } } : {}),
+    });
   }
   if (core !== null && isDockerCore(core)) {
     return createDockerSessionRunner({

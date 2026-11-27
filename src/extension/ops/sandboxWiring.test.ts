@@ -6,7 +6,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
 import { makeSandboxWiring, type SandboxWiringInput } from './sandboxWiring.js';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setStage } from '../../store/stages.js';
@@ -277,6 +277,75 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     await w.reconcile();
     expect(releaseGrant).toHaveBeenCalledWith(name);
     expect(info).toHaveBeenCalledWith(expect.stringContaining('removed 1 stray sandbox resource'));
+  });
+
+  /** One project root, one clone dir per ticket, so a sweep sees exactly the dirs seeded here. */
+  function strayRoot(): { readonly root: string; readonly projectId: number; readonly cloneDir: (ticketId: number) => string } {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-wiring-grants-'));
+    const root = join(dir, 'karst.yml');
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const cloneDir = (ticketId: number): string => {
+      const path = join(dir, '.karst', 'sbx-clones', sbxName({ projectRoot: root, ticketId, core: 'claude' }));
+      mkdirSync(path, { recursive: true });
+      return path;
+    };
+    return { root, projectId, cloneDir };
+  }
+
+  it('the stray sweep works without a grant binding, and still uses the injected docker daemon', async () => {
+    const { root, projectId, cloneDir } = strayRoot();
+    const closed = createTicket(store, { key: 'A-8', title: 'y', projectId }).id;
+    archiveTicket(store, closed);
+    const closedDocker = createTicket(store, { key: 'A-4', title: 'u', projectId }).id;
+    archiveTicket(store, closedDocker);
+    cloneDir(closed);
+    // A docker network no sandbox accounts for (the inventory lists no networks), so the sweep must remove it.
+    const netName = `${sbxName({ projectRoot: root, ticketId: closedDocker, core: 'opencode' })}-net`;
+    const info = vi.fn();
+    const dockerProc = Object.assign(fakeSbxProcess({ 'docker network ls': { stdout: `${netName}\n` } }), { pipe: vi.fn() });
+    // No `sbxOauth`: the grant providers are still handed to the ops, and read nothing.
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => root, projectId: () => projectId, owned: new Set([closed, closedDocker]), info, dockerProc });
+    await w.reconcile();
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('removed 2 stray sandbox resource'));
+    // The removal ran on THIS window's daemon, never the real one.
+    expect(dockerProc.calls.some((c) => c.args[0] === 'network' && c.args[1] === 'rm' && c.args[2] === netName)).toBe(true);
+  });
+
+  it('a binding that returns no grants is still a no-op, never a throw', async () => {
+    const { root, projectId, cloneDir } = strayRoot();
+    const closed = createTicket(store, { key: 'A-7', title: 'x', projectId }).id;
+    archiveTicket(store, closed);
+    cloneDir(closed);
+    const info = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => root, projectId: () => projectId, owned: new Set([closed]), info, sbxOauth: () => undefined });
+    await w.reconcile();
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('removed 1 stray sandbox resource'));
+  });
+
+  it('the sweep never removes a resource of an OPEN ticket', async () => {
+    const { root, projectId, cloneDir } = strayRoot();
+    const open = createTicket(store, { key: 'A-6', title: 'w', projectId }).id;
+    const path = cloneDir(open);
+    const info = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => root, projectId: () => projectId, owned: new Set([open]), info });
+    await w.reconcile();
+    // The dir is still there: `liveTicketIds` must carry this ticket's id.
+    expect(existsSync(path)).toBe(true);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('left alone'));
+  });
+
+  it('hasSandbox builds the runner through the provider, with or without a grant binding', async () => {
+    const { root, projectId, a } = (() => {
+      const { root, projectId, cloneDir } = strayRoot();
+      void cloneDir;
+      return { root, projectId, a: createTicket(store, { key: 'A-5', title: 'v', projectId }).id };
+    })();
+    setSessionId(store, a, `s${a}`, 'claude');
+    for (const sbxOauth of [undefined, () => undefined]) {
+      const { w } = wiring({ backendOn: () => true, projectRoot: () => root, projectId: () => projectId, owned: new Set([a]), ...(sbxOauth ? { sbxOauth } : {}) });
+      // No `sbx ls` entry: absent. A throw inside the grant provider would read as "has sandbox".
+      await expect(w.hasSandbox(a)).resolves.toBe(false);
+    }
   });
 
   it('archive of a running sandbox syncs, disposes and removes its bridge; done stops it', async () => {

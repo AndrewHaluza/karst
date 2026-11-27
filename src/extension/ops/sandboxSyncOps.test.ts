@@ -950,10 +950,27 @@ describe('sandboxRunnerFor releases the proxy grant at dispose (@arch:AC-51)', (
   it('an sbx runner built here revokes the key of its sandbox before it removes it', async () => {
     const release = vi.fn(async () => ({ port: 8787 }));
     const proc = fakeSbxProcess();
-    const runner = sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p/karst.yml', placementOf: () => null, proc, oauthGrants: { issue: vi.fn(), release } }, 'claude', 7)!;
+    const runner = sandboxRunnerFor({ notify: recorder().notify, projectRoot: '/p/karst.yml', placementOf: () => null, proc, oauthGrants: () => ({ issue: vi.fn(), release }) }, 'claude', 7)!;
     await runner.dispose!({ hostWorktreePath: '', branch: 'b' });
     expect(release).toHaveBeenCalledWith(sbxName({ projectRoot: '/p/karst.yml', ticketId: 7, core: 'claude' }));
     expect(proc.calls.some((c) => c.args.join(' ').startsWith('policy rm'))).toBe(true);
+  });
+
+  it('reads the grants lazily, only for an sbx runner: no credential value rides the deps bag', () => {
+    const oauthGrants = vi.fn(() => ({ issue: vi.fn(), release: vi.fn(async () => ({ port: 1 })) }));
+    const deps = { notify: recorder().notify, projectRoot: '/p/karst.yml', placementOf: () => null, oauthGrants };
+    // A docker core never needs the grants, so the provider is not even read.
+    expect(sandboxRunnerFor(deps, 'opencode2', 7)?.kind).toBe('docker');
+    expect(oauthGrants).not.toHaveBeenCalled();
+    sandboxRunnerFor(deps, 'claude', 7);
+    expect(oauthGrants).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the sbx memory ceiling to the runner it builds', () => {
+    const deps = { notify: recorder().notify, projectRoot: '/p/karst.yml', placementOf: () => null, proc: fakeSbxProcess(), sbxMemory: () => '4g' };
+    const placed = sandboxRunnerFor(deps, 'claude', 7)!.placeInteractive!({ ticketId: 7, hostWorktreePath: '/wt', command: 'claude', args: [], env: {} });
+    // A new sandbox's `sbx run` carries the ceiling: without it a busy host never caps the guest.
+    expect((placed.shellArgs ?? []).slice(0, 5)).toEqual(['run', '--clone', '--memory', '4g', '--name']);
   });
 });
 
