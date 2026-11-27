@@ -467,7 +467,7 @@ import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from '
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
 import { driveTicket as driveTicketRun } from './workflow/driveTicket.js';
-import { DriverController, shouldStartDriverOn, ticketsToSweep } from './workflow/driverController.js';
+import { DriverController, driveTriggerSkip, shouldStartDriverOn, ticketsToSweep } from './workflow/driverController.js';
 import { reshipAtShipConfirm } from './extension/ops/autoReship.js';
 import { clearCiRound } from './store/autopilot.js';
 import { shipTicket as runShipTicket, hasCompletedShipRun } from './workflow/stages/ship.js';
@@ -4106,6 +4106,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The guard awaited: the ticket may have been paused or handed to a graph meanwhile.
     if (getTicket(localStore, ticketId).pausedAt != null || !shouldDriveGraphTicket(localStore.db, ticketId)) {
       logger.debug(`stage driver: ${trigger} → ticket ${ticketId} skipped after the gate check (paused or graph-owned)`);
+      return;
+    }
+    // Already in flight: `driver.begin` would no-op, so skip before the INFO line.
+    if (driveTriggerSkip(driver.isRunning(ticketId)) === 'in-flight') {
+      logger.debug(`stage driver: ${trigger} → ticket ${ticketId} skipped (drive in flight)`);
       return;
     }
     logger.info(`stage driver: ${trigger} → drive ticket ${ticketId} at ${t.stageCurrent}`);

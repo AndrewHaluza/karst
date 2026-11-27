@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldStartDriver, shouldStartDriverOn, ticketsToSweep, DriverController } from './driverController.js';
+import { shouldStartDriver, shouldStartDriverOn, ticketsToSweep, DriverController, driveTriggerSkip } from './driverController.js';
 
 describe('ticketsToSweep', () => {
   const at = (id: number, stageCurrent: string | null) => ({ id, stageCurrent, stages: [] });
@@ -72,7 +72,26 @@ describe('shouldStartDriver', () => {
   });
 });
 
+describe('driveTriggerSkip', () => {
+  it('skips a trigger while a drive is in flight', () => {
+    expect(driveTriggerSkip(true)).toBe('in-flight');
+  });
+
+  it('drives when nothing is in flight', () => {
+    expect(driveTriggerSkip(false)).toBeUndefined();
+  });
+});
+
 describe('DriverController', () => {
+  it('isRunning tracks the run from begin to end', () => {
+    const c = new DriverController();
+    expect(c.isRunning(1)).toBe(false);
+    c.begin(1);
+    expect(c.isRunning(1)).toBe(true);
+    c.end(1);
+    expect(c.isRunning(1)).toBe(false);
+  });
+
   it('begin is single-flight per ticket', () => {
     const c = new DriverController();
     expect(c.begin(1)).toBe(true);
