@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { act, fireEvent } from '@testing-library/react';
 import type { HostMessage } from '../messages.js';
 import { installRuntimeDoubles, settled } from './fixtures/prsPanelKit.js';
-import { deliverProcess, type DeliverRowInput } from '../../../model/inside/shipDeliver.js';
+import { deliverPushRows, deliverPushSummary, type DeliverRowInput } from '../../../model/inside/shipDeliver.js';
+import type { InsideProcessView } from '../../../model/inside/types.js';
 import { all, cleanupInside, insideState, must, mountInside, q, text, view } from './fixtures/insideKit.js';
 
 installRuntimeDoubles();
@@ -192,25 +193,39 @@ describe('Inside — the stage menu', () => {
   });
 });
 
-describe('Inside — Deliver process row (T1072)', () => {
+describe('Inside — the Deliver push inside the Push row (T1072, T1403)', () => {
   const A = 'a'.repeat(40);
   const B = 'b'.repeat(40);
   const failure = { gate: 'unit', repo: 'r', exitCode: 2, headSha: A, summary: 'boom\nline two' };
   const auto = (over: Record<string, unknown> = {}) => ({ running: null, failures: [], takenOver: null, roundActive: false, headSha: A, ...over });
-  /** The ship snapshot with the Deliver row the host builds from these facts. */
+  /** The Push row the host builds from these deliver facts. */
+  const pushRow = (full: DeliverRowInput): InsideProcessView => {
+    const s = deliverPushSummary(full)!;
+    return {
+      id: 'push',
+      kind: 'push',
+      label: 'Push',
+      status: s.status,
+      ...(s.detailParts.length > 0 ? { detail: s.detailParts.join(' · ') } : {}),
+      ...(s.deliver ? { deliver: s.deliver } : {}),
+      ...(s.console ? { console: true } : {}),
+      evidence: { kind: 'rows', rows: deliverPushRows(full, '2026-10-27T22:00:00.000Z') },
+    };
+  };
+  /** The ship snapshot with the Push row the host builds from these facts. */
   const state = (input: Partial<DeliverRowInput> | null, stage = 'ship') => {
     const full = input ? { notOnPr: 2, inSandbox: 0, canDeliver: true, auto: null, ...input } : null;
-    const row = full ? deliverProcess(full) : undefined;
+    const row = full ? pushRow(full) : undefined;
     // The slice reads the kept failures from state.deliver (the same facts the host built the row from).
     const deliver = full ? { available: full.canDeliver, notOnPr: full.notOnPr, inSandbox: full.inSandbox, ...(full.auto ? { auto: full.auto } : {}) } : undefined;
     return insideState({ stageCurrent: stage, views: { [stage]: view(stage, { processes: row ? [row] : [] }) }, ...(deliver ? { deliver } : {}) });
   };
-  const deliverRow = () => must('[data-proc-id="ship:deliver"]');
+  const deliverRow = () => must('[data-proc-id="ship:push"]');
 
-  it('renders the row with its name, detail, live region, Push and the console button', () => {
+  it('renders the Push row with its name, detail, live region, Push and the console button', () => {
     mountInside(state({ notOnPr: 2, inSandbox: 1 }));
     const row = deliverRow();
-    expect(text(must('.op-name-text', row))).toBe('Deliver');
+    expect(text(must('.op-name-text', row))).toBe('Push');
     expect(text(must('[role="status"]', row))).toBe('2 commits not on the PR (1 still in the sandbox)');
     const push = must<HTMLButtonElement>('[data-act="deliver-to-pr"]');
     expect(text(push)).toBe('Push');
@@ -232,7 +247,7 @@ describe('Inside — Deliver process row (T1072)', () => {
 
   it('shows no row when the host builds none', () => {
     mountInside(state(null));
-    expect(q('[data-proc-id="ship:deliver"]')).toBeNull();
+    expect(q('[data-proc-id="ship:push"]')).toBeNull();
     expect(q('[data-act="deliver-to-pr"]')).toBeNull();
   });
 
@@ -265,6 +280,18 @@ describe('Inside — Deliver process row (T1072)', () => {
     const btn = must<HTMLButtonElement>('[data-act="deliver-to-pr"]');
     expect(btn.disabled).toBe(false);
     expect(btn.title).toContain('auto-deliver runs gate 2/5 (docs-graph)');
+  });
+
+  it('(b2) shows one row per pre-push gate with its status, and only the running gate is the progress region', () => {
+    const gates = [
+      { name: 'unit', repo: 'karst', status: 'pass', startedAt: '2026-10-27T21:40:00.000Z', endedAt: '2026-10-27T21:42:00.000Z', exitCode: 0 },
+      { name: 'docs', repo: 'karst', status: 'run', startedAt: null, endedAt: null, exitCode: null },
+      { name: 'visual', repo: 'karst', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+    ] as const;
+    mountInside(state({ auto: auto({ running: { n: 2, m: 3, gate: 'docs' }, gates }) }));
+    const rows = all('[data-proc-id="ship:push"] .evidence-row');
+    expect(rows.map((r) => text(must('.ev-key', r)))).toEqual(['unit', 'docs', 'visual', 'Sync the sandbox', 'Push the branch']);
+    expect(q('[data-region="deliver-progress"]')).not.toBeNull();
   });
 
   it('(c) lists a failure on the current head as a fail row with its error behind Show', () => {

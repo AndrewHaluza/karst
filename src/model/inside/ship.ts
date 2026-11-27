@@ -12,7 +12,7 @@ import {
 import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
 import type { AutofixRowView } from './autofix.js';
-import { deliverProcess, type DeliverRowInput } from './shipDeliver.js';
+import { deliverPushRows, deliverPushSummary, type DeliverRowInput } from './shipDeliver.js';
 import { boundedEvidenceRows } from './bounds.js';
 import { bounded } from './bounds.js';
 import { executionView, tokenView, type SessionTokensInput } from './agent.js';
@@ -99,7 +99,7 @@ export interface ShipProcessesInput {
   findingsBlockingSeverity?: Severity | 'none';
   /** Auto-fix reading (T1004, own row since T1070). Absent or null → no Auto-fix row. */
   autofix?: AutofixRowView | null;
-  /** Deliver reading (T1072). Absent or null → no Deliver row. */
+  /** Deliver reading (T1072, T1403): the Push row's later push onto the open PR. Absent or null → no deliver rows. */
   deliver?: DeliverRowInput | null;
   /** An open PR still waits on CI: the Merge row names it among its blockers. */
   ciOpen?: boolean;
@@ -535,7 +535,23 @@ function pushRelation(input: ShipProcessesInput, repo: string): string | null {
   return pre.preRemoteHead === null ? 'missing → create' : 'existing → update';
 }
 
-/** The push process: per repo, the push step's recorded outcome. */
+/** The Push row's detail: the per-repository count, then the Deliver push's own facts (T1403). */
+function pushDetail(
+  input: ShipProcessesInput,
+  recorded: readonly EvidenceRow[],
+  summary: ReturnType<typeof deliverPushSummary>,
+): string | undefined {
+  const pushed = recorded.filter((r) => r.status === 'pass').length;
+  const base = recorded.length > 0
+    ? `${pushed}/${recorded.length} pushed`
+    : keepsOwnAbsence(input)
+      ? noEvidenceDetail(input)
+      : undefined;
+  const parts = [...(base ? [base] : []), ...(summary?.detailParts ?? [])];
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+/** The push process: per repo, the push step's recorded outcome; the Deliver push's gates follow in the same row. */
 function pushProcess(input: ShipProcessesInput): InsideProcessView {
   const repos = Object.keys(input.evidence.repos).sort();
   const recorded = repos.map(
@@ -557,20 +573,24 @@ function pushProcess(input: ShipProcessesInput): InsideProcessView {
       };
     },
   );
-  const rows = boundedRepoRows(input, 'Ship · Push', recorded);
-  const pushed = recorded.filter((r) => r.status === 'pass').length;
+  const summary = deliverPushSummary(input.deliver);
+  const current = recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input);
+  // A running deliver gate, or a kept failure, is what the Push row reports now; every other case keeps the push rule.
+  const status = summary?.status === 'run' || summary?.status === 'fail' ? summary.status : current;
+  const detail = pushDetail(input, recorded, summary);
   return {
     id: 'push',
     kind: 'push',
     label: 'Push',
-    status: recorded.length > 0 ? aggregateStatus(recorded) : ranStatus(input),
-    ...(recorded.length > 0
-      ? { detail: `${pushed}/${recorded.length} pushed` }
-      : keepsOwnAbsence(input)
-        ? { detail: noEvidenceDetail(input) }
-        : {}),
+    status,
+    ...(detail ? { detail } : {}),
+    ...(summary?.deliver ? { deliver: summary.deliver } : {}),
+    ...(summary?.console ? { console: true } : {}),
     ...stepSpan(input, (repo) => input.evidence.repos[repo]!.steps.push),
-    evidence: { kind: 'rows', rows },
+    evidence: {
+      kind: 'rows',
+      rows: [...boundedRepoRows(input, 'Ship · Push', recorded), ...deliverPushRows(input.deliver, input.now, input.repoNameFor)],
+    },
   };
 }
 
@@ -956,19 +976,18 @@ export function autofixProcess(autofix: AutofixRowView | null | undefined): Insi
  * warning row when unresolved blocking findings are on record. That row is
  * NOT part of the registered roster: unlike every id in `INSIDE_PROCESSES`,
  * which always renders (even as an empty/pending row), `ship-findings` is
- * entirely absent whenever nothing blocks, which is the common case.
+ * entirely absent whenever nothing blocks, which is the common case. The
+ * Deliver push is part of the Push row (T1403), never a row of its own.
  */
 export function shipProcesses(input: ShipProcessesInput): InsideProcessView[] {
   const warning = shipFindingsWarning(input);
   const autofix = autofixProcess(input.autofix);
-  const deliver = deliverProcess(input.deliver);
   return [
     ...(warning ? [warning] : []),
     commitProcess(input),
     pushProcess(input),
     prProcess(input),
     ...(autofix ? [autofix] : []),
-    ...(deliver ? [deliver] : []),
     mergeProcess(input),
   ];
 }

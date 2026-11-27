@@ -429,6 +429,11 @@ export interface EvidenceRow {
   autofixStop?: { requested: boolean };
   /** The Deliver failure row that carries its own Dismiss (an x icon button). `gate` is the gate name `dismissDeliverFailures` takes. */
   deliverDismiss?: { gate: string };
+  /**
+   * A pre-push gate row of the SHIP Push row (the Deliver push, T1403). The webview uses it to tell this running row from
+   * a per-repository push row of the same status, never by parsing the label.
+   */
+  deliverGate?: true;
   /** A failed row's error text: shown behind a native 'Show' disclosure, never inline. Host-shipped, verbatim. */
   output?: string;
   /**

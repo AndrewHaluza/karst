@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { deliverFailureLine, deliverHint, deliverProgressLine, deliverTakeOverLine, groupFailuresByHead, mergeStateWording, wordResolvedConflict, shortSha, withDeliverWait, type DeliverFacts } from './deliver.js';
-import { deliverProcess } from './shipDeliver.js';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -88,33 +87,6 @@ describe('deliver wording', () => {
   });
   it('tells that Deliver stops the running gates and runs them again on a moved base before pushing', () => {
     expect(deliverHint({ ...base, running: { n: 2, m: 5, gate: 'docs' } })).toBe('Auto-deliver runs gate 2/5 (docs). Deliver stops these gates and pushes; if the base moved since the merge, the gates run on the new merge first.');
-  });
-});
-
-describe('deliverProcess wording for a base check (D541)', () => {
-  const A = 'a'.repeat(40);
-  const facts: DeliverFacts = { running: null, failures: [], takenOver: null, roundActive: false, headSha: A };
-  const row = (canDeliver: boolean, running: DeliverFacts['running']) =>
-    deliverProcess({ notOnPr: 2, inSandbox: 0, canDeliver, auto: { ...facts, running } })!;
-
-  it('words a base check as checking before push in the detail and the evidence row', () => {
-    const r = row(true, { n: 2, m: 5, gate: 'visual', baseCheck: true });
-    expect(r.detail).toContain('checking before push: gate 2 of 5');
-    expect(r.detail).not.toMatch(/(?:^| · )gate 2 of 5/);
-    expect(r.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Check before push: gate 2 of 5', detail: 'visual', status: 'run' }]) });
-  });
-  it('keeps the plain gate wording when the run is not a base check', () => {
-    const absent = row(true, { n: 2, m: 5, gate: 'visual' });
-    expect(absent.detail).toContain('gate 2 of 5');
-    expect(absent.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Gate 2 of 5', detail: 'visual', status: 'run' }]) });
-    const off = row(true, { n: 2, m: 5, gate: 'visual', baseCheck: false });
-    expect(off.detail).toContain('gate 2 of 5');
-    expect(off.detail).not.toContain('checking before push');
-    expect(off.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Gate 2 of 5', detail: 'visual', status: 'run' }]) });
-  });
-  it('does not change when the deliver button shows', () => {
-    expect(row(false, { n: 2, m: 5, gate: 'visual', baseCheck: true }).deliver).toBeUndefined();
-    expect(row(true, { n: 2, m: 5, gate: 'visual', baseCheck: true }).deliver).toBeDefined();
   });
 });
 

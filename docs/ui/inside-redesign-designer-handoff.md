@@ -254,6 +254,8 @@ Stable process order:
 
 Ship is per-repository evidence aggregated into those four process rows. Do not render a repository list as four copies of the whole stage.
 
+The `Push` row holds BOTH the first push and the later Deliver push onto the open pull request (T1403). While a deliver run exists, its pre-push gates show one row per gate — a status, the repository name, a time and a duration — in the same form as the UAT gate rows, and a base check leads with a `Check before push` phase row. The Push row carries the Push button and the stage console; a kept gate failure keeps its Dismiss.
+
 Suggested expanded repository template:
 
 ```text
