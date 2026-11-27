@@ -6,12 +6,13 @@
  * `Header` (one popover at a time).
  */
 import { memo, useRef, useState, type KeyboardEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
-import { useDashboardSend } from './DashboardAppContext.js';
+import { useDashboardSend, useOverlays } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import { HideableButton } from './HideableButton.js';
 import { LayoutSetting } from './LayoutSetting.js';
-import { selectBind, selectControls, selectGates, selectStageCurrent } from './headerSlices.js';
+import { selectBind, selectControls, selectGates, selectIdentity, selectStageCurrent } from './headerSlices.js';
 import type { GateOption } from '../gateOptions.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
@@ -180,8 +181,14 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
   const popRef = useRef<HTMLDivElement>(null);
   useAnchoredPopover(open, popRef, moreRef, onToggle);
   const controls = useSlice(selectControls);
+  const identity = useSlice(selectIdentity);
+  const overlays = useOverlays();
   const paused = !!controls?.paused;
   const onEdit = usePendingAction((requestId) => send.editTicket(requestId));
+  // The two tight-tier twins of the inline header icons: same host post, same drawer, only the home moves (T1396).
+  const onBoardLink = usePendingAction((requestId) => {
+    if (identity?.ticketUrl) send.openTicketLink(identity.ticketUrl, requestId);
+  });
   const onPause = usePendingAction((requestId) => send.pauseExecution(requestId));
   const onResume = usePendingAction((requestId) => send.unpauseExecution(requestId));
   const onFollowUp = usePendingAction((requestId) => send.createFollowUpTicket(requestId));
@@ -209,6 +216,30 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
         <button type="button" className="menuButton" data-act="edit-ticket" role="menuitem" onClick={onEdit}>
           <Icon name="pencil" />
           <span>Edit ticket</span>
+        </button>
+        {/* Tight tier only: the row hides its provider mark, ↗ and ▤ there, so the same two actions live here. */}
+        <HideableButton
+          off={!identity?.ticketUrl}
+          id="menuBoardLink"
+          className="menuButton tightOnly"
+          data-act="open-ticket-link"
+          data-url={identity?.ticketUrl ?? undefined}
+          role="menuitem"
+          onClick={onBoardLink}
+        >
+          <Icon name="external-link" />
+          <span>Open in provider</span>
+        </HideableButton>
+        <button
+          id="menuTicketData"
+          type="button"
+          className="menuButton tightOnly"
+          data-act="preview-ticket-data"
+          role="menuitem"
+          onClick={() => flushSync(overlays.openTicketData)}
+        >
+          <Icon name="file-text" />
+          <span>Ticket details</span>
         </button>
         <HideableButton off={paused} id="pauseItem" className="menuButton" data-act="pause-execution" role="menuitem" onClick={onPause}>
           <Icon name="player-pause" />

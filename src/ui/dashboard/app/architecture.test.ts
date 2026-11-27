@@ -46,13 +46,18 @@ const RAW_HTML_ALLOWED = ['AgentIcon.tsx', 'Icon.tsx'];
  * the sidebar mounts it too, so no file under this app writes element styles any more. Add a file here only with a
  * measured reason CSS cannot express.
  */
-const IMPERATIVE_STYLE_ALLOWED: string[] = [];
+const IMPERATIVE_STYLE_ALLOWED: string[] = [
+  // The sticky header's observers (T1396) write `--k-headbar-h` and `--k-drill-chrome` on the document
+  // element from a ResizeObserver: CSS cannot read an element's measured height into a property.
+  'stickyHeader.ts',
+];
 
 /**
  * No file under this app wires ARIA imperatively either: the k-tooltip's `aria-describedby` moved with the shared
- * delegate (T1396). React state owns what the views render.
+ * delegate (T1396). React state owns what the views render. The exception creates the sticky header's sentinel — an
+ * element React never owns, inserted before the row — which must be hidden from assistive tech.
  */
-const IMPERATIVE_ARIA_ALLOWED: string[] = [];
+const IMPERATIVE_ARIA_ALLOWED: string[] = ['stickyHeader.ts'];
 
 describe('R-X6 — no inline style, no raw HTML', () => {
   const BANNED: ReadonlyArray<readonly [string, RegExp]> = [

@@ -28,7 +28,7 @@ import { MAX_DIAGNOSTIC_CHARS } from '../../model/diagnosticText.js';
 import { formatTime } from '../../model/inside/types.js';
 import { attemptKey } from '../../model/inside/rounds.js';
 import { InsideActionRegistry } from './insideActions.js';
-import { buildDashboardState } from './state.js';
+import { buildDashboardPriority, buildDashboardState } from './state.js';
 import { emptyCapabilityIdentity } from './stateAgent.js';
 import { agentContextFor } from './resolvers.js';
 import { ticketLaunchFields } from '../../approaches/graph/profileResolver.js';
@@ -1144,11 +1144,44 @@ describe('buildDashboardState', () => {
     expect(state.ticketUrl).toBe('https://app.clickup.com/t/abc123');
   });
 
-  it('carries the provider-native priority label when one was fetched', () => {
+  it('carries the provider-native priority as a level plus its label when one was fetched', () => {
     const t = createTicket(store, { key: 'CU-2', title: 't' });
     expect(buildDashboardState(store, t.id).priority).toBeNull();
     updateTicketFields(store, t.id, { priority: 'urgent' });
-    expect(buildDashboardState(store, t.id).priority).toBe('urgent');
+    expect(buildDashboardState(store, t.id).priority).toEqual({ level: 'urgent', text: 'urgent', source: 'provider' });
+  });
+
+  it('sends the user override as the level, named as yours', () => {
+    const t = createTicket(store, { key: 'CU-3', title: 't' });
+    updateTicketFields(store, t.id, { priority: 'low', priorityOverride: 'high' });
+    expect(buildDashboardState(store, t.id).priority).toEqual({ level: 'high', text: 'high', source: 'you' });
+  });
+
+  it('names a planner-written priority as the planner and keeps a non-level provider label', () => {
+    const planner = createTicket(store, { key: 'CU-4', title: 't' });
+    updateTicketFields(store, planner.id, { priority: 'high', source: 'planning' });
+    expect(buildDashboardState(store, planner.id).priority).toEqual({ level: 'high', text: 'high', source: 'planner' });
+    const label = createTicket(store, { key: 'CU-5', title: 't' });
+    updateTicketFields(store, label.id, { priority: 'P2' });
+    expect(buildDashboardState(store, label.id).priority).toEqual({ level: null, text: 'P2', source: null });
+  });
+
+  it('keeps a normal priority as a level (the shared chip renders nothing for it)', () => {
+    const t = createTicket(store, { key: 'CU-6', title: 't' });
+    updateTicketFields(store, t.id, { priority: 'normal' });
+    expect(buildDashboardState(store, t.id).priority).toEqual({ level: 'normal', text: 'normal', source: 'provider' });
+  });
+
+  it('builds no view for a ticket with no priority at all', () => {
+    expect(buildDashboardPriority({ priority: null, priorityOverride: null })).toBeNull();
+    expect(buildDashboardPriority({ priority: '  ', priorityOverride: null })).toBeNull();
+  });
+
+  it('carries the planner reason only while the planner is the source', () => {
+    const planner = { priority: 'high', priorityOverride: null, source: 'planning', sourceRef: null };
+    expect(buildDashboardPriority(planner, 'touches the release')).toEqual({ level: 'high', text: 'high', source: 'planner', reason: 'touches the release' });
+    expect(buildDashboardPriority(planner)).toEqual({ level: 'high', text: 'high', source: 'planner' });
+    expect(buildDashboardPriority({ priority: 'high', priorityOverride: null }, 'ignored')).toEqual({ level: 'high', text: 'high', source: 'provider' });
   });
 
   it('has no ticket URL for a manual provider or a missing source ref', () => {

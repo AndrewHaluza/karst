@@ -338,7 +338,7 @@ const DETAILS_DRAFT_BRIEF = [
 
 const detailsState = (patch: Partial<DashboardState>) => (s: DashboardState): DashboardState => ({ ...s, ...patch });
 const DETAILS_STATES: ReadonlyArray<readonly [string, (s: DashboardState) => DashboardState]> = [
-  ['rich', detailsState({ brief: DETAILS_RICH_BRIEF, description: 'Original description from the tracker.', provider: 'jira', ticketUrl: 'https://example.test/browse/FEAT-142', briefSource: { kind: 'provider', provider: 'jira' }, priority: 'high' } as Partial<DashboardState>)],
+  ['rich', detailsState({ brief: DETAILS_RICH_BRIEF, description: 'Original description from the tracker.', provider: 'jira', ticketUrl: 'https://example.test/browse/FEAT-142', briefSource: { kind: 'provider', provider: 'jira' }, priority: { level: 'high', text: 'high', source: 'provider' } } as Partial<DashboardState>)],
   ['draft', detailsState({ brief: DETAILS_DRAFT_BRIEF, description: '', provider: null, ticketUrl: null, briefSource: { kind: 'draft', draftId: 400 } } as Partial<DashboardState>)],
   ['plain', detailsState({ brief: '', description: 'Fix the login modal so it traps focus.', provider: 'github', ticketUrl: 'https://example.test/issues/9', briefSource: { kind: 'manual' } } as Partial<DashboardState>)],
   ['empty', detailsState({ brief: '', description: '', provider: null, ticketUrl: null, briefSource: { kind: 'manual' } } as Partial<DashboardState>)],

@@ -28,6 +28,7 @@ import type { FixParkView } from '../../workflow/fixParkExit.js';
 import type { PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import type { PathContext } from '../worktreePath.js';
 import type { TicketRefView } from '../shared/ticketRefView.js';
+import type { PriorityLevel } from '../../model/priority.js';
 
 export type DashboardBlocker = TicketRefView;
 import type { Glyph } from '../../model/glyph.js';
@@ -74,6 +75,19 @@ export interface CapabilityIdentity {
   provider: AgentProvider;
   model: string | null;
   effort: string | null;
+}
+
+/**
+ * The ticket's priority, both halves the shared `PriorityChip` needs (T1396): the level the chip
+ * renders as `URG` / `HIGH` / `LOW` (null for a provider label that names no level, such as `P2`),
+ * the word to show when there is no level (`text`), where the value came from, and the planner's
+ * one-line reason while the planner wrote it. Built host-side so the webview never re-derives it.
+ */
+export interface DashboardPriorityView {
+  readonly level: PriorityLevel | null;
+  readonly text: string;
+  readonly source: 'you' | 'provider' | 'planner' | null;
+  readonly reason?: string;
 }
 
 export interface DashboardAgentContext {
@@ -350,8 +364,8 @@ export interface DashboardState {
   sourceRef: string | null;
   /** External board URL for the ticket, or null (manual/unfetched → no link). */
   ticketUrl: string | null;
-  /** Provider-native priority label (e.g. 'urgent'); null when not exposed. */
-  priority: string | null;
+  /** The ticket's priority as the header and the details drawer show it; null when the ticket has none. */
+  priority: DashboardPriorityView | null;
   /**
    * The user's authored instruction (the `description` column) — the prompt a
    * manual ticket was created from. Previewed in the ticket-data drawer when

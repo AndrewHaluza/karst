@@ -5,6 +5,7 @@
 import type { DashboardSnapshot } from './dashboardStore.js';
 import type { DashboardLayout } from '../../../model/dashboardLayout.js';
 import type { DashboardState } from '../state.js';
+import type { DashboardPriorityView } from '../stateTypes.js';
 import { ticketStatus, type StatusTone } from './ticketHead.js';
 
 export interface IdentitySlice {
@@ -12,7 +13,7 @@ export interface IdentitySlice {
   readonly key: string;
   readonly title: string;
   readonly provider: string;
-  readonly priority: string;
+  readonly priority: DashboardPriorityView | null;
   readonly ticketUrl: string | null;
   readonly statusWord: string;
   readonly statusTone: StatusTone;
@@ -66,10 +67,14 @@ const statusFields = (s: DashboardState): { statusWord: string; statusTone: Stat
   return { statusWord: status?.word ?? '', statusTone: status?.tone ?? 'info' };
 };
 
+/** The priority view with its word trimmed once here, so the chip never re-trims on a push. */
+const priorityView = (p: DashboardPriorityView | null): DashboardPriorityView | null =>
+  p ? { ...p, text: p.text.trim() } : null;
+
 export const selectIdentity = (snapshot: DashboardSnapshot): IdentitySlice | null => {
   const s = snapshot.state;
   return s
-    ? { idLabel: s.idLabel, key: s.key || '', title: s.title || '(untitled)', provider: s.provider ?? '', priority: (s.priority || '').trim(), ticketUrl: s.ticketUrl || null, ...statusFields(s) }
+    ? { idLabel: s.idLabel, key: s.key || '', title: s.title || '(untitled)', provider: s.provider ?? '', priority: priorityView(s.priority), ticketUrl: s.ticketUrl || null, ...statusFields(s) }
     : null;
 };
 

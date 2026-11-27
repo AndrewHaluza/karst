@@ -344,3 +344,38 @@ describe('state-survives-resize', () => {
     expect(f[0]?.detail).toContain('selected');
   });
 });
+
+describe('sticky header row (T1396)', () => {
+  // The dashboard's row 1 after the sticky change: negative inline margins flush it to the viewport edges, and the
+  // scrolled page sits behind it. The checks must not read either fact as a defect.
+  const page = el({ path: 'body', rect: { x: 0, y: 0, w: 320, h: 2000 } });
+  const header = el({
+    parentId: page.id,
+    path: 'div.dhead',
+    region: 'ticket-head',
+    position: 'sticky',
+    rect: { x: 0, y: 0, w: 320, h: 64 },
+  });
+  const meta = el({ parentId: page.id, path: 'div#headerMeta', rect: { x: 0, y: 64, w: 320, h: 20 } });
+  const runtime = el({ parentId: page.id, path: 'div#runtimeRoot', region: 'runtime', rect: { x: 0, y: 84, w: 320, h: 40 } });
+  // A scrolled-under row with no region: at scrollY > 0 its document-space rect starts above the header's bottom,
+  // i.e. it sits behind the sticky row exactly as the stepper does while the page is scrolled.
+  const stepper = el({ parentId: page.id, path: 'div.stepper', rect: { x: 0, y: 40, w: 320, h: 600 } });
+  const inside = el({ parentId: page.id, path: 'div#inside', region: 'inside', rect: { x: 0, y: 640, w: 320, h: 600 } });
+
+  it('passes the sibling overlap, containment and region-order checks for a row flush to the viewport', () => {
+    const s = snap([page, header, meta, runtime, inside], { viewport: { w: 320, h: 400 } });
+    expect(runChecks(s, { layout: 'stacked', order: ['ticket-head', 'runtime', 'inside'] })).toEqual([]);
+  });
+
+  it('exempts the sticky row when it floats over the row beneath it', () => {
+    const s = snap([page, header, stepper], { viewport: { w: 320, h: 400 } });
+    expect(runChecks(s).map((f) => f.check)).not.toContain('sibling-overlap');
+  });
+
+  it('still fails a non-sticky row that overlaps its sibling', () => {
+    const staticRow = el({ parentId: page.id, path: 'div.dhead', region: 'ticket-head', rect: { x: 0, y: 0, w: 320, h: 64 } });
+    const s = snap([page, staticRow, stepper], { viewport: { w: 320, h: 400 } });
+    expect(runChecks(s).map((f) => f.check)).toContain('sibling-overlap');
+  });
+});

@@ -116,6 +116,18 @@ describe('React header / vanilla page interop — actions', () => {
     expect(v.query('#ticketDataDrawer')!.classList.contains('open')).toBe(true);
     expect(v.posted.length).toBe(before);
   });
+
+  it('moves the tight-tier twins into ⋯, and a done ticket draws no status chip', async () => {
+    const v = await open({ ...populatedStateFor('done'), ticketUrl: 'https://x/t', priority: { level: 'high', text: 'high', source: 'provider' } });
+    expect(v.query('#statusChip')!.hasAttribute('hidden')).toBe(true);
+    expect(v.query('#priorityChip')!.textContent).toBe('HIGH');
+    await click(v, '#moreBtn');
+    const before = v.posted.length;
+    await click(v, '#menuBoardLink');
+    await click(v, '#menuTicketData');
+    expect(types(v, before)).toEqual(['open-ticket-link']);
+    expect(v.query('#ticketDataDrawer')!.classList.contains('open')).toBe(true);
+  });
 });
 
 describe('React header / vanilla page interop — Ship lives on the rail', () => {
