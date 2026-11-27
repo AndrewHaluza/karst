@@ -257,6 +257,16 @@ describe('design system components', () => {
     expect(opens).toBe(closes);
     expect(CSS).not.toContain(';;');
   });
+
+  it('holds every editor webview at the 320 px page floor, with the sidebar opt-out (UI-R43, UI-R49)', () => {
+    // Below the floor the page keeps its 320 px layout and scrolls sideways.
+    // The rule sits on the document root, so one base rule reaches every
+    // webview that carries the design-system marker; the side bar view is
+    // narrower than the floor by design and opts out (D860).
+    expect(CSS).toContain('html:not([data-k-floor="off"]){min-inline-size:var(--k-page-floor)}');
+    // A clipping root would hide the content the floor exists to keep.
+    expect(CSS).not.toMatch(/overflow-x\s*:\s*hidden/);
+  });
 });
 
 describe('webview CSS success overrides (tier 3 only)', () => {

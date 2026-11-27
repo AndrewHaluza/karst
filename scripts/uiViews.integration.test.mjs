@@ -90,6 +90,7 @@ const PAGE_VIEW_OF_FILE = {
   'a11y.visual.ts': prefixOf,
   'focus.visual.ts': prefixOf,
   'contentCap.visual.ts': prefixOf,
+  'pageFloor.layout.ts': prefixOf,
   'layout.layout.ts': (title) => (SETTINGS_LAYOUT_ROUTE.test(title) ? 'settings' : /^[^/]+/.exec(title)?.[0] ?? ''),
   'status.visual.ts': () => 'dashboard',
   'stagePalette.visual.ts': () => 'dashboard',

@@ -575,6 +575,7 @@ Current compact density is preserved:
 |---|---|---|
 | `--k-border-w` | `1px` | hairline |
 | `--k-content-max` | `1600px` | page content cap on wide windows |
+| `--k-page-floor` | `320px` | editor-webview layout floor; below it the page scrolls sideways (UI-R43) |
 | `--k-control-h-sm` | `22px` | dense text control |
 | `--k-control-h-md` | `26px` | default control |
 | `--k-control-h-lg` | `30px` | prominent control |

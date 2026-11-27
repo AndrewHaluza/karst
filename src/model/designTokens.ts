@@ -157,6 +157,8 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   // ── Sizing ─────────────────────────────────────────────────────────────────
   // Page content cap on wide windows (UI-R48).
   '--k-content-max': '1600px',
+  // The 320 px layout floor: below it an editor webview scrolls sideways (UI-R43).
+  '--k-page-floor': '320px',
   '--k-border-w': '1px',
   '--k-control-h-sm': '22px',
   '--k-control-h-md': '26px',

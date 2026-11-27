@@ -43,6 +43,7 @@ Rules:
 4. **Cascade order:** tier CSS goes **after** the base rule (audit: `.grid{1fr 1fr}` at `webview.html:1389` silently defeats the 699 px stack at `:1280`).
 5. **One tier per region.** Nested regions each resolve their own tier; a child never reads its ancestor's.
 6. **Heights:** tight targets stay ≥ `--k-hit-min` (24 px). Density removes labels and chrome, never hit area (`ui:RD-A11Y`).
+7. **Page floor:** below the 320 px floor an editor webview keeps its 320 px layout and scrolls sideways (`--k-page-floor`); the sidebar webview opts out with `data-k-floor="off"`.
 END_DOC_BLOCK: [@ui:RD-TIERS]
 
 ## [@ui:RD-LADDERS] Collapse ladders (exact)

@@ -1,3 +1,7 @@
+/* The page floor (UI-R43, UI-R49): every editor webview keeps at least its
+   320 px layout and the page scrolls sideways below it. The sidebar webview
+   opts out with data-k-floor="off" — the VS Code side bar is narrower by design. */
+html:not([data-k-floor="off"]){min-inline-size:var(--k-page-floor)}
 .k-focusable:focus-visible,
 .k-btn:focus-visible,.k-iconbtn:focus-visible,.k-link:focus-visible,
 .k-input:focus-visible,.k-switch:focus-visible,.k-chip:focus-visible,

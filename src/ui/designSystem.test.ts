@@ -111,6 +111,21 @@ describe.each(WEBVIEWS)('%s webview design system', (name) => {
   });
 });
 
+describe('page floor opt-out (UI-R43, UI-R49)', () => {
+  /**
+   * The shared base rule holds every editor webview at the 320 px page floor.
+   * The side bar view is routinely narrower (the VS Code side bar, D860), so it
+   * is the one webview that opts out, on `<html>`. Discovery keeps a new
+   * webview inside the floor by default and makes an opt-out deliberate.
+   */
+  it('keeps only the sidebar outside the page floor', () => {
+    expect(read('sidebar'), 'the sidebar lost its page-floor opt-out').toContain('<html data-k-floor="off">');
+    for (const name of WEBVIEWS.filter((n) => n !== 'sidebar')) {
+      expect(read(name), `${name} opts out of the page floor`).not.toContain('data-k-floor="off"');
+    }
+  });
+});
+
 describe('injection is inert without markers', () => {
   it('passes a marker-less document through unchanged', () => {
     const html = '<style>body{}</style><script>const a=1;</script>';

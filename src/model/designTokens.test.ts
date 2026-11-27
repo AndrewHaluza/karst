@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { DESIGN_TOKENS, tokensCss, tokenNames } from './designTokens.js';
+import { PAGE_FLOOR } from '../ui/layout/layoutBreakpoints.js';
 
 /**
  * The token layer is the whole point of the design system: it is what makes
@@ -153,6 +154,12 @@ describe('design tokens', () => {
 
   it('declares the attention pulse duration token', () => {
     expect(DESIGN_TOKENS['--k-dur-flash-attention']).toBe('1000ms');
+  });
+
+  it('pins the page floor token to the tier floor (UI-R43)', () => {
+    // The shared base rule reads this token, so every editor webview gets the
+    // floor from one place; the sidebar opts out with data-k-floor="off".
+    expect(DESIGN_TOKENS['--k-page-floor']).toBe(`${PAGE_FLOOR}px`);
   });
 });
 

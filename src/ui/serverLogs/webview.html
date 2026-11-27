@@ -22,8 +22,10 @@
 
   /* Combined server logs surface: tabs per server + merged chronological view.
      The same base rules the dashboard's own <style> carries; the dashboard-only
-     `body.log-nav .stepper/.grid` rule is deliberately absent here. */
-  .logsview{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
+     `body.log-nav .stepper/.grid` rule is deliberately absent here.
+     Absolute, not fixed: the surface is the only content of this page, and below
+     the page floor it must scroll sideways with the document to stay reachable. */
+  .logsview{position:absolute;inset:0;min-inline-size:var(--k-page-floor);z-index:8;display:flex;flex-direction:column;background:var(--k-bg);color:var(--k-text);font-family:var(--k-font-mono)}
   .logsview.hidden{display:none}
   .logsview .thead{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-4);border-bottom:var(--k-border-w) solid var(--k-border)}
   .logsview .ttitle{font-weight:var(--k-weight-semibold)}
