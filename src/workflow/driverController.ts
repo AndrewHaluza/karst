@@ -55,6 +55,15 @@ export function ticketsToSweep(
 }
 
 /**
+ * Whether a drive trigger should be skipped before logging and calling
+ * `driveTicket`. When a drive is already in flight, `driveTicket` would no-op
+ * at `driver.begin`, so skipping early avoids a misleading INFO log line.
+ */
+export function driveTriggerSkip(isRunning: boolean): 'in-flight' | undefined {
+  return isRunning ? 'in-flight' : undefined;
+}
+
+/**
  * Per-ticket run bookkeeping for the host seam: single-flight guard (no two
  * drivers on one ticket), a Stop flag the driver reads via `shouldContinue`, and
  * the abort signal that carries the same Stop into a gate ALREADY running.
