@@ -11,7 +11,7 @@ import type { PortMapping, SessionRunner } from './sessionRunner.js';
  * sandbox handle (`servers.sandbox`), never a host pid.
  */
 
-export type SandboxServiceRunner = Pick<SessionRunner, 'kind' | 'publishPort' | 'unpublishPort' | 'listPorts' | 'runGate' | 'allowHostPorts' | 'hasSandbox' | 'canHostServices' | 'stopServices'>;
+export type SandboxServiceRunner = Pick<SessionRunner, 'kind' | 'publishPort' | 'unpublishPort' | 'listPorts' | 'runGate' | 'allowHostPorts' | 'hasSandbox' | 'canHostServices' | 'stopServices' | 'writeServiceEnv' | 'removeServiceEnv'>;
 
 export class SandboxServiceError extends Error {
   constructor(message: string) {
@@ -25,9 +25,17 @@ export function sandboxHandle(kind: string, name: string, sandboxPort: number): 
   return `${kind}:${name}:${sandboxPort}`;
 }
 
+/** sbx and docker names are `[a-z0-9-]`; a remote (`ssh`) handle may also carry a host or path qualifier. */
+const LOCAL_HANDLE = /^(sbx|docker):([a-z0-9-]+):(\d{1,5})$/;
+const SSH_HANDLE = /^ssh:([a-z0-9._@/-]+):(\d{1,5})$/;
+
 export function parseSandboxHandle(handle: string): { kind: string; name: string; sandboxPort: number } | null {
-  const match = /^(sbx|docker):([a-z0-9-]+):(\d{1,5})$/.exec(handle);
-  return match ? { kind: match[1]!, name: match[2]!, sandboxPort: Number(match[3]) } : null;
+  const local = LOCAL_HANDLE.exec(handle);
+  if (local) return { kind: local[1]!, name: local[2]!, sandboxPort: Number(local[3]) };
+  // `mode: docker` on a remote records the port the RELAY forwards to there,
+  // not the one on this host, so the handle must survive a remote name.
+  const remote = SSH_HANDLE.exec(handle);
+  return remote ? { kind: 'ssh', name: remote[1]!, sandboxPort: Number(remote[2]) } : null;
 }
 
 /** A unit key (`repo` or `repo/service`) as a file-name-safe token inside the sandbox. */
@@ -101,8 +109,12 @@ function envArgv(env: Readonly<Record<string, string>>): string[] {
   return pairs.length > 0 ? ['env', ...pairs] : [];
 }
 
-async function execIn(runner: SandboxServiceRunner, worktree: string, args: string[], signal?: AbortSignal): Promise<string | null> {
-  const out = await needs(runner, 'runGate')('sh', args, worktree, { timeoutMs: EXEC_TIMEOUT_MS, ...(signal ? { signal } : {}) });
+async function execIn(runner: SandboxServiceRunner, worktree: string, args: string[], signal?: AbortSignal, envFile?: string): Promise<string | null> {
+  const out = await needs(runner, 'runGate')('sh', args, worktree, {
+    timeoutMs: EXEC_TIMEOUT_MS,
+    ...(signal ? { signal } : {}),
+    ...(envFile !== undefined ? { envFile } : {}),
+  });
   if (out.kind === 'completed' && out.exitCode === 0) return null;
   return out.kind === 'completed' ? `exit ${out.exitCode}: ${out.output.trim()}` : `${out.kind}: ${out.output.trim()}`;
 }
@@ -116,10 +128,25 @@ export async function startSandboxService(input: SandboxServiceStart): Promise<S
   const mapping = await publish(input);
   const token = serviceToken(input.service);
   const unpublish = () => input.runner.unpublishPort?.(mapping) ?? Promise.resolve();
+  const removeEnv = () => input.runner.removeServiceEnv?.(token) ?? Promise.resolve();
+  // A remote writes the env to a 0600 file and passes `--env-file`: its values
+  // never land on the SSH argv. A local runner keeps the in-sandbox `env` argv.
+  let envFile: string | undefined;
+  if (input.runner.writeServiceEnv) {
+    try {
+      envFile = await input.runner.writeServiceEnv(token, input.env);
+    } catch (err) {
+      await unpublish();
+      throw new SandboxServiceError(`${input.service}: cannot write the service env file (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
   const started = await execIn(input.runner, input.worktree, [
-    '-c', START_SCRIPT, 'karst-svc', token, input.serviceCwd, ...envArgv(input.env), input.command, ...input.args,
-  ], input.signal);
+    '-c', START_SCRIPT, 'karst-svc', token, input.serviceCwd,
+    ...(envFile === undefined ? envArgv(input.env) : []),
+    input.command, ...input.args,
+  ], input.signal, envFile);
   if (started !== null) {
+    await removeEnv();
     await unpublish();
     throw new SandboxServiceError(`${input.service}: start inside the sandbox failed (${started})`);
   }
@@ -127,6 +154,7 @@ export async function startSandboxService(input: SandboxServiceStart): Promise<S
     await input.waitHealthy(input.healthUrlFor(mapping.hostPort), input.signal);
   } catch (err) {
     await execIn(input.runner, input.worktree, ['-c', STOP_SCRIPT, 'karst-svc-stop', token]);
+    await removeEnv();
     await unpublish();
     throw new SandboxServiceError(`${input.service}: not healthy on ${PUBLISH_HOST}:${mapping.hostPort}: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -171,6 +199,8 @@ export async function stopSandboxService(store: Store, serverId: number, runner:
     .get(serverId) as SandboxRow | undefined;
   if (!row) return;
   await execIn(runner, row.cwd, ['-c', STOP_SCRIPT, 'karst-svc-stop', serviceToken(row.repo)]);
+  // The env file names a stopped service: remove it with the process (best-effort).
+  await runner.removeServiceEnv?.(serviceToken(row.repo));
   const mapping = mappingOf(row);
   if (mapping) await runner.unpublishPort?.(mapping);
   markServerStopped(store, row.id);

@@ -1,13 +1,14 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { accountLaunchFor } from '../accounts/registry.js';
 import { join } from 'node:path';
 import { OPENCODE2_AUTH_LIST_ARGS, opencode2HasCredentials } from '../opencode2Auth.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
-import { DOCKER_BIN } from './dockerPreflight.js';
+import { detail, DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
-import { CONTAINER_REPO, containerXdgEnv, type LinuxUser, userArgs, volumeMounts } from './dockerRunArgs.js';
+import { CONTAINER_DATA, CONTAINER_REPO, containerXdgEnv, type LinuxUser, userArgs, volumeMounts } from './dockerRunArgs.js';
 import { mergeAntigravityTrust } from '../workspaceTrust.js';
 
 export interface SeedInput {
@@ -41,6 +42,9 @@ function inContainer(input: SeedInput, interactive: boolean, args: readonly stri
 export async function seedOpencode2Credentials(input: SeedInput): Promise<SeedResult> {
   const debug = input.debug ?? (() => undefined);
   const list = await input.proc.run(DOCKER_BIN, inContainer(input, false, OPENCODE2_AUTH_LIST_ARGS));
+  if (list.transport === true) {
+    return { ok: false, reason: `opencode2 credential probe did not reach the remote daemon: ${detail(list)}` };
+  }
   if (list.code === 0 && opencode2HasCredentials(list.stdout)) {
     debug('[docker] opencode2 store already has credentials');
     return { ok: true };
@@ -51,7 +55,78 @@ export async function seedOpencode2Credentials(input: SeedInput): Promise<SeedRe
   );
   debug(`[docker] opencode2 credential seed: export exit ${piped.fromCode}, import exit ${piped.toCode}`);
   if (piped.fromCode !== 0) return { ok: false, reason: `opencode2 auth export failed (exit ${piped.fromCode}); sign in on the host first` };
+  if (piped.toCode === 255) return { ok: false, reason: 'opencode2 auth import lost the remote connection (exit 255)' };
   if (piped.toCode !== 0) return { ok: false, reason: `opencode2 auth import in the sandbox failed (exit ${piped.toCode})` };
+  return { ok: true };
+}
+
+export interface SeedOpencode1Input {
+  readonly proc: DockerProcess;
+  readonly names: DockerNames;
+  readonly user: LinuxUser | undefined;
+  /** The host opencode v1 `auth.json`; only its BYTES ever cross the boundary, over stdin. */
+  readonly hostAuthFile: string;
+  readonly debug?: (message: string) => void;
+}
+
+const AUTH_FILE = `${CONTAINER_DATA}/auth.json`;
+/** Prints the volume copy's digest; a missing file exits non-zero and prints nothing. */
+const AUTH_HASH_SCRIPT = `sha256sum ${AUTH_FILE} 2>/dev/null | awk '{print $1}'`;
+/**
+ * Writes stdin to the data volume without ever exposing the bytes: 0600 from
+ * creation, then an atomic rename, so a half-written file is never read as a
+ * credential store.
+ */
+const AUTH_WRITE_SCRIPT = `umask 077 && cat > ${AUTH_FILE}.tmp && chmod 600 ${AUTH_FILE}.tmp && mv -f ${AUTH_FILE}.tmp ${AUTH_FILE}`;
+/**
+ * Reads the host file as a STREAM (`createReadStream().pipe(stdout)`), so the
+ * secrets never become a JS string. `process.execPath` is the running node, so
+ * it works on any host OS; the path is the only argv token.
+ */
+const AUTH_READ_JS = 'require("node:fs").createReadStream(process.argv[1]).pipe(process.stdout)';
+
+/**
+ * opencode v1 keeps its sign-in in `auth.json` under the data volume. The
+ * LOCAL backend bind-mounts the host file read-only, which a remote container
+ * must never do (the mount source would be a remote path). Instead the file is
+ * streamed over stdin into an OFFLINE (`--network none`) helper container,
+ * and only when the volume copy's sha256 differs from the host file's — so a
+ * credential refreshed inside the sandbox is replaced by a changed host file,
+ * and a matching one is left alone (no needless writes, no needless secrets).
+ *
+ * Nothing here logs bytes: `debug` and the reason carry exit codes and the
+ * host PATH only.
+ */
+export async function seedOpencode1Credentials(input: SeedOpencode1Input): Promise<SeedResult> {
+  const debug = input.debug ?? (() => undefined);
+  let hostDigest: string;
+  try {
+    hostDigest = createHash('sha256').update(await readFile(input.hostAuthFile)).digest('hex');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? 'unreadable';
+    return { ok: false, reason: `opencode auth file ${input.hostAuthFile} is not readable (${code})` };
+  }
+  const helper = (interactive: boolean, script: string): string[] => [
+    'run', '--rm', ...(interactive ? ['--interactive'] : []), '--network', 'none',
+    ...userArgs(input.user), ...volumeMounts(input.names),
+    OPENCODE_IMAGE, 'sh', '-c', script,
+  ];
+  const probe = await input.proc.run(DOCKER_BIN, helper(false, AUTH_HASH_SCRIPT));
+  if (probe.transport === true) {
+    return { ok: false, reason: `opencode credential probe did not reach the remote daemon: ${detail(probe)}` };
+  }
+  if (probe.code === 0 && probe.stdout.trim().toLowerCase() === hostDigest) {
+    debug('[docker] opencode v1 auth.json already matches the host file');
+    return { ok: true };
+  }
+  const piped = await input.proc.pipe(
+    { command: process.execPath, args: ['-e', AUTH_READ_JS, input.hostAuthFile] },
+    { command: DOCKER_BIN, args: helper(true, AUTH_WRITE_SCRIPT) },
+  );
+  debug(`[docker] opencode v1 credential seed: read exit ${piped.fromCode}, write exit ${piped.toCode}`);
+  if (piped.fromCode !== 0) return { ok: false, reason: `opencode auth file ${input.hostAuthFile} could not be streamed (exit ${piped.fromCode})` };
+  if (piped.toCode === 255) return { ok: false, reason: 'opencode credential write lost the remote connection (exit 255)' };
+  if (piped.toCode !== 0) return { ok: false, reason: `opencode credential write in the sandbox failed (exit ${piped.toCode})` };
   return { ok: true };
 }
 

@@ -98,7 +98,15 @@ export interface PortMapping {
 }
 
 export type PublishResult =
-  | { readonly ok: true }
+  | {
+      readonly ok: true;
+      /**
+       * The port ON THE REMOTE the relay forwards to (`publishRelay`'s host
+       * port, `@arch:AC-32`). A local runner leaves it out: its host port IS
+       * the sandbox port.
+       */
+      readonly remotePort?: number;
+    }
   /** `portTaken`: the host port is busy, so a reallocation may succeed. */
   | { readonly ok: false; readonly reason: string; readonly portTaken: boolean };
 
@@ -201,6 +209,14 @@ export interface SessionRunner {
   /** Sandbox runners only: publish ONE declared port on `127.0.0.1` (arch:AC-32). */
   publishPort?(mapping: PortMapping): Promise<PublishResult>;
   unpublishPort?(mapping: PortMapping): Promise<void>;
+  /**
+   * `mode: docker` on a remote: write the service's env to a 0600 file on that
+   * host and return its path, so `docker exec --env-file` reads values there
+   * instead of them riding an SSH argv. The same runner removes it on stop.
+   */
+  writeServiceEnv?(key: string, env: Readonly<Record<string, string>>): Promise<string>;
+  /** Remove the file `writeServiceEnv` wrote (`<ws>/env/svc-<key>.env`); a no-op when it is gone. */
+  removeServiceEnv?(key: string): Promise<void>;
   /** Sandbox runners only: the live mappings; null when the sandbox cannot answer (not running). */
   listPorts?(): Promise<readonly PortMapping[] | null>;
   /** Sandbox runners only: let the sandbox reach exactly these host ports (baseline services). */

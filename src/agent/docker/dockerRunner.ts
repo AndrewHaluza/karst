@@ -8,7 +8,7 @@ import { disposeResult, disposeStep, type DisposeResult } from '../disposeResult
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { chownVolumes, ensureClone, ensureVolume, diffFromClone, fetchFromClone, OS_TEMP_DIRS, refreshClone, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
-import { seedAgyAutonomousState, seedAgyCredentials, seedOpencode2Credentials } from './dockerCredentials.js';
+import { seedAgyAutonomousState, seedAgyCredentials, seedOpencode1Credentials, seedOpencode2Credentials } from './dockerCredentials.js';
 import type { DockerCore, DockerRunnerCore } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
@@ -46,6 +46,28 @@ export interface DockerRunnerOptions {
   /** Resolved container memory limits; absent = no memory flags. */
   readonly memory?: DockerMemoryLimits;
   readonly proxy?: { readonly script: string; readonly hostPorts?: readonly number[] };
+  /** Remote (`mode: docker`): where the proxy bundle and the bridge dir live on that host. Absent = local docker. */
+  readonly mountRoot?: DockerMountRoot;
+  /** Remote: the env file `interactiveRunArgs` passes as `--env-file` instead of by-name `--env` flags. */
+  readonly envFile?: string;
+}
+
+/**
+ * Where a REMOTE docker launch mounts from (`mode: docker`, `@arch:AC-39`).
+ * Both values are paths on the remote host, never on this one: a local path
+ * would silently point at a directory that does not exist there. Absent on the
+ * local backend, whose argv stays byte-identical.
+ */
+export interface DockerMountRoot {
+  /** Remote assets dir: `allowlist-proxy.mjs` lives here (uploaded once per image revision). */
+  readonly assetsDir?: string;
+  /** Remote bridge dir: bind-mounted at `/karst-bridge/<ticketId>`, same target as local. */
+  readonly bridgeDir?: string;
+}
+
+/** The proxy bundle's path: the remote assets dir when set, else the host bundle. */
+function proxyScriptPath(assetsDir: string | undefined, fallback: string): string {
+  return assetsDir ? `${assetsDir.replace(/\/$/, '')}/allowlist-proxy.mjs` : fallback;
 }
 
 /**
@@ -65,7 +87,8 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
   const gateProcess = opts.gateProcess ?? runProcess;
   const gateEnv: Record<string, string> = { [SANDBOX_ENV]: '1', ...(opts.evidenceDir ? { [EVIDENCE_DIR_ENV]: opts.evidenceDir } : {}) };
   const proxySpec = (proxy: { readonly script: string; readonly hostPorts?: readonly number[] }): SidecarSpec => ({
-    proxy: opts.names.proxy, network: opts.names.network, scriptPath: proxy.script,
+    proxy: opts.names.proxy, network: opts.names.network,
+    scriptPath: proxyScriptPath(opts.mountRoot?.assetsDir, proxy.script),
     ...(proxy.hostPorts ? { hostPorts: proxy.hostPorts } : {}),
   });
   /** Runs `body` with a recorded in-container pid, killed on abort and when the run ends. */
@@ -96,8 +119,9 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
         shellArgs: interactiveRunArgs({
           names: opts.names, core: opts.core, user: opts.user, authFile: opts.authFile,
           hostWorktreePath: spec.hostWorktreePath, args: [...launch.args, ...spec.args], env,
-          ticketId: spec.ticketId, bridgeDir: spec.bridgeDir,
+          ticketId: spec.ticketId, bridgeDir: opts.mountRoot?.bridgeDir ?? spec.bridgeDir,
           ...(opts.memory ? { memory: opts.memory } : {}),
+          ...(opts.envFile !== undefined ? { envFile: opts.envFile } : {}),
         }),
         env,
       };
@@ -113,7 +137,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
         : (await containerRunning(opts.proc, serviceContainerName(opts.names))) ? serviceContainerName(opts.names) : null;
       if (execTarget) {
         return execTracked(gateOpts?.signal, (runId) =>
-          gateProcess(DOCKER_BIN, headlessExecArgs(execTarget, runId, command, rewritePaths(args, cwd), gateEnv), cwd, gateOpts));
+          gateProcess(DOCKER_BIN, headlessExecArgs(execTarget, runId, command, rewritePaths(args, cwd), gateEnv, gateOpts?.envFile), cwd, gateOpts));
       }
       // The interactive container is `--rm`: once its terminal closed, a gate
       // runs in a one-shot container on the same clone, removed by name.
@@ -127,7 +151,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       const onAbort = () => void remove();
       gateOpts?.signal?.addEventListener('abort', onAbort, { once: true });
       try {
-        return await gateProcess(DOCKER_BIN, gateRunArgs(opts.names, opts.user, runName, command, rewritePaths(args, cwd), gateEnv, opts.memory), cwd, gateOpts);
+        return await gateProcess(DOCKER_BIN, gateRunArgs(opts.names, opts.user, runName, command, rewritePaths(args, cwd), gateEnv, opts.memory, gateOpts?.envFile), cwd, gateOpts);
       } finally {
         gateOpts?.signal?.removeEventListener('abort', onAbort);
         await remove();
@@ -207,6 +231,11 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
 /** `docker volume inspect`: only docker's own "No such volume" is absent; a missing CLI or a down daemon is unknown. */
 async function probeVolume(proc: DockerProcess, volume: string): Promise<SandboxProbe> {
   const out = await proc.run(DOCKER_BIN, ['volume', 'inspect', volume]);
+  // A transport failure (exit 255 on the ssh client) proves nothing about the
+  // volume: its stderr may even echo "no such volume" from an unrelated layer.
+  if (out.transport === true) {
+    return { state: 'unknown', reason: `\`docker volume inspect\` did not reach the remote daemon: ${out.stderr.trim() || 'transport failed'}` };
+  }
   if (out.code === 0) return { state: 'present' };
   if (out.code !== 127 && /no such volume/i.test(out.stderr)) return { state: 'absent' };
   return { state: 'unknown', reason: out.code === 127 ? `\`docker\` was not found on the PATH (${out.stderr.trim()})` : `\`docker volume inspect\` exited ${out.code}: ${out.stderr.trim()}` };
@@ -234,6 +263,22 @@ export interface PrepareInput {
   readonly debug?: (message: string) => void;
   /** Baseline host ports the proxy lets the sandbox reach (arch:AC-32). */
   readonly hostPorts?: readonly number[];
+  /**
+   * Remote (`mode: docker`): the proxy bundle lives on that host, so a local
+   * script path would mount nothing. Absent = local docker.
+   */
+  readonly mountRoot?: DockerMountRoot;
+  /**
+   * Remote: the clone is seeded by the caller (the D554 bundle transport runs
+   * host git locally), because `ensureClone` bind-mounts a host temp dir a
+   * remote daemon cannot see. Absent = `ensureClone` (local docker).
+   */
+  readonly seedClone?: (ticket: SandboxTicketRef) => Promise<StepResult>;
+  /**
+   * opencode v1 only: stream this host `auth.json` into the data volume instead
+   * of expecting a bind mount (a remote container must never bind a host path).
+   */
+  readonly opencode1HostAuthFile?: string;
 }
 
 async function ensureNetwork(proc: DockerProcess, network: string): Promise<StepResult> {
@@ -261,7 +306,11 @@ export async function prepareDockerSandbox(input: PrepareInput): Promise<StepRes
   const owned = await chownVolumes(ctx);
   if (!owned.ok) return owned;
   // A session start during an open setup window keeps it (arch:AC-47); the window's expiry still bounds it.
-  const proxy = await startProxySidecar(proc, { proxy: names.proxy, network: names.network, scriptPath: input.proxyScript, ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) }, { keepWindow: true });
+  const proxy = await startProxySidecar(proc, {
+    proxy: names.proxy, network: names.network,
+    scriptPath: proxyScriptPath(input.mountRoot?.assetsDir, input.proxyScript),
+    ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}),
+  }, { keepWindow: true });
   if (!proxy.ok) return proxy;
   const rest = await cloneAndSeed(input, ctx);
   // The proxy is the one object with egress: never leave it up for a ticket
@@ -274,11 +323,21 @@ async function cloneAndSeed(input: PrepareInput, ctx: CloneContext): Promise<Ste
   const { proc, names } = input;
   let clone: StepResult;
   try {
-    clone = await ensureClone(ctx, { hostWorktreePath: input.ticket.hostWorktreePath, branch: input.ticket.branch, ...(input.ticket.baseRef ? { baseRef: input.ticket.baseRef } : {}) });
+    clone = input.seedClone
+      ? await input.seedClone(input.ticket)
+      : await ensureClone(ctx, { hostWorktreePath: input.ticket.hostWorktreePath, branch: input.ticket.branch, ...(input.ticket.baseRef ? { baseRef: input.ticket.baseRef } : {}) });
   } catch (err) {
     clone = { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
   if (!clone.ok) return clone;
+  if (input.core === 'opencode' && input.opencode1HostAuthFile !== undefined) {
+    // The remote replacement for the local read-only `auth.json` bind mount.
+    const seeded = await seedOpencode1Credentials({
+      proc, names, user: input.user, hostAuthFile: input.opencode1HostAuthFile,
+      ...(input.debug ? { debug: input.debug } : {}),
+    });
+    if (!seeded.ok) return seeded;
+  }
   if (input.core === 'opencode2' && input.opencode2Host) {
     return seedOpencode2Credentials({
       proc, names, user: input.user,

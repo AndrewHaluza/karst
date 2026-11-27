@@ -95,6 +95,34 @@ export function envArgs(env: Readonly<Record<string, string>>): string[] {
   return flags;
 }
 
+/** `--env-file` is read by the docker CLIENT, so its path can inject nothing but must still be one argv token. */
+function checkEnvFile(envFile: string): string {
+  if (/[\n\r]/.test(envFile)) throw new Error(`docker: unsafe env file path ${JSON.stringify(envFile)}`);
+  return envFile;
+}
+
+/**
+ * `--env` flags for a REMOTE daemon (`mode: docker`): the docker client there
+ * reads `<remote>/env/docker.env`, so values live in that file (0600, written
+ * over stdin) and the argv carries only:
+ *
+ * - the XDG remaps in value form (a container path is no secret), and
+ * - `PROXY_ENV` (fixed literals that must exist before the agent's own env
+ *   does; today the proxy URL and NO_PROXY).
+ *
+ * ZERO by-name flags: a name has nothing to resolve when the client's env is
+ * not the agent's env — the file is the one channel. TERM/COLORTERM ride there too.
+ */
+function envFileArgs(env: Readonly<Record<string, string>>, envFile: string): string[] {
+  const xdg = containerXdgEnv();
+  const flags: string[] = ['--env-file', checkEnvFile(envFile)];
+  for (const key of Object.keys(withoutHostAccountDirs(env)).sort()) {
+    if (key in xdg) flags.push('--env', `${key}=${xdg[key]!}`);
+  }
+  for (const entry of PROXY_ENV) flags.push('--env', entry);
+  return flags;
+}
+
 /** Host worktree path (exact, or as a path prefix) → the container clone. */
 export function rewritePaths(args: readonly string[], hostWorktreePath: string): string[] {
   const prefix = hostWorktreePath.endsWith('/') ? hostWorktreePath : `${hostWorktreePath}/`;
@@ -131,6 +159,12 @@ export interface InteractiveArgsInput {
   readonly bridgeDir?: string;
   /** Resolved memory limits (arch:AC-33); absent = no memory flags. */
   readonly memory?: DockerMemoryLimits;
+  /**
+   * Remote (`mode: docker`): the env file on the remote host that carries the
+   * launch env, mounted with `--env-file`. Absent on the local backend, whose
+   * argv stays byte-identical (`envArgs`).
+   */
+  readonly envFile?: string;
 }
 
 /**
@@ -205,7 +239,8 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
     '--network', input.names.network, ...HARDENING,
     ...memoryArgs(input.memory?.interactiveMemory, input.memory?.interactiveReservation),
     ...volumeMounts(input.names), ...auth, ...bridge, ...gemini, ...userArgs(input.user),
-    ...envArgs(input.env), '--workdir', CONTAINER_REPO,
+    ...(input.envFile !== undefined ? envFileArgs(input.env, input.envFile) : envArgs(input.env)),
+    '--workdir', CONTAINER_REPO,
     OPENCODE_IMAGE, ...launch,
   ];
 }
@@ -227,9 +262,12 @@ export function headlessExecArgs(
   command: string,
   args: readonly string[],
   env: Readonly<Record<string, string>> = {},
+  /** Remote: the env file the remote docker client reads (`--env-file`); absent on the local backend. */
+  envFile?: string,
 ): string[] {
   // Only karst-made, non-secret values (a container path) ride here as `K=V`.
   const envFlags = Object.entries(withoutHostAccountDirs(env)).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+  if (envFile !== undefined) envFlags.push('--env-file', checkEnvFile(envFile));
   return [
     'exec', '--interactive', ...envFlags, '--workdir', CONTAINER_REPO, container,
     'sh', '-c', PID_SCRIPT, 'karst-run', checkRunId(runId), command, ...args,
@@ -258,8 +296,11 @@ export function gateRunArgs(
   args: readonly string[],
   env: Readonly<Record<string, string>>,
   memory?: DockerMemoryLimits,
+  /** Remote: the env file the remote docker client reads (`--env-file`); absent on the local backend. */
+  envFile?: string,
 ): string[] {
   const envFlags = Object.entries(withoutHostAccountDirs(env)).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+  if (envFile !== undefined) envFlags.push('--env-file', checkEnvFile(envFile));
   return [
     'run', '--rm', ...REAPER, '--name', runName, '--network', names.network, ...HARDENING,
     ...memoryArgs(memory?.gateMemory, memory?.gateReservation),

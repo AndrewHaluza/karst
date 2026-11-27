@@ -227,3 +227,92 @@ describe('host account folders stay out of the container', () => {
     expect(gateRunArgs(names, undefined, 'run', 'npm', [], env).join(' ')).not.toMatch(/\/h\//);
   });
 });
+
+/** The value of every `--env` flag, in argv order. */
+const envValues = (argv: readonly string[]): string[] =>
+  argv.flatMap((token, i) => (token === '--env' && argv[i + 1] !== undefined ? [argv[i + 1]!] : []));
+
+describe('--env-file mode (remote docker, T1399)', () => {
+  const ENV_FILE = '/karst/ws/env/docker.env';
+  const env = {
+    OPENCODE_CONFIG_CONTENT: '{"permission":{"edit":"allow"}}',
+    KARST_OPENCODE2_MODEL_STATE_JSON: '{"recent":[]}',
+    XDG_DATA_HOME: '/host/x/data',
+    XDG_STATE_HOME: '/host/x/state',
+    TERM: 'xterm-256color',
+    CLAUDE_CONFIG_DIR: '/h/c',
+  };
+
+  it('leaves the LOCAL argv byte-identical: envArgs, not one --env-file', () => {
+    const local = interactiveRunArgs({ ...base, env });
+    expect(local).not.toContain('--env-file');
+    const workdir = local.indexOf('--workdir');
+    expect(local.slice(workdir - envArgs(env).length, workdir)).toEqual(envArgs(env));
+    expect(envValues(local)).toEqual(envValues(envArgs(env)));
+  });
+
+  it('emits --env-file, value-form XDG remaps and PROXY_ENV only', () => {
+    const argv = interactiveRunArgs({ ...base, env, envFile: ENV_FILE });
+    const i = argv.indexOf('--env-file');
+    expect(i).toBeGreaterThan(0);
+    expect(argv[i + 1]).toBe(ENV_FILE);
+    expect(envValues(argv)).toEqual([
+      'XDG_DATA_HOME=/home/node/.local/share/opencode/xdg/data',
+      'XDG_STATE_HOME=/home/node/.local/share/opencode/xdg/state',
+      'HTTPS_PROXY=http://karst-proxy:3128', 'HTTP_PROXY=http://karst-proxy:3128',
+      'https_proxy=http://karst-proxy:3128', 'http_proxy=http://karst-proxy:3128',
+      'NO_PROXY=localhost,127.0.0.1', 'no_proxy=localhost,127.0.0.1',
+    ]);
+  });
+
+  it('emits ZERO by-name --env flags: every value is a K=V, and no secret or host path lands in the argv', () => {
+    const argv = interactiveRunArgs({ ...base, env, envFile: ENV_FILE });
+    for (const value of envValues(argv)) expect(value).toContain('=');
+    const joined = argv.join(' ');
+    expect(joined).not.toContain('OPENCODE_CONFIG_CONTENT');
+    expect(joined).not.toContain('"permission"');
+    expect(joined).not.toContain('TERM');
+    expect(joined).not.toContain('COLORTERM');
+    expect(joined).not.toContain('/h/c');
+    expect(joined).not.toContain('/host/x');
+  });
+
+  it('keeps the opencode2 model-state prelude, with the seed in the env file only', () => {
+    const seed = '{"recent":[{"providerID":"p","modelID":"m"}],"favorite":[],"variant":{}}';
+    const argv = interactiveRunArgs({ ...base, core: 'opencode2', args: ['--standalone'], env: { KARST_OPENCODE2_MODEL_STATE_JSON: seed }, envFile: ENV_FILE });
+    expect(argv.slice(-6, -1)).toEqual(['sh', '-c', expect.any(String), 'karst-opencode2', 'opencode2']);
+    expect(argv[argv.indexOf('-c') + 1]).toContain('exec "$@"');
+    expect(argv).not.toContain(seed);
+    expect(argv).not.toContain('KARST_OPENCODE2_MODEL_STATE_JSON');
+  });
+
+  it('refuses an env file path with a newline, in every entry point', () => {
+    expect(() => interactiveRunArgs({ ...base, envFile: '/a\nb' })).toThrow(/unsafe env file path/);
+    expect(() => headlessExecArgs('c', 'r1', 'x', [], {}, '/a\rb')).toThrow(/unsafe env file path/);
+    expect(() => gateRunArgs(names, undefined, 'run', 'npm', [], {}, undefined, '/a\nb')).toThrow(/unsafe env file path/);
+  });
+
+  it('headlessExecArgs adds --env-file after the non-secret karst flags, bytes unchanged without it', () => {
+    expect(headlessExecArgs('c', 'r1', 'x', [], { KARST_X: '1' }, ENV_FILE)).toEqual([
+      'exec', '--interactive', '--env', 'KARST_X=1', '--env-file', ENV_FILE, '--workdir', '/work/repo', 'c',
+      'sh', '-c', 'echo $$ > "/tmp/karst-run-$1.pid"; shift; exec "$@"', 'karst-run', 'r1', 'x',
+    ]);
+    expect(headlessExecArgs('c', 'r1', 'x', [], { KARST_X: '1' })).toEqual([
+      'exec', '--interactive', '--env', 'KARST_X=1', '--workdir', '/work/repo', 'c',
+      'sh', '-c', 'echo $$ > "/tmp/karst-run-$1.pid"; shift; exec "$@"', 'karst-run', 'r1', 'x',
+    ]);
+    expect(headlessExecArgs('c', 'r1', 'x', [], {})).not.toContain('--env-file');
+  });
+
+  it('gateRunArgs adds --env-file and keeps hardening, volumes and PROXY_ENV; bytes unchanged without it', () => {
+    const plain = gateRunArgs(names, undefined, 'run', 'npm', ['test'], { KARST_X: '1' });
+    const remote = gateRunArgs(names, undefined, 'run', 'npm', ['test'], { KARST_X: '1' }, undefined, ENV_FILE);
+    expect(plain).not.toContain('--env-file');
+    const at = remote.indexOf('--env-file');
+    expect(remote[at + 1]).toBe(ENV_FILE);
+    // Removing exactly the `--env-file <path>` pair gives back the local argv, byte for byte.
+    expect(remote.filter((_, i) => i !== at && i !== at + 1)).toEqual(plain);
+    expect(remote.slice(-2)).toEqual(['npm', 'test']);
+    expect(remote).toEqual(expect.arrayContaining(['--cap-drop', 'ALL', 'no-new-privileges', '--init']));
+  });
+});
