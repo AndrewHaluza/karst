@@ -484,10 +484,11 @@ describe('design system async runtime', () => {
       expect(btn.disabled).toBe(false);
     });
 
-    it('reserves the leading icon slot on bind for mutation, not for view', () => {
+    it('bind adds no slot class for any tier', () => {
       const h = load();
-      expect(click(h).btn.classes.has('k-btn--slot')).toBe(true);
-      expect(click(h, { tier: 'view' }).btn.classes.has('k-btn--slot')).toBe(false);
+      for (const tier of ['view', 'mutation', 'confirm'] as const) {
+        expect(click(h, { tier }).btn.classes.has('k-btn--slot')).toBe(false);
+      }
     });
 
     it('double click sends one request in every tier', () => {

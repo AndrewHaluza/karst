@@ -123,7 +123,23 @@ describe('design system components', () => {
 
   it('draws the spinner only from .is-spinning, never from aria-busy (400ms show-delay)', () => {
     expect(CSS).not.toMatch(/\[aria-busy="true"\]::(before|after)/);
-    expect(CSS).toContain('.k-btn--slot:not(.k-btn--row)::before');
+    expect(CSS).not.toContain('k-btn--slot');
+  });
+
+  it('draws the spinner and the tier-3 check centred over a text-only label, not in a leading slot (UI-R18)', () => {
+    const rules = CSS.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+\{[^}]*\}/g) ?? [];
+    for (const state of ['is-spinning', 'is-success']) {
+      const selector = `.k-btn:not(.k-btn--icon):not(.k-btn--row).${state}::before`;
+      const rule = rules.find((r) => r.includes(selector));
+      expect(rule, selector).toBeDefined();
+      expect(rule).toContain('position:absolute');
+      expect(rule).toContain('translate:-50% -50%');
+      expect(rule).toContain('-webkit-text-fill-color:currentColor');
+    }
+    const hiddenFill = rules.find(
+      (r) => !r.includes('::before') && r.includes('.is-spinning') && r.includes('.is-success'),
+    );
+    expect(hiddenFill).toContain('-webkit-text-fill-color:transparent');
   });
 
   it('keeps .is-success a tier-3 check: no colour or border change', () => {

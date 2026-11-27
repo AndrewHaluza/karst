@@ -102,9 +102,10 @@
   #inside .graph-node-detail>*{min-width:0}
   #inside .graph-node-visit,#inside .graph-node-age,#inside .graph-node-override{white-space:normal;overflow-wrap:anywhere}
 }
-/* Tight (<=399) down to 320: chrome thins, nothing is hidden. The status and the name never drop (handoff §10). Every
+  /* Tight (<=399) down to 320: chrome thins, nothing is hidden. The status and the name never drop (handoff §10). Every
    agent core is icon-only (UI-R10c tight exception: aria-label = the core name, tooltip = core · model), and only the
-   'Actions' trigger and the console button lose their text. Row action labels stay (RD-NEVER #1). */
+   'Actions' trigger and the console button lose their text. Row action labels stay here; a later change may drop
+   secondary labels at tight (ui:RD-LADDERS). */
 @container (max-width: 399px){
   #inside .op summary,#inside .op-static{gap:var(--k-border-w);padding-left:var(--k-space-1);padding-right:var(--k-space-1)}
   #inside .evidence-row,#inside .gate-row{gap:var(--p-s1)}

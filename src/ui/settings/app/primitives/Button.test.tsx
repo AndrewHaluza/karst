@@ -71,12 +71,13 @@ describe('Button', () => {
     expect(document.activeElement).toBe(ref.current);
   });
 
-  it('reserves the icon slot when spinning is controlled, and spins only on request', () => {
+  it('reserves no slot on an idle button and spins only on request', () => {
     const { rerender } = render(<Button spinning={false}>Save</Button>);
     const button = screen.getByRole('button', { name: 'Save' });
-    expect(button.className).toContain('k-btn--slot');
+    expect(button.className).not.toContain('k-btn--slot');
     expect(button.className).not.toContain('is-spinning');
     rerender(<Button busy spinning>Save</Button>);
     expect(button.className).toContain('is-spinning');
+    expect(button.className).not.toContain('k-btn--slot');
   });
 });

@@ -71,23 +71,30 @@ body.vscode-light{--k-action-2-bg:var(--vscode-editorWidget-background);--k-acti
 .k-btn[aria-busy="true"]{cursor:progress}
 /* Click feedback tiers (UI-R11, SG-19). aria-busy is set at once but draws
    nothing: the spinner is `.is-spinning`, added by the runtime only after the
-   show-delay (SPINNER_DELAY_MS) and kept for SPINNER_MIN_VISIBLE_MS. It lives in a leading slot (`.k-btn--slot`,
-   reserved at bind time) so the control never changes width or label (UI-R18). */
-.k-btn--slot:not(.k-btn--row)::before{
-  content:"";flex:none;box-sizing:border-box;visibility:hidden;
-  width:var(--k-spinner-size);height:var(--k-spinner-size);
-  border:var(--k-spinner-w) solid transparent;border-radius:var(--k-radius-circle)}
+   show-delay (SPINNER_DELAY_MS) and kept for SPINNER_MIN_VISIBLE_MS. An idle text-only button reserves no
+   space: while it spins (or shows the tier-3 check) the label stays in the DOM and keeps its width for a
+   stable accessible name, and the spinner is drawn centred over it (UI-R18). */
 .k-btn.is-spinning::before{
   content:"";flex:none;box-sizing:border-box;
   width:var(--k-spinner-size);height:var(--k-spinner-size);border-radius:var(--k-radius-circle);border:var(--k-spinner-w) solid;
   visibility:visible;border-top-color:transparent;
   animation:k-spin var(--k-dur-spin) linear infinite}
-/* Tier 3 (confirm) ONLY: the spinner slot morphs to a check in place. No border
+/* Tier 3 (confirm) ONLY: the spinner becomes a check in the same place. No border
    or colour change, no layout shift. Never a success treatment for tiers 1-2. */
 .k-btn.is-success:not(.k-btn--row)::before{
   content:"\2713";visibility:visible;border:0;animation:none;
   display:inline-flex;align-items:center;justify-content:center;
   font-size:var(--k-spinner-size);line-height:1}
+/* A text-only button (no leading glyph, not a row) draws the spinner / tier-3 check centred OVER the label: the
+   label stays in the DOM at its full width for a stable geometry and accessible name, and only its fill is
+   hidden. The ::before is taken out of flow, so the button never grows a leading slot (UI-R18). */
+.k-btn:not(.k-btn--icon):not(.k-btn--row).is-spinning,
+.k-btn:not(.k-btn--icon):not(.k-btn--row).is-success{
+  -webkit-text-fill-color:transparent}
+.k-btn:not(.k-btn--icon):not(.k-btn--row).is-spinning::before,
+.k-btn:not(.k-btn--icon):not(.k-btn--row).is-success::before{
+  position:absolute;top:50%;left:50%;translate:-50% -50%;
+  -webkit-text-fill-color:currentColor}
 /* A button with a leading glyph (`.k-btn--icon`): the glyph is the spinner slot. No empty slot is reserved;
    while spinning the glyph hides and the spinner draws over it, so the width does not change (UI-R18). */
 .k-btn-icon{position:relative;display:inline-flex;align-items:center;justify-content:center}

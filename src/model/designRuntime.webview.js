@@ -180,7 +180,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).

@@ -34,7 +34,7 @@ export interface ButtonProps
   size?: ButtonSize;
   /** The action is in flight (UI-R11); exposes `aria-busy` and prevents re-activation. */
   busy?: boolean;
-  /** Visible spinner (tier 2): pass `useHostMutation().spinning`. Passing it reserves the leading icon slot so width never changes (UI-R18). */
+  /** Visible spinner (tier 2): pass `useHostMutation().spinning`. No empty box is reserved on an idle button; on a text-only button the spinner draws centred over the label, so the width never changes (UI-R18). */
   spinning?: boolean;
   /**
    * A leading Tabler glyph. It IS the spinner slot: while `spinning` the glyph hides and the
@@ -64,7 +64,7 @@ export function Button({
   ref,
   ...rest
 }: ButtonProps) {
-  const classes = ['k-btn', VARIANT_CLASS[variant], SIZE_CLASS[size], icon ? 'k-btn--icon' : spinning === undefined ? null : 'k-btn--slot', spinning ? 'is-spinning' : null, className]
+  const classes = ['k-btn', VARIANT_CLASS[variant], SIZE_CLASS[size], icon ? 'k-btn--icon' : null, spinning ? 'is-spinning' : null, className]
     .filter((c): c is string => Boolean(c))
     .join(' ');
   return (

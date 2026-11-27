@@ -76,20 +76,20 @@ exports[`usage render > all-sorts > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -278,7 +278,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -929,20 +928,20 @@ exports[`usage render > empty > snapshot 1`] = `
       <div class="k-empty" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -1131,7 +1130,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -1782,20 +1780,20 @@ exports[`usage render > error > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -1984,7 +1982,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -2635,20 +2632,20 @@ exports[`usage render > host-failure > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -2837,7 +2834,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -3488,20 +3484,20 @@ exports[`usage render > hostile > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -3690,7 +3686,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -4341,20 +4336,20 @@ exports[`usage render > long-key > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -4543,7 +4538,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -5194,20 +5188,20 @@ exports[`usage render > paged-middle > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -5396,7 +5390,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -6047,20 +6040,20 @@ exports[`usage render > quota-empty > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows" class="hidden"></div>
       <div class="k-empty" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -6249,7 +6242,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -6900,20 +6892,20 @@ exports[`usage render > quota-exhausted > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary" id="qsummary"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg><span>Claude Code 5-hour is at 100% used.</span></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"><div class="qrow"><div class="qhead"><h3 class="qname"><span class="agenticon" aria-hidden="true"><svg fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg></span><span>Claude Code</span></h3><span class="qmeta">Claude statusline telemetry · <span class="">Read 1m ago</span></span></div><div class="qwin"><div class="qline"><span class="qlbl">5-hour</span><span class="qpct lvl-exhausted">100% used</span></div><div class="bar qbar lvl-exhausted" role="meter" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100" aria-label="Claude Code 5-hour used"><i style="width:100%"></i></div><div class="qfoot"><span class="qbadge lvl-exhausted"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M10 10l4 4m0 -4l-4 4"></path></svg><span>Limit reached</span></span><div class="qmeta">Resets in 2h 13m</div></div></div></div></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -7102,7 +7094,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -7753,20 +7744,20 @@ exports[`usage render > quota-expired > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"><div class="qrow"><div class="qhead"><h3 class="qname"><span class="agenticon" aria-hidden="true"><svg fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"></path></svg></span><span>Codex</span></h3><span class="qmeta">Codex session rate limits · <span class="">Read 30m ago</span></span></div><div class="qwin"><div class="qline"><span class="qlbl">5-hour</span></div><div class="bar qbar lvl-ok" role="meter" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Codex 5-hour used"><i style="width:0%"></i></div><div class="qfoot"><div class="qmeta">Reset · waiting for a new read</div></div></div></div></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -7955,7 +7946,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -8606,20 +8596,20 @@ exports[`usage render > quota-near > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary" id="qsummary"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg><span>Codex 7-day is at 82% used.</span></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"><div class="qrow"><div class="qhead"><h3 class="qname"><span class="agenticon" aria-hidden="true"><svg fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"></path></svg></span><span>Claude Code</span></h3><span class="qmeta">Claude statusline telemetry · <span class="">Read 3m ago</span></span></div><div class="qwin"><div class="qline"><span class="qlbl">5-hour</span><span class="qpct lvl-ok">34% used</span></div><div class="bar qbar lvl-ok" role="meter" aria-valuenow="34" aria-valuemin="0" aria-valuemax="100" aria-label="Claude Code 5-hour used"><i style="width:34%"></i></div><div class="qfoot"><div class="qmeta">Resets in 2h 13m</div></div></div><div class="qwin"><div class="qline"><span class="qlbl">7-day</span><span class="qpct lvl-ok">12% used</span></div><div class="bar qbar lvl-ok" role="meter" aria-valuenow="12" aria-valuemin="0" aria-valuemax="100" aria-label="Claude Code 7-day used"><i style="width:12%"></i></div><div class="qfoot"><div class="qmeta">Resets in 5d 3h</div></div></div></div><div class="qrow"><div class="qhead"><h3 class="qname"><span class="agenticon" aria-hidden="true"><svg fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"></path></svg></span><span>Codex</span></h3><span class="qmeta">Codex session rate limits · <span class="">Read 1m ago</span></span></div><div class="qwin"><div class="qline"><span class="qlbl">7-day</span><span class="qpct lvl-near">82% used</span></div><div class="bar qbar lvl-near" role="meter" aria-valuenow="82" aria-valuemin="0" aria-valuemax="100" aria-label="Codex 7-day used"><i style="width:82%"></i></div><div class="qfoot"><span class="qbadge lvl-near"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg><span>Near limit</span></span><div class="qmeta">Resets in 4d 1h</div></div></div></div><div class="qrow"><div class="qhead"><h3 class="qname"><span class="agenticon" aria-hidden="true"><svg fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path clip-rule="evenodd" d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z"></path></svg></span><span>Antigravity CLI</span></h3><span class="qstate">Quota not available</span></div><div class="qreason" title="no local quota source; agy exposes no zero-request usage endpoint">Antigravity CLI does not expose quota locally.</div></div><div class="qrow"><div class="qhead"><h3 class="qname"><span class="agenticon" aria-hidden="true"><svg fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z"></path></svg></span><span>OpenCode</span></h3><span class="qmeta">OpenCode Go usage API · <span class="">Read just now</span></span></div><div class="qwin"><div class="qline"><span class="qlbl">5-hour</span><span class="qpct lvl-ok">3% used</span></div><div class="bar qbar lvl-ok" role="meter" aria-valuenow="3" aria-valuemin="0" aria-valuemax="100" aria-label="OpenCode 5-hour used"><i style="width:3%"></i></div><div class="qfoot"><div class="qmeta">Resets in 1h 10m</div></div></div><div class="qwin"><div class="qline"><span class="qlbl">Weekly</span><span class="qpct lvl-ok">9% used</span></div><div class="bar qbar lvl-ok" role="meter" aria-valuenow="9" aria-valuemin="0" aria-valuemax="100" aria-label="OpenCode Weekly used"><i style="width:9%"></i></div><div class="qfoot"><div class="qmeta">Resets in 4d 23h</div></div></div><div class="qwin"><div class="qline"><span class="qlbl">Monthly</span><span class="qpct lvl-ok">45% used</span></div><div class="bar qbar lvl-ok" role="meter" aria-valuenow="45" aria-valuemin="0" aria-valuemax="100" aria-label="OpenCode Monthly used"><i style="width:45%"></i></div><div class="qfoot"><div class="qmeta">Resets in 16d 10h</div></div></div></div></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -8808,7 +8798,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -9459,20 +9448,20 @@ exports[`usage render > quota-stale > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"><div class="qrow"><div class="qhead"><h3 class="qname"><span class="agenticon" aria-hidden="true"><svg fill="currentColor" fill-rule="evenodd" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z"></path></svg></span><span>OpenCode</span></h3><span class="qmeta">OpenCode Go usage API · <span class="stale"><svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 9v4"></path><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0z"></path><path d="M12 16h.01"></path></svg>Read 4d ago · may be out of date</span></span></div><div class="qwin"><div class="qline"><span class="qlbl">7-day</span><span class="qpct lvl-ok">40% used</span></div><div class="bar qbar lvl-ok" role="meter" aria-valuenow="40" aria-valuemin="0" aria-valuemax="100" aria-label="OpenCode 7-day used"><i style="width:40%"></i></div><div class="qfoot"><div class="qmeta">Resets in 2d 0h</div></div></div></div></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -9661,7 +9650,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
@@ -10312,20 +10300,20 @@ exports[`usage render > single-page > snapshot 1`] = `
       <div class="k-empty hidden" id="empty">
         <div class="k-empty-title">No token usage yet</div>
         <div class="k-empty-hint">Start a ticket session. Each agent call records its tokens here.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="createTicketBtn">Create a ticket</button>
+        <button type="button" class="k-btn k-btn--secondary" id="createTicketBtn">Create a ticket</button>
       </div>
     </div>
 
     <div id="quota" class="hidden" role="tabpanel" aria-labelledby="tab-quota">
       <div class="qheadbar">
         <div class="qsummary hidden" id="qsummary"></div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--sm k-btn--slot" id="refreshQuotaBtn">Refresh quota</button>
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm" id="refreshQuotaBtn">Refresh quota</button>
       </div>
       <div id="qrows"></div>
       <div class="k-empty hidden" id="quotaEmpty">
         <div class="k-empty-title">No quota read yet</div>
         <div class="k-empty-hint">Karst reads quota for Claude Code, Codex and OpenCode after the first session.</div>
-        <button type="button" class="k-btn k-btn--secondary k-btn--slot" id="quotaSettingsBtn">Quota settings</button>
+        <button type="button" class="k-btn k-btn--secondary" id="quotaSettingsBtn">Quota settings</button>
       </div>
     </div>
   </main>
@@ -10514,7 +10502,6 @@ function karstAction(el, send, opts) {
   if (!el) return;
   var options = opts || {};
   var tier = options.tier === 'view' || options.tier === 'confirm' ? options.tier : 'mutation';
-  if (tier !== 'view' && el.classList && el.classList.contains('k-btn')) el.classList.add('k-btn--slot');
   el.addEventListener('click', function (ev) {
     if (karstIsPending(el)) {
       // Dropped, not queued (UI-R12).
