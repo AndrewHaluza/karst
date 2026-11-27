@@ -47,12 +47,12 @@ END_DOC_BLOCK: [@ui:GETTING-STARTED]
 
 ## [@ui:JUDGED-AGAINST-RULES] Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0)
 
-It is numbered (`UI-R01`…), each rule carries a concrete Check AND a verification mode (STATIC / RUNTIME / VISUAL / REVIEW) — a grep is never accepted as proof of a rendered property. `docs/ui/DESIGN-SYSTEM.md` holds the tokens, primitives and the state vocabulary; `docs/ui/STYLE-GUIDE.md` holds naming, reuse and copy tone; `docs/ui/KARST-UI-CATALOG.html` is the rendered catalog of every primitive/state/token. Cite the rule id in the commit when a change exists to satisfy one (UI-R35). **Four parts of v3.0 are TARGET, not shipped** — the `.k-status` primitive, the no-CSS-alias rule for feedback tokens, the filled-surface foregrounds, and single-path palette delivery; they are enumerated in `docs/ui/V3-CONFORMANCE-GAPS.md` and none of them is a reason to write NEW code the old way.
+It is numbered (`UI-R01`…), each rule carries a concrete Check AND a verification mode (STATIC / RUNTIME / VISUAL / REVIEW) — a grep is never accepted as proof of a rendered property. `docs/ui/DESIGN-SYSTEM.md` holds the tokens, primitives and the state vocabulary; `docs/ui/STYLE-GUIDE.md` holds naming, reuse and copy tone; `docs/ui/KARST-UI-CATALOG.html` is the rendered catalog of every primitive/state/token. Cite the rule id in the commit when a change exists to satisfy one (UI-R35). **Three parts of v3.0 are TARGET, not shipped** — the no-CSS-alias rule for feedback tokens, the filled-surface foregrounds, and single-path palette delivery; the `.k-status` primitive ships, and its `.k-dot` call sites still migrate (G1). They are enumerated in `docs/ui/V3-CONFORMANCE-GAPS.md` and none of them is a reason to write NEW code the old way.
 END_DOC_BLOCK: [@ui:JUDGED-AGAINST-RULES]
 
 ## [@ui:RUNTIME-RUNNER] RUNTIME rules have a runner
 
-The 18 RUNTIME-tagged rules (UI-R09, R11–R18, R22, R25–R27, R32, R33, R36, R37) now have a jsdom-based harness (`src/ui/testing/renderHarness.ts`) that hydrates any webview through the production injector chain, executes its inline script, and records `postMessage` round trips. The cross-view sweep (`src/ui/runtimeConformance.render.integration.test.ts`) runs UI-R09, R10 (as rendered), R25, and R36 across all eight views; state-dependent rules are asserted for the dashboard only in `dashboard/render.render.integration.test.ts` until FEAT-37 supplies the other corpora. The `render` vitest project (environment `jsdom`, pool `forks`) is required because jsdom's transitive `@exodus/bytes` ships ESM inside CJS and `vmThreads` cannot interop it. jsdom CSSOM limits apply: no `var()` resolution, no `calc()` evaluation, no layout, no real focus ring, no paint — anything needing those is VISUAL and belongs to FEAT-38.
+The 18 RUNTIME-tagged rules (UI-R09, R11–R18, R22, R25–R27, R32, R33, R36, R37) now have a jsdom-based harness (`src/ui/testing/renderHarness.ts`) that hydrates any webview through the production injector chain, executes its inline script, and records `postMessage` round trips. The cross-view sweep (`src/ui/runtimeConformance.render.integration.test.ts`) runs UI-R09, R10 (as rendered), R25, and R36 across all nine views (`WEBVIEW_NAMES` in `src/model/webviewChains.ts`); state-dependent rules are asserted for the dashboard only in `dashboard/render.render.integration.test.ts` until FEAT-37 supplies the other corpora. The `render` vitest project (environment `jsdom`, pool `forks`) is required because jsdom's transitive `@exodus/bytes` ships ESM inside CJS and `vmThreads` cannot interop it. jsdom CSSOM limits apply: no `var()` resolution, no `calc()` evaluation, no layout, no real focus ring, no paint — anything needing those is VISUAL and belongs to FEAT-38.
 END_DOC_BLOCK: [@ui:RUNTIME-RUNNER]
 
 ## [@ui:TOKENS] Tokens carry the SHARED visual decisions; local geometry stays local
@@ -67,7 +67,7 @@ END_DOC_BLOCK: [@ui:FINDINGS-ORDER]
 
 ## [@ui:DS-INJECTION] The design system ships by marker injection
 
-`model/designSystem.ts` emits CSS+JS text swapped into `/*KARST_DS_CSS*/` (top of each `<style>`) and `/*KARST_DS_JS*/` (first statement in each `<script>`), before `injectCsp` nonces it. `ui/designSystem.test.ts` DISCOVERS the webview directories rather than listing them — a webview added later must not be able to ship outside the system silently. `/*KARST_PALETTE*/` is STILL LIVE and still load-bearing (it sits in the trailing `<style>` so the status ramp wins the cascade, and the feedback tokens alias onto it) — v3.0's single-injection path that retires it is gap G4, blocked behind G2, and until then a new webview carries the palette marker and its host call like every other one (UI-R03). No UI framework or component library is introduced (UI-R01).
+`model/designSystem.ts` emits CSS+JS text swapped into `/*KARST_DS_CSS*/` (top of each `<style>`) and `/*KARST_DS_JS*/` (first statement in each `<script>`), before `injectCsp` nonces it. `ui/designSystem.test.ts` DISCOVERS the webview directories rather than listing them — a webview added later must not be able to ship outside the system silently. `/*KARST_PALETTE*/` is STILL LIVE and still load-bearing (it sits in the trailing `<style>` so the status ramp wins the cascade, and the feedback tokens alias onto it) — v3.0's single-injection path that retires it is gap G4, blocked behind G2, and until then a new webview carries the palette marker and its host call like every other one (UI-R03). No UI runtime other than React is introduced (UI-R01).
 END_DOC_BLOCK: [@ui:DS-INJECTION]
 
 ## [@ui:PENDING-STATE] Every control that posts to the host shows a pending state, cannot be re-triggered, and reports a terminal outcome
@@ -82,12 +82,12 @@ END_DOC_BLOCK: [@ui:DISABLED-VS-BUSY]
 
 ## [@ui:GEOMETRY-STABLE] Pending feedback keeps the geometry stable, not the label frozen
 
-(UI-R18). Reserve an icon/status slot, pin a min-width, or put the status adjacent; a label change is allowed when deliberate and accessible — what is forbidden is a jump that moves the activation target or its neighbors, and needless accessible-name churn mid-action.
+(UI-R18). Draw the spinner over the label or the glyph (never a permanently reserved empty slot), pin a min-width, or put the status adjacent; a label change is allowed when deliberate and accessible — what is forbidden is a jump that moves the activation target or its neighbors, and needless accessible-name churn mid-action.
 END_DOC_BLOCK: [@ui:GEOMETRY-STABLE]
 
 ## [@ui:STATUS-ICON-ONLY] Workflow status is ICON-ONLY
 
-(UI-R28b): `.k-status` renders check / spinner / pause / cross / neutral dot — the primitive the code does NOT have yet (gap G1: `.k-dot` is one circle recolored per state, so hue is its only visible carrier) for passed·done / running / needs-attention·blocked / failed / pending, each with an accessible name in the real domain wording, and appends NO visible status word — the distinct glyph is the non-color carrier (UI-R28).
+(UI-R28b): `.k-status` renders check / spinner / pause / cross / neutral dot — the shared primitive (`src/ui/shared/Status.tsx`; gap G1 lists the `.k-dot` call sites that still migrate) for passed·done / running / needs-attention·blocked on the user / failed / pending, each with an accessible name in the real domain wording, and appends NO visible status word — the distinct glyph is the non-color carrier (UI-R28).
 END_DOC_BLOCK: [@ui:STATUS-ICON-ONLY]
 
 ## [@ui:AGENT-CORE-IDENTITY] An agent core is ALWAYS its canonical icon + canonical name
@@ -134,8 +134,9 @@ behavior. `docs/ui/UI-RULES.md` carries the **v3.1 "React views" annex**
 (§9.1–§9.5): it adds checks by construction (type-enforced rules, single-owner
 hooks/components, the new R-X1…R-X7 rules, and the COMPONENT verification mode),
 removes nothing from v3.0, and applies to every React view. Views not yet
-migrated stay vanilla v3.0: bug fixes only, and a feature there means migrating
-the view first, as a separate change.
+migrated stay vanilla v3.0: a feature there needs a ticket brief that scopes it
+and a row in the exceptions table (`@ui:TICKET-FORM-MIGRATION-EXCEPTIONS` or
+the view's exception block); a new view or a rewrite of a view is React.
 
 **Recorded exception (T690, 2026-10-23):** D159's usage-limit park actions
 ('Pick agent/model…', 'Retry same', 'Dismiss') are a feature on a vanilla view,
@@ -213,6 +214,7 @@ What stays, deliberately:
 - **Static shell.** `webview.html` keeps the region roots (`.dhead`, `#headerMeta`, `#rail`, `#inside`, `#blocked`, the grid panels, the overlay roots) and `RegionPortal` draws into them, because the region parity snapshots (`parity/__snapshots__`) pin those roots as markup, hidden toggles included. `#root` holds the sandbox strip and the app's `data-react-owned` mark (also pinned). Rendering the whole body from `#root` would change the snapshotted DOM, so it was not done.
 - **Page script.** One line, `const esc = karstEsc;`, for the injected shared server-logs runtime; `dashboard/pageShell.test.ts` pins it.
 - **Region keys.** `app/pageRegions.ts` names the regions that own their own Escape and paging keys (pinned by `parity/interopOverlays`).
+- **Baseline decisions settle by `requestId`.** A `baseline-approve`, `baseline-approve-all` or `baseline-reject` message that the parse drops, with a valid `requestId`, still posts an `action-result` with `ok: false` and a warning: the user sent it from a pending button and that button settles only by `requestId`. The pump logs the message type, never the payload.
 
 Invariants now: `app/main.tsx` is the only page script owner and holds host messages until React subscribes; `app/viewPersistence.ts` is the only `vscode.setState` writer and reader (envelope `{ state, sel, shipWait, srvFilter, artView, artScrolls }`, plus the bare snapshot older builds wrote); `PendingOps` settles `action-result` through `karstSettle`; `data-karst-ready` is set after the restored or first buffered state is in the DOM; no `*Seam` window events exist.
 END_DOC_BLOCK: [@ui:DASHBOARD-MIGRATION]
@@ -311,7 +313,18 @@ END_DOC_BLOCK: [@ui:SIDEBAR-QUEUE]
 
 ## [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS] Ticket-form migration exceptions (T690, T862, T926, T972, T1021, T1301, T1313, T1355)
 
-**One recorded exception** (T690, 2026-10-23): D159's usage-limit park actions ('Pick agent/model…', 'Retry same', 'Dismiss') in the ticket form's op-park error, still a vanilla view — a `usage-limit` block is non-resumable and no other surface reaches the action; it expires with the ticket form's migration (`@ui:REACT-VIEWS`). **Second recorded exception** (T862, 2026-10-30): the layout B′ shell restructure of `src/ui/ticketForm/webview.html` (D284; user-chosen layout, binding prototype `docs/design/ticket-form-b-prime.html`), scoped by the ticket brief and sequenced with D285–D287, which also edit this vanilla file; it expires with the same migration. **Third recorded exception** (T926, 2026-11-02): the create-mode Sandbox backend picker (Inherit / Host opt-out only, `@arch:AC-32`) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D381); it expires with the same migration. **Fourth recorded exception** (T972, 2026-11-06): the window-reload draft restore (`formPersist`, the only `getState`/`setState` caller) in `src/ui/ticketForm/webview.html`, scoped by the ticket brief (D372); it expires with the same migration. **Fifth recorded exception** (T1021, 2026-11-09): the shared ticket reference chip and the readable relation labels in the ticket form's Relations card, rendered from the host's `ticketRefView` by a small DOM builder in `src/ui/ticketForm/webview.html`; the same `ticketRefView` and `.k-ticket-ref` primitive are the React surfaces' implementation, and the form stays vanilla until the migration, so the ticket brief scopes this one; it expires with the same migration. The one-stage-chip change (T1099) updates that DOM builder to the same chip markup, as the same exception. **Sixth recorded exception** (T1301, 2026-11-22): the ticket-form production-readiness sweep of `src/ui/ticketForm/webview.html` (D748 — SET-49/50/51/52/53/54/55/57/58/59/60/61/62: the action bar and settings scroll region, the honest loading and fetch-error states, the host-side Cancel confirmation, the auto-growing title textarea and the copy fixes) on the vanilla view, scoped by the ticket brief; it expires with the same migration. **Seventh recorded exception** (T1313, 2026-11-22): the hidden "Stop using pick" button for an active carried usage-limit pick (`@arch:AC-65`) in the existing action row of `src/ui/ticketForm/webview.html`, beside the reason so Cancel stays first and the primary stays last; the host builds its label (`activeCarryViews`). No new region. Scoped by the ticket brief (D796); it expires with the same migration. **Eighth recorded exception** (T1355, 2026-11-25): staged draft files in the existing attachment list of `src/ui/ticketForm/webview.html` (a staged tile uses the ordinary tile markup; its remove button posts `unstage-attachment`, and it has no open action). No new region and no layout change. Scoped by the ticket brief (D835); it expires with the same migration.
+| Ticket | Date | Draft | What changed | File |
+|---|---|---|---|---|
+| T690 | 2026-10-23 | D159 | Usage-limit park actions ('Pick agent/model…', 'Retry same', 'Dismiss') in the ticket form's op-park error; a `usage-limit` block is non-resumable and no other surface reaches the action (`@ui:REACT-VIEWS`) | `src/ui/ticketForm/webview.html` |
+| T862 | 2026-10-30 | D284 | Layout B′ shell restructure (user-chosen layout, binding prototype `docs/design/ticket-form-b-prime.html`), sequenced with D285–D287, which also edit this vanilla file | `src/ui/ticketForm/webview.html` |
+| T926 | 2026-11-02 | D381 | Create-mode Sandbox backend picker (Inherit / Host opt-out only, `@arch:AC-32`) | `src/ui/ticketForm/webview.html` |
+| T972 | 2026-11-06 | D372 | Window-reload draft restore (`formPersist`, the only `getState`/`setState` caller) | `src/ui/ticketForm/webview.html` |
+| T1021 (with T1099) | 2026-11-09 | — | Shared ticket reference chip and readable relation labels in the Relations card, rendered from the host's `ticketRefView` by a small DOM builder; the same `ticketRefView` and `.k-ticket-ref` primitive are the React surfaces' implementation, so the form stays vanilla until the migration and T1099 updates that builder to the same one-stage-chip markup as the same exception | `src/ui/ticketForm/webview.html` |
+| T1301 | 2026-11-22 | D748 | Production-readiness sweep SET-49/50/51/52/53/54/55/57/58/59/60/61/62: the action bar and settings scroll region, the honest loading and fetch-error states, the host-side Cancel confirmation, the auto-growing title textarea and the copy fixes | `src/ui/ticketForm/webview.html` |
+| T1313 | 2026-11-22 | D796 | Hidden "Stop using pick" button for an active carried usage-limit pick (`@arch:AC-65`) in the existing action row, beside the reason so Cancel stays first and the primary stays last; the host builds its label (`activeCarryViews`); no new region | `src/ui/ticketForm/webview.html` |
+| T1355 | 2026-11-25 | D835 | Staged draft files in the existing attachment list (a staged tile uses the ordinary tile markup; its remove button posts `unstage-attachment`, and it has no open action); no new region and no layout change | `src/ui/ticketForm/webview.html` |
+
+Each row is scoped by its ticket brief and expires with the ticket-form migration: the React ticket form must re-home these behaviours, never carry the vanilla code across.
 END_DOC_BLOCK: [@ui:TICKET-FORM-MIGRATION-EXCEPTIONS]
 
 ## [@ui:USAGE-MIGRATION-EXCEPTION] Token-usage migration exception (T1302)

@@ -662,14 +662,15 @@ button appearance locally.
 | hover | shared variant hover |
 | focus-visible | visible `--k-focus` treatment |
 | active | subtle press feedback; no neighboring reflow |
-| loading | `aria-busy` at once; spinner (`.is-spinning`) only after 400ms, held 500ms, in the reserved `.k-btn--slot` leading slot |
+| loading | `aria-busy` at once; spinner (`.is-spinning`) only after 400ms, held 500ms, centred over the label or in place of the glyph (never a permanently reserved empty slot) |
 | disabled | unavailable state |
 | error | normally surfaced at owning context, not by permanently recoloring button |
 | success | `.is-success`, tier 3 (`confirm`) only: in-place check for 1.2s, no border/colour change; tiers 1-2 show the changed domain state instead |
 | selected | only for explicitly selectable button patterns |
 
-Pending/success affordances must not cause disruptive width changes. Reserve a
-status/icon slot, preserve minimum width, or put the status adjacent where needed.
+Pending/success affordances must not cause disruptive width changes. Draw the
+spinner over the label or the glyph (never a permanently reserved empty slot),
+preserve minimum width, or put the status adjacent where needed.
 
 Changing the label during pending is not globally forbidden, but unnecessary
 accessible-name churn and layout shifts should be avoided.
@@ -1021,11 +1022,7 @@ Transient result communication where no stronger inline home exists.
 One coordinated polite live region per webview is the default for ordinary
 transient results.
 
-Variants:
-
-- success;
-- error;
-- info.
+Variants: `error`, `warning`, `success`, `info`.
 
 Anatomy, left to right: a round kind glyph (✕ error, ! warning, ✓ success, i info; `aria-hidden`), the text in
 `--k-text` for every kind, and a Dismiss button (`.k-toast-close`, at least `--k-hit-min`). A visually hidden word
@@ -1033,8 +1030,8 @@ Anatomy, left to right: a round kind glyph (✕ error, ! warning, ✓ success, i
 the kind colour and a 2 px countdown bar at the bottom edge repeat the kind; the bar is hidden under
 `prefers-reduced-motion` and the timer still runs.
 
-Every toast has a real Dismiss button and a timer. An error closes after `TOAST_ERROR_MS` (15 s). Success and warning
-close after `TOAST_SUCCESS_MS` (6 s). Hover or focus pauses the timer and the bar. Leave or blur restarts the full time.
+Every toast has a real Dismiss button and a timer. `error` closes after `TOAST_ERROR_MS` (15 s); every other kind
+(`warning`, `success`, `info`) closes after `TOAST_SUCCESS_MS` (6 s). Hover or focus pauses the timer and the bar. Leave or blur restarts the full time.
 At most `MAX_TOASTS` (3) show at once: a new toast past the cap removes the oldest. A toast with the same kind and text
 as one on screen replaces it. The tier ladder is `@ui:RD-LADDERS2`.
 

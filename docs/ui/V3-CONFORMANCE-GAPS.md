@@ -6,8 +6,6 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:G1'):
   awk "/^## \[@ui:G1\]/,/END_DOC_BLOCK: \[@ui:G1\]/" docs/ui/V3-CONFORMANCE-GAPS.md
 -->
-> **Historical — not guidance; see [docs/ui/README.md](./README.md).**
-
 # v3.0 conformance gaps — the replacement backlog
 
 The v3.0 contract ([UI-RULES.md](./UI-RULES.md),
@@ -25,20 +23,23 @@ the ticket that adopted v3.0 (869egfk42) — that ticket replaced documents only
 
 ---
 
-## [@ui:G1] ☐ G1 — The workflow-status primitive is `.k-dot`, not `.k-status`
+## [@ui:G1] ☐ G1 — The workflow-status primitive is `.k-status`; the `.k-dot` call sites still migrate
 
 **Rule:** UI-R28 / UI-R28b, DESIGN-SYSTEM §11.12.
 
-**Shipped:** `src/model/designComponents.ts` emits `.k-dot` — one filled circle
+**Shipped:** `.k-status` exists (`src/model/designComponents.webview.css`,
+`src/ui/shared/Status.tsx`) with the five glyph variants. `.k-dot` still has
+non-test call sites that migrate: `src/model/designComponents.ts`,
+`src/model/designComponents.webview.css`, `src/ui/sidebar/app/format.ts`,
+`src/ui/dashboard/app/SubtasksPanel.css`, `src/ui/dashboard/app/ArtifactView.css`,
+`src/ui/dashboard/app/SubtaskRow.tsx`, `src/ui/diffs/webview.html` and
+`src/ui/gettingStarted/webview.html`. The old `.k-dot` is one filled circle
 whose only per-state difference is `background`
-(`--k-pending|running|attention|passed|failed`). Every state is the same shape,
-so **hue is the only visible carrier** and the accessible name is what separates
-them. v3.0 requires a distinct glyph per state (check / spinner / pause / cross /
-neutral dot), which is exactly the non-color carrier `.k-dot` lacks.
+(`--k-pending|running|attention|passed|failed`), so **hue is the only visible
+carrier** and the accessible name is what separates its states.
 
-**To close:** add `.k-status` with the five glyph variants (the running variant
-reusing `.k-spinner`), migrate the `.k-dot` call sites, keep the accessible name
-in real domain wording, and retire `.k-dot`. The catalog
+**To close:** migrate the `.k-dot` call sites to `.k-status`, keep the accessible
+name in real domain wording, and retire `.k-dot`. The catalog
 ([KARST-UI-CATALOG.html](./KARST-UI-CATALOG.html)) already renders the target.
 Static test: state → glyph mapping; visual test: readable with color suppressed.
 
