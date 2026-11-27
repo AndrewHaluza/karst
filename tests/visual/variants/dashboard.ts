@@ -451,6 +451,7 @@ const panelStateVariants = (): Variant[] => [
   ...bottomEdgeVariants(),
   ...dashboardBottomEdgeVariants(),
   ...layoutVariants(),
+  ...ticketMenuGatesVariants(),
 ];
 
 /** T1183: the "..." menu open with each page-width mode selected, at a wide window where the two modes differ. */
@@ -466,6 +467,39 @@ const layoutVariants = (): Variant[] =>
       click: '[aria-label="Ticket controls"]',
     }),
   );
+
+/**
+ * T1397 (@ui:UI-R57): the ticket ⋯ menu's gate switches, now one segmented tab row (UAT | Review) with a per-stage
+ * count and an ` · N off` marker, above the selected stage's rows only. Three open-menu states: both stages with
+ * every gate on (opens on UAT from impl), both stages with a ticket-off and a Settings-off gate (opens on Review),
+ * and a single UAT stage (no tab row, the head kept). The popover keeps its 12 control-height width in all three.
+ */
+const GATE_UAT_NAMES = ['unit', 'docs', 'docs-gate', 'docs-graph', 'integration', 'visual'] as const;
+const GATE_REVIEW_NAMES = ['typecheck', 'layer-rules', 'lint-react', 'build', 'deps-audit', 'secrets', 'sast', 'mutation'] as const;
+
+/** One stage's resolved options; `configOff` names are off project-wide (and therefore off for the ticket too). */
+const gateOptionList = (names: readonly string[], spec: { readonly off?: readonly string[]; readonly configOff?: readonly string[] } = {}) =>
+  names.map((name) => {
+    const config = (spec.configOff ?? []).includes(name);
+    return { name, disabled: config || (spec.off ?? []).includes(name), ...(config ? { configDisabled: true } : {}) };
+  });
+
+const ticketMenuGatesVariants = (): Variant[] => {
+  const openMenu = { skipLayout: true, click: '[aria-label="Ticket controls"]' } as const;
+  const corpus = (scenario: RenderScenario, options: unknown) => () => {
+    const base = dashboardScenario(scenario, 2)();
+    return { ...base, messages: [...base.messages, { type: 'gate-options', options }] };
+  };
+  return [
+    variant('dashboard', 'ticket-menu-gates-both', corpus('running', { uat: gateOptionList(GATE_UAT_NAMES), review: gateOptionList(GATE_REVIEW_NAMES) }), openMenu),
+    // `failed` renders the review stage: the menu opens on the Review tab, as a review ticket does.
+    variant('dashboard', 'ticket-menu-gates-off', corpus('failed', {
+      uat: gateOptionList(GATE_UAT_NAMES, { off: ['visual'] }),
+      review: gateOptionList(GATE_REVIEW_NAMES, { off: ['secrets'], configOff: ['mutation'] }),
+    }), openMenu),
+    variant('dashboard', 'ticket-menu-gates-single', corpus('running', { uat: gateOptionList(['unit', 'integration', 'visual']), review: [] }), openMenu),
+  ];
+};
 
 const bottomEdgeVariants = (): Variant[] =>
   PANEL_VARIANTS.filter((v) => ['pr-ready-info', 'wt-base'].includes(v.id)).map((v) =>

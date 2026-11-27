@@ -5,13 +5,14 @@
  * `renderPause`, `renderFollowUp`, `renderBind` and `renderMenuGates` it replaced. The open state lives in
  * `Header` (one popover at a time).
  */
-import { memo, useRef } from 'react';
+import { memo, useRef, useState, type KeyboardEvent } from 'react';
 import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { Icon } from './Icon.js';
 import { HideableButton } from './HideableButton.js';
 import { LayoutSetting } from './LayoutSetting.js';
-import { selectBind, selectControls, selectGates } from './headerSlices.js';
+import { selectBind, selectControls, selectGates, selectStageCurrent } from './headerSlices.js';
+import type { GateOption } from '../gateOptions.js';
 import { usePendingAction } from './usePendingAction.js';
 import { useSlice } from './useSlice.js';
 
@@ -67,29 +68,96 @@ function GateRow({
   );
 }
 
-function Gates() {
+function Gates({ open }: { readonly open: boolean }) {
   const gates = useSlice(selectGates);
+  const stageCurrent = useSlice(selectStageCurrent);
+  // Each open starts on the ticket's current stage; a tab the user picks stays picked while the menu is open
+  // (a 1 Hz state push must not jump tabs under the pointer). Closing resets it so the next open starts fresh.
+  const defaultTab: GateStage = stageCurrent === 'review' ? 'review' : 'uat';
+  const [picked, setPicked] = useState<GateStage | null>(null);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    setPicked(open ? defaultTab : null);
+  }
   // Resolved async, host-side: nothing is drawn until the first answer, then the section is replaced wholesale.
   if (!gates) return null;
-  const groups: ReadonlyArray<readonly [string, GateStage, typeof gates.uat]> = [
+  const groups: ReadonlyArray<readonly [string, GateStage, readonly GateOption[]]> = [
     ['UAT', 'uat', gates.uat || []],
     ['Review', 'review', gates.review || []],
   ];
-  if (groups.every(([, , opts]) => opts.length === 0)) {
+  const nonEmpty = groups.filter(([, , opts]) => opts.length > 0);
+  if (nonEmpty.length === 0) {
     return <div className="menuBlurb">No gates resolved for this ticket yet.</div>;
   }
+  if (nonEmpty.length === 1) {
+    // One stage only: no tab row is noise; keep the head the stacked layout always had.
+    const [title, stage, opts] = nonEmpty[0]!;
+    return (
+      <div className="gateGroup">
+        <div className="gateHead">{title}</div>
+        {opts.map((o) => (
+          <GateRow key={`${stage}:${o.name}`} stage={stage} name={o.name} disabled={!!o.disabled} configOff={!!o.configDisabled} />
+        ))}
+      </div>
+    );
+  }
+  const active: GateStage = picked ?? defaultTab;
+  const activeGroup = nonEmpty.find(([, stage]) => stage === active) ?? nonEmpty[0]!;
+  const stages = nonEmpty.map(([, stage]) => stage);
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const at = stages.indexOf(active);
+    const target =
+      e.key === 'ArrowRight'
+        ? stages[(at + 1) % stages.length]
+        : e.key === 'ArrowLeft'
+          ? stages[(at - 1 + stages.length) % stages.length]
+          : e.key === 'Home'
+            ? stages[0]
+            : e.key === 'End'
+              ? stages[stages.length - 1]
+              : undefined;
+    if (target === undefined) return;
+    e.preventDefault();
+    setPicked(target);
+    document.getElementById(`gateTab-${target}`)?.focus();
+  };
   return (
     <>
-      {groups.map(([title, stage, opts]) =>
-        opts.length ? (
-          <div key={stage} className="gateGroup">
-            <div className="gateHead">{title}</div>
-            {opts.map((o) => (
-              <GateRow key={o.name} stage={stage} name={o.name} disabled={!!o.disabled} configOff={!!o.configDisabled} />
-            ))}
-          </div>
-        ) : null,
-      )}
+      <div className="gateTabs" role="tablist" aria-label="Gate stage" onKeyDown={onKeyDown}>
+        {nonEmpty.map(([title, stage, opts]) => {
+          const selected = stage === active;
+          // Both kinds of off count: the ticket switch and the project-wide Settings switch.
+          const offCount = opts.filter((o) => o.disabled || o.configDisabled).length;
+          return (
+            <button
+              key={stage}
+              type="button"
+              role="tab"
+              id={`gateTab-${stage}`}
+              className="gateTab"
+              aria-selected={selected}
+              aria-controls="gateTabPanel"
+              tabIndex={selected ? 0 : -1}
+              onClick={() => setPicked(stage)}
+            >
+              {title} {opts.length}
+              {offCount > 0 ? <span className="gateTabOff">{` · ${offCount} off`}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+      <div id="gateTabPanel" className="gateGroup" role="tabpanel" aria-labelledby={`gateTab-${active}`}>
+        {activeGroup[2].map((o) => (
+          <GateRow
+            key={`${activeGroup[1]}:${o.name}`}
+            stage={activeGroup[1]}
+            name={o.name}
+            disabled={!!o.disabled}
+            configOff={!!o.configDisabled}
+          />
+        ))}
+      </div>
     </>
   );
 }
@@ -220,7 +288,7 @@ export const TicketMenu = memo(function TicketMenu({ open, onToggle }: { readonl
         <div className="menuDivider" />
         <div className="menuHeading">Gates for this ticket</div>
         <div id="menuGates" className="menuGates">
-          <Gates />
+          <Gates open={open} />
         </div>
       </div>
     </div>

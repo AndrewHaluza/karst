@@ -119,3 +119,5 @@ export const selectAgent = (snapshot: DashboardSnapshot): AgentSlice | null => {
 export const selectLayout = (snapshot: DashboardSnapshot): DashboardLayout => snapshot.layout;
 export const selectBind = (snapshot: DashboardSnapshot): boolean => snapshot.bind;
 export const selectGates = (snapshot: DashboardSnapshot): DashboardSnapshot['gateOptions'] => snapshot.gateOptions;
+/** The stored current stage, for the gate tabs' initial tab; null before the first state. */
+export const selectStageCurrent = (snapshot: DashboardSnapshot): string | null => snapshot.state?.stageCurrent ?? null;
