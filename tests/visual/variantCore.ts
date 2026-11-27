@@ -54,6 +54,11 @@ export interface Variant {
    * Screenshot-only (the layout gate never scrolls), so a scrolled variant sets `skipLayout`.
    */
   readonly scrollY?: number;
+  /**
+   * T1400 (@ui:VISUAL-VARIANTS): dashboard hover cards — focus this selector after load, so a card that opens on
+   * keyboard focus (`0 ms`, `@ui:UI-R22`) is open when the shot records it. Screenshot-only like `scrollY`.
+   */
+  readonly focus?: string;
   /** Dashboard drill-downs: pill names clicked, in order, after the page loads (the restored artifact index shows the pills). */
   readonly pills?: readonly string[];
   /** Dashboard agent popover: open it after load, then pick a core, type a query, pick a capability tab (in that order). */
@@ -188,6 +193,7 @@ export function variant(
     captureTarget?: string;
     viewportHeight?: number;
     scrollY?: number;
+    focus?: string;
     pills?: readonly string[];
     agentPopover?: AgentPopoverSteps;
     ticketDetails?: TicketDetailsSteps;
@@ -211,6 +217,7 @@ export function variant(
     ...(opts.captureTarget === undefined ? {} : { captureTarget: opts.captureTarget }),
     ...(opts.viewportHeight === undefined ? {} : { viewportHeight: opts.viewportHeight }),
     ...(opts.scrollY === undefined ? {} : { scrollY: opts.scrollY }),
+    ...(opts.focus === undefined ? {} : { focus: opts.focus }),
     ...(opts.pills === undefined ? {} : { pills: opts.pills }),
     ...(opts.agentPopover === undefined ? {} : { agentPopover: opts.agentPopover }),
     ...(opts.ticketDetails === undefined ? {} : { ticketDetails: opts.ticketDetails }),

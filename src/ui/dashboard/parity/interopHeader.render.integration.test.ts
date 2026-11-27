@@ -117,6 +117,28 @@ describe('React header / vanilla page interop — actions', () => {
     expect(v.posted.length).toBe(before);
   });
 
+  it('the planning card opens on focus, yields to the ⋯ menu, and its tight twin posts plan-open (T1400)', async () => {
+    const v = await open();
+    v.query<HTMLElement>('#planLink')!.focus();
+    await drainReactWork(v);
+    expect(v.query('#planCard')).not.toBeNull();
+    expect(v.query('#planLink')!.getAttribute('aria-expanded')).toBe('true');
+    await escape(v);
+    expect(v.query('#planCard')).toBeNull();
+    expect(v.document.activeElement).toBe(v.query('#planLink'));
+    v.query<HTMLElement>('#planLink')!.blur();
+    await drainReactWork(v);
+    v.query<HTMLElement>('#planLink')!.focus();
+    await drainReactWork(v);
+    expect(v.query('#planCard')).not.toBeNull();
+    await click(v, '#moreBtn');
+    expect(v.query('#planCard')).toBeNull();
+    expect(isOpen(v, '#menuPopover')).toBe(true);
+    const before = v.posted.length;
+    await click(v, '#menuPlanOpen');
+    expect(v.posted.slice(before)).toMatchObject([{ type: 'plan-open', sessionId: 17 }]);
+  });
+
   it('moves the tight-tier twins into ⋯, and a done ticket draws no status chip', async () => {
     const v = await open({ ...populatedStateFor('done'), ticketUrl: 'https://x/t', priority: { level: 'high', text: 'high', source: 'provider' } });
     expect(v.query('#statusChip')!.hasAttribute('hidden')).toBe(true);

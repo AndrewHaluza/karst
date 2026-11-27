@@ -220,15 +220,16 @@ END_DOC_BLOCK: [@ui:RD-A11Y]
 
 ## [@ui:RD-VIEWS] Per-view region tables
 
-Columns: audited element → ladder → target at each tier. Grid templates use `minmax(0,…)`; `S` = `var(--k-space-N)`. Source lines are from the audit.
+Columns: audited element → ladder → target at each tier. Grid templates use `minmax(0,…)`; `S` = `var(--k-space-N)`.
 
-### Dashboard (waits for the React migration, see `ui:RD-BACKLOG`)
+### Dashboard
 
 | Region | Element | Ladder | wide | mid | narrow | tight |
 |---|---|---|---|---|---|---|
 | header | title row | ticket id + title | one row; row 1 sticks (`--k-z-sticky`), row 2 (`#headerMeta`) scrolls | same | title own line, actions row below; priority chip stays | same, actions = primary + ⋯; provider icon, ↗ and ▤ move to ⋯ as "Open in provider" / "Ticket details" |
 | header | identity chips | id, status, priority, key | id + state pill; priority = the sidebar chip (`URG`/`HIGH`/`LOW`, none for normal, `P2` neutral) | same | same: the chip never drops | same; key one line, ellipsis, full key in `data-tip` |
 | header | core identity | core | full | short model | name | icon |
+| header | planning link | `#planLink` | `P28` after ▤ in row 1; hover/focus = planning card (session facts, Artifacts), click opens the session | same | same | hidden; ⋯ "Open planning session P28", no card |
 | header | `.headerActions` | action row | all | 3 + ⋯ | primary + 2 icons | primary + ⋯ |
 | stage rail | `.stepper` | measured steps | labels | labels | current label (`IMPL`) | marker + `IMPL` |
 | `#inside` | `.session-head` (`:1013`) | core, numbers, time | `20px minmax(78px,110px) minmax(0,1fr) auto` | same | `20px minmax(0,1fr) auto` (core name into row 2) | `20px minmax(0,1fr)` + row 2: core icon, tok, time |
@@ -244,7 +245,7 @@ Columns: audited element → ladder → target at each tier. Grid templates use 
 | sandbox | strip + popover | buttons | row | row | wrap | wrap; popover `max-width:min(300px,calc(100vw - 2*S5))`, end-anchored |
 | drawer | `.tdDrawer` | drawers | right | right | right 92vw | sheet 100vw, `visibility:hidden` closed |
 
-### Sidebar (reference, verify only)
+### Sidebar
 
 Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks. At tight: stage pill `IMPL` stays; filter chips wrap (already do).
 
@@ -252,12 +253,12 @@ Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks.
 
 | Route / region | Element | Target |
 |---|---|---|
-| nav | section list | narrow/tight: horizontally wrapping chip row (not 7 stacked rows ≈ 190 px) |
+| nav | section list | narrow/tight: horizontally wrapping chip row |
 | all forms | `.form-grid` | region < 700 px: label above control (Q12) |
 | general | numeric pairs | pair stacks when each < 80 px; input min 6ch |
 | git | `.k-field-help` variables chip | wraps, `overflow-wrap:anywhere` |
 | services | repo card | `repeat(auto-fill, minmax(min(100%, 290px), 1fr))` |
-| agents → roles | `--agents-cols` matrix (`agents.webview.css:73`) | region container: wide 6-col; mid 4-col; narrow/tight (region < 700 px) a ~64 px summary row per role: line 1 switch slot, name, source chip, pin; line 2 `<profile> · <core> · <model>` + expand button that opens the 4 pickers in place (user choice, T1239; supersedes one core per card; differs from the prototype stacking, UI-R39-REJECT). Tiers key on the roles region (container query), not the window |
+| agents → roles | `--agents-cols` matrix (`agents.webview.css:73`) | region container: wide 6-col; mid 4-col; narrow/tight (region < 700 px) a ~64 px summary row per role: line 1 switch slot, name, source chip, pin; line 2 `<profile> · <core> · <model>` + expand button that opens the 4 pickers in place (user choice T1239; UI-R39 reject). Tiers key on the roles region (container query), not the window |
 | agents → profiles | master/detail (`:227`) | narrow/tight: list OR detail with Back |
 | presets | `240px 140px minmax(360px,1fr)` | wide as is; mid `minmax(0,1fr) minmax(0,1fr)`; narrow/tight single column, label above |
 | all | window `@media` 1024/768/699 | replaced by region container queries |
@@ -266,7 +267,7 @@ Keep single-line rows (`.rowopen` flex + ellipsis). Add `data-region` landmarks.
 
 | Element | wide / mid | narrow | tight |
 |---|---|---|---|
-| `.stats` cards | `repeat(auto-fit,minmax(min(100%,calc(var(--k-space-9)*5)),1fr))` | 3–4 per row | **2 per row**, value + label inline (replaces 1/row × 7 screens) |
+| `.stats` cards | `repeat(auto-fit,minmax(min(100%,calc(var(--k-space-9)*5)),1fr))` | 3–4 per row | **2 per row**, value + label inline |
 | `.panel` / `.brow` | 2-col | 1-col | 1-col, `%` column dropped to tooltip |
 | By-ticket table / attribution table | table | drop priority-3 columns | cards (`ui:RD-LADDERS` tables) |
 | Resources spark `svg#spark` | fixed width | `viewBox` + `width:100%` | same, ticks thinned to 4; scale note moves under chart |

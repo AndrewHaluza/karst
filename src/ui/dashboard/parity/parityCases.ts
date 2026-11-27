@@ -407,9 +407,24 @@ const openTicketDrawer = (h: RenderHandle): void => {
   if (!q(h, '#ticketDataDrawer.open')) clickEl(q(h, '#ticketDataBtn')!);
 };
 
+/** Keyboard focus on `#planLink` opens the planning card synchronously, where its Artifacts button renders. */
+const focusPlanLink = (h: RenderHandle): void => {
+  if (!q(h, '#planCard')) q(h, '#planLink')!.focus();
+};
+
 export const COVERED: readonly ParityCase[] = [
   // --- header --------------------------------------------------------------
   { act: 'copy-ticket-key', state: () => st('impl'), sel: act('copy-ticket-key'), posts: [{ type: 'copy-ticket-key' }], rid: true },
+  // T1400: the `P<n>` identifier is the link that opens the planning session (UI-R09c).
+  {
+    act: 'plan-open', state: () => st('impl'), sel: '#planLink' + act('plan-open'),
+    posts: [{ type: 'plan-open', sessionId: 17 }], rid: true,
+  },
+  // The card opens synchronously on keyboard focus (0 ms), so focus then click renders the one action.
+  {
+    act: 'plan-artifacts', state: () => st('impl'), prep: focusPlanLink, sel: act('plan-artifacts'),
+    posts: [{ type: 'plan-artifacts', sessionId: 17 }], rid: true,
+  },
   {
     act: 'open-ticket-link', state: () => st('impl', { ticketUrl: 'https://tickets.example/FEAT-142' }),
     sel: act('open-ticket-link'), posts: [{ type: 'open-ticket-link', url: 'https://tickets.example/FEAT-142' }], rid: true,
