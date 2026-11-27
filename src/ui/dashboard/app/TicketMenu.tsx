@@ -97,7 +97,7 @@ function Gates({ open }: { readonly open: boolean }) {
       <div className="gateGroup">
         <div className="gateHead">{title}</div>
         {opts.map((o) => (
-          <GateRow key={o.name} stage={stage} name={o.name} disabled={!!o.disabled} configOff={!!o.configDisabled} />
+          <GateRow key={`${stage}:${o.name}`} stage={stage} name={o.name} disabled={!!o.disabled} configOff={!!o.configDisabled} />
         ))}
       </div>
     );
@@ -149,7 +149,13 @@ function Gates({ open }: { readonly open: boolean }) {
       </div>
       <div id="gateTabPanel" className="gateGroup" role="tabpanel" aria-labelledby={`gateTab-${active}`}>
         {activeGroup[2].map((o) => (
-          <GateRow key={o.name} stage={activeGroup[1]} name={o.name} disabled={!!o.disabled} configOff={!!o.configDisabled} />
+          <GateRow
+            key={`${activeGroup[1]}:${o.name}`}
+            stage={activeGroup[1]}
+            name={o.name}
+            disabled={!!o.disabled}
+            configOff={!!o.configDisabled}
+          />
         ))}
       </div>
     </>

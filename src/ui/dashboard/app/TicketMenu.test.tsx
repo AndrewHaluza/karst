@@ -240,6 +240,22 @@ describe('TicketMenu — gates', () => {
     expect(e2e.closest('.gateRow')!.classList.contains('off')).toBe(true);
   });
 
+  it('does not carry a pending switch across tabs that share a gate name', () => {
+    const h = mountHeader(headerState());
+    // Manifest gates resolve per stage independently: the same name may exist in both (UI-R26 keeps pending per control).
+    h.emit({ type: 'gate-options', options: { uat: [{ name: 'unit', disabled: false }], review: [{ name: 'unit', disabled: false }] } });
+    const uatUnit = $('[data-name="unit"]');
+    fireEvent.click(uatUnit);
+    expect(uatUnit.classList.contains('is-pending')).toBe(true);
+    fireEvent.click($('#gateTab-review'));
+    const reviewUnit = $('[data-name="unit"]');
+    expect(reviewUnit).not.toBe(uatUnit);
+    expect(reviewUnit.classList.contains('is-pending')).toBe(false);
+    // The Review switch is its own control and still posts for its own stage.
+    fireEvent.click(reviewUnit);
+    expect(h.send.setDisabledGates).toHaveBeenLastCalledWith('review', 'unit', true, 'req-2');
+  });
+
   it('posts the flip once per click on either tab, runtime-pending, and survives a repeated answer', () => {
     const h = mountHeader(headerState());
     h.emit(gates);
