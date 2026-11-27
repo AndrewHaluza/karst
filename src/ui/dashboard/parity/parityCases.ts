@@ -362,6 +362,12 @@ const headerMenu = (item: string) => (h: RenderHandle) => {
   if (q(h, item) && !isShown(q(h, item)!)) clickEl(q(h, '#moreBtn')!);
 };
 
+/** T1397: the gate switches of one stage sit behind its tab; make sure that tab is the selected one. */
+const selectGateTab = (stage: 'uat' | 'review') => (h: RenderHandle) => {
+  const tab = q(h, `#gateTab-${stage}`);
+  if (tab && tab.getAttribute('aria-selected') !== 'true') clickEl(tab);
+};
+
 /** The runtime strip's sandbox dropdown: open its details popover when the settings button is hidden. */
 const sandboxDetails = (h: RenderHandle) => {
   const btn = q(h, act('open-settings'));
@@ -673,12 +679,27 @@ export const COVERED: readonly ParityCase[] = [
     state: () => st('uat'),
     prep: (h) => {
       if (!q(h, act('set-disabled-gates'))) {
-        h.receive({ type: 'gate-options', options: { uat: [{ name: 'e2e', disabled: false }], review: [] } });
+        h.receive({ type: 'gate-options', options: { uat: [{ name: 'e2e', disabled: false }], review: [{ name: 'sec', disabled: false }] } });
       }
       headerMenu(act('set-disabled-gates'))(h);
+      selectGateTab('uat')(h);
     },
     sel: act('set-disabled-gates', '[data-name="e2e"]'),
     posts: [{ type: 'set-disabled-gates', stage: 'uat', name: 'e2e', disabled: true }], rid: true,
+  },
+  {
+    // T1397: the Review stage lives behind its own tab; selecting it first must offer that stage's switches.
+    act: 'set-disabled-gates', variant: 'review tab',
+    state: () => st('uat'),
+    prep: (h) => {
+      if (!q(h, act('set-disabled-gates'))) {
+        h.receive({ type: 'gate-options', options: { uat: [{ name: 'e2e', disabled: false }], review: [{ name: 'sec', disabled: false }] } });
+      }
+      headerMenu(act('set-disabled-gates'))(h);
+      selectGateTab('review')(h);
+    },
+    sel: act('set-disabled-gates', '[data-stage="review"][data-name="sec"]'),
+    posts: [{ type: 'set-disabled-gates', stage: 'review', name: 'sec', disabled: true }], rid: true,
   },
 
   {

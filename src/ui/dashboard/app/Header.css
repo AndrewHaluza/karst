@@ -71,6 +71,16 @@
 .gateRow{min-height:var(--k-control-h-lg);display:flex;align-items:center;gap:var(--k-space-4);padding:0 var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border)}
 .gateName{flex:1;font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
 .gateSwitch{margin-left:auto}
+/* T1397: the two stage tabs (UAT | Review) above the one gate list, so the menu shows at most the longer stage's
+   rows. Tokens only (UI-R04); the popover keeps its 12 control-height width. */
+.gateTabs{display:flex;gap:var(--k-space-1);margin:0 var(--k-space-3) var(--k-space-3);padding:var(--k-space-1);background:var(--k-surface-sunken);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md)}
+.gateTab{flex:1;min-width:0;min-height:var(--k-control-h-sm);padding:0 var(--k-space-3);border:0;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text-dim);font:inherit;font-size:var(--k-text-xs);font-weight:var(--k-weight-medium);white-space:nowrap;cursor:pointer}
+.gateTab:hover{color:var(--k-text)}
+.gateTab[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text);font-weight:var(--k-weight-semibold)}
+.gateTab:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+.gateTabOff{color:var(--k-warning)}
+/* The tabbed group has no `.gateHead`, so its first row must not draw the head's divider on its own top edge. */
+.gateGroup > .gateRow:first-child{border-top:0}
 /* Select shell / dropdown — shared agent-switch picker (same pattern as
    Settings → General, adapted to dashboard design tokens). */
 .select-shell{position:relative;min-width:0}

@@ -35,6 +35,14 @@ describe('Header.css — guards moved with the rules', () => {
     expect(PAGE).toContain('.menuButton{width:100%');
   });
 
+  it('keeps the ticket popover at 12 control heights and the gate tabs token-sized (T1397)', () => {
+    expect(CSS).toContain('.menuPopover{width:calc(var(--k-control-h-lg) * 12)');
+    expect(CSS).toMatch(/\.gateTabs\{[^}]*background:var\(--k-surface-sunken\)/);
+    expect(CSS).toContain('.gateTabOff{color:var(--k-warning)}');
+    expect(CSS).toContain('.gateGroup > .gateRow:first-child{border-top:0}');
+    expect(CSS).toMatch(/\.gateTab\[aria-selected="true"\]\{[^}]*var\(--k-surface-hover\)/);
+  });
+
   it('never hides the ticket id or the ticket title at any container tier (RD-NEVER #4)', () => {
     const tiers = CSS.match(/@container ticket-head[^\n]*/g) ?? [];
     expect(tiers.length).toBeGreaterThan(0);
