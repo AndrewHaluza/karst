@@ -7,7 +7,7 @@ import { createBridgePoller, type BridgePoller } from './bridgePoller.js';
 import { verifyBridgeLine, type BridgeExpectation } from './bridgeVerifier.js';
 import { createMarkerFlow, type MarkerFlowDeps, type MarkerFailure, type MarkerOptions, type QueuedMarker, type MarkerOutcome, type PendingMarkerStore } from './markerFlow.js';
 import { sanitizeNoChangeReason } from '../../model/noChange.js';
-import { writeMarkerReply } from './markerReply.js';
+import { writeMarkerReply, type MarkerReply } from './markerReply.js';
 
 export type MarkerRunner = (stage: MarkerStage, options?: MarkerOptions) => Promise<MarkerOutcome>;
 
@@ -26,6 +26,12 @@ export interface BridgeAttachmentDeps {
   readonly onMarkerAccepted?: (stage: MarkerStage) => void;
   /** Host recovery for a refused fix marker (the one gate re-run); see `MarkerFlowDeps.recoverRefusal`. */
   readonly recoverRefusal?: MarkerFlowDeps['recoverRefusal'];
+  /**
+   * Copy the reply file to a remote bridge run dir (D556); the ssh call lives
+   * outside this host-agnostic module. A refusal is advisory: the agent's wait
+   * times out and the host keeps its one verified file.
+   */
+  readonly mirrorReply?: (seq: string, reply: MarkerReply) => Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
   /** Test seam for the retry timer. */
   readonly schedule?: (fn: () => void, ms: number) => () => void;
   readonly backoffMs?: readonly number[];
@@ -102,7 +108,13 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
   const id = deps.expect.ticketId;
   const flow = createMarkerFlow({
     runMarker: deps.runMarker,
-    reply: (seq, reply) => writeMarkerReply(deps.paths, seq, reply),
+    reply: async (seq, reply) => {
+      await writeMarkerReply(deps.paths, seq, reply);
+      const mirrored = await deps.mirrorReply?.(seq, reply);
+      // A failed remote copy is advisory: the host file is authoritative and
+      // the agent's wait times out (D556). Never delay the marker verdict on it.
+      if (mirrored !== undefined && !mirrored.ok) log(`ticket ${id} reply ${seq} remote mirror refused: ${mirrored.reason}`);
+    },
     pending: filePendingStore(deps.paths.pendingFile),
     currentStage: deps.expect.stage,
     ...(deps.onMarkerAccepted ? { onAccepted: deps.onMarkerAccepted } : {}),

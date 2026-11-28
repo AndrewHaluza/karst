@@ -89,7 +89,7 @@ describe('conflict delivery (@arch:AP-01)', () => {
 
   it('writes one debug line for each route', () => {
     const debug = vi.fn();
-    const deliver = (): void => makeConflictDelivery({ ...baseDeps(), debug })(h.ticketId, BRIEF, 'api');
+    const deliver = () => makeConflictDelivery({ ...baseDeps(), debug })(h.ticketId, BRIEF, 'api');
     deliver();
     h.state.live = false;
     deliver();

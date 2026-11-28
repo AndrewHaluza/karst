@@ -420,6 +420,17 @@ describe('fixWatchdog', () => {
       expect(getTicket(store, ticketId).agentState).toBe('not-started');
     });
 
+    it('marks needs-you after an ASYNC unsendable pointer resolves (D556)', async () => {
+      pendingFixIntent();
+      const nudge = vi.fn(() => true);
+      runFixWatchdog(deps({ nudge, pointAtFix: () => Promise.resolve('unsendable' as const), now: () => AFTER_DELIVERY }));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(nudge).not.toHaveBeenCalled();
+      expect(getTicket(store, ticketId).agentState).toBe('not-started');
+      expect(getSessionLaunchIntent(store, 'FIX-1')!.redeliveredAt).toBeNull();
+    });
+
     it('never points for a non-fix intent', () => {
       implIntent(ticketId);
       const pointAtFix = vi.fn(() => 'sent' as const);

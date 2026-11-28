@@ -48,8 +48,7 @@ beforeEach(() => {
 });
 
 describe('makeBridgeBuild', () => {
-  it('builds an attachment with live expectations from the store', () => {
-    let launch: string | undefined = 'L1';
+  it('builds an attachment with live expectations from the store', () => {    let launch: string | undefined = 'L1';
     const build = makeBridgeBuild(deps({ launchIdFor: (id) => (id === ticketId ? launch : 'other') }));
     expect(build(ticketId, paths)).toBe(attachment);
     const d = captured[0]!;
@@ -196,6 +195,21 @@ describe('openBridgeTicketIds', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(done);
     store.db.prepare("UPDATE tickets SET archived_at = 'x' WHERE id = ?").run(archived);
     expect(openBridgeTicketIds(store)).toEqual(new Set([ticketId]));
+  });
+});
+
+describe('makeBridgeBuild mirrorReply (D556)', () => {
+  it('binds the results-file mirror to the ticket and passes the exact reply', async () => {
+    const mirrorReply = vi.fn(async () => ({ ok: true as const }));
+    makeBridgeBuild(deps({ mirrorReply }))(ticketId, paths);
+    const reply = { v: 1 as const, stage: 'impl' as const, ok: true, retrying: false, reason: '' };
+    await expect(captured[0]!.mirrorReply!('seq-1', reply)).resolves.toEqual({ ok: true });
+    expect(mirrorReply).toHaveBeenCalledWith(ticketId, 'seq-1', reply);
+  });
+
+  it('carries no seam when the host supplied none (host/sbx tickets)', () => {
+    makeBridgeBuild(deps())(ticketId, paths);
+    expect(captured[0]!.mirrorReply).toBeUndefined();
   });
 });
 

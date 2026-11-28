@@ -446,5 +446,17 @@ describe('fixDeliveryWiring', () => {
       w.deliver(ticketId, null);
       expect(nudge).not.toHaveBeenCalled();
     });
+
+    it('mirrors the brief before the pointer; the nudge waits for the mirror', async () => {
+      let release!: (r: { ok: true }) => void;
+      const mirror = vi.fn(() => new Promise<{ ok: true }>((resolve) => { release = resolve; }));
+      const { w } = sandboxed({ mirror });
+      const pending = w.deliver(ticketId, null);
+      expect(mirror).toHaveBeenCalledTimes(1);
+      expect(nudge).not.toHaveBeenCalled();
+      release({ ok: true });
+      await pending;
+      expect(nudge).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -223,6 +223,54 @@ describe('fixDeliveryWiring branches', () => {
     });
   });
 
+  describe('ssh remote mirror (D556)', () => {
+    const sandboxed = (mirror: FixDeliveryWiringDeps['mirror']) => {
+      st.channel = CH;
+      const paths = bridgePaths(root, 7);
+      mkdirSync(paths.dir, { recursive: true });
+      return { paths, w: make({ bridgePaths: () => paths, ...(mirror ? { mirror } : {}) }) };
+    };
+
+    it('types the pointer only AFTER the mirror resolves', async () => {
+      let release!: (r: { ok: true }) => void;
+      const mirror = vi.fn(() => new Promise<{ ok: true }>((resolve) => { release = resolve; }));
+      const { w } = sandboxed(mirror);
+      const pending = w.deliver(ticketId, null);
+      expect(mirror).toHaveBeenCalledWith(ticketId, expect.stringMatching(/^inbox\/fix-[0-9]+\.md$/), expect.any(String));
+      expect(nudge).not.toHaveBeenCalled();
+      release({ ok: true });
+      await pending;
+      expect(nudge).toHaveBeenCalledTimes(1);
+    });
+
+    it('an ok:false mirror blocks the nudge and leaves the row for the sweep', async () => {
+      const mirror = vi.fn(async () => ({ ok: false as const, reason: 'ssh remote devbox not confirmed' }));
+      const { w } = sandboxed(mirror);
+      await expect(w.deliver(ticketId, null)).resolves.toBe(false);
+      expect(nudge).not.toHaveBeenCalled();
+      expect(currentFixDelivery(store, ticketId)!.supersededAt).toBeNull();
+    });
+
+    it('a rejected mirror blocks the nudge like a false write', async () => {
+      const mirror = vi.fn(() => Promise.reject(new Error('ssh down')));
+      const { w } = sandboxed(mirror);
+      await expect(w.deliver(ticketId, null)).resolves.toBe(false);
+      expect(nudge).not.toHaveBeenCalled();
+    });
+
+    it('a failing mirror leaves the row for the sweep, which escalates as Needs you', async () => {
+      const mirror = vi.fn(async () => ({ ok: false as const, reason: 'ssh remote devbox not confirmed' }));
+      const { w } = sandboxed(mirror);
+      await w.recordSeed(ticketId, null as never, 'LS');
+      const row = currentFixDelivery(store, ticketId)!;
+      age(row.id);
+      st.live = false;
+      await w.sweep.sweep();
+      expect(getFixDelivery(store, row.id)!.pointerFailedAt).not.toBeNull();
+      expect(needsYou().some((m) => m.includes('the fix pointer could not be sent'))).toBe(true);
+    });
+  });
+
   describe('hook channel', () => {
     it('armed is true only for a current, armed, unpointed, unread row', () => {
       st.channel = 'cli-env';

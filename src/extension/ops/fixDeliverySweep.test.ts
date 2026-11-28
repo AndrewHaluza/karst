@@ -268,7 +268,7 @@ describe('fixDeliverySweep', () => {
       const slept = 2 * 60 * 60_000;
       const awakeAfterSleeping = (sinceMs: number, nowMs: number): number =>
         Math.max(0, nowMs - sinceMs - slept);
-      const sweepWithSleep = (): void =>
+      const sweepWithSleep = () =>
         makeFixDeliverySweep({
           ...h.host,
           projectId: () => h.projectId,

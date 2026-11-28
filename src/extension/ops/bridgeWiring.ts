@@ -16,6 +16,7 @@ import type { GraphLaunchOwner } from '../../store/graph/sessionOwners.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { findTicketById, getSessionLaunchId } from '../../store/tickets.js';
 import type { MarkerFailure } from '../../agent/bridge/markerFlow.js';
+import type { MarkerReply } from '../../agent/bridge/markerReply.js';
 import { ackFixDeliveryRef } from './fixDeliveryOps.js';
 import { makeRecoverRefusal } from './fixRerunOps.js';
 import type { HostRerunOutcome } from '../../workflow/fixHostRerun.js';
@@ -54,6 +55,11 @@ export interface BridgeBuildDeps {
   readonly ensureSynced?: (ticketId: number) => Promise<EnsureSyncResult>;
   /** A done marker passed for `ticketId` (a sandboxed session may now be ended, arch:AC-37). */
   readonly onMarkerAccepted?: (ticketId: number) => void;
+  /**
+   * Copy the reply file into an ssh ticket's remote bridge run dir (D556). The
+   * ssh argv lives in the injected seam, never in the bridge module.
+   */
+  readonly mirrorReply?: (ticketId: number, seq: string, reply: MarkerReply) => Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
   /** Re-runs a ticket's failed gates once for a fix marker refused as "no new commit" (D403). */
   readonly rerunFailedGates?: (ticketId: number) => Promise<HostRerunOutcome>;
   readonly spawn?: MarkerSpawn;
@@ -93,6 +99,9 @@ export function makeBridgeBuild(
       },
       ...(deps.rerunFailedGates ? { recoverRefusal: makeRecoverRefusal(ticketId, { rerun: deps.rerunFailedGates, ...(deps.debug ? { debug: deps.debug } : {}) }) } : {}),
       ...(deps.onMarkerAccepted ? { onMarkerAccepted: () => deps.onMarkerAccepted!(ticketId) } : {}),
+      ...(deps.mirrorReply
+        ? { mirrorReply: (seq: string, reply: MarkerReply) => deps.mirrorReply!(ticketId, seq, reply) }
+        : {}),
       onMarkerFailure: (failure) => markerFailed(deps, ticketId, ticketKey, failure),
       ...(deps.debug ? { debug: deps.debug } : {}),
     });
