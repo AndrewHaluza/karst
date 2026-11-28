@@ -94,8 +94,8 @@ describe('deliverFactsFor gates (the per-gate facts the Push row lists)', () => 
     gate(run, 'unit', 0);
     expect(deliverFactsFor(store, id).gates).toEqual([
       { name: 'unit', repo: 'r', status: 'pass', startedAt: at(1), endedAt: at(2), exitCode: 0 },
-      { name: 'docs', repo: 'r', status: 'run', startedAt: null, endedAt: null, exitCode: null },
-      { name: 'visual', repo: 'r', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+      { name: 'docs', repo: '', status: 'run', startedAt: null, endedAt: null, exitCode: null },
+      { name: 'visual', repo: '', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
     ]);
   });
 
@@ -132,7 +132,20 @@ describe('deliverFactsFor gates (the per-gate facts the Push row lists)', () => 
     expect(deliverFactsFor(store, id).gates?.map((g) => [g.name, g.repo, g.status])).toEqual([
       ['unit', 'api', 'pass'],
       ['unit', 'web', 'fail'],
-      ['docs', 'web', 'run'],
+      ['docs', '', 'run'],
+    ]);
+  });
+
+  it('never names a repository for a gate with no result: the run plans gate names only (T1403)', () => {
+    // Two repositories plan `unit, docs` each; the first repository finished, the second has not started.
+    const run = openDeliverRun(store, { ticketId: id, headSha: 'a'.repeat(40), gates: ['unit', 'docs', 'unit', 'docs'], pid: 1, now: 'T' });
+    gate(run, 'unit', 0, 'api');
+    gate(run, 'docs', 0, 'api');
+    expect(deliverFactsFor(store, id).gates?.map((g) => [g.name, g.repo, g.status])).toEqual([
+      ['unit', 'api', 'pass'],
+      ['docs', 'api', 'pass'],
+      ['unit', '', 'run'],
+      ['docs', '', 'pending'],
     ]);
   });
 

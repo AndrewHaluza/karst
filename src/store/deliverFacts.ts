@@ -20,13 +20,13 @@ function currentHead(store: Store, ticketId: number): string | null {
 /**
  * The gates of the current run as facts: one per planned gate AND repo, in plan order. A result carries its own
  * repo, so a gate planned once per repo (a `unit` per repository) emits one fact per result. A gate with no result
- * left is the gate that runs now (`run`) while the run is `running`; the rest are `pending`. A skipped gate is
+ * left is the gate that runs now (`run`) while the run is `running`; the rest are `pending`. A gate with no result has
+ * no repo (''): the run plans gate names only, so a later repository's gate is never given an earlier one's name. A skipped gate is
  * recorded with a null exit and a `skipped:` summary, so it reads `pass` — it was cut, not failed (T1403). A gate
  * that waits for a slot is live host state, so the `wait` status is applied by `withDeliverWait` at render time.
  */
 function gateFacts(run: DeliverRun, results: readonly DeliverGateResult[]): DeliverGateFact[] {
   const current = run.state === 'running' ? run.currentGate ?? run.gates[run.finished] ?? null : null;
-  const fallbackRepo = results.at(-1)?.repo ?? '';
   const seen = new Map<string, number>();
   const out: DeliverGateFact[] = [];
   for (const name of run.gates) {
@@ -35,7 +35,7 @@ function gateFacts(run: DeliverRun, results: readonly DeliverGateResult[]): Deli
     seen.set(name, at + 1);
     const r = own[at];
     if (r === undefined) {
-      out.push({ name, repo: fallbackRepo, status: name === current ? 'run' : 'pending', startedAt: null, endedAt: null, exitCode: null });
+      out.push({ name, repo: '', status: name === current ? 'run' : 'pending', startedAt: null, endedAt: null, exitCode: null });
       continue;
     }
     const status: DeliverGateFact['status'] = r.exitCode === 0 || (r.exitCode === null && r.summary?.startsWith('skipped:') === true) ? 'pass' : r.exitCode === null ? 'pending' : 'fail';

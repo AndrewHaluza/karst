@@ -103,7 +103,7 @@ describe('deliverPushRows — one row per pre-push gate (T1403)', () => {
       failures: [{ gate: 'docs', repo: '/wt/api', exitCode: 1, headSha: A, summary: 'boom' }],
       gates: [gate('unit', 'pass'), gate('docs', 'fail', { exitCode: 1, endedAt: NOW }), gate('visual', 'run')],
     });
-    const kept = deliverPushRows(input({ canDeliver: false, auto }), NOW).filter((r) => r.deliverDismiss);
+    const kept = deliverPushRows(input({ canDeliver: false, auto }), NOW).filter((r) => r.label.startsWith('Gate '));
     // `docs` is the current run's own fail row: it is not repeated as a kept failure.
     expect(kept).toEqual([]);
 
@@ -111,6 +111,20 @@ describe('deliverPushRows — one row per pre-push gate (T1403)', () => {
     expect(deliverPushRows(input({ canDeliver: false, auto: older }), NOW)).toEqual([
       { label: 'Gate docs failed', detail: `exit 2 · on an older head ${'b'.repeat(9)}`, status: 'fail', deliverDismiss: { gate: 'docs' }, output: 'boom' },
     ]);
+  });
+
+  it('gives a failed gate of the current run its own Dismiss and output when the failure is on record (T1403)', () => {
+    const auto = autoWithGates({
+      running: null,
+      failures: [{ gate: 'docs', repo: '/wt/api', exitCode: 1, headSha: A, summary: 'boom' }],
+      gates: [gate('unit', 'pass'), gate('docs', 'fail', { exitCode: 1 })],
+    });
+    const rows = deliverPushRows(input({ canDeliver: false, auto }), NOW);
+    expect(rows.find((r) => r.label === 'docs')).toMatchObject({ status: 'fail', detail: 'exit 1', deliverDismiss: { gate: 'docs' }, output: 'boom' });
+    expect(rows.find((r) => r.label === 'unit')?.deliverDismiss).toBeUndefined();
+    // A fail row with no failure on record (already dismissed) offers no Dismiss.
+    const dismissed = autoWithGates({ running: null, failures: [], gates: [gate('docs', 'fail', { exitCode: 1 })] });
+    expect(deliverPushRows(input({ canDeliver: false, auto: dismissed }), NOW)[0]?.deliverDismiss).toBeUndefined();
   });
 
   it('lists the pending sync and push rows while the host found commits to deliver', () => {

@@ -87,25 +87,37 @@ function gateRow(
   from: string | null,
   now: string,
   repoNameFor: ((repo: string) => string | undefined) | undefined,
+  failure: DeliverFailureFact | undefined,
 ): EvidenceRow {
   const repo = g.repo ? { repo: repoNameFor?.(g.repo) ?? g.repo } : {};
   const live = g.status === 'run';
+  // A failed gate still on record keeps the Dismiss the kept failure rows offer, and its output.
+  const dismiss = g.status === 'fail' && failure ? { deliverDismiss: { gate: failure.gate }, ...(failure.summary ? { output: failure.summary } : {}) } : {};
   return {
     label: g.name,
     detail: gateDetail(g),
     status: g.status,
     ...repo,
+    ...dismiss,
     ...(g.status === 'wait' || g.status === 'pending' ? {} : timing(g.startedAt ?? (live ? from : null), live ? now : g.endedAt)),
     // Tells the webview this is a pre-push gate row (its live region), never a per-repository push row.
     deliverGate: true,
   };
 }
 
+const failureKey = (gate: string, repo: string): string => `${gate}\u0000${repo}`;
+
+/** The failure on record for one fail row of the current run (same gate, same repo). */
+function failureOf(auto: DeliverFacts, g: DeliverGateFact): DeliverFailureFact | undefined {
+  if (g.status !== 'fail') return undefined;
+  return auto.failures.find((f) => failureKey(f.gate, f.repo) === failureKey(g.name, g.repo));
+}
+
 /** The failures still on record that the CURRENT run did not list as its own fail row (same gate, same repo). */
 function keptFailures(auto: DeliverFacts): EvidenceRow[] {
-  const current = new Set((auto.gates ?? []).filter((g) => g.status === 'fail').map((g) => `${g.name}\u0000${g.repo}`));
+  const current = new Set((auto.gates ?? []).filter((g) => g.status === 'fail').map((g) => failureKey(g.name, g.repo)));
   return auto.failures
-    .filter((f) => !current.has(`${f.gate}\u0000${f.repo}`))
+    .filter((f) => !current.has(failureKey(f.gate, f.repo)))
     .map((f) => failureRow(f, auto.headSha));
 }
 
@@ -124,7 +136,7 @@ export function deliverPushRows(
   const running = auto?.running ?? null;
   if (auto?.gates !== undefined) {
     if (running?.baseCheck === true) rows.push({ label: 'Check before push', role: 'phase' });
-    auto.gates.forEach((g, i) => rows.push(gateRow(g, liveStart(auto.gates!, i), now, repoNameFor)));
+    auto.gates.forEach((g, i) => rows.push(gateRow(g, liveStart(auto.gates!, i), now, repoNameFor, failureOf(auto, g))));
   } else if (running) {
     // A record older than the gate facts: one running row, worded as before.
     rows.push({
