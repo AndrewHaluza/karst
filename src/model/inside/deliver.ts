@@ -44,6 +44,18 @@ export interface DeliverFacts {
   readonly roundActive: boolean;
   /** The head the ship panel shows now; a failure on another head is an older record. */
   readonly headSha: string | null;
+  /** The gates of the CURRENT run, in plan order (one fact per gate AND repo); absent when no run exists. */
+  readonly gates?: readonly DeliverGateFact[];
+}
+
+/** One planned gate of the current run as the Push row lists it: a status, the repo, and its times. */
+export interface DeliverGateFact {
+  readonly name: string;
+  readonly repo: string;
+  readonly status: 'pass' | 'fail' | 'run' | 'wait' | 'pending';
+  readonly startedAt: string | null;
+  readonly endedAt: string | null;
+  readonly exitCode: number | null;
 }
 
 export const SHA_SHORT = 9;
@@ -62,7 +74,12 @@ export function deliverProgressLine(f: DeliverFacts): string | null {
 /** The facts with the running gate marked waiting when the live state says it waits for a slot. */
 export function withDeliverWait(f: DeliverFacts | undefined, live: Readonly<Record<string, { readonly kind: string }>> | undefined): DeliverFacts | undefined {
   if (!f?.running || live?.[f.running.gate]?.kind !== 'wait') return f;
-  return { ...f, running: { ...f.running, waiting: true } };
+  const gate = f.running.gate;
+  return {
+    ...f,
+    running: { ...f.running, waiting: true },
+    ...(f.gates === undefined ? {} : { gates: f.gates.map((g) => (g.name === gate && g.status === 'run' ? { ...g, status: 'wait' as const } : g)) }),
+  };
 }
 
 export function deliverFailureLine(x: DeliverFailureFact): string {

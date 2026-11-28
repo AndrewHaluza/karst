@@ -246,6 +246,8 @@ export function shipStepEvent(
   ticketId: number,
   event: {
     repo: string;
+    /** The manifest repository NAME for `repo` when the caller knows it; the label prefers it over the raw path. */
+    repoName?: string;
     step: 'commit' | 'push' | 'describe' | 'pr' | 'merge';
     status: 'run' | 'pass' | 'fail' | 'note';
     detail?: string;
@@ -259,7 +261,7 @@ export function shipStepEvent(
     processId: 'ship',
     live: {
       status: event.status === 'fail' ? 'fail' : 'run',
-      label: `${STEP_LABEL[event.step]} · ${event.repo}`,
+      label: `${STEP_LABEL[event.step]} · ${event.repoName ?? event.repo}`,
       // Untrusted prose (CLI/model output) when ship recorded it, else the
       // step's own wording. Capped to fit the wire validator (MAX_WIRE_TEXT);
       // an event the boundary drops is a header that silently goes silent.

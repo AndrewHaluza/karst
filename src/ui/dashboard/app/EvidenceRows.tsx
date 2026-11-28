@@ -55,11 +55,15 @@ function CollapsedToggle({
   );
 }
 
-/** The Deliver row's two regions (T1018): the running gate is the progress line, a kept failure is a gate failure. */
+/**
+ * The Push row's two Deliver regions (T1018, T1403): the running pre-push gate is the progress line, a kept failure is
+ * a gate failure. The row marker (`deliverGate`) tells a Deliver gate row from a per-repository push row of the same
+ * status, so a running push row never claims the progress region.
+ */
 function deliverRegion(id: string, r: EvidenceRow): string | undefined {
-  if (id !== 'deliver') return undefined;
+  if (id !== 'push') return undefined;
   if (r.deliverDismiss) return 'deliver-gate-failures';
-  return r.status === 'run' ? 'deliver-progress' : undefined;
+  return r.deliverGate && r.status === 'run' ? 'deliver-progress' : undefined;
 }
 
 export function EvidenceRows({ ev, stage, id }: { readonly ev: ProcessEvidenceView; readonly stage: string; readonly id: string }) {
