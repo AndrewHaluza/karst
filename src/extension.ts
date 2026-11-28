@@ -528,6 +528,7 @@ import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { buildResourceIndicator } from './ui/resourceStatus.js';
 import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
 import { ResourceMonitor } from './runtime/resourceMonitor.js';
+import { sampleProjectRemoteWorkspaces } from './runtime/containerSampler.js';
 import { NODE_SBX_PROCESS } from './agent/sbx/sbxProcess.js';
 import { getCpuCoreCount } from './runtime/cpuCores.js';
 import { aiCallSiteLabel } from './agent/aiCallSites.js';
@@ -2914,6 +2915,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     cpuCoreCount: getCpuCoreCount(),
     docker: NODE_SBX_PROCESS,
     projectRoot: () => cliEntryAndManifest(context).manifestPath ?? undefined,
+    // D824 edit 7: this project's remote workspaces as cost-free rows; ssh only, an unconfirmed remote gets no call.
+    remoteWorkspaces: () => sampleProjectRemoteWorkspaces(sshRunnerDeps, cliEntryAndManifest(context).manifestPath ?? undefined),
   });
   resourceMonitor = resourceMonitorInstance;
   resourceMonitorInstance.start(); context.subscriptions.push(memoryGuard = bindMemory({ projectId: () => currentProject()?.id, store: localStore, notify: vscodeNotify, manifest: currentManifest, label: (id) => getTicket(localStore, id).key ?? String(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, openSession: (id, opts) => Promise.resolve(vscode.commands.executeCommand('karst.openSession', id, opts)), inventory: () => resourceMonitorInstance.reading().inventory, ownedSessions: () => ownedSessionTickets, stopSandbox: (id) => sandboxLife.stop(id), debug: (m) => logger.debug(m), sweepMs: SUBTASK_AUTOSTART_INTERVAL_MS, })); // host-memory admission queue + pressure warning

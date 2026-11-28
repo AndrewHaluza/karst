@@ -120,6 +120,8 @@ export async function removeSandboxGuarded(
   // A forgotten remote workspace is never removed here: only its Delete action does that (D830).
   const boxes = inv.sandboxes.filter((s) => s.ticketId === target.ticketId && s.stray !== true);
   const placement = deps.placementOf(target.ticketId);
+  /** Indexes of the boxes no listing showed (the recorded ssh placement's box). */
+  const unlisted = new Set<number>();
   // No listing shows an ssh sandbox: the recorded placement names it, and its runner's probe decides (D826).
   // A FORGOTTEN workspace (open stray record) is never removed by the normal guarded path (D830 Delete owns it).
   if (placement?.backend === 'ssh') {
@@ -127,18 +129,23 @@ export async function removeSandboxGuarded(
     const forgotten = sshTarget !== undefined && inv.sandboxes.some(
       (s) => s.stray === true && s.runner === 'ssh' && s.remote === sshTarget.remote && s.name === sshTarget.sandboxName,
     );
-    if (!forgotten) {
+    // A listed box is already in `boxes`: a second (unlisted) copy would probe and remove it twice.
+    const listed = sshTarget !== undefined && boxes.some(
+      (s) => s.runner === 'ssh' && s.remote === sshTarget.remote && s.name === sshTarget.sandboxName,
+    );
+    if (!forgotten && !listed) {
       // Stryker disable next-line StringLiteral,LogicalOperator: equivalent, the placement's ssh runner removes it and reads none of these fields
-      boxes.push({
+      unlisted.add(boxes.push({
         runner: 'ssh', name: sshTarget?.sandboxName ?? placement.sandboxName ?? '', ticketId: target.ticketId,
         core: placement.core ?? target.core ?? '', state: 'stopped', ...(sshTarget === undefined ? {} : { remote: sshTarget.remote }),
-      });
+      }) - 1);
     }
   }
   // A failed listing proves nothing gone: fall back to the recorded placement, else the ticket's current core. Callers skip a recorded-host ticket first (arch:AC-32).
   const kind = placement?.backend ?? sandboxKindOfCore(target.core);
   // An ssh placement pushed its box above (unless it is a forgotten stray), so `kind` is never ssh here.
-  if (boxes.length === 0 && kind !== 'host' && kind !== 'ssh' && inv.errors.length > 0) {
+  // Only the ticket's OWN runner's failure counts (T801): an ssh remote that is down or unconfirmed proves nothing about an sbx/docker box.
+  if (boxes.length === 0 && kind !== 'host' && kind !== 'ssh' && listingFailedFor(inv.errors, kind)) {
     // Stryker disable next-line StringLiteral: equivalent, the removal reads only the runner and core of a fallback box
     boxes.push({ runner: kind, name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
   }
@@ -147,8 +154,8 @@ export async function removeSandboxGuarded(
     deps.notify.warn(`The sandbox of ${target.ticketLabel} stays. Another window owns the ticket.`);
     return false;
   }
-  for (const box of boxes) {
-    if (!(await removeOneGuarded(deps, { ...target, core: box.core }, box, opts))) return false;
+  for (const [i, box] of boxes.entries()) {
+    if (!(await removeOneGuarded(deps, { ...target, core: box.core }, box, opts, !unlisted.has(i)))) return false;
   }
   try {
     await deps.bridges?.dispose(target.ticketId);
@@ -207,6 +214,8 @@ async function removeOneGuarded(
   target: SandboxSyncTarget,
   box: ProjectSandbox,
   opts: { readonly skipSync?: boolean },
+  /** A listing showed this box (false: only the recorded placement names it). */
+  listed: boolean,
 ): Promise<boolean> {
   const branch = target.worktree?.branch;
   const ref = { hostWorktreePath: target.worktree?.path ?? '', branch: branch ?? '' };
@@ -220,18 +229,27 @@ async function removeOneGuarded(
       ? listedSshRunner(deps, box)
       : sandboxRunnerFor(depsForListedBox(deps, box), target.core, target.ticketId);
     if (!runner) return true;
+    // `listedSsh`: the listing saw the workspace dir, so it is removed even when the probe finds no clone in it.
+    const listedSsh = box.runner === 'ssh' && box.remote !== undefined && listed;
+    let noClone = false;
     if (box.runner === 'ssh') {
       const probe = await probeOf(runner);
-      if (probe.state === 'absent') return true;
+      // An unlisted (placement-only) box with no clone has nothing to remove.
+      if (probe.state === 'absent' && !listedSsh) return true;
+      // A listed dir with no clone (a half-made workspace) has no commits to sync.
+      noClone = probe.state === 'absent';
     }
-    const synced = opts.skipSync ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
+    const synced = opts.skipSync || noClone ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
     if (!synced.ok && !(await confirmUnsynced(deps, target, synced.reason))) {
       deps.notify.warn(`The sandbox of ${target.ticketLabel} stays. You did not confirm the removal.`);
       return false;
     }
-    const removal = box.runner === 'ssh'
-      ? await removeSshVerified(runner, ref)
-      : await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
+    const removal = listedSsh
+      // The probe reads `repo/.git`, so it cannot verify the removal of a dir without one: a fresh listing of the same remote does.
+      ? await removeVerified(deps, () => runner.dispose!(ref), (s) => s.runner === 'ssh' && s.remote === box.remote && s.name === box.name)
+      : box.runner === 'ssh'
+        ? await removeSshVerified(runner, ref)
+        : await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
     if (!removal.ok) {
       // Keep the bridge dir and clone record: the Remove affordance retries against them.
       await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed (${disposeFailures(removal)}). The sandbox and its evidence folder stay. Remove the sandbox again to retry.`);

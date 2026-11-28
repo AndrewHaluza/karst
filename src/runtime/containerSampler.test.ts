@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { parseDockerStats, parseMemUsage, sampleContainers, sampleRemoteWorkspaces } from './containerSampler.js';
-import { parseSandboxContainerName, projectPrefix, type ProjectSandbox } from '../agent/sandboxInventory.js';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { parseDockerStats, parseMemUsage, sampleContainers, sampleProjectRemoteWorkspaces, sampleRemoteWorkspaces } from './containerSampler.js';
+import { parseSandboxContainerName, projectPrefix, type ProjectSandbox, type SshInventorySource } from '../agent/sandboxInventory.js';
+import { fakeSshProcess, type FakeSshAnswer, type FakeSshProcess } from '../agent/ssh/fakeSshProcess.js';
+import { REMOTE_TRUST_FILE, remoteTrustKey } from '../agent/ssh/remoteTrust.js';
+import { sshProjectPrefix } from '../agent/ssh/sshNames.js';
+import type { RemoteDef } from '../manifest/types.js';
 import { remoteWorkspaceKey } from './remoteWorkspaces.js';
 import type { ProcessResult, SbxProcess } from '../agent/sbx/sbxProcess.js';
 
@@ -112,5 +119,49 @@ describe('sampleContainers', () => {
   it('times out a hung docker without waiting for it', async () => {
     const docker = fakeDocker(() => new Promise<ProcessResult>(() => {}));
     expect(await sampleContainers({ ...base, docker, serverContainers: [], timeoutMs: 10 })).toEqual({ ok: false, reason: 'timeout' });
+  });
+});
+
+describe('sampleProjectRemoteWorkspaces (edit 7)', () => {
+  const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+  const INSTALL = '0123456789abcdef0123456789abcdef';
+  const NAME = `${sshProjectPrefix('/p', INSTALL)}-7-claude`;
+  const dirs: string[] = [];
+  afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+  const trustDir = (entries: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-remote-rows-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, REMOTE_TRUST_FILE), JSON.stringify(entries));
+    return dir;
+  };
+  const source = (ssh: FakeSshProcess, trusted: boolean): SshInventorySource => ({
+    remotes: () => ({ devbox: REMOTE }), installId: () => INSTALL, ssh, controlDir: '/tmp/karst-ssh-test/',
+    globalStorageDir: trustDir(trusted ? { devbox: remoteTrustKey('devbox', REMOTE) } : {}),
+  });
+  const listing = (name: string): FakeSshAnswer => ({ stdout: `__KARST_DIRS__\n${name}\n__KARST_TMUX__\n\n` });
+
+  it('lists a confirmed remote over ssh and gives one cost-free row per workspace', async () => {
+    const ssh = fakeSshProcess({ '/srv/karst': listing(NAME) });
+    const sample = await sampleProjectRemoteWorkspaces(source(ssh, true), '/p');
+    expect(sample.failed).toEqual(new Set());
+    expect(sample.rows.get('devbox')).toEqual([
+      expect.objectContaining({ kind: 'remote', ticketId: 7, cost: null, label: 'ssh devbox · stopped · disk unknown', comm: NAME }),
+    ]);
+  });
+
+  it('an unconfirmed remote gets no ssh call and is reported as failed', async () => {
+    const ssh = fakeSshProcess({ '/srv/karst': listing(NAME) });
+    const sample = await sampleProjectRemoteWorkspaces(source(ssh, false), '/p');
+    expect(ssh.calls).toEqual([]);
+    expect(sample.failed).toEqual(new Set(['devbox']));
+    expect(sample.rows.size).toBe(0);
+  });
+
+  it('samples nothing without a project root or a declared remote', async () => {
+    const ssh = fakeSshProcess({});
+    expect((await sampleProjectRemoteWorkspaces(source(ssh, true), undefined)).rows.size).toBe(0);
+    expect((await sampleProjectRemoteWorkspaces({ ...source(ssh, true), remotes: () => undefined }, '/p')).rows.size).toBe(0);
+    expect((await sampleProjectRemoteWorkspaces(undefined, '/p')).failed.size).toBe(0);
+    expect(ssh.calls).toEqual([]);
   });
 });

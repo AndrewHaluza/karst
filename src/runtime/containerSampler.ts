@@ -1,4 +1,7 @@
-import { parseSandboxContainerName, projectPrefix, type ProjectSandbox } from '../agent/sandboxInventory.js';
+import {
+  inventorySshDeps, listRemoteSandboxes, parseSandboxContainerName, projectPrefix,
+  type ProjectSandbox, type SshInventorySource,
+} from '../agent/sandboxInventory.js';
 import type { SbxProcess } from '../agent/sbx/sbxProcess.js';
 import type { AttributedRow } from './resourceInventory.js';
 import { remoteWorkspaceFacts, remoteWorkspaceRows } from './remoteWorkspaces.js';
@@ -101,6 +104,33 @@ export function sampleRemoteWorkspaces(
   sizes?: ReadonlyMap<string, number>,
 ): AttributedRow[] {
   return remoteWorkspaceRows(remoteWorkspaceFacts(sandboxes, sizes));
+}
+
+/** One remote-workspace sample: rows per remote that listed, and the remotes whose listing failed. */
+export interface RemoteWorkspaceSample {
+  readonly rows: ReadonlyMap<string, readonly AttributedRow[]>;
+  readonly failed: ReadonlySet<string>;
+}
+
+/**
+ * List this project's workspaces on every declared remote (ssh only, trust
+ * first) and turn them into Resources rows. A remote whose listing failed is in
+ * `failed`, so the caller keeps its previous rows. A per-remote failure never
+ * throws; only an unexpected fault does, and the caller logs it.
+ */
+export async function sampleProjectRemoteWorkspaces(
+  source: SshInventorySource | undefined,
+  projectRoot: string | undefined,
+): Promise<RemoteWorkspaceSample> {
+  const deps = inventorySshDeps(source);
+  const remotes = Object.keys(deps.remotes ?? {});
+  if (projectRoot === undefined || remotes.length === 0) return { rows: new Map(), failed: new Set() };
+  const inv = await listRemoteSandboxes({ projectRoot, ...deps });
+  const failed = new Set(remotes.filter((r) => inv.errors.some((e) => e.startsWith(`ssh ${r}:`))));
+  const rows = new Map(remotes.filter((r) => !failed.has(r)).map((r) => [
+    r, sampleRemoteWorkspaces(inv.sandboxes.filter((s) => s.remote === r)),
+  ] as const));
+  return { rows, failed };
 }
 
 export async function sampleContainers(deps: {

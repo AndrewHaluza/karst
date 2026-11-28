@@ -239,13 +239,16 @@ export function inventorySshDeps(source: SshInventorySource | undefined): Partia
   };
 }
 
+/** The ssh-only listing reads no local runner. */
+export type RemoteInventoryDeps = Omit<InventoryDeps, 'sbx' | 'docker'>;
+
 interface RemoteListing {
   readonly sandboxes: readonly ProjectSandbox[];
   readonly errors: readonly string[];
 }
 
 /** List one declared remote; a failure or an unconfirmed remote is per-remote, never fatal. */
-async function listRemote(name: string, def: RemoteDef, deps: InventoryDeps): Promise<RemoteListing> {
+async function listRemote(name: string, def: RemoteDef, deps: RemoteInventoryDeps): Promise<RemoteListing> {
   const fail = (reason: string): RemoteListing => ({ sandboxes: [], errors: [`ssh ${name}: ${reason}`] });
   const trust = deps.trustDir === undefined ? {} : readRemoteTrust(deps.trustDir, deps.warn);
   // Trust first (D553 C1): an unconfirmed remote gets NO ssh call at all.
@@ -306,14 +309,19 @@ export async function listProjectSandboxes(deps: InventoryDeps): Promise<Sandbox
   const docker = await listDocker(deps.docker, projectPrefix(deps.projectRoot), (name, running) => own('docker', name, deps.projectRoot, running));
   sandboxes.push(...docker.sandboxes);
   errors.push(...docker.errors);
+  const remote = await listRemoteSandboxes(deps);
+  return { sandboxes: [...sandboxes, ...remote.sandboxes], errors: [...errors, ...remote.errors] };
+}
+
+/**
+ * The ssh part of `listProjectSandboxes` alone: every declared remote, trust
+ * first (an unconfirmed remote gets no ssh call), no local runner. Never throws
+ * for one remote; its error string is `ssh <name>: ...`.
+ */
+export async function listRemoteSandboxes(deps: RemoteInventoryDeps): Promise<SandboxInventory> {
   const remotes = deps.remotes ?? {};
-  if (Object.keys(remotes).length > 0) {
-    // In parallel, each bounded by `SSH_INVENTORY_TIMEOUT_MS`: one slow VM never stalls the rest.
-    const listings = await Promise.all(Object.entries(remotes).map(([name, def]) => listRemote(name, def, deps)));
-    for (const listing of listings) {
-      sandboxes.push(...listing.sandboxes);
-      errors.push(...listing.errors);
-    }
-  }
-  return { sandboxes, errors };
+  if (Object.keys(remotes).length === 0) return { sandboxes: [], errors: [] };
+  // In parallel, each bounded by `SSH_INVENTORY_TIMEOUT_MS`: one slow VM never stalls the rest.
+  const listings = await Promise.all(Object.entries(remotes).map(([name, def]) => listRemote(name, def, deps)));
+  return { sandboxes: listings.flatMap((l) => l.sandboxes), errors: listings.flatMap((l) => l.errors) };
 }

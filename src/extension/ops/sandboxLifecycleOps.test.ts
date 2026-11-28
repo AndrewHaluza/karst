@@ -786,9 +786,9 @@ describe('ssh lifecycle: done, idle, archive, orphans and provider switch (D824,
    * flips to `probeAfter` the moment the dispose step ran, so a removal is
    * verified by a REAL re-list / probe (never by an optimistic answer).
    */
-  function sshDisposable(name: string, probeAfter = 44): ReturnType<typeof fakeSshProcess> {
+  function sshDisposable(name: string, probeAfter = 44, probeBefore = 0): ReturnType<typeof fakeSshProcess> {
     const answers: Record<string, FakeSshAnswer> = {
-      'karst-ssh-probe': { code: 0 },
+      'karst-ssh-probe': { code: probeBefore },
       'karst-ssh-stop': { code: 0 },
       'karst-ssh-dispose': { code: 0 },
       [DIR]: dirListing(name, true),
@@ -906,6 +906,71 @@ describe('ssh lifecycle: done, idle, archive, orphans and provider switch (D824,
     await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
     expect(notify.warn).toHaveBeenCalledWith(expect.stringContaining('permission denied'));
     expect(d.bridges.dispose).not.toHaveBeenCalled();
+  });
+
+  it('a listed ssh dir without a clone (probe absent) is disposed and verified by a fresh listing, probed once', async () => {
+    const ssh = sshDisposable(sshName(7), 44, 44);
+    const { d, notify } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh),
+    });
+    await expect(removeSandboxGuarded(d, sshTarget)).resolves.toBe(true);
+    expect(disposed(ssh)).toBe(true);
+    // No clone: nothing to sync, so no bundle and no question.
+    expect(remoteCmds(ssh).some((s) => s.includes('karst-ssh-thin-bundle'))).toBe(false);
+    expect(d.choose).not.toHaveBeenCalled();
+    // The placement box is the listed box: it is probed once, not twice.
+    expect(remoteCmds(ssh).filter((s) => s.includes('karst-ssh-probe'))).toHaveLength(1);
+    expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+  });
+
+  it('a listed ssh dir without a clone that the dispose leaves listed is reported, never "Removed"', async () => {
+    const ssh = fakeSshProcess({
+      'karst-ssh-probe': { code: 44 }, 'karst-ssh-dispose': { code: 0 }, [DIR]: dirListing(sshName(7)),
+    });
+    const { d, notify } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh),
+    });
+    await expect(removeSandboxGuarded(d, sshTarget)).resolves.toBe(false);
+    expect(disposed(ssh)).toBe(true);
+    expect(notify.info).not.toHaveBeenCalledWith('Removed the sandbox of T-7.');
+  });
+
+  it('an unlisted placement box whose probe is absent has nothing to remove', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 44 }, [DIR]: dirListing(undefined) });
+    const { d } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh),
+    });
+    await expect(removeSandboxGuarded(d, sshTarget)).resolves.toBe(true);
+    expect(disposed(ssh)).toBe(false);
+  });
+
+  it('a provider switch with no placement and only an ssh listing error removes no sbx box, even with "Remove anyway"', async () => {
+    // The unconfirmed remote's listing error is not the sbx runner's failure (T801), so no sbx fallback box exists.
+    const ssh = fakeSshProcess({ [DIR]: dirListing(sshName(7)) });
+    const clearSession = vi.fn();
+    const { d, lines, notify } = deps({
+      inv: [], projectRoot: '/p', sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }),
+      choose: vi.fn(async () => REMOVE_ANYWAY),
+    });
+    await expect(switchProviderOp({ ...d, clearSession }, sshTarget, 'codex')).resolves.toBe(true);
+    expect(lines().filter((l) => / rm /.test(` ${l} `))).toEqual([]);
+    expect(ssh.calls).toEqual([]);
+    expect(notify.info).not.toHaveBeenCalledWith('Removed the sandbox of T-7.');
+  });
+
+  it('a provider switch on an ssh placement with an unconfirmed remote and "Remove anyway" is blocked and keeps the session', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 }, [DIR]: dirListing(sshName(7)) });
+    const clearSession = vi.fn();
+    const { d, notify } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt',
+      sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }),
+      choose: vi.fn(async () => REMOVE_ANYWAY),
+    });
+    await expect(switchProviderOp({ ...d, clearSession }, sshTarget, 'codex')).resolves.toBe(false);
+    expect(clearSession).not.toHaveBeenCalled();
+    expect(ssh.calls).toEqual([]);
+    expect(notify.info).not.toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    expect([...notify.warn.mock.calls, ...notify.error.mock.calls].flat().join('\n')).toContain('not confirmed');
   });
 
   it('an untrusted remote is never reached, so its workspace is not even listed as an orphan', async () => {
