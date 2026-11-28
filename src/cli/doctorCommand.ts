@@ -269,7 +269,7 @@ function staleFacts(remote: string, sandboxes: readonly ProjectSandbox[], ages: 
     .filter((s): s is ProjectSandbox & { remote: string } => s.runner === 'ssh' && s.remote === remote)
     .flatMap((s) => {
       const age = byName.get(s.name);
-      return age === undefined ? [] : [{ remote: s.remote, name: s.name, state: s.state, ageDays: age.ageDays, sizeKb: age.sizeKb }];
+      return age === undefined ? [] : [{ remote: s.remote, name: s.name, ticketId: s.ticketId, state: s.state, ageDays: age.ageDays, sizeKb: age.sizeKb }];
     });
 }
 

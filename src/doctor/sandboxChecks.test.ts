@@ -157,6 +157,7 @@ describe('checkStaleRemoteWorkspaces (edit 12)', () => {
   const box = (over: Partial<Parameters<typeof checkStaleRemoteWorkspaces>[0][number]> = {}) => ({
     remote: 'devbox',
     name: 'karst-ab12cd34-7-claude',
+    ticketId: 7,
     state: 'stopped' as const,
     ageDays: 15,
     sizeKb: 1.5 * 1024 * 1024,
@@ -167,8 +168,12 @@ describe('checkStaleRemoteWorkspaces (edit 12)', () => {
     const [c] = checkStaleRemoteWorkspaces([box()]);
     expect(c).toMatchObject({ id: 'state.sandbox-stale.devbox.karst-ab12cd34-7-claude', area: 'state', status: 'warn' });
     expect(c!.detail).toBe('ssh devbox: karst-ab12cd34-7-claude stopped 15 days, 1.5 GB');
-    expect(c!.fix).toMatchObject({ tier: 'report' });
-    expect((c!.fix as { nextStep: string }).nextStep).toContain('confirm');
+    // A Remove fix action runs the normal guarded removal of the ticket's sandbox (sync first, confirm), never an automatic one.
+    expect(c!.fix).toEqual({
+      tier: 'action', summary: 'stale remote workspace', label: 'Remove',
+      action: { kind: 'remove-sandbox', ticketId: 7 },
+      nextStep: 'open the dashboard and choose "Remove sandbox" for karst-ab12cd34-7-claude on devbox (it syncs first and asks you to confirm); karst never removes it automatically',
+    });
   });
 
   it('13 days does not warn', () => {

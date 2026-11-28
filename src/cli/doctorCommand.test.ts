@@ -482,6 +482,8 @@ describe('karst doctor ssh remotes (edit 6)', () => {
       const stale = fifteen.checks.find((c) => c.id === `state.sandbox-stale.devbox.${name}`);
       expect(stale).toMatchObject({ status: 'warn' });
       expect(stale!.detail).toBe(`ssh devbox: ${name} stopped 15 days, 2.0 MB`);
+      // The Remove action names the ticket of the listed workspace, not one parsed again from its name.
+      expect(stale!.fix).toMatchObject({ tier: 'action', label: 'Remove', action: { kind: 'remove-sandbox', ticketId: 7 } });
       const thirteen = await remoteDoctor({ trust: 'ok', area: 'state', sandboxes: [box], workspaceAges: `${name}\t${String(nowSeconds - 13 * 86_400)}\t2048\n`, manifestPath });
       expect(thirteen.checks.some((c) => c.id.startsWith(`state.sandbox-stale.devbox.`))).toBe(false);
     } finally {

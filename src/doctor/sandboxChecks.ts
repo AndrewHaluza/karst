@@ -195,6 +195,8 @@ export function checkRemoteDiskFacts(facts: readonly RemoteDiskFact[]): DoctorCh
 export interface RemoteWorkspaceFact {
   readonly remote: string;
   readonly name: string;
+  /** The ticket of the listed workspace: the Remove action removes this ticket's sandbox. */
+  readonly ticketId: number;
   readonly state: 'running' | 'stopped';
   /** Whole days since `<ws>/env/env.sh` was last written. */
   readonly ageDays: number;
@@ -211,9 +213,12 @@ export function checkStaleRemoteWorkspaces(workspaces: readonly RemoteWorkspaceF
       status: 'warn' as const,
       title: 'Stale remote workspace',
       detail: `ssh ${w.remote}: ${w.name} stopped ${String(w.ageDays)} days, ${formatDoctorBytes(w.sizeKb * KIB)}`,
+      // Remove runs the normal guarded removal (sync first, confirm); karst never removes it automatically.
       fix: {
-        tier: 'report' as const,
+        tier: 'action' as const,
         summary: 'stale remote workspace',
+        label: 'Remove',
+        action: { kind: 'remove-sandbox' as const, ticketId: w.ticketId },
         nextStep: `open the dashboard and choose "Remove sandbox" for ${w.name} on ${w.remote} (it syncs first and asks you to confirm); karst never removes it automatically`,
       },
     }));

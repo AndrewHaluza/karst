@@ -7433,7 +7433,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       provider.refresh();
     }),
-    (doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) })).command,
+    (doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)), removeSandbox: (id) => sandboxLife.remove(id) })).command,
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('karst.showActivity', async () => { provider.revealActivity(); await vscode.commands.executeCommand(`${SIDEBAR_VIEW_ID}.focus`); }),
     vscode.commands.registerCommand('karst.showAttention', async () => {
