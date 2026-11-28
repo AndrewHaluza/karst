@@ -68,7 +68,10 @@ export interface SshResolveDeps {
   readonly ssh?: SshProcess;
   readonly sshBin?: string;
   readonly host?: SbxProcess;
+  /** The control dir and its private-dir check (the D554 seam). */
   readonly controlDir?: string;
+  /** `<globalStorage>`: the dir of `ssh-trust.json`; the launch upload re-reads it (D553). */
+  readonly trustDir?: string;
   readonly ensureControlDir?: (dir: string) => Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
   readonly preflight?: (name: string, remote: RemoteDef, proc: SshProcess, opts: SshPreflightOptions) => Promise<SshPreflightResult>;
   readonly clone?: typeof ensureSshClone;
@@ -307,6 +310,7 @@ async function resolveDockerSteps(
     ssh, sshBin, host: cloneCtx.host, remote, remoteName: name, controlDir, core: input.core,
     ticketId: input.ticketId, names, user, hostWorktreePath: worktree.hostWorktreePath,
     projectPrefix: sshProjectPrefix(input.projectRoot, input.installId), memory,
+    ...(deps.trustDir !== undefined ? { trustDir: deps.trustDir } : {}),
     ...(deps.debug ? { debug: deps.debug } : {}),
   });
   // tmux carries the direct session only: a docker launch is `ssh -t … docker run -it`, so a
@@ -366,6 +370,7 @@ async function resolveSteps(input: SshResolveInput, signal: AbortSignal, extendB
     ssh, sshBin: ctx.sshBin, host: ctx.host, remote, remoteName: name, sandboxName,
     projectPrefix: sshProjectPrefix(input.projectRoot, input.installId), controlDir, core: input.core,
     ticketId: input.ticketId, hostWorktreePath: worktree.hostWorktreePath, tmux: pre.facts.tmux, coreBin,
+    ...(deps.trustDir !== undefined ? { trustDir: deps.trustDir } : {}),
     ...(deps.registry ? { registry: deps.registry } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
   });
   return { ok: true, runner, names: { remote: name, name: sandboxName }, warnings };

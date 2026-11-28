@@ -96,6 +96,12 @@ export interface TicketSandboxDeps {
    * window does it (D823). Absent = every ticket is allowed (tests, one window).
    */
   readonly controls?: (ticketId: number) => boolean;
+  /**
+   * D556 edit 6: start the ssh evidence-bridge forwarder after the ssh runner
+   * of the ticket resolved (a no-op for a non-ssh placement, and for an
+   * unconfirmed remote inside the forwarder).
+   */
+  readonly startSshBridge?: (ticketId: number) => Promise<unknown>;
   /** Non-blocking user warning (bound from `notify.warn`, deduped): a lockfile repo with no `sandbox.setup` (arch:AC-40). */
   readonly warn?: (message: string) => void;
 }
@@ -308,6 +314,14 @@ export async function reattachTicketSandbox(
   }
   const ctx = await ticketSandboxContext(deps, ticketId);
   if (!ctx) return null;
+  // D556 edit 6: the ticket's remote is reachable (the ssh runner resolved), so
+  // its evidence bridge can be forwarded again after a reload. Trust is checked
+  // inside the forwarder before any ssh call.
+  if (deps.startSshBridge !== undefined && deps.placementOf?.(ticketId)?.backend === 'ssh') {
+    await deps.startSshBridge(ticketId).catch((err: unknown) => {
+      deps.debug?.(`[runtime] ticket ${ticketId}: ssh bridge forwarder did not start: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
   const allow = await allowBaselineHostPorts(ctx.runner, baselineHostPorts(manifest, ticketBaselineKeys(store, ticketId)));
   if (!allow.ok) {
     deps.debug?.(`[runtime] ticket ${ticketId}: baseline allow failed: ${allow.reason}`);

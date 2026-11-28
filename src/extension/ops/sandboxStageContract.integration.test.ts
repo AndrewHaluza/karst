@@ -19,6 +19,15 @@ import { createMarkerRunner } from './markerRunner.js';
 import { assertFixHasNewCommit, snapshotFixRoundHeads, NO_NEW_COMMIT_REASON } from '../../workflow/fixRoundGuard.js';
 import { openRecoveryRound } from '../../store/recoveryRounds.js';
 import { defaultGitRunner } from '../../integrations/git.js';
+import { writeInboxFile } from '../../agent/bridge/inbox.js';
+import { recordRemoteTrust } from '../../agent/ssh/remoteTrust.js';
+import { makeFakeSshBin, type FakeSshBin } from '../../agent/ssh/fakeSshBin.js';
+import { createNodeSshProcess, sshArgv, type SshProcess } from '../../agent/ssh/sshProcess.js';
+import { sshQuote } from '../../agent/ssh/sshQuote.js';
+import { mirrorToRemote } from '../../agent/ssh/sshMirror.js';
+import { startSshBridgeForwarder, stopAllSshBridgeForwarders } from '../../agent/ssh/sshBridge.js';
+import { uploadBridgeScripts } from '../../agent/ssh/sshBridge.js';
+import type { RemoteDef } from '../../manifest/types.js';
 
 /**
  * F7: the stage contract end to end, minus the container itself. The "agent" is a
@@ -146,6 +155,208 @@ afterEach(() => {
   while (rigs.length > 0) rigs.pop()!();
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+/**
+ * The same contract over an SSH remote (D556): the fake `ssh` binary makes the
+ * "remote" a local tree, so `tail -F`, the upload and `emit-marker` really run.
+ * The forwarder copies the remote events into the HOST bridge, the unchanged
+ * poller/verifier/sink decides, and `mirrorToRemote` puts the reply where the
+ * remote emitter reads it.
+ */
+interface SshRig {
+  readonly store: Store;
+  readonly ticketId: number;
+  readonly wt: string;
+  readonly remoteRepo: string;
+  readonly paths: BridgePaths;
+  readonly remote: RemoteDef;
+  readonly remoteRunDir: string;
+  readonly fake: FakeSshBin;
+  readonly sshProc: SshProcess;
+  readonly instruction: string;
+  attach(runMarker?: MarkerRunner, onAck?: (ref: string) => void): BridgeAttachment;
+  writeBrief(ref: string, body: string): Promise<void>;
+  runRemote(script: string): Promise<{ code: number; stdout: string; stderr: string }>;
+  runRemoteMarker(): Promise<{ code: number; stdout: string; stderr: string }>;
+  stop(): Promise<void>;
+}
+
+let sshN = 0;
+const sshCleanups: Array<() => Promise<void> | void> = [];
+
+async function sshRig(stage: MarkerStage): Promise<SshRig> {
+  const dir = join(root, `ssh-${String(++sshN)}`);
+  const fake = await makeFakeSshBin();
+  const trustDir = join(dir, 'trust');
+  const remoteDir = join(fake.remoteRoot, 'srv', 'karst');
+  const wt = join(dir, 'wt');
+  mkdirSync(trustDir, { recursive: true });
+  execFileSync('git', ['init', '-q', '-b', 'feat', wt]);
+  git(wt, ...ID, 'commit', '-q', '--allow-empty', '-m', 'base');
+
+  const store = openStore(':memory:');
+  const ticketId = createTicket(store, { key: 'K-1', title: 't' }).id;
+  store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'app', ?, 'feat', 'main', 'inherited')").run(ticketId, wt);
+  setStageCurrent(store, ticketId, stage as StageKey);
+
+  const remote: RemoteDef = { host: 'fake', user: 'karst', mode: 'direct', remoteDir };
+  const name = `karst-0123abcd-${String(ticketId)}-claude`;
+  const ws = join(remoteDir, name);
+  const remoteRepo = join(ws, 'repo');
+  mkdirSync(remoteDir, { recursive: true });
+  execFileSync('git', ['clone', '-q', '--no-hardlinks', wt, remoteRepo]);
+
+  const controlDir = join(dir, 'control');
+  mkdirSync(controlDir, { recursive: true });
+  await recordRemoteTrust(trustDir, 'devbox', remote);
+
+  const bridgeRoot = join(dir, 'bridge');
+  const paths = bridgePaths(bridgeRoot, ticketId);
+  await ensureBridgeDir(paths);
+  writeBridgeScripts(join(paths.dir, 'claude'));
+  const sshProc = createNodeSshProcess({ sshBin: fake.ssh });
+  const remoteRunDir = `${ws}/bridge/${String(ticketId)}`;
+  const upload = await uploadBridgeScripts({
+    ssh: sshProc, remote, remoteName: 'devbox', core: 'claude', hostBridgeDir: paths.dir, runDir: remoteRunDir,
+    trustDir, controlDir, ensureControlDir: () => Promise.resolve({ ok: true }),
+  });
+  if (!upload.ok) throw new Error(upload.reason);
+
+  const instruction = renderSandboxMarkerInstruction({ runDir: remoteRunDir, core: 'claude', stage });
+  const start = await startSshBridgeForwarder({
+    ssh: sshProc, remote, remoteName: 'devbox', ws, ticketId,
+    hostBridgeDir: paths.dir, stateDir: join(bridgeRoot, 'state'), trustDir, controlDir,
+    ensureControlDir: () => Promise.resolve({ ok: true }),
+  });
+  if (!start.ok) throw new Error(start.reason);
+
+  const realMarker: MarkerRunner = createMarkerRunner(
+    {
+      nodePath: process.execPath, cliEntry: 'cli.js', dbPath: 'db', manifestPath: 'm.yml', ticketKey: 'K-1', cwd: wt,
+      ensureSynced: async () => {
+        try {
+          git(wt, 'fetch', '-q', remoteRepo, 'feat');
+          git(wt, 'merge', '-q', '--ff-only', 'FETCH_HEAD');
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, reason: err instanceof Error ? err.message : String(err), diverged: false };
+        }
+      },
+    },
+    async (_cmd, args) => {
+      try {
+        if (args[2] === 'fix') await assertFixHasNewCommit(store, ticketId, defaultGitRunner);
+        runStageCommand(store, ticketId, [args[1]!, args[2]!, args[3]!]);
+        return { stdout: '', stderr: '', exitCode: 0 };
+      } catch (err) {
+        return { stdout: '', stderr: err instanceof Error ? err.message : String(err), exitCode: 1 };
+      }
+    },
+  );
+
+  const attachments: BridgeAttachment[] = [];
+  const rig: SshRig = {
+    store, ticketId, wt, remoteRepo, paths, remote, remoteRunDir, fake, sshProc, instruction,
+    attach: (runMarker = realMarker, onAck) => {
+      const attachment = createBridgeAttachment({
+        paths,
+        expect: { ticketId, worktreePath: wt, launchId: undefined, stage: () => getTicket(store, ticketId).stageCurrent as StageKey | null, sessionId: () => undefined, sessionLaunchId: () => undefined },
+        dispatch: () => undefined,
+        runMarker,
+        ...(onAck ? { onAck } : {}),
+        intervalMs: 20,
+        mirrorReply: (seq, reply) => mirrorToRemote(
+          { name: 'devbox', def: remote }, remoteRunDir, `results/${seq}.json`, JSON.stringify(reply),
+          { trustDir, ssh: sshProc, controlDir, ensureControlDir: () => Promise.resolve({ ok: true }) },
+        ),
+      });
+      attachment.start();
+      attachments.push(attachment);
+      return attachment;
+    },
+    writeBrief: async (ref, body) => {
+      writeInboxFile(paths, ref, body);
+      const mirrored = await mirrorToRemote(
+        { name: 'devbox', def: remote }, remoteRunDir, `inbox/${ref}.md`, body,
+        { trustDir, ssh: sshProc, controlDir, ensureControlDir: () => Promise.resolve({ ok: true }) },
+      );
+      if (!mirrored.ok) throw new Error(mirrored.reason);
+    },
+    runRemote: (script) => new Promise((resolve) => {
+      const child = spawn(fake.ssh, sshArgv(remote, controlDir, script), { cwd: fake.remoteRoot, env: { ...process.env, KARST_MARKER_WAIT_MS: '20000' } });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+      child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    }),
+    runRemoteMarker: () => {
+      const command = /`(node [^`]+emit-marker\.cjs[^`]+)`/.exec(instruction)?.[1];
+      if (!command) throw new Error('no marker command in the rendered instruction');
+      return rig.runRemote(`cd ${sshQuote(remoteRepo)} && ${command}`);
+    },
+    stop: async () => {
+      for (const a of attachments) await a.stop();
+      store.close();
+      await fake.cleanup();
+    },
+  };
+  sshCleanups.push(rig.stop);
+  return rig;
+}
+
+afterEach(async () => {
+  await stopAllSshBridgeForwarders();
+  while (sshCleanups.length > 0) await sshCleanups.pop()!();
+});
+
+describe('ssh stage contract (D556)', () => {
+  it('a marker written remotely reaches the host, advances the stage, and the reply arrives remotely (exit 0)', async () => {
+    const r = await sshRig('impl');
+    r.attach();
+    // The stub agent commits remotely (as it would in the remote clone).
+    writeFileSync(join(r.remoteRepo, 'work.txt'), 'agent work');
+    git(r.remoteRepo, 'add', '-A');
+    git(r.remoteRepo, ...ID, 'commit', '-q', '-m', 'agent work');
+    const out = await r.runRemoteMarker();
+    expect(out.code).toBe(0);
+    expect(out.stdout).toContain('accepted');
+    expect(getTicket(r.store, r.ticketId).stageCurrent).toBe(STAGE_GRAPH.impl.passed);
+    const lines = readFileSync(r.paths.eventsFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines[0]).toMatchObject({ kind: 'marker', stage: 'impl' });
+    const seq = String(lines[0]!['seq']);
+    expect(JSON.parse(readFileSync(join(r.remoteRunDir, 'results', `${seq}.json`), 'utf8'))).toMatchObject({ ok: true, stage: 'impl' });
+  }, 40_000);
+
+  it('exit 1: a permanent host refusal is mirrored to the remote emitter', async () => {
+    const r = await sshRig('impl');
+    r.attach(async () => ({ code: 1, stderr: 'karst: cannot mark this stage done: no repository has changes' }));
+    const out = await r.runRemoteMarker();
+    expect(out.code).toBe(1);
+    expect(out.stderr).toContain('no repository has changes');
+  }, 40_000);
+
+  it('exit 3: a transient host failure is queued ("retrying") and mirrored to the remote emitter', async () => {
+    const r = await sshRig('impl');
+    r.attach(async () => ({ code: 1, stderr: 'sync failed: net down', transient: true }));
+    const out = await r.runRemoteMarker();
+    expect(out.code).toBe(3);
+    expect(out.stdout).toContain('queued');
+    expect(getTicket(r.store, r.ticketId).stageCurrent).toBe('impl');
+  }, 40_000);
+
+  it('a fix brief is delivered remotely, and its ack travels back over the forwarder', async () => {
+    const r = await sshRig('fix');
+    const acked: string[] = [];
+    r.attach(undefined, (ref) => acked.push(ref));
+    await r.writeBrief('fix-1', '# Fix brief\n\nplease fix it\n');
+    expect(readFileSync(join(r.remoteRunDir, 'inbox', 'fix-1.md'), 'utf8')).toContain('please fix it');
+    const ack = await r.runRemote(`cd ${sshQuote(r.remoteRepo)} && node ${sshQuote(`${r.remoteRunDir}/claude/emit-ack.cjs`)} ${sshQuote(`${r.remoteRunDir}/events.ndjson`)} fix-1`);
+    expect(ack.code).toBe(0);
+    for (let i = 0; i < 200 && acked.length === 0; i++) await new Promise((res) => setTimeout(res, 25));
+    expect(acked).toEqual(['fix-1']);
+  }, 40_000);
+});
 
 describe('sandbox stage contract (F7)', () => {
   it.each(['impl', 'fix'] as const)('%s: commit → emit-marker → host syncs (ff) → stage pass → next configured stage', async (stage) => {

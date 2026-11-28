@@ -26,6 +26,7 @@ import type {
   SyncResult,
 } from '../sessionRunner.js';
 import { remoteAssetsDir, PROXY_BUNDLE } from './sshDockerAssets.js';
+import { uploadBridgeScripts } from './sshBridge.js';
 import {
   diffSshDockerClone,
   fetchSshDockerClone,
@@ -119,6 +120,8 @@ export interface SshDockerRunnerOptions {
   readonly hostWorktreePath: string;
   /** `sshProjectPrefix(projectRoot, installId)`: `dispose` refuses a name outside it. */
   readonly projectPrefix: string;
+  /** `<globalStorage>`: the dir of `ssh-trust.json`, re-read by the launch upload (D553). */
+  readonly trustDir?: string;
   readonly memory?: DockerMemoryLimits;
   /** The host gate boundary `sshDockerGateProcess` wraps (default `runProcess`). */
   readonly gateProcess?: GateProcessRunner;
@@ -213,6 +216,16 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
         ssh: opts.ssh, remote: opts.remote, remoteName: opts.remoteName, controlDir: opts.controlDir,
         workspace, file: envFile, dirs: launchDirs, env,
       });
+      // D556 edit 3: the same remote run dir the mount exposes at `/karst-bridge/<ticketId>`.
+      if (spec.bridgeDir !== undefined) {
+        const upload = await uploadBridgeScripts({
+          ssh: opts.ssh, remote: opts.remote, remoteName: opts.remoteName, core: opts.core,
+          hostBridgeDir: spec.bridgeDir, runDir: mountRoot.bridgeDir,
+          ...(opts.trustDir !== undefined ? { trustDir: opts.trustDir } : {}),
+          ...(opts.debug ? { debug: opts.debug } : {}),
+        });
+        if (!upload.ok) throw new Error(upload.reason);
+      }
     },
     /**
      * `base` builds the full `docker run` argv against the remote bridge mount and

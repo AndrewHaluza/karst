@@ -335,6 +335,10 @@ export interface BridgeSweepDeps {
   readonly liveSandboxTicketIds?: () => Promise<ReadonlySet<number>>;
   /** Tickets whose sandbox is still listed: their dirs are kept. */
   readonly sandboxTicketIds?: () => Promise<ReadonlySet<number>>;
+  /** D556 edit 6: start the ssh evidence-bridge forwarder of an attached ticket (a no-op for a non-ssh ticket). */
+  readonly startSshBridge?: (ticketId: number) => Promise<unknown>;
+  /** Stop the forwarder of a ticket whose bridge dir was removed. */
+  readonly stopSshBridge?: (ticketId: number) => Promise<void>;
   readonly info: (message: string) => void;
   readonly logError: (message: string, err: unknown) => void;
 }
@@ -357,6 +361,17 @@ export async function runBridgeSweep(deps: BridgeSweepDeps): Promise<void> {
     const { reattached, removed } = await deps.bridges.sweep(openBridgeTicketIds(deps.store), attach, keep);
     if (reattached.length > 0) deps.info(`karst: re-attached sandbox evidence bridge(s) for ticket(s) ${reattached.join(', ')}`);
     if (removed.length > 0) deps.info(`karst: removed sandbox evidence bridge(s) of closed ticket(s) ${removed.join(', ')}`);
+    // D556 edit 6: after a reload no terminal exists, so `resolveSsh` never runs
+    // here; the forwarder of every attached ssh ticket is restarted from its
+    // stored offset. Only the window that controls the ticket is in `attach`.
+    for (const id of attach) {
+      if (deps.startSshBridge === undefined) break;
+      await deps.startSshBridge(id).catch((err: unknown) => deps.logError(`karst: ssh bridge forwarder of ticket ${String(id)} failed to start`, err));
+    }
+    for (const id of removed) {
+      if (deps.stopSshBridge === undefined) break;
+      await deps.stopSshBridge(id).catch((err: unknown) => deps.logError(`karst: ssh bridge forwarder of ticket ${String(id)} failed to stop`, err));
+    }
   } catch (err) {
     deps.logError('karst: sandbox bridge sweep failed', err);
   }

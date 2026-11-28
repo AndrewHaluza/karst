@@ -130,6 +130,7 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
       host: deps.host ?? NODE_SBX_PROCESS, remote: def, remoteName: name,
       names: dockerNamesFromContainer(target.sandboxName), projectPrefix, controlDir, core,
       ticketId: ticket.ticketId, hostWorktreePath,
+      trustDir: deps.globalStorageDir,
       // A host step has no preflight (`withRemoteDockerUser` probes the REMOTE ids
       // for the ops that need them): the launch resolved runs as the remote user.
       user,
@@ -145,6 +146,7 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
     ssh, host: deps.host ?? NODE_SBX_PROCESS, remote: def, remoteName: name,
     sandboxName: target.sandboxName, projectPrefix, controlDir,
     core, ticketId: ticket.ticketId, hostWorktreePath: ticket.hostWorktreePath,
+    trustDir: deps.globalStorageDir,
     // `tmux` is read only by `placeInteractive`; a host step never launches (`stop` kills a tmux session either way).
     tmux: false,
     registry: deps.registry ?? WINDOW_SSH_GATE_REGISTRY,

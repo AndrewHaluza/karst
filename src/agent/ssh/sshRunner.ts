@@ -30,6 +30,7 @@ import { remoteEnv, remoteEnvScript, rewriteEmbeddedHostPaths } from './sshEnv.j
 import { sweepScript } from './sshGateScript.js';
 import { sshGateKey, WINDOW_SSH_GATE_REGISTRY, type SshGateRegistry } from './sshGateRegistry.js';
 import { SANDBOX_NAME_RE } from './sshNames.js';
+import { uploadBridgeScripts } from './sshBridge.js';
 import { SSH_BIN, sshArgv, type SshProcess, type SshResult } from './sshProcess.js';
 import { killRemoteGate, GATE_KILL_GRACE_SECONDS, sshRunGate, type SshGateContext } from './sshRunGate.js';
 import { remoteSh, sshQuote } from './sshQuote.js';
@@ -63,6 +64,8 @@ export interface SshRunnerOptions {
   readonly hostWorktreePath: string;
   /** The preflight found tmux: the session survives a dropped connection. */
   readonly tmux: boolean;
+  /** `<globalStorage>`: the dir of `ssh-trust.json`, re-read by the launch upload (D553). */
+  readonly trustDir?: string;
   /** The core binary that the preflight resolved on the remote (`command -v <core>`); default the core name. */
   readonly coreBin?: string;
   readonly registry?: SshGateRegistry;
@@ -247,6 +250,16 @@ export function createSshSessionRunner(opts: SshRunnerOptions): SessionRunner {
       const body = `${remoteEnvScript(env)}\n`;
       const out = await opts.ssh.runWithStdin(argv(prepareScript(paths, runDir)), Buffer.from(body, 'utf8'), { maxStdoutBytes: TEXT_STDOUT_BYTES });
       if (out.code !== 0) throw new Error(shellQuoteFailure(opts.remoteName, 'launch preparation', out));
+      // D556 edit 3: the adapters wrote their scripts into the host bridge dir;
+      // put them in the remote run dir the marker command and hooks name.
+      if (spec.bridgeDir !== undefined) {
+        const upload = await uploadBridgeScripts({
+          ssh: opts.ssh, remote: opts.remote, remoteName: opts.remoteName, core: opts.core,
+          hostBridgeDir: spec.bridgeDir, runDir, ...(opts.trustDir !== undefined ? { trustDir: opts.trustDir } : {}),
+          ...(opts.debug ? { debug: opts.debug } : {}),
+        });
+        if (!upload.ok) throw new Error(upload.reason);
+      }
       await sweepOrphans();
     },
     placeInteractive: (spec: InteractiveLaunchSpec): PlacedInteractiveLaunch => {
