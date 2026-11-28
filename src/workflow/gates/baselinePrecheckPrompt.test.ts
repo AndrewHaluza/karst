@@ -160,7 +160,7 @@ describe('buildBaselinePrecheckPrompt', () => {
   it('carries the ticket intent, the UI paths and every entry with both image paths', () => {
     const prompt = buildBaselinePrecheckPrompt({
       ticket: { title: 'Move the save button', description: 'The save button moves right.', brief: 'Settings only.' },
-      uiPaths: ['src/ui/settings/app/Save.tsx'],
+      changedPaths: ['src/ui/settings/app/Save.tsx'],
       targets: [
         target({
           label: 'web:tests/visual/__baselines__/save.png',
@@ -181,6 +181,7 @@ describe('buildBaselinePrecheckPrompt', () => {
     expect(prompt).toContain('The save button moves right.');
     expect(prompt).toContain('Settings only.');
     expect(prompt).toContain('src/ui/settings/app/Save.tsx');
+    expect(prompt).toContain("Files changed on the ticket's branch (baseline images left out):");
     expect(prompt).toContain('web:tests/visual/__baselines__/save.png');
     expect(prompt).toContain('/tmp/run/old/tests/visual/__baselines__/save.png');
     expect(prompt).toContain('/wt/web/tests/visual/__baselines__/save.png');
@@ -197,7 +198,7 @@ describe('buildBaselinePrecheckPrompt', () => {
   it('names no core-specific tool and tells the model to open each image and look at it', () => {
     const prompt = buildBaselinePrecheckPrompt({
       ticket: { title: 't', description: '', brief: '' },
-      uiPaths: [],
+      changedPaths: [],
       targets: [target({ label: 'web:a.png' })],
     });
     expect(prompt).not.toContain('Read tool');
@@ -207,7 +208,7 @@ describe('buildBaselinePrecheckPrompt', () => {
   it('rules that an image whose pixels cannot be seen answers "human"', () => {
     const prompt = buildBaselinePrecheckPrompt({
       ticket: { title: 't', description: '', brief: '' },
-      uiPaths: [],
+      changedPaths: [],
       targets: [target({ label: 'web:a.png' })],
     });
     expect(prompt).toContain('If you cannot see the pixels of an image, answer "human" for that entry.');
@@ -216,10 +217,24 @@ describe('buildBaselinePrecheckPrompt', () => {
   it('bounds an oversized ticket description', () => {
     const prompt = buildBaselinePrecheckPrompt({
       ticket: { title: 't', description: 'x'.repeat(20_000), brief: '' },
-      uiPaths: [],
+      changedPaths: [],
       targets: [target({ label: 'web:a.png' })],
     });
     expect(prompt).toContain('[truncated at 6000 characters]');
     expect(prompt.length).toBeLessThan(20_000);
+  });
+
+  it('names the first 200 changed paths and counts the rest', () => {
+    const changedPaths = Array.from({ length: 250 }, (_, i) => `app/views/file${i}.tsx`);
+    const prompt = buildBaselinePrecheckPrompt({
+      ticket: { title: 't', description: '', brief: '' },
+      changedPaths,
+      targets: [target({ label: 'web:a.png' })],
+    });
+    expect(prompt).toContain('- app/views/file0.tsx');
+    expect(prompt).toContain('- app/views/file199.tsx');
+    expect(prompt).not.toContain('- app/views/file200.tsx');
+    expect(prompt).toContain('… and 50 more');
+    expect(prompt.split('\n').filter((line) => line.startsWith('- app/views/'))).toHaveLength(200);
   });
 });

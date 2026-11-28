@@ -1,6 +1,6 @@
 /**
  * The UAT baseline pre-check (@arch:BASELINE-PRECHECK): before the
- * baseline-review block, one model call looks at the ticket's re-recorded
+ * baseline-review block, the model looks at the ticket's re-recorded
  * screenshot baselines and approves ONLY the ones it judges clearly intended
  * and free of visible defects. Everything else — and every failure of this
  * module — leaves the entry waiting for the user exactly as today.
@@ -12,11 +12,14 @@
  *   the path must match an entry exactly (unknown paths are ignored, a
  *   duplicate path approves neither copy);
  * - unreadable output, a timeout, a usage limit or any thrown error approves
- *   nothing. This module never throws to its caller and never parks a stage.
+ *   nothing FROM THAT BATCH; the other batches still run, and an abort stops
+ *   the rest without discarding the approvals already recorded. This module
+ *   never throws to its caller and never parks a stage.
  *
- * The call reuses the UAT Tester's assignment and adapter (no new process
- * role), opens its OWN process run — so the prompt metrics and the token usage
- * of the pre-check are visible in the process history — and talks to git and
+ * Above `PRECHECK_BATCH_SIZE` eligible entries the review is split into
+ * batches, sent one at a time (host memory and image tokens, never parallel).
+ * Each batch opens its own process run so the prompt metrics and token usage
+ * of the pre-check are visible in the process history, and talks to git and
  * the filesystem through injected seams so it is unit-testable without a repo.
  * The Tester's core and model come from Settings; the only capability gate is
  * the catalog-tag check in `modelCanReadImages` (a model tagged `text-only`
@@ -55,6 +58,7 @@ import {
 
 export {
   BASELINE_PRECHECK_OUTPUT_SCHEMA,
+  PRECHECK_CHANGED_PATHS_MAX,
   buildBaselinePrecheckPrompt,
   parseBaselinePrecheckAnswer,
   precheckLabel,
@@ -65,8 +69,19 @@ export type {
   BaselinePrecheckTicket,
 } from './baselinePrecheckPrompt.js';
 
-/** Above this many eligible entries the pre-check is skipped: image tokens are real money. */
-export const MAX_PRECHECK_ENTRIES = 80;
+/**
+ * One image call is bounded: a prompt with more image pairs than this is too
+ * long for most cores and fails as a unit, so the eligible entries are split
+ * into batches of this size and sent one call at a time.
+ */
+export const PRECHECK_BATCH_SIZE = 40;
+
+/**
+ * Above this many eligible entries the pre-check is skipped: image tokens are
+ * real money and a partial review still needs a full user pass, so karst never
+ * pre-checks only the first few.
+ */
+export const MAX_PRECHECK_ENTRIES = 200;
 
 /** The pre-check is a small image review; a hung core must not hold the stage for an hour. */
 export const DEFAULT_PRECHECK_TIMEOUT_MS = 10 * 60 * 1_000;
@@ -116,8 +131,8 @@ export interface BaselinePrecheckInput {
   /** `latestBaselineDecisions` (or any map keyed by `baselineKey`). */
   decisions: ReadonlyMap<string, { decision: 'approved' | 'rejected' }>;
   ticket: BaselinePrecheckTicket;
-  /** The `src/ui/**` paths of the branch diff — what the ticket says it changed. */
-  uiPaths: readonly string[];
+  /** The branch's whole changed-file list (baseline images already left out). */
+  changedPaths: readonly string[];
   /** The Tester's assignment and adapter; the pre-check runs as that process. */
   tester?: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
   /**
@@ -146,7 +161,19 @@ export interface BaselinePrecheckApproval {
 }
 
 export interface BaselinePrecheckResult {
+  /** The union of every finished batch's approvals; a failed batch contributes none. */
   approved: BaselinePrecheckApproval[];
+  /**
+   * Targets a model call actually received, including a failed or aborted
+   * batch's (its call was started) but never a batch that never started.
+   */
+  sent: number;
+  /** Batches whose call produced nothing usable (unreadable answer, timeout, usage limit, error). */
+  failedBatches: number;
+  /** Batches that opened a process run — the denominator of "every batch failed". */
+  batches: number;
+  /** The first failed batch's reason, for the block reason the user sees. */
+  firstFailureReason?: string;
   /** Set when the whole pre-check did not run; the caller logs it once. */
   skippedReason?: string;
 }
@@ -203,7 +230,7 @@ export async function precheckBaselines(
   const debug = input.debug;
   const skipped = (reason: string): BaselinePrecheckResult => {
     debug?.(`[gate] uat baseline pre-check ticket ${input.ticketId}: skipped — ${reason}`);
-    return { approved: [], skippedReason: reason };
+    return { approved: [], sent: 0, failedBatches: 0, batches: 0, skippedReason: reason };
   };
 
   if (!input.enabled) return skipped('pre-check disabled');
@@ -230,147 +257,217 @@ export async function precheckBaselines(
   const gitBytes = deps.gitBytes ?? defaultGitBytes;
   const fs = deps.fs ?? defaultFs;
   const now = deps.now ?? nowIso;
-  const run = openProcessRun(input.store, {
-    ticketId: input.ticketId,
-    stageKey: 'uat',
-    processId: 'tester',
-    attempt: input.attempt ?? stageAttempt(input.store, input.ticketId, 'uat'),
-    stageRunId: input.stageRunId ?? null,
-    agentName: tester.assignment.agentName ?? null,
-    provider: tester.assignment.provider,
-    model: tester.assignment.model ?? null,
-    pid: deps.pid ?? process.pid,
-    startedAt: now(),
-    promptTelemetry: { precheckEntries: eligible.length },
-  });
-  debug?.(
-    `[gate] uat baseline pre-check ticket ${input.ticketId}: ${eligible.length} eligible — ` +
-      `process run ${run.id} opened (${tester.assignment.agentName ?? '?'}/${tester.assignment.provider})`,
-  );
+  const batches: BaselineEntry[][] = [];
+  for (let start = 0; start < eligible.length; start += PRECHECK_BATCH_SIZE) {
+    batches.push(eligible.slice(start, start + PRECHECK_BATCH_SIZE));
+  }
 
-  const runRoots = new Set<string>();
-  let closed = false;
-  const finish = (status: 'passed' | 'failed' | 'interrupted', resultKind: string, detail?: string): void => {
-    if (closed) return;
-    closed = true;
-    finishProcessRun(input.store, run.id, status, now(), resultKind, null, detail ?? null);
-  };
-
-  try {
-    const targets: BaselinePrecheckTarget[] = [];
-    for (const entry of eligible) {
-      if (entry.status !== 'added' && entry.status !== 'modified') continue;
-      const root = join(entry.cwd, PRECHECK_DIR, String(run.id));
-      runRoots.add(root);
-      let oldImagePath: string | null = null;
-      if (entry.status === 'modified') {
-        const shown = await gitBytes(['show', `${entry.mergeBase}:${entry.path}`], entry.cwd);
-        if (shown.exitCode !== 0 || shown.stdoutTruncated) {
-          debug?.(
-            `[gate] uat baseline pre-check ticket ${input.ticketId}: ${entry.repo}:${entry.path} ` +
-              `has no readable old image (git show exit ${shown.exitCode}) — not sent`,
-          );
-          continue;
-        }
-        oldImagePath = join(root, 'old', entry.path);
-        try {
-          await fs.writeFile(oldImagePath, shown.stdout);
-        } catch (error) {
-          debug?.(
-            `[gate] uat baseline pre-check ticket ${input.ticketId}: ${entry.repo}:${entry.path} ` +
-              `old image could not be written (${collapseDiagnostic(String(error))}) — not sent`,
-          );
-          continue;
-        }
-      }
-      targets.push({
-        repo: entry.repo,
-        path: entry.path,
-        label: precheckLabel(entry.repo, entry.path),
-        status: entry.status,
-        newSha256: entry.newSha256,
-        oldImagePath,
-        newImagePath: join(entry.cwd, entry.path),
-      });
-    }
-
-    if (targets.length === 0) {
-      debug?.(`[gate] uat baseline pre-check ticket ${input.ticketId}: no entry left to send — no approvals`);
-      finish('passed', 'no-eligible-entries');
-      return { approved: [], skippedReason: 'no eligible entries' };
-    }
-
-    const prompt = buildBaselinePrecheckPrompt({ ticket: input.ticket, uiPaths: input.uiPaths, targets });
-    const structured = tester.adapter.surfaces?.structuredOutput?.supported === true;
-    debug?.(
-      `[gate] uat baseline pre-check ticket ${input.ticketId}: asking ${targets.length} entr` +
-        `${targets.length === 1 ? 'y' : 'ies'}${structured ? ' with a structured answer' : ''} — ` +
-        `${prompt.length} prompt chars`,
-    );
-    const result = await tester.adapter.runHeadless({
-      prompt,
-      cwd: eligible[0]!.cwd,
-      model: tester.assignment.model,
-      effort: tester.assignment.effort,
-      signal: input.signal,
-      timeoutMs: input.timeoutMs ?? DEFAULT_PRECHECK_TIMEOUT_MS,
-      policy: 'uat-tester',
-      ...(tester.assignment.context === 'minimal'
-        ? { minimalContext: 'skills-and-subagents' as const }
-        : {}),
-      onOutput: input.onLiveOutput,
-      ...(structured ? { outputSchema: BASELINE_PRECHECK_OUTPUT_SCHEMA } : {}),
-      tracking: { callSite: 'uat-tester', ticketId: input.ticketId, processRunId: run.id },
+  /**
+   * One batch: open its own process run, materialize its old images in a folder
+   * of that run, send one call, and remove the folder in a `finally`. Never
+   * throws: a failure closes the run and returns the reason instead.
+   */
+  const runBatch = async (
+    batch: readonly BaselineEntry[],
+    index: number,
+  ): Promise<{ approved: BaselinePrecheckApproval[]; sent: number; failure?: string }> => {
+    const run = openProcessRun(input.store, {
+      ticketId: input.ticketId,
+      stageKey: 'uat',
+      processId: 'tester',
+      attempt: input.attempt ?? stageAttempt(input.store, input.ticketId, 'uat'),
+      stageRunId: input.stageRunId ?? null,
+      agentName: tester.assignment.agentName ?? null,
+      provider: tester.assignment.provider,
+      model: tester.assignment.model ?? null,
+      pid: deps.pid ?? process.pid,
+      startedAt: now(),
+      // `precheckEntries` is THIS batch's size; `precheckBatch` is its `i/n`.
+      promptTelemetry: {
+        precheckEntries: batch.length,
+        precheckBatch: `${index + 1}/${batches.length}`,
+      },
     });
-
-    const reasons = parseBaselinePrecheckAnswer(
-      result.raw,
-      targets.map((target) => target.label),
-      result.finalMessage,
-    );
-    if (reasons === null) {
-      debug?.(
-        `[gate] uat baseline pre-check ticket ${input.ticketId}: unreadable answer — no approvals`,
-      );
-      finish('passed', 'unreadable-output');
-      return { approved: [] };
-    }
-    const approved: BaselinePrecheckApproval[] = [];
-    for (const target of targets) {
-      const reason = reasons.get(target.label);
-      if (reason === undefined) continue;
-      approved.push({ repo: target.repo, path: target.path, sha256: target.newSha256, reason });
-    }
-    finish('passed', approved.length > 0 ? 'approved' : 'no-approvals');
     debug?.(
-      `[gate] uat baseline pre-check ticket ${input.ticketId}: ${approved.length} of ${targets.length} ` +
-        `approved — done`,
+      `[gate] uat baseline pre-check ticket ${input.ticketId}: batch ${index + 1}/${batches.length} — ` +
+        `${batch.length} eligible, process run ${run.id} opened ` +
+        `(${tester.assignment.agentName ?? '?'}/${tester.assignment.provider})`,
     );
-    return { approved };
-  } catch (error) {
-    const detail = collapseDiagnostic(error instanceof Error ? error.message : String(error));
-    if (input.signal?.aborted) {
-      finish('interrupted', 'interrupted', detail);
+
+    const runRoots = new Set<string>();
+    let closed = false;
+    const finish = (status: 'passed' | 'failed' | 'interrupted', resultKind: string, detail?: string): void => {
+      if (closed) return;
+      closed = true;
+      finishProcessRun(input.store, run.id, status, now(), resultKind, null, detail ?? null);
+    };
+    /** Targets this batch's call received; an unreadable old image is never sent. */
+    let sent = 0;
+
+    try {
+      const targets: BaselinePrecheckTarget[] = [];
+      for (const entry of batch) {
+        if (entry.status !== 'added' && entry.status !== 'modified') continue;
+        const root = join(entry.cwd, PRECHECK_DIR, String(run.id));
+        runRoots.add(root);
+        let oldImagePath: string | null = null;
+        if (entry.status === 'modified') {
+          const shown = await gitBytes(['show', `${entry.mergeBase}:${entry.path}`], entry.cwd);
+          if (shown.exitCode !== 0 || shown.stdoutTruncated) {
+            debug?.(
+              `[gate] uat baseline pre-check ticket ${input.ticketId}: ${entry.repo}:${entry.path} ` +
+                `has no readable old image (git show exit ${shown.exitCode}) — not sent`,
+            );
+            continue;
+          }
+          oldImagePath = join(root, 'old', entry.path);
+          try {
+            await fs.writeFile(oldImagePath, shown.stdout);
+          } catch (error) {
+            debug?.(
+              `[gate] uat baseline pre-check ticket ${input.ticketId}: ${entry.repo}:${entry.path} ` +
+                `old image could not be written (${collapseDiagnostic(String(error))}) — not sent`,
+            );
+            continue;
+          }
+        }
+        targets.push({
+          repo: entry.repo,
+          path: entry.path,
+          label: precheckLabel(entry.repo, entry.path),
+          status: entry.status,
+          newSha256: entry.newSha256,
+          oldImagePath,
+          newImagePath: join(entry.cwd, entry.path),
+        });
+      }
+
+      if (targets.length === 0) {
+        debug?.(
+          `[gate] uat baseline pre-check ticket ${input.ticketId}: batch ${index + 1}/${batches.length} — ` +
+            'no entry left to send, no approvals',
+        );
+        finish('passed', 'no-eligible-entries');
+        return { approved: [], sent: 0 };
+      }
+
+      sent = targets.length;
+      const prompt = buildBaselinePrecheckPrompt({ ticket: input.ticket, changedPaths: input.changedPaths, targets });
+      const structured = tester.adapter.surfaces?.structuredOutput?.supported === true;
       debug?.(
-        `[gate] uat baseline pre-check ticket ${input.ticketId}: interrupted — no approvals`,
+        `[gate] uat baseline pre-check ticket ${input.ticketId}: batch ${index + 1}/${batches.length} asking ` +
+          `${targets.length} entr${targets.length === 1 ? 'y' : 'ies'}${structured ? ' with a structured answer' : ''} — ` +
+          `${prompt.length} prompt chars`,
       );
-    } else {
+      const result = await tester.adapter.runHeadless({
+        prompt,
+        cwd: batch[0]!.cwd,
+        model: tester.assignment.model,
+        effort: tester.assignment.effort,
+        signal: input.signal,
+        timeoutMs: input.timeoutMs ?? DEFAULT_PRECHECK_TIMEOUT_MS,
+        policy: 'uat-tester',
+        ...(tester.assignment.context === 'minimal'
+          ? { minimalContext: 'skills-and-subagents' as const }
+          : {}),
+        onOutput: input.onLiveOutput,
+        ...(structured ? { outputSchema: BASELINE_PRECHECK_OUTPUT_SCHEMA } : {}),
+        tracking: { callSite: 'uat-tester', ticketId: input.ticketId, processRunId: run.id },
+      });
+
+      const reasons = parseBaselinePrecheckAnswer(
+        result.raw,
+        targets.map((target) => target.label),
+        result.finalMessage,
+      );
+      if (reasons === null) {
+        debug?.(
+          `[gate] uat baseline pre-check ticket ${input.ticketId}: batch ${index + 1}/${batches.length} ` +
+            'unreadable answer — no approvals from it',
+        );
+        finish('passed', 'unreadable-output');
+        return { approved: [], sent, failure: 'unreadable answer' };
+      }
+      const approved: BaselinePrecheckApproval[] = [];
+      for (const target of targets) {
+        const reason = reasons.get(target.label);
+        if (reason === undefined) continue;
+        approved.push({ repo: target.repo, path: target.path, sha256: target.newSha256, reason });
+      }
+      finish('passed', approved.length > 0 ? 'approved' : 'no-approvals');
+      debug?.(
+        `[gate] uat baseline pre-check ticket ${input.ticketId}: batch ${index + 1}/${batches.length} — ` +
+          `${approved.length} of ${targets.length} approved`,
+      );
+      return { approved, sent };
+    } catch (error) {
+      const detail = collapseDiagnostic(error instanceof Error ? error.message : String(error));
+      if (input.signal?.aborted === true) {
+        finish('interrupted', 'interrupted', detail);
+        debug?.(
+          `[gate] uat baseline pre-check ticket ${input.ticketId}: batch ${index + 1}/${batches.length} ` +
+            'interrupted — no approvals from it',
+        );
+        // Not a failure: the run was stopped, and the caller reports it as such.
+        return { approved: [], sent };
+      }
       finish('failed', 'execution-failed', detail);
       debug?.(
-        `[gate] uat baseline pre-check ticket ${input.ticketId}: failed (${detail}) — no approvals`,
+        `[gate] uat baseline pre-check ticket ${input.ticketId}: batch ${index + 1}/${batches.length} ` +
+          `failed (${detail}) — no approvals from it`,
       );
-    }
-    return { approved: [] };
-  } finally {
-    for (const root of runRoots) {
-      try {
-        await fs.removeDir(root);
-      } catch (error) {
-        debug?.(
-          `[gate] uat baseline pre-check ticket ${input.ticketId}: could not remove ${root} ` +
-            `(${collapseDiagnostic(String(error))})`,
-        );
+      return { approved: [], sent, failure: detail };
+    } finally {
+      for (const root of runRoots) {
+        try {
+          await fs.removeDir(root);
+        } catch (error) {
+          debug?.(
+            `[gate] uat baseline pre-check ticket ${input.ticketId}: could not remove ${root} ` +
+              `(${collapseDiagnostic(String(error))})`,
+          );
+        }
       }
     }
+  };
+
+  const approved: BaselinePrecheckApproval[] = [];
+  let sent = 0;
+  let failedBatches = 0;
+  let openedBatches = 0;
+  let firstFailureReason: string | undefined;
+  // Serial by design: host memory and image tokens, never parallel batches. A
+  // failed batch never stops the ones after it; an abort stops all the rest.
+  for (let index = 0; index < batches.length; index += 1) {
+    if (input.signal?.aborted === true) {
+      debug?.(
+        `[gate] uat baseline pre-check ticket ${input.ticketId}: stopped — ` +
+          `${batches.length - index} batch(es) not started`,
+      );
+      break;
+    }
+    openedBatches += 1;
+    const batch = await runBatch(batches[index]!, index);
+    sent += batch.sent;
+    approved.push(...batch.approved);
+    if (batch.failure !== undefined) {
+      failedBatches += 1;
+      firstFailureReason ??= batch.failure;
+    }
   }
+
+  // Only when no batch sent a single target is the whole review skipped: a
+  // stopped run reports itself as interrupted instead, never as skipped.
+  if (sent === 0 && input.signal?.aborted !== true) return skipped('no eligible entries');
+  debug?.(
+    `[gate] uat baseline pre-check ticket ${input.ticketId}: ${approved.length} of ${sent} approved` +
+      `${failedBatches > 0 ? `, ${failedBatches} batch(es) failed` : ''} — done`,
+  );
+  return {
+    approved,
+    sent,
+    failedBatches,
+    batches: openedBatches,
+    ...(firstFailureReason === undefined ? {} : { firstFailureReason }),
+  };
 }

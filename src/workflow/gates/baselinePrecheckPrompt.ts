@@ -9,6 +9,12 @@ import type { JsonSchemaDocument } from '../../agent/adapter.js';
 /** Bound on each intent field re-entering the prompt (untrusted ticket prose). */
 const MAX_INTENT_CHARS = 6_000;
 
+/**
+ * Above this many changed paths the prompt names the first ones only plus
+ * `… and N more`: the list is context for the images, not the review itself.
+ */
+export const PRECHECK_CHANGED_PATHS_MAX = 200;
+
 /** One entry actually sent to the model, with the two image paths it must read. */
 export interface BaselinePrecheckTarget {
   repo: string;
@@ -32,7 +38,8 @@ export interface BaselinePrecheckTicket {
 
 export interface BaselinePrecheckPromptInput {
   ticket: BaselinePrecheckTicket;
-  uiPaths: readonly string[];
+  /** Every file the branch changed, baseline images already left out. */
+  changedPaths: readonly string[];
   targets: readonly BaselinePrecheckTarget[];
 }
 
@@ -69,11 +76,21 @@ function boundedIntent(text: string): string {
   return `${trimmed.slice(0, MAX_INTENT_CHARS)}\n[truncated at ${MAX_INTENT_CHARS} characters]`;
 }
 
-/** The one prompt the pre-check sends: intent, changed UI paths, and every image pair. */
+/** The one prompt the pre-check sends: intent, the branch's changed files, and every image pair. */
 export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput): string {
   const description = boundedIntent(input.ticket.description);
   const brief = boundedIntent(input.ticket.brief);
-  const uiPaths = input.uiPaths.length === 0 ? ['(none reported)'] : input.uiPaths.map((path) => `- ${path}`);
+  const changedLines =
+    input.changedPaths.length === 0
+      ? ['(none reported)']
+      : [
+          ...input.changedPaths
+            .slice(0, PRECHECK_CHANGED_PATHS_MAX)
+            .map((path) => `- ${path}`),
+          ...(input.changedPaths.length > PRECHECK_CHANGED_PATHS_MAX
+            ? [`… and ${input.changedPaths.length - PRECHECK_CHANGED_PATHS_MAX} more`]
+            : []),
+        ];
   return [
     `You are the baseline pre-check for Karst's UAT stage. A ticket changed screenshot baselines; a human normally reviews each one. Decide which entries are CLEARLY the intended UI change and free of visible defects. Everything you do not approve waits for the human, exactly as today.`,
     ``,
@@ -81,8 +98,8 @@ export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput):
     ...(description === '' ? [] : [`Description:`, description]),
     ...(brief === '' ? [] : [`Design brief:`, brief]),
     ``,
-    `Changed src/ui paths on the ticket's branch:`,
-    ...uiPaths,
+    `Files changed on the ticket's branch (baseline images left out):`,
+    ...changedLines,
     ``,
     `Baseline entries — open EACH image file below and look at it (the old image is the base-commit version, the new image is the ticket's working tree):`,
     ...input.targets.map((target) =>
