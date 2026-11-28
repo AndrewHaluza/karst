@@ -41,7 +41,16 @@ export type DoctorFix =
   /** Touches user repos / manifest / global config / installs: proposal or exact command, never applied. */
   | { tier: 'consented'; summary: string; command: string }
   /** Doctor cannot fix it safely; `nextStep` is the exact thing the user does. */
-  | { tier: 'report'; summary: string; nextStep: string };
+  | { tier: 'report'; summary: string; nextStep: string }
+  /**
+   * One user action on the doctor page (edit 12): a button labelled `label` that the
+   * editor runs only after its own modal, never `--fix`. The page posts only the check
+   * id; the host reads the action from its last report (UI-R33). The CLI prints `nextStep`.
+   */
+  | { tier: 'action'; summary: string; label: string; action: DoctorUserAction; nextStep: string };
+
+/** What an `action` fix runs: the normal guarded removal of a ticket's sandbox (sync first, confirm). */
+export type DoctorUserAction = { kind: 'remove-sandbox'; ticketId: number };
 
 export interface DoctorCheck {
   /** Stable, dotted id, e.g. `tools.git`, `state.server-dead.12`. */

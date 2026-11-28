@@ -7,7 +7,7 @@
  * the binding: a panel factory, a `runCli`, an `ask.warn` and a clipboard.
  */
 import { doctorErrorHtml, doctorLoadingHtml, renderDoctorHtml } from '../../doctor/renderHtml.js';
-import type { DoctorCheck, DoctorReport } from '../../doctor/types.js';
+import type { DoctorCheck, DoctorFix, DoctorReport } from '../../doctor/types.js';
 import { newNonce } from '../../model/csp.js';
 import { plural, reasonText } from '../../model/notifyText.js';
 
@@ -21,6 +21,11 @@ export interface DoctorFlowDeps {
   /** A panel message: restore the #fix button after a cancel, or confirm a copy. */
   post(message: DoctorPanelMessage): void;
   copy?: (text: string) => void | Promise<void>;
+  /**
+   * The normal guarded removal of a ticket's sandbox (sync first, "Remove anyway"
+   * on unsynced commits). Absent: the page's Remove button removes nothing.
+   */
+  removeSandbox?: (ticketId: number) => Promise<void>;
   /** True once the panel is disposed: a late run must never touch it. */
   isDisposed?(): boolean;
   nonce?: () => string;
@@ -28,7 +33,7 @@ export interface DoctorFlowDeps {
 }
 
 /** The messages the page script answers. */
-export type DoctorPanelMessage = { type: 'fix-cancelled' } | { type: 'copy-done' };
+export type DoctorPanelMessage = { type: 'fix-cancelled' } | { type: 'copy-done' } | { type: 'action-cancelled' };
 
 export interface DoctorFlow {
   start(): Promise<void>;
@@ -38,6 +43,13 @@ export interface DoctorFlow {
 /** Only non-ok auto fixes are offered: a fixed or non-auto check has nothing to run. */
 function autoFixes(report: DoctorReport | undefined): DoctorCheck[] {
   return (report?.checks ?? []).filter((c) => c.status !== 'ok' && c.fix?.tier === 'auto');
+}
+
+/** The non-ok action check of the last report with this id; a crafted or stale id finds none (UI-R33). */
+function actionCheck(report: DoctorReport | undefined, id: unknown): (DoctorCheck & { fix: Extract<DoctorFix, { tier: 'action' }> }) | undefined {
+  if (typeof id !== 'string') return undefined;
+  const found = report?.checks.find((c) => c.id === id && c.status !== 'ok' && c.fix?.tier === 'action');
+  return found as (DoctorCheck & { fix: Extract<DoctorFix, { tier: 'action' }> }) | undefined;
 }
 
 export function createDoctorFlow(deps: DoctorFlowDeps): DoctorFlow {
@@ -113,6 +125,35 @@ export function createDoctorFlow(deps: DoctorFlowDeps): DoctorFlow {
     }
   }
 
+  /** One page action (edit 12): the host's modal, the guarded removal, then a fresh report. */
+  async function act(id: unknown): Promise<void> {
+    if (running || closed()) return;
+    const check = actionCheck(lastReport, id);
+    const remove = deps.removeSandbox;
+    if (check === undefined || remove === undefined) {
+      post({ type: 'action-cancelled' });
+      return;
+    }
+    running = true;
+    try {
+      // A modal that cannot be shown counts as a cancel (as for the safe fixes).
+      const confirmed = await deps.confirm('Remove the stale remote workspace?', [check.detail], check.fix.label).catch(() => false);
+      if (closed()) return;
+      if (!confirmed) {
+        post({ type: 'action-cancelled' });
+        return;
+      }
+      render(doctorLoadingHtml(nonce()));
+      await remove(check.fix.action.ticketId);
+    } catch (e) {
+      render(doctorErrorHtml(reasonText(e), nonce()));
+      return;
+    } finally {
+      running = false;
+    }
+    await reload(false, undefined, true);
+  }
+
   return {
     start: () => reload(false, undefined, false),
     async handleMessage(message: unknown): Promise<void> {
@@ -124,6 +165,10 @@ export function createDoctorFlow(deps: DoctorFlowDeps): DoctorFlow {
       }
       if (type === 'fix') {
         await fix();
+        return;
+      }
+      if (type === 'action') {
+        await act((message as { id?: unknown }).id);
         return;
       }
       if (type === 'copy') {

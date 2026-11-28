@@ -259,6 +259,20 @@ describe('fix text (DR-2)', () => {
     expect(block).not.toContain('<code');
   });
 
+  it('renders an action fix as its labelled button that posts only the check id (edit 12, UI-R33)', () => {
+    const page = renderDoctorHtml(report({
+      checks: [check({ id: 'state.sandbox-stale.devbox.ws"<x>', area: 'state', status: 'warn',
+        fix: { tier: 'action', summary: 'stale remote workspace', label: 'Remove', action: { kind: 'remove-sandbox', ticketId: 7 }, nextStep: 'open the dashboard' } })],
+      summary: { ok: 0, warn: 1, fail: 0, skipped: 0 },
+    }), 'n');
+    expect(page).toContain('<button type="button" class="k-btn k-btn--secondary k-btn--sm doc-action" data-check="state.sandbox-stale.devbox.ws&quot;&lt;x&gt;" data-label="Remove">Remove</button>');
+    expect(page).not.toContain('open the dashboard');
+    expect(page).toContain("v.postMessage({ type: 'action', id: button.dataset.check || '' })");
+    expect(page).toContain("e.data.type === 'action-cancelled'");
+    // An action fix is not a safe fix: the bulk button never counts it.
+    expect(page).not.toContain('id="fix"');
+  });
+
   it('renders an auto fix as Fixed by Fix safe issues', () => {
     const auto = renderDoctorHtml(DOCTOR_FIXTURES['auto-fixes'], 'n');
     expect(auto).toContain('<p class="doc-fix-step">Fixed by Fix safe issues</p>');

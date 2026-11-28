@@ -10,6 +10,7 @@ import { startSandboxService } from '../../agent/sandboxServices.js';
 import type { Manifest } from '../../manifest/types.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
+import type { TicketPlacement } from '../../store/placement.js';
 import {
   reattachTicketSandbox, resolveTicketSandbox, ticketGateProcess, ticketKillContextOf, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
 } from './sandboxTicketOps.js';
@@ -538,6 +539,23 @@ describe('bindings: listing-backed core cache, channel, resume guard (F4/F10/F16
     await expect(b.hasSandbox(7)).resolves.toBe(true);
     expect(b.deps.coreOf(7)).toBe('opencode2');
     await expect(b.hasSandbox(8)).resolves.toBe(false);
+  });
+
+  it('a forgotten stray never counts as the ticket sandbox: hasSandbox stays false (D824)', async () => {
+    const b = await make({}, async () => [{ ...box, stray: true as const }]);
+    await expect(b.hasSandbox(7)).resolves.toBe(false);
+    expect(b.deps.coreOf(7)).toBeNull();
+  });
+
+  it('an ssh listing item matches the ticket only through its recorded <remote>/<name> (D824)', async () => {
+    const placement = fakeSshPlacement(7);
+    const item = { runner: 'ssh' as const, name: `${sshProjectPrefix('/p', FAKE_INSTALL_ID)}-7-claude`, ticketId: 7, core: 'claude', state: 'running' as const, remote: 'devbox' };
+    const match = await resolveTicketSandbox(deps({ placementOf: () => placement, inventory: async () => [item] }), 7);
+    expect(match.listed).toEqual(item);
+    const wrongRemote = await resolveTicketSandbox(deps({ placementOf: () => placement, inventory: async () => [{ ...item, remote: 'other' }] }), 7);
+    expect(wrongRemote.listed).toBeUndefined();
+    const stray = await resolveTicketSandbox(deps({ placementOf: () => placement, inventory: async () => [{ ...item, stray: true as const }] }), 7);
+    expect(stray.listed).toBeUndefined();
   });
 
   it('default listing: only a CONFIGURED runner that fails to list makes the answer unknown', async () => {
@@ -1187,6 +1205,106 @@ describe('an ssh placement routes every ticket step to the ssh runner (D826)', (
     const host = fallback(() => hostTicket.hasSandbox(7));
     expect(await launchWithoutSilentHostFallback(host)).toMatchObject({ kind: 'launched', freshSession: false });
     expect(host.choose).not.toHaveBeenCalled();
+  });
+});
+
+describe('ticketSshRemote', () => {
+  const backends = { claude: 'sbx', codex: 'ssh:devbox', opencode: 'ssh:gpu' } as const;
+  const ssh = (core: string | null, sandboxName: string | null): TicketPlacement => ({ backend: 'ssh', core, sandboxName, reason: null });
+
+  it('takes the recorded remote of an ssh placement over the core', async () => {
+    const { ticketSshRemote } = await import('./sandboxTicketOps.js');
+    expect(ticketSshRemote(ssh('codex', 'other/karst-x-7-codex'), backends, 'opencode')).toBe('other');
+  });
+
+  it('takes the remote of the placement core, then of the ticket core, for an ssh placement without a name', async () => {
+    const { ticketSshRemote } = await import('./sandboxTicketOps.js');
+    expect(ticketSshRemote(ssh('opencode', null), backends, 'codex')).toBe('gpu');
+    expect(ticketSshRemote(ssh(null, null), backends, 'codex')).toBe('devbox');
+    expect(ticketSshRemote(ssh(null, null), backends, null)).toBeUndefined();
+  });
+
+  it('gives no remote for a non-ssh placement, even when its core selects ssh', async () => {
+    const { ticketSshRemote } = await import('./sandboxTicketOps.js');
+    expect(ticketSshRemote({ backend: 'sbx', core: 'codex', sandboxName: 'sb', reason: null }, backends, 'codex')).toBeUndefined();
+    expect(ticketSshRemote({ backend: 'host', core: 'codex', sandboxName: null, reason: null }, backends, 'codex')).toBeUndefined();
+  });
+
+  it('takes the remote of the ticket core without a placement', async () => {
+    const { ticketSshRemote } = await import('./sandboxTicketOps.js');
+    expect(ticketSshRemote(null, backends, 'codex')).toBe('devbox');
+    expect(ticketSshRemote(null, backends, 'claude')).toBeUndefined();
+    expect(ticketSshRemote(null, backends, null)).toBeUndefined();
+    expect(ticketSshRemote(null, undefined, 'codex')).toBeUndefined();
+  });
+});
+
+describe('the default inventory counts the failures of the ticket runner (arch:AC-39, D827)', () => {
+  const ERR = 'ssh devbox: ssh remote devbox not confirmed';
+  const setup = async (over: { placement?: TicketPlacement | null; backends?: Record<string, string>; sbxCode?: number; noPlacementOf?: boolean; core?: string | null }) => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = openStore(':memory:');
+    const base = deps({
+      backends: () => (over.backends ?? { claude: 'sbx' }) as never,
+      ...(over.core === undefined ? {} : { coreOf: () => over.core ?? null }),
+      proc: fakeSbxProcess({ 'sbx ls': { code: over.sbxCode ?? 0, stderr: over.sbxCode === undefined ? '' : 'sbx daemon down' } }),
+      dockerProc: fakeDockerProcess(),
+      sshRunner: fakeSshRunnerDeps(fakeSshProcess(), { globalStorageDir: fakeTrustDir({}) }),
+    });
+    const input = over.noPlacementOf === true ? base : { ...base, placementOf: () => over.placement ?? null };
+    return createTicketSandboxBindings({ ...input, store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined }).deps;
+  };
+
+  it('throws on a failure of the remote of the recorded ssh placement, even when no core selects ssh', async () => {
+    const d = await setup({ placement: fakeSshPlacement(7) });
+    await expect(d.inventory!(7)).rejects.toThrow(ERR);
+  });
+
+  it('ignores a remote failure when the ticket has no ssh placement and no core selects ssh', async () => {
+    await expect((await setup({ placement: null })).inventory!(7)).resolves.toEqual([]);
+    await expect((await setup({ noPlacementOf: true })).inventory!(7)).resolves.toEqual([]);
+  });
+
+  it('ignores a failure of another remote than the placement remote', async () => {
+    const other = { ...fakeSshPlacement(7), sandboxName: 'other/karst-x-7-claude' };
+    await expect((await setup({ placement: other })).inventory!(7)).resolves.toEqual([]);
+  });
+
+  it('ignores the failure of a remote that another core selects (T801: only the own runner counts)', async () => {
+    const backends = { claude: 'sbx', codex: 'ssh:devbox' };
+    const sbx: TicketPlacement = { backend: 'sbx', core: 'claude', sandboxName: null, reason: null };
+    await expect((await setup({ placement: sbx, backends })).inventory!(7)).resolves.toEqual([]);
+    await expect((await setup({ placement: null, backends, core: 'claude' })).inventory!(7)).resolves.toEqual([]);
+    await expect((await setup({ placement: null, backends, core: null })).inventory!(7)).resolves.toEqual([]);
+  });
+
+  it('throws on a failure of the remote that the ticket core selects when there is no placement', async () => {
+    const d = await setup({ placement: null, backends: { claude: 'sbx', codex: 'ssh:devbox' }, core: 'codex' });
+    await expect(d.inventory!(7)).rejects.toThrow(ERR);
+  });
+
+  it('throws on a failure of any one selected runner kind', async () => {
+    const d = await setup({ placement: null, backends: { claude: 'sbx', codex: 'docker' }, sbxCode: 1 });
+    await expect(d.inventory!(7)).rejects.toThrow(/^sbx ls/);
+  });
+});
+
+describe('resolveTicketSandbox with two listed sandboxes of one ticket', () => {
+  const two = [
+    { name: 'sb-claude', ticketId: 7, core: 'claude', runner: 'sbx', state: 'running' },
+    { name: 'sb-codex', ticketId: 7, core: 'codex', runner: 'sbx', state: 'running' },
+  ] as never[];
+
+  it('reports the choice through debug with the [sandbox] prefix', async () => {
+    const debug = vi.fn();
+    const r = await resolveTicketSandbox(deps({ inventory: async () => two, debug }), 7);
+    expect(r.listed).toMatchObject({ name: 'sb-claude' });
+    expect(debug).toHaveBeenCalledWith('[sandbox] ticket 7 has 2 sandboxes (sb-claude, sb-codex); using sb-claude');
+  });
+
+  it('does not throw without a debug callback', async () => {
+    const r = await resolveTicketSandbox(deps({ inventory: async () => two }), 7);
+    expect(r.listed).toMatchObject({ name: 'sb-claude' });
   });
 });
 

@@ -532,6 +532,7 @@ import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { buildResourceIndicator } from './ui/resourceStatus.js';
 import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
 import { ResourceMonitor } from './runtime/resourceMonitor.js';
+import { sampleProjectRemoteWorkspaces } from './runtime/containerSampler.js';
 import { NODE_SBX_PROCESS } from './agent/sbx/sbxProcess.js';
 import { getCpuCoreCount } from './runtime/cpuCores.js';
 import { aiCallSiteLabel } from './agent/aiCallSites.js';
@@ -1328,6 +1329,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     projectId: () => currentProject()?.id, redrive: (id) => maybeDrive(id, 'sandbox-stash-update'),
     onShellChange: (id) => dashboard.pushState(id), openTerminal: (spec) => { const term = vscode.window.createTerminal({ name: spec.name, cwd: spec.cwd, shellPath: spec.cmd, shellArgs: [...spec.args] }); term.show(); }, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
     pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
+    pickForeign: async (items, placeHolder) => (await vscode.window.showQuickPick(items.map((i) => ({ label: i.label, description: i.description, detail: i.detail, id: i.id })), { placeHolder, canPickMany: true }))?.map((p) => p.id),
     // After a reload the ticket→core cache is empty: refill it from the listing (AC-34).
     onInventory: (inv) => { for (const box of inv.sandboxes) if (box.invalidCore !== true) sandboxB?.remember(box.ticketId, box.core); }, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
   const archiveDeps: ArchiveOpsDeps = {
@@ -2923,6 +2925,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     cpuCoreCount: getCpuCoreCount(),
     docker: NODE_SBX_PROCESS,
     projectRoot: () => cliEntryAndManifest(context).manifestPath ?? undefined,
+    // D824 edit 7: this project's remote workspaces as cost-free rows; ssh only, an unconfirmed remote gets no call.
+    remoteWorkspaces: () => sampleProjectRemoteWorkspaces(sshRunnerDeps, cliEntryAndManifest(context).manifestPath ?? undefined),
   });
   resourceMonitor = resourceMonitorInstance;
   resourceMonitorInstance.start(); context.subscriptions.push(memoryGuard = bindMemory({ projectId: () => currentProject()?.id, store: localStore, notify: vscodeNotify, manifest: currentManifest, label: (id) => getTicket(localStore, id).key ?? String(id), refresh: (id) => { provider.refresh(); dashboard.pushState(id); }, openSession: (id, opts) => Promise.resolve(vscode.commands.executeCommand('karst.openSession', id, opts)), inventory: () => resourceMonitorInstance.reading().inventory, ownedSessions: () => ownedSessionTickets, stopSandbox: (id) => sandboxLife.stop(id), debug: (m) => logger.debug(m), sweepMs: SUBTASK_AUTOSTART_INTERVAL_MS, })); // host-memory admission queue + pressure warning
@@ -7375,6 +7379,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.stashUpdate', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'stash and update'); if (id !== undefined) await sandboxLife.stashUpdate(id); }), vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
+    vscode.commands.registerCommand('karst.sandbox.cleanupForeignRemote', () => sandboxLife.cleanupForeignRemote()),
     // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
     { dispose: onDrainChange(() => dashboard.pushAllStates()) }, // the dashboards show the waiting reload
     registerReloadWhenIdle(localStore, drain, (m) => logger.info(m), (id) => void maybeDrive(id, 'drain-cancelled')),
@@ -7445,7 +7450,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       provider.refresh();
     }),
-    (doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) })).command,
+    (doctorWiring = registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)), removeSandbox: (id) => sandboxLife.remove(id) })).command,
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('karst.showActivity', async () => { provider.revealActivity(); await vscode.commands.executeCommand(`${SIDEBAR_VIEW_ID}.focus`); }),
     vscode.commands.registerCommand('karst.showAttention', async () => {

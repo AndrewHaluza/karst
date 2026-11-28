@@ -1,6 +1,95 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dockerKillContext, probeDockerDisk, probeDockerImageDisk, probeDockerMemory } from './backendProbe.js';
+import { dockerKillContext, probeDockerDisk, probeDockerImageDisk, probeDockerMemory, probeRemoteDisk, probeRemoteWorkspaces, type RemoteProbeContext } from './backendProbe.js';
 import type { SbxProcess } from './sbx/sbxProcess.js';
+import { fakeSshProcess } from './ssh/fakeSshProcess.js';
+import { remoteTrustKey } from './ssh/remoteTrust.js';
+import { sshProjectPrefix } from './ssh/sshNames.js';
+import type { RemoteDef } from '../manifest/types.js';
+
+const REMOTE: RemoteDef = { host: 'devbox.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+const INSTALL_ID = 'a'.repeat(32);
+const NAME = `${sshProjectPrefix('/proj/karst.yml', INSTALL_ID)}-7-claude`;
+
+function trustedDir(def: RemoteDef = REMOTE, name = 'devbox'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-remote-probe-'));
+  writeFileSync(join(dir, 'ssh-trust.json'), JSON.stringify({ [name]: remoteTrustKey(name, def) }));
+  return dir;
+}
+
+function ctx(dir: string, now = Date.UTC(2026, 10, 28)): RemoteProbeContext {
+  return { projectRoot: '/proj/karst.yml', installId: INSTALL_ID, trustDir: dir, controlDir: '/tmp/karst-ssh-1', now };
+}
+
+describe('probeRemoteDisk', () => {
+  it('reads the workspace count, the prefix size and the free disk in one ssh call', async () => {
+    const dir = trustedDir();
+    const ssh = fakeSshProcess({ '# karst-ssh-remote-disk': { stdout: 'count=2\nusedKb=1024\nfreeKb=51200\n' } });
+    try {
+      expect(await probeRemoteDisk(ssh, 'devbox', REMOTE, ctx(dir))).toEqual({ workspaces: 2, usedKb: 1024, freeKb: 51200 });
+      expect(ssh.calls).toHaveLength(1);
+      expect(ssh.calls[0]!.args.at(-1)).toContain('df -Pk');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('an unconfirmed remote gets no ssh call at all', async () => {
+    const dir = trustedDir();
+    const other: RemoteDef = { ...REMOTE, host: 'changed.example.com' };
+    const ssh = fakeSshProcess({ '# karst-ssh-remote-disk': { stdout: 'count=99\nusedKb=1\nfreeKb=1\n' } });
+    try {
+      expect(await probeRemoteDisk(ssh, 'devbox', other, ctx(dir))).toEqual({ error: 'ssh devbox: ssh remote devbox not confirmed' });
+      expect(ssh.calls).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a transport failure per remote', async () => {
+    const dir = trustedDir();
+    const ssh = fakeSshProcess({ '# karst-ssh-remote-disk': { transport: true, code: 255, stderr: 'boom' } });
+    try {
+      expect(await probeRemoteDisk(ssh, 'devbox', REMOTE, ctx(dir))).toEqual({ error: 'ssh devbox: transport failed: boom' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('probeRemoteWorkspaces', () => {
+  it('reads env.sh age and du per prefix workspace, and skips anything else', async () => {
+    const dir = trustedDir();
+    const now = Date.UTC(2026, 10, 28);
+    const fifteenDays = Math.floor(now / 1000) - 15 * 86_400;
+    const ssh = fakeSshProcess({
+      '# karst-ssh-remote-workspaces': { stdout: `${NAME}\t${String(fifteenDays)}\t2048\n` },
+    });
+    try {
+      expect(await probeRemoteWorkspaces(ssh, 'devbox', REMOTE, ctx(dir, now))).toEqual([
+        { name: NAME, ageDays: 15, sizeKb: 2048 },
+      ]);
+      expect(ssh.calls).toHaveLength(1);
+      expect(ssh.calls[0]!.args.at(-1)).toContain('env/env.sh');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('an unconfirmed remote gets no ssh call', async () => {
+    const dir = trustedDir();
+    const ssh = fakeSshProcess({ '# karst-ssh-remote-workspaces': { stdout: `${NAME}\t0\t1\n` } });
+    try {
+      const out = await probeRemoteWorkspaces(ssh, 'devbox', { ...REMOTE, mode: 'docker' }, ctx(dir));
+      expect('error' in out && out.error).toBe('ssh devbox: ssh remote devbox not confirmed');
+      expect(ssh.calls).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 const proc = (code: number, stdout: string): SbxProcess => ({ run: async () => ({ code, stdout, stderr: '' }) });
 

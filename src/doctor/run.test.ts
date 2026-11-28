@@ -63,6 +63,26 @@ describe('runDoctor', () => {
   });
 });
 
+describe('an action fix (edit 12)', () => {
+  const stale: DoctorCheck = {
+    id: 'state.sandbox-stale.devbox.ws', area: 'state', status: 'warn', detail: 'ssh devbox: ws stopped 15 days, 1.0 GB',
+    fix: { tier: 'action', summary: 'stale remote workspace', label: 'Remove', action: { kind: 'remove-sandbox', ticketId: 7 }, nextStep: 'open the dashboard and choose "Remove sandbox"' },
+  };
+
+  it('--fix never runs it: only the editor removes a sandbox, after its confirm', async () => {
+    const fx = effects();
+    const r = await runDoctor({ fix: true, collect: () => [stale], effects: fx });
+    for (const f of Object.values(fx)) expect(f).not.toHaveBeenCalled();
+    expect(r.applied).toEqual([]);
+    expect(r.checks).toEqual([stale]);
+  });
+
+  it('the CLI text names the next step, not a command it cannot run', async () => {
+    const r = await runDoctor({ fix: false, collect: () => [stale], effects: effects() });
+    expect(renderDoctorText(r)).toContain('       action: stale remote workspace → open the dashboard and choose "Remove sandbox"');
+  });
+});
+
 const leaked: DoctorCheck = {
   id: 'state.server-leaked.2', area: 'state', status: 'warn', detail: 'leaked',
   fix: { tier: 'auto', summary: 'kill', action: { kind: 'kill-process', serverId: 2, pid: 9, startedAt: '2026-10-09 12:00:00' } },

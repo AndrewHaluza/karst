@@ -1,5 +1,14 @@
-import { parseSandboxContainerName, projectPrefix } from '../agent/sandboxInventory.js';
+import {
+  inventorySshDeps, listRemoteSandboxes, parseSandboxContainerName, projectPrefix,
+  type ProjectSandbox, type SshInventorySource,
+} from '../agent/sandboxInventory.js';
+import { probeRemoteWorkspaces } from '../agent/backendProbe.js';
 import type { SbxProcess } from '../agent/sbx/sbxProcess.js';
+import { sshControlDir } from '../agent/ssh/sshControlDir.js';
+import { NODE_SSH_PROCESS, type SshProcess } from '../agent/ssh/sshProcess.js';
+import type { RemoteDef } from '../manifest/types.js';
+import type { AttributedRow } from './resourceInventory.js';
+import { remoteWorkspaceFacts, remoteWorkspaceKey, remoteWorkspaceRows, type RemoteWorkspaceProbeFacts } from './remoteWorkspaces.js';
 
 /**
  * One async sample of the docker containers karst owns. On macOS every
@@ -86,6 +95,72 @@ async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, ms: num
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+/**
+ * Remote workspaces as Resources rows (D824, edits 7 and 12): the remote, its
+ * state (with the age since the last launch when stopped) and its disk in the
+ * label, with `cost: null` so it never counts toward host memory pressure or
+ * the totals. `probes` is keyed by `remote/name` from a trusted probe; absent =
+ * `disk unknown` and no age.
+ */
+export function sampleRemoteWorkspaces(
+  sandboxes: readonly ProjectSandbox[],
+  probes?: ReadonlyMap<string, RemoteWorkspaceProbeFacts>,
+): AttributedRow[] {
+  return remoteWorkspaceRows(remoteWorkspaceFacts(sandboxes, probes));
+}
+
+/** One remote-workspace sample: rows per remote that listed, and the remotes whose listing failed. */
+export interface RemoteWorkspaceSample {
+  readonly rows: ReadonlyMap<string, readonly AttributedRow[]>;
+  readonly failed: ReadonlySet<string>;
+}
+
+/**
+ * List this project's workspaces on every declared remote (ssh only, trust
+ * first) and turn them into Resources rows, with each workspace's `du -sk`
+ * disk. A remote whose listing failed is in
+ * `failed`, so the caller keeps its previous rows. A per-remote failure never
+ * throws; only an unexpected fault does, and the caller logs it.
+ */
+export async function sampleProjectRemoteWorkspaces(
+  source: SshInventorySource | undefined,
+  projectRoot: string | undefined,
+): Promise<RemoteWorkspaceSample> {
+  const deps = inventorySshDeps(source);
+  const remotes = Object.keys(deps.remotes ?? {});
+  if (projectRoot === undefined || remotes.length === 0) return { rows: new Map(), failed: new Set() };
+  const inv = await listRemoteSandboxes({ projectRoot, ...deps });
+  const failed = new Set(remotes.filter((r) => inv.errors.some((e) => e.startsWith(`ssh ${r}:`))));
+  const listed = remotes.filter((r) => !failed.has(r));
+  const rows = new Map(await Promise.all(listed.map(async (r) => {
+    const boxes = inv.sandboxes.filter((s) => s.remote === r);
+    const probes = boxes.length === 0 ? undefined : await remoteProbes(r, deps.remotes![r]!, { ...deps, projectRoot });
+    return [r, sampleRemoteWorkspaces(boxes, probes)] as const;
+  })));
+  return { rows, failed };
+}
+
+/**
+ * The `du -sk` and the last-launch age of each workspace on one listed remote,
+ * keyed by `remote/name`. The probe checks trust again; a failed probe gives no
+ * facts, so the rows say `disk unknown` and the listing still counts (the remote answered).
+ */
+async function remoteProbes(
+  remote: string,
+  def: RemoteDef,
+  deps: { readonly projectRoot: string; readonly installId?: string; readonly trustDir?: string; readonly ssh?: SshProcess; readonly controlDir?: string; readonly warn?: (message: string) => void },
+): Promise<ReadonlyMap<string, RemoteWorkspaceProbeFacts> | undefined> {
+  if (deps.installId === undefined || deps.trustDir === undefined) return undefined;
+  const probe = await probeRemoteWorkspaces(deps.ssh ?? NODE_SSH_PROCESS, remote, def, {
+    projectRoot: deps.projectRoot, installId: deps.installId, trustDir: deps.trustDir, controlDir: deps.controlDir ?? sshControlDir(),
+  });
+  if ('error' in probe) {
+    deps.warn?.(`${probe.error} (workspace sizes)`);
+    return undefined;
+  }
+  return new Map(probe.map((w) => [remoteWorkspaceKey(remote, w.name), { sizeKb: w.sizeKb, ageDays: w.ageDays }] as const));
 }
 
 export async function sampleContainers(deps: {

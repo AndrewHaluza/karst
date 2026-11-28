@@ -4,6 +4,8 @@ import { projectPrefix } from '../agent/sandboxInventory.js';
 import type { ProcessResult, SbxProcess } from '../agent/sbx/sbxProcess.js';
 import { parseProcTable } from './procSnapshot.js';
 import { ResourceMonitor } from './resourceMonitor.js';
+import type { RemoteWorkspaceSample } from './containerSampler.js';
+import type { AttributedRow } from './resourceInventory.js';
 
 const ROOT = '/proj';
 const P = projectPrefix(ROOT);
@@ -110,6 +112,95 @@ describe('ResourceMonitor containers', () => {
     await m.refreshContainers();
     expect(m.reading().inventory!.attributed.some((r) => r.kind === 'container')).toBe(false);
     expect(m.reading().containersDegraded).toBe(true);
+    m.dispose();
+  });
+});
+
+describe('ResourceMonitor remote workspaces (D824, edit 7)', () => {
+  let store: Store;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    store.close();
+  });
+
+  const row = (ticketId: number, label: string): AttributedRow => ({
+    pid: 0, kind: 'remote', ticketId, label, serverId: null, attribution: 'attributable', cost: null, cwd: null, comm: `ws-${ticketId}`,
+  });
+  const make = (remoteWorkspaces: () => Promise<RemoteWorkspaceSample>): ResourceMonitor =>
+    new ResourceMonitor({
+      store, projectId: () => undefined, worktreeRoots: () => [],
+      readSnapshot: async () => ({ supported: true, snapshot: parseProcTable(SNAP, 1000) }),
+      cpuCoreCount: 4, remoteWorkspaces,
+    });
+  const remoteRows = (m: ResourceMonitor): readonly AttributedRow[] =>
+    m.reading().inventory?.attributed.filter((r) => r.kind === 'remote') ?? [];
+
+  it('adds the remote rows while the panel is open, and they never count in the totals', async () => {
+    const sample = vi.fn(async (): Promise<RemoteWorkspaceSample> => ({ rows: new Map([['devbox', [row(7, 'ssh devbox · stopped · disk unknown')]]]), failed: new Set() }));
+    const m = make(sample);
+    await m.refreshNow();
+    const totals = m.reading().inventory!.totals;
+    m.setPanelVisible(true);
+    await vi.waitFor(() => expect(remoteRows(m)).toHaveLength(1));
+    expect(m.reading().inventory!.totals).toEqual(totals);
+    m.dispose();
+  });
+
+  it('never lists a remote while the panel is closed', async () => {
+    const sample = vi.fn(async (): Promise<RemoteWorkspaceSample> => ({ rows: new Map(), failed: new Set() }));
+    const m = make(sample);
+    m.start();
+    await m.refreshNow();
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(sample).not.toHaveBeenCalled();
+    m.dispose();
+  });
+
+  it('keeps the previous rows of a remote whose listing failed, and drops the rows of one that listed none', async () => {
+    let next: RemoteWorkspaceSample = {
+      rows: new Map([['a', [row(7, 'ssh a')]], ['b', [row(8, 'ssh b')]]]), failed: new Set(),
+    };
+    const debug = vi.fn();
+    const m = new ResourceMonitor({
+      store, projectId: () => undefined, worktreeRoots: () => [], debug, cpuCoreCount: 4,
+      readSnapshot: async () => ({ supported: true, snapshot: parseProcTable(SNAP, 1000) }),
+      remoteWorkspaces: async () => next,
+    });
+    await m.refreshNow();
+    await m.refreshRemoteWorkspaces();
+    expect(remoteRows(m).map((r) => r.label)).toEqual(['ssh a', 'ssh b']);
+    expect(debug).not.toHaveBeenCalledWith(expect.stringContaining('remote listing failed'));
+    next = { rows: new Map([['b', []]]), failed: new Set(['a']) };
+    await m.refreshRemoteWorkspaces();
+    expect(remoteRows(m).map((r) => r.label)).toEqual(['ssh a']);
+    expect(debug).toHaveBeenCalledWith('[resources] remote listing failed (a) — keeping the previous rows');
+    m.dispose();
+  });
+
+  it('is single-flight and logs a thrown sample without losing the rows', async () => {
+    let calls = 0;
+    let fail = false;
+    const logError = vi.fn();
+    const m = new ResourceMonitor({
+      store, projectId: () => undefined, worktreeRoots: () => [], logError, cpuCoreCount: 4,
+      readSnapshot: async () => ({ supported: true, snapshot: parseProcTable(SNAP, 1000) }),
+      remoteWorkspaces: async () => {
+        calls += 1;
+        if (fail) throw new Error('boom');
+        return { rows: new Map([['a', [row(7, 'ssh a')]]]), failed: new Set() };
+      },
+    });
+    await m.refreshNow();
+    await Promise.all([m.refreshRemoteWorkspaces(), m.refreshRemoteWorkspaces()]);
+    expect(calls).toBe(1);
+    fail = true;
+    await m.refreshRemoteWorkspaces();
+    expect(logError).toHaveBeenCalledWith('resource monitor remote workspace sample failed', expect.any(Error));
+    expect(remoteRows(m)).toHaveLength(1);
     m.dispose();
   });
 });
