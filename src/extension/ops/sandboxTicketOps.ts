@@ -357,6 +357,7 @@ export function ticketSshRemote(placement: TicketPlacement | null, backends: Age
   const recorded = sshPlacementTarget(placement)?.remote;
   if (recorded !== undefined) return recorded;
   // An ssh placement without a workspace name yet: its core still names the remote. No core selects nothing ('' is host).
+  // Stryker disable next-line StringLiteral: equivalent, any name that no core has selects host
   return parseSshBackend(backendForCore(backends, placement?.core ?? core ?? ''));
 }
 
