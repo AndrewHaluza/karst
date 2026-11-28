@@ -78,7 +78,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1413 (@ui:UI-R57): the Models button's card open on focus (`header-models-card-*`), row 2 with relations only
   //   (`header-relations-*`) and the urgent needs-you ticket whose row 2 hides (`header-needs-you-urgent-*`),
   //   3 families x 4 tiers x 1 theme (dark) (+12 screenshots); skipLayout, as T1396 above.
-  dashboard: { screenshots: 382, layout: 872 },
+  // T1410 (@ui:UI-R57, @ui:VISUAL-VARIANTS): the Ship auto-fix rounds as one tab row. Five new states (one round with
+  //   no tabs, R1 conflict + R2 CI live, R1/R2/R3 spent, a historical R1, a round with no push) at 1 theme (+5
+  //   screenshots), the spent case also at mid/narrow/tight (+3), and 5 new pages x 8 widths (+40 layout runs).
+  dashboard: { screenshots: 390, layout: 912 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

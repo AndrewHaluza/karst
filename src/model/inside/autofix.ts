@@ -138,7 +138,8 @@ const onPr = (t: AutofixTarget): string => (prLabel(t) === '' ? '' : ` on ${prLa
 const capitalize = (s: string): string => (s === '' ? s : `${s[0]!.toUpperCase()}${s.slice(1)}`);
 
 const kindWord = (kind: AutofixKind): string => (kind === 'ci' ? 'CI' : 'conflict');
-const unitWord = (kind: AutofixKind): string => (kind === 'ci' ? 'attempt' : 'round');
+/** One word for both kinds (T1410): UAT and Review call every loop a round, and so does Ship. */
+const unitWord = (_kind: AutofixKind): string => 'round';
 
 /**
  * The step rows the host can prove. A CI round has fetched its log (the host does that before the hand-off). The step that runs
@@ -188,7 +189,7 @@ function runningRow(f: AutofixFacts, round: AutofixRound): AutofixRowView {
   return {
     state: 'running',
     message: isCi
-      ? `CI ${round.check ?? 'check'}${onPr(round)} · attempt ${round.used} of ${round.max}`
+      ? `CI ${round.check ?? 'check'}${onPr(round)} · round ${round.used} of ${round.max}`
       : `conflict${onPr(round)} · round ${round.used} of ${round.max}`,
     attempts: finishedAttempts(f, null),
     steps: provableSteps(round),
@@ -204,7 +205,7 @@ function parkedRow(f: AutofixFacts, reason: string): AutofixRowView {
     const k = kind as AutofixKind;
     const subject = k === 'ci' ? `CI ${f.target?.check ?? 'check'}` : 'conflict';
     const where = f.target ? ` on ${prLabel(f.target)}` : '';
-    const message = `stopped: ${subject}${where} · ${used} of ${max} ${k === 'ci' ? 'attempts' : 'rounds'}`;
+    const message = `stopped: ${subject}${where} · ${used} of ${max} rounds`;
     return { ...base, state: 'spent', message, attempts: finishedAttempts(f, k, Number(used)) };
   }
   const attempts = finishedAttempts(f, null);
@@ -248,7 +249,8 @@ export function autofixRow(f: AutofixFacts): AutofixRowView | null {
   // Earlier attempts alone still give the row: it lists them and states no result it cannot prove.
   const earlier = finishedAttempts(f, null);
   if (earlier.length > 0) {
-    return { state: 'history', message: `${earlier.length} earlier ${earlier.length === 1 ? 'attempt' : 'attempts'}`, attempts: earlier, steps: [], stopAfterRequested: false };
+    // The count is the FINISHED rounds — exactly the rows beside it (T1410).
+    return { state: 'history', message: `${earlier.length} earlier ${earlier.length === 1 ? 'round' : 'rounds'}`, attempts: earlier, steps: [], stopAfterRequested: false };
   }
   return null;
 }
@@ -299,9 +301,9 @@ function spentBanner(f: AutofixFacts, used: string, max: string, kind: AutofixKi
       : `Auto-fix resolved the conflict in ${used} of ${max} rounds and it is still there.`,
     primary: {
       act: 'autopilot-approve-one',
-      label: isCi ? '+1 attempt' : '+1 round',
+      label: '+1 round',
       icon: 'plus',
-      title: isCi ? 'Approve 1 more auto-fix attempt' : 'Approve 1 more auto-fix round',
+      title: 'Approve 1 more auto-fix round',
       ...(t ? { repo: t.repo } : {}),
       kind,
     },

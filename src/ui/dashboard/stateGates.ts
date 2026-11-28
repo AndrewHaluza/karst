@@ -3,6 +3,8 @@ import type { StageKey } from '../../model/types.js';
 import type { InsideStageKey } from '../../model/inside/types.js';
 import { insideStageForRuntimeStage } from '../../model/inside/registry.js';
 import { listGateAttempts, type AttemptKey, type GateAttemptView } from '../../model/inside/rounds.js';
+import { listShipRounds, type ShipSpentPark } from '../../model/inside/shipRounds.js';
+import type { AutofixAttempt, AutofixRound } from '../../model/inside/autofix.js';
 import { currentAttemptFor, type CurrentAttempt } from '../../model/inside/currentAttempt.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import type { AttemptSwitch, AttemptSwitchView, RoundSwitcherArg } from './stateInside.js';
@@ -95,7 +97,14 @@ export interface GateSwitchesInput {
   processRuns: GateAttemptsInput['processRuns'];
   cellOf: (key: StageKey) => StepperCell;
   stageRuns: Parameters<typeof currentAttemptFor>[0];
-  attemptSelection?: Partial<Record<'uat' | 'review', string>>;
+  attemptSelection?: Partial<Record<'uat' | 'review' | 'ship', string>>;
+  /** The Ship auto-fix notes, live round, spent park and clock the round tabs read (T1410). */
+  shipRounds?: {
+    attempts: readonly AutofixAttempt[];
+    liveRound: AutofixRound | null;
+    spent?: ShipSpentPark | null;
+    now: string;
+  };
 }
 
 type GateAttemptsInput = Parameters<typeof listGateAttempts>[0];
@@ -111,10 +120,12 @@ export function buildGateSwitches(input: GateSwitchesInput): {
   reviewCurrent: CurrentAttempt;
   uatSwitch: AttemptSwitch;
   reviewSwitch: AttemptSwitch;
+  shipSwitch: AttemptSwitch;
   uatRoundSwitcher: RoundSwitcherArg;
   reviewRoundSwitcher: RoundSwitcherArg;
+  shipRoundSwitcher: RoundSwitcherArg;
 } {
-  const { ticket, rounds, gateRuns, processRuns, stageRuns, cellOf, attemptSelection } = input;
+  const { ticket, rounds, gateRuns, processRuns, stageRuns, cellOf, attemptSelection, shipRounds } = input;
   // The gate stage's CURRENT invocation (`model/inside/currentAttempt.ts`),
   // resolved once per stage and shared by the round switcher and the quality
   // reducer below — two reads of `stage_runs` is how a tab and a ledger end
@@ -201,6 +212,18 @@ export function buildGateSwitches(input: GateSwitchesInput): {
   });
   const reviewSwitch = attemptSwitcherFor(reviewAttempts, attemptSelection?.review, reviewCurrent === null);
 
+  // The Ship stage's own round sequence (T1410): one tab row across the
+  // conflict and CI rounds, keyed by the Autopilot note's time. The newest
+  // round is the default path (`selectedKey: null`), so the default Ship ledger
+  // stays exactly as it renders today; only a historical tab narrows it.
+  const shipAttempts = listShipRounds({
+    attempts: shipRounds?.attempts ?? [],
+    liveRound: shipRounds?.liveRound ?? null,
+    spent: shipRounds?.spent ?? null,
+    now: shipRounds?.now ?? '',
+  });
+  const shipSwitch = attemptSwitcherFor(shipAttempts, attemptSelection?.ship, false);
+
   // Hoisted once each — `supersededNote` is otherwise called twice per stage
   // below (once to decide the merge, once to build the note-only fallback).
   const uatNote = supersededNote('uat');
@@ -211,10 +234,13 @@ export function buildGateSwitches(input: GateSwitchesInput): {
   // tab and the note can never be composed from two different reads.
   const uatRoundSwitcher: RoundSwitcherArg = withNote(uatSwitch.view, uatNote);
   const reviewRoundSwitcher: RoundSwitcherArg = withNote(reviewSwitch.view, reviewNote);
+  // Ship has no other gate whose superseded result could need a note: the
+  // round's own warning (`no fix attempts left`) already rides its view.
+  const shipRoundSwitcher: RoundSwitcherArg = shipSwitch.view;
 
   return {
     presentedStage,
     uatCurrent,
     reviewCurrent,
-    uatSwitch, reviewSwitch, uatRoundSwitcher, reviewRoundSwitcher };
+    uatSwitch, reviewSwitch, shipSwitch, uatRoundSwitcher, reviewRoundSwitcher, shipRoundSwitcher };
 }

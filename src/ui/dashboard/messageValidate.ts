@@ -1,7 +1,7 @@
 import { isSafeTreePath } from '../../artifacts/skipRules.js';
 import { STAGE_KEYS, type StageKey } from '../../model/types.js';
 import { CONSOLE_STAGES, GATE_STAGES, type ConsoleStage, type GateStage } from '../../store/ticketGates.js';
-import type { AgentProcessId } from './messages.js';
+import { ATTEMPT_STAGES, type AgentProcessId, type AttemptStage } from './messages.js';
 
 const AGENT_PROCESS_IDS: readonly string[] = ['tester', 'review'];
 
@@ -19,6 +19,11 @@ export function isStageKey(v: unknown): v is StageKey {
 
 export function isGateStage(v: unknown): v is GateStage {
   return typeof v === 'string' && (GATE_STAGES as readonly string[]).includes(v);
+}
+
+/** A stage that carries a round switcher: the gate stages and Ship (T1410). */
+export function isAttemptStage(v: unknown): v is AttemptStage {
+  return typeof v === 'string' && (ATTEMPT_STAGES as readonly string[]).includes(v);
 }
 
 export function isConsoleStage(v: unknown): v is ConsoleStage {

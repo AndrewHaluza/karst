@@ -14,9 +14,9 @@ const BASE: AutofixFacts = {
 };
 
 describe('autofixRow', () => {
-  it('gives earlier attempts alone a quiet history row', () => {
+  it('gives earlier rounds alone a quiet history row', () => {
     const row = autofixRow({ ...BASE, attempts: [{ kind: 'ci', n: 1, max: 3, at: '01:00' }] });
-    expect(row).toMatchObject({ state: 'history', message: '1 earlier attempt', steps: [] });
+    expect(row).toMatchObject({ state: 'history', message: '1 earlier round', steps: [] });
     expect(row?.attempts).toHaveLength(1);
   });
 
@@ -43,10 +43,10 @@ describe('autofixRow', () => {
 
   it('words a running CI round with the check and shows only the steps it can prove', () => {
     const row = autofixRow({ ...BASE, round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 2, max: 3 } });
-    expect(row?.message).toBe('CI lint on api #88 · attempt 2 of 3');
+    expect(row?.message).toBe('CI lint on api #88 · round 2 of 3');
     expect(row?.steps).toEqual([
       { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
-      { label: 'agent fix', detail: 'attempt 2', status: 'run', stopAfter: true },
+      { label: 'agent fix', detail: 'round 2', status: 'run', stopAfter: true },
     ]);
   });
 
@@ -54,7 +54,7 @@ describe('autofixRow', () => {
     const row = autofixRow({ ...BASE, round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 1, max: 3, gate } });
     expect(row?.steps).toEqual([
       { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
-      { label: 'agent fix', detail: 'attempt 1', status: 'pass' },
+      { label: 'agent fix', detail: 'round 1', status: 'pass' },
       { label: 'gates run again', detail: word, status: 'run', stopAfter: true },
       { label: 're-ship', detail: 'to api #88', status: 'pending' },
     ]);
@@ -65,10 +65,23 @@ describe('autofixRow', () => {
     expect(row?.steps.at(-1)).toEqual({ label: 'ship', detail: 'waits for Confirm', status: 'pending' });
   });
 
-  it('lists the finished attempts and leaves out the newest note of the running kind', () => {
+  it('counts exactly the finished rounds in the history header', () => {
+    const at = (n: number) => ({ kind: 'ci' as const, n, max: 3, at: `0${n}:00` });
+    const one = autofixRow({ ...BASE, attempts: [at(1)] });
+    expect(one).toMatchObject({ state: 'history', message: '1 earlier round' });
+    expect(one?.attempts).toHaveLength(1);
+    const two = autofixRow({ ...BASE, attempts: [at(1), at(2)] });
+    expect(two).toMatchObject({ state: 'history', message: '2 earlier rounds' });
+    expect(two?.attempts).toHaveLength(2);
+    // A running round is not finished, so it is not in the count.
+    const running = autofixRow({ ...BASE, attempts: [at(1), at(2)], round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 2, max: 3 } });
+    expect(running?.attempts).toHaveLength(1);
+  });
+
+  it('lists the finished rounds and leaves out the newest note of the running kind', () => {
     const at = (n: number) => ({ kind: 'ci' as const, n, max: 3, at: `0${n}:00` });
     const row = autofixRow({ ...BASE, attempts: [at(1), at(2)], round: { kind: 'ci', repo: 'api', pr: 88, check: 'lint', used: 2, max: 3 } });
-    expect(row?.attempts).toEqual([{ label: 'attempt 1', detail: 'CI attempt 1 of 3 ran', result: 'ran', at: '01:00' }]);
+    expect(row?.attempts).toEqual([{ label: 'round 1', detail: 'CI round 1 of 3 ran', result: 'ran', at: '01:00' }]);
   });
 
   it('is absent when auto-fix is not effective, whatever else is on record', () => {
@@ -86,11 +99,11 @@ describe('autofixRow', () => {
       reason: 'auto-fix stopped: ci 3/3',
       target: { kind: 'ci', repo: 'api', pr: 88, check: 'lint' },
     });
-    expect(row).toMatchObject({ state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 attempts' });
+    expect(row).toMatchObject({ state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 rounds' });
     expect(row?.steps).toEqual([]);
   });
 
-  it('words earlier failed attempts without naming the check that fails now', () => {
+  it('words earlier failed rounds without naming the check that fails now', () => {
     const at = (n: number) => ({ kind: 'ci' as const, n, max: 3, at: `0${n}:00` });
     const row = autofixRow({ ...BASE, attempts: [at(1), at(2)], reason: 'auto-fix stopped: ci 2/2', target: { kind: 'ci', repo: 'api', pr: 88, check: 'lint' } });
     expect(row?.attempts.map((x) => x.detail)).toEqual(['CI still fails', 'CI still fails']);
@@ -156,7 +169,7 @@ describe('autofixBanner', () => {
     expect(autofixBanner(BASE)).toBeNull();
   });
 
-  it('gives a spent CI budget one primary, the note action and the attempt history', () => {
+  it('gives a spent CI budget one primary, the note action and the round history', () => {
     const b = autofixBanner({
       ...BASE,
       reason: 'auto-fix stopped: ci 3/3',
@@ -169,7 +182,7 @@ describe('autofixBanner', () => {
       titleHref: 'https://example.test/run/1',
       titleSuffix: 'failed on api #88',
       cause: 'Auto-fix tried 3 of 3 times and the check still fails.',
-      primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'plus', title: 'Approve 1 more auto-fix attempt', repo: 'api', kind: 'ci' },
+      primary: { act: 'autopilot-approve-one', label: '+1 round', icon: 'plus', title: 'Approve 1 more auto-fix round', repo: 'api', kind: 'ci' },
       secondary: { act: 'send-ci-failure', label: 'Send back…', icon: 'arrow-left', title: 'Send the CI failure to the agent with a note' },
       history: ['Attempt 1 · lint · 09:10', 'Attempt 2 · lint · 09:20', 'Attempt 3 · lint · 09:31'],
     });
@@ -181,7 +194,7 @@ describe('autofixBanner', () => {
     expect(b?.secondary).toEqual({ act: 'resolve-conflicts', label: 'Resolve by hand…', icon: 'pencil', title: 'Resolve conflicts by hand', repo: 'web' });
   });
 
-  it('gives a gh failure a Retry and no attempt count', () => {
+  it('gives a gh failure a Retry and no round count', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix paused: could not read CI for api #88 (gh: HTTP 502)' });
     expect(b?.state).toBe('gh-failed');
     expect(b?.primary).toEqual({ act: 'autopilot-retry', label: 'Retry', icon: 'refresh', title: 'Retry the auto-fix' });
@@ -241,6 +254,6 @@ describe('autofixBanner', () => {
 
   it('keeps the Approve action when no PR resolves but the kind is known', () => {
     const b = autofixBanner({ ...BASE, reason: 'auto-fix stopped: ci 3/3' });
-    expect(b?.primary).toEqual({ act: 'autopilot-approve-one', label: '+1 attempt', icon: 'plus', title: 'Approve 1 more auto-fix attempt', kind: 'ci' });
+    expect(b?.primary).toEqual({ act: 'autopilot-approve-one', label: '+1 round', icon: 'plus', title: 'Approve 1 more auto-fix round', kind: 'ci' });
   });
 });

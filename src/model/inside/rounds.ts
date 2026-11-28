@@ -58,6 +58,13 @@ export interface GateAttemptView {
   key: AttemptKey;
   /** Host-authored tab copy: always `R<position>`. */
   label: string;
+  /**
+   * Host copy for the KIND of attempt, drawn after the label (`R2 · CI`): the
+   * Ship stage's auto-fix rounds mix conflict and CI rounds in one sequence, so
+   * the tab has to say which kind it is. Absent for a gate stage's attempts,
+   * whose kinds are already the stage's own.
+   */
+  tag?: string;
   /** Host copy for the SELECTED tab only: `of 3 · latest`. The webview shows it verbatim (UI-R31). */
   tail: string;
   /**

@@ -13,8 +13,6 @@
 /* Narrow (400-699). Row one never wraps: glyph, name, detail (ellipsis), duration, chevron. Identity, the Sigma pill and
    the row action share ONE second line of the same row. The start time drops (the duration cell titles it). */
 @container (max-width: 699px){
-  #inside .sp-row{grid-template-columns:minmax(0,1fr);gap:var(--k-border-w)}
-  #inside .sp-label{text-transform:none}
   #inside .inside{margin-left:var(--k-space-2);margin-right:var(--k-space-2)}
   #inside .inside-head{grid-template-columns:minmax(0,auto) minmax(0,1fr);padding:var(--p-s1) var(--p-s3)}
   /* has-actions outranks the rule above: keep the menu in its own track on row one. */
@@ -28,6 +26,9 @@
   #inside .inside-head.has-autofix.has-actions .stageMenuWrap{grid-column:4;grid-row:1}
   /* N2: the time sits under the title, on its own line; it wraps rather than pushing the card wider. */
   #inside .inside-meta{grid-column:1/-1;min-width:0;white-space:normal;overflow-wrap:anywhere}
+  /* The ship preview's clock + Refresh share that line when the ship slot waits (`.inside-tail` is the grid item). */
+  #inside .inside-tail{grid-column:1/-1;flex-wrap:wrap;min-width:0}
+  #inside .ship-preview-meta{white-space:normal;overflow-wrap:anywhere}
   #inside .op summary,#inside .op-static{grid-template-columns:20px minmax(78px,110px) minmax(0,1fr) var(--inside-dur-w) 16px;
     padding-left:var(--p-s2);padding-right:var(--p-s2)}
   #inside .op summary>:not(.op-tail),#inside .op-static>:not(.op-tail){grid-row:1}

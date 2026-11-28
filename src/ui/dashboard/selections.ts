@@ -1,4 +1,5 @@
 import type { GateStage } from '../../store/ticketGates.js';
+import type { AttemptStage } from './messages.js';
 import type { DashboardState } from './state.js';
 
 /**
@@ -12,7 +13,7 @@ import type { DashboardState } from './state.js';
  * happens to reuse the id.
  */
 export class DashboardSelections {
-  private readonly attempts = new Map<number, ReadonlyMap<GateStage, string>>();
+  private readonly attempts = new Map<number, ReadonlyMap<AttemptStage, string>>();
   private readonly findingsRepos = new Map<number, ReadonlyMap<GateStage, string | null>>();
 
   /**
@@ -21,8 +22,8 @@ export class DashboardSelections {
    * `buildDashboardState`'s `attemptSelection` argument (and therefore its
    * output) unchanged for every ticket that never touched a tab.
    */
-  selectAttempt(ticketId: number, stage: GateStage, key: string): void {
-    const current = this.attempts.get(ticketId) ?? new Map<GateStage, string>();
+  selectAttempt(ticketId: number, stage: AttemptStage, key: string): void {
+    const current = this.attempts.get(ticketId) ?? new Map<AttemptStage, string>();
     const next = new Map(current);
     next.set(stage, key);
     this.attempts.set(ticketId, next);
@@ -43,7 +44,7 @@ export class DashboardSelections {
   }
 
   /** This ticket's round switcher selection, plain-object shaped for `buildDashboardState`. */
-  attemptSelectionFor(ticketId: number): Partial<Record<'uat' | 'review', string>> {
+  attemptSelectionFor(ticketId: number): Partial<Record<AttemptStage, string>> {
     return Object.fromEntries(this.attempts.get(ticketId) ?? []);
   }
 
@@ -66,7 +67,7 @@ export class DashboardSelections {
     if (!current || current.size === 0) return;
     let changed = false;
     const next = new Map(current);
-    for (const stage of ['uat', 'review'] as const) {
+    for (const stage of ['uat', 'review', 'ship'] as const) {
       const requested = current.get(stage);
       if (requested === undefined) continue;
       if (state.insideViews[stage]?.selectedAttempt !== requested) {

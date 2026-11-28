@@ -20,6 +20,7 @@ import {
   type InsideRenderFixture,
 } from './renderFixtures.js';
 import type { DashboardState } from './state.js';
+import { withShipPreviewRows } from '../../model/inside/shipPreviewRows.js';
 
 const envelope = (f: InsideRenderFixture) => {
   const base = renderStateFor(f.stage);
@@ -297,7 +298,7 @@ describe('dashboard render — fixture corpus', () => {
   });
 });
 
-describe('dashboard render — ship preview (D142)', () => {
+describe('dashboard render — ship preview rows (D142)', () => {
   // Inside is React's: the block is drawn once React has committed the push.
   const render = async (kind: Parameters<typeof shipPreviewStateFor>[0]) => {
     const h = await renderWebviewReady('dashboard');
@@ -325,81 +326,90 @@ describe('dashboard render — ship preview (D142)', () => {
   const UAT_CLOCK = '10:03:55 · 41.2s';
   const REVIEW_CLOCK = '09:20:11 · 3m 02s';
   const insideClock = (h: Awaited<ReturnType<typeof renderWebviewReady>>) => h.query('#inside .inside-meta')?.textContent;
+  /** One ship process's body text (the details is open while the preview rows are on it). */
+  const body = (h: Awaited<ReturnType<typeof renderWebviewReady>>, id: string): string =>
+    h.query(`#inside details[data-proc-id="ship:${id}"]`)?.textContent ?? '';
 
-  it('is absent unless the ship slot waits for Confirm/Retry', async () => {
-    const h = await renderWebviewReady('dashboard');
-    h.receive({ type: 'state', state: renderStateFor('ship') }); // slot: none
-    await drainReactWork(h);
+  it('draws no preview block; the header carries Refresh and the as-of time instead', async () => {
+    const h = await render('ready');
     expect(h.query('[data-region="ship-preview"]')).toBeNull();
+    expect(h.query('section.ship-preview')).toBeNull();
+    expect(h.query('.ship-preview')).toBeNull();
+    const head = h.query('.inside-head')!;
+    expect(head.querySelector('[data-act="refresh-ship-preview"]')).toBeTruthy();
+    expect(head.querySelector('.ship-preview-meta')!.textContent).toMatch(/^as of /);
+    expect(head.querySelector('[data-region="ship-preview"]')).toBeNull();
+    // UI-R40: the preview facts are the first content under the header, in the ledger.
+    const ledger = h.query('#inside .ledger')!;
+    expect(ledger.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     h.close();
   });
 
-  it('ready: renders one card per repo with the PR title and commit subject', async () => {
+  it('ready: Commit, Push and Pull request carry the will rows, and no separate block exists', async () => {
     const h = await render('ready');
-    const section = h.query('[data-region="ship-preview"]')!;
-    expect(section).toBeTruthy();
-    const cards = h.queryAll('[data-region="ship-preview-repo"]');
-    expect(cards).toHaveLength(2);
-    expect(section.textContent).toContain('Ship preview');
-    expect(section.textContent).toContain('src/app.ts');
+    expect(h.query('section.ship-preview')).toBeNull();
+    // The processes open on the first render, so the prediction is read before Confirm (D142).
+    expect(h.query('details[data-proc-id="ship:commit"]')!.hasAttribute('open')).toBe(true);
+    expect(h.query('details[data-proc-id="ship:push"]')!.hasAttribute('open')).toBe(true);
+    expect(h.query('details[data-proc-id="ship:pr"]')!.hasAttribute('open')).toBe(true);
+    expect(body(h, 'commit')).toContain('will commit —');
+    expect(body(h, 'commit')).toContain('src/app.ts');
+    expect(body(h, 'push')).toContain('will push the branch');
+    expect(body(h, 'pr')).toContain('will open —');
     // Hostile prose is escaped, never a live element (UI-R32).
-    expect(section.querySelectorAll('script').length).toBe(0);
+    expect(h.query('#inside script')).toBeNull();
     expect(h.errors).toEqual([]);
     h.close();
   });
 
-  it('excluded + warning: names the excluded files and the committed-match warning', async () => {
+  it('excluded + warning: names the excluded files and the committed-match warning in Commit', async () => {
     const h = await render('excluded-warning');
-    const text = h.query('[data-region="ship-preview"]')!.textContent!;
-    expect(text).toContain('Excluded');
-    expect(text).toContain('(ship.exclude)');
+    const text = body(h, 'commit');
+    expect(text).toContain('Excluded (2) (ship.exclude)');
     expect(text).toContain('dist/bundle.js');
     expect(text).toContain('ship.exclude matches committed changes');
     h.close();
   });
 
-  it('blocked: shows the deny paths as danger text with an icon, never as "Commits"', async () => {
+  it('blocked: a fail row states the refusal, and never labels the refused path as something it will commit', async () => {
     const h = await render('blocked');
-    const section = h.query('[data-region="ship-preview"]')!;
-    expect(section.textContent).toContain('.env');
-    expect(section.querySelector('.sp-badge--danger')).toBeTruthy();
-    expect(section.querySelector('.sp-row--danger')).toBeTruthy();
-    // Ship refuses before the sweep, so the refused path is never labelled as
-    // something it will commit.
-    expect(section.textContent).not.toContain('Commits');
+    const text = body(h, 'commit');
+    expect(text).toContain('.env');
+    expect(text).toContain('ship refuses');
+    expect(text).not.toContain('Files');
+    expect(h.queryAll('.ev-glyph .glyph.fail').length).toBeGreaterThan(0);
     h.close();
   });
 
-  it('nothing-to-commit: displays agent committed badge and no status row', async () => {
+  it('nothing-to-commit: says the agent committed and lists the branch commits', async () => {
     const h = await render('nothing-to-commit');
-    const preview = h.query('[data-region="ship-preview"]')!;
-    expect(preview.textContent).toContain('agent committed');
-    expect(preview.textContent).not.toContain('nothing to commit — agent committed its work');
-    expect(preview.textContent).toContain('feat(web): agent did this work');
+    const text = body(h, 'commit');
+    expect(text).toContain('nothing to commit — agent committed');
+    expect(text).toContain('feat(web): agent did this work');
+    expect(text).toContain('a1b2c3d');
     h.close();
   });
 
   it('all-nothing: warns ship will fail (arch:SHIP-UNCHANGED)', async () => {
     const h = await render('all-nothing');
-    const section = h.query('[data-region="ship-preview"]')!;
-    expect(section.textContent).toContain('ship will fail — no repo has changes');
-    expect(section.querySelector('.sp-note--warn')).toBeTruthy();
+    expect(body(h, 'commit')).toContain('ship will fail — no repo has changes');
     h.close();
   });
 
   it('error: renders the per-repo message and never a "no changes" verdict', async () => {
     const h = await render('error');
-    const section = h.query('[data-region="ship-preview"]')!;
-    expect(section.textContent).toContain('git status exited 128');
-    expect(section.textContent).not.toContain('no changes from base');
-    expect(h.queryAll('[data-region="ship-preview-repo"]')).toHaveLength(1);
+    const text = body(h, 'commit');
+    expect(text).toContain('git status exited 128');
+    expect(text).not.toContain('no changes from base');
     h.close();
   });
 
-  it('loading: keeps geometry with a skeleton while the read lands', async () => {
+  it('loading: says reading… in the header while the read lands', async () => {
     const h = await render('loading');
-    const section = h.query('[data-region="ship-preview"]')!;
-    expect(section.querySelector('.sp-skel')).toBeTruthy();
+    expect(h.query('.ship-preview-meta')!.textContent).toBe('reading…');
+    expect(h.query('[data-act="refresh-ship-preview"]')).toBeTruthy();
+    expect(h.query('section.ship-preview')).toBeNull();
+    expect(body(h, 'commit')).not.toContain('will commit');
     h.close();
   });
 
@@ -407,16 +417,22 @@ describe('dashboard render — ship preview (D142)', () => {
     const files = Array.from({ length: 60 }, (_, i) => `src/file-${i}.ts`);
     const state = shipPreviewStateFor('ready');
     const preview = shipPreviewFixture('ready')!;
+    const previewWithFiles = { ...preview, repos: [{ ...preview.repos[0]!, commitFiles: files }] };
+    const ship = state.insideViews.ship;
     const withFiles = {
       ...state,
-      shipPreview: { ...preview, repos: [{ ...preview.repos[0]!, commitFiles: files }] },
+      shipPreview: previewWithFiles,
+      insideViews: {
+        ...state.insideViews,
+        ship: { ...ship, processes: withShipPreviewRows(ship.processes, previewWithFiles, (repo) => repo) },
+      },
     };
     const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withFiles });
     await drainReactWork(h);
-    const section = h.query('[data-region="ship-preview"]')!;
-    expect(section.querySelectorAll('.sp-file').length).toBe(51); // 50 + the remainder row
-    expect(section.textContent).toContain('and 10 more');
+    const out = h.query('details[data-proc-id="ship:commit"] .ev-output pre')!.textContent!;
+    expect(out.split('\n')).toHaveLength(51); // 50 + the remainder line
+    expect(out).toContain('and 10 more');
     h.close();
   });
 
@@ -435,13 +451,13 @@ describe('dashboard render — ship preview (D142)', () => {
     // Entering the wait selects Ship so the preview is beside Confirm ship.
     await push(base);
     expect(insideClock(h)).toBe(SHIP_CLOCK);
-    expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
+    expect(h.query('[data-act="refresh-ship-preview"]')).not.toBeNull();
     expect(h.query('.pick[data-stage="ship"]')!.getAttribute('aria-pressed')).toBe('true');
     // The user navigates away; a later push for the SAME wait keeps them there.
     h.click('[data-stage="uat"]');
     await push(base);
     expect(insideClock(h)).toBe(UAT_CLOCK);
-    expect(h.query('[data-region="ship-preview"]')).toBeNull();
+    expect(h.query('[data-act="refresh-ship-preview"]')).toBeNull();
     // A retry after the confirm is a NEW wait: Ship is selected once more.
     await push({ ...base, ship: { kind: 'retry' } });
     expect(insideClock(h)).toBe(SHIP_CLOCK);
@@ -468,9 +484,9 @@ describe('dashboard render — ship preview (D142)', () => {
     expect(insideClock(h)).toBe(REVIEW_CLOCK);
     // Ship lives only on the rail now; the header draws no Confirm ship button.
     expect(h.query('#confirmShip')).toBeNull();
-    // Preview stays in the Ship view, one click away.
+    // The preview's Refresh stays in the Ship view, one click away.
     h.click('[data-stage="ship"]');
-    expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
+    expect(h.query('[data-act="refresh-ship-preview"]')).not.toBeNull();
     h.close();
   });
 
@@ -506,7 +522,7 @@ describe('dashboard render — ship preview (D142)', () => {
     await waitForSettingsReady(h);
     await drainReactWork(h);
     expect(insideClock(h)).toBe(UAT_CLOCK);
-    expect(h.query('[data-region="ship-preview"]')).toBeNull();
+    expect(h.query('[data-act="refresh-ship-preview"]')).toBeNull();
     h.close();
   });
 
@@ -522,10 +538,9 @@ describe('dashboard render — ship preview (D142)', () => {
 
   it('re-ship: a live PR is committed INTO, never reported as skipped (FIX-46)', async () => {
     const h = await render('re-ship');
-    const section = h.query('[data-region="ship-preview"]')!;
-    expect(section.textContent).toContain('PR #42 open — this commit is pushed onto it');
-    expect(section.textContent).not.toContain('skipped');
-    expect(section.textContent).toContain('src/app.ts');
+    expect(body(h, 'push')).toContain('will push onto PR #42');
+    expect(body(h, 'pr')).toContain('PR #42 open — this commit is pushed onto it');
+    expect(body(h, 'push')).not.toContain('skipped');
     h.close();
   });
 

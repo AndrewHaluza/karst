@@ -23,7 +23,7 @@ import {
   type BaselineDecisionInput,
 } from '../../store/baselineDecisions.js';
 import type { Store } from '../../store/db.js';
-import { precheckBaselines } from '../gates/baselinePrecheck.js';
+import { PRECHECK_BATCH_SIZE, precheckBaselines, type BaselinePrecheckResult } from '../gates/baselinePrecheck.js';
 import type { BaselineEntry } from '../gates/baselineReview.js';
 
 /** The ticket prose the prompt quotes; `getTicket` carries nulls until a field is filled. */
@@ -50,8 +50,13 @@ export interface UatBaselinePrecheckInput {
    * Tester's model. The UAT step passes the loaded catalog or the bundled one.
    */
   catalog: () => ModelCatalog;
-  /** The stage's git seam; reads the branch's `src/ui` diff for the prompt. */
+  /** The stage's git seam; reads the branch's changed-file list for the prompt. */
   git: GitRunner;
+  /**
+   * The manifest's `uat.baselineReview.paths` globs: the baseline files
+   * themselves, left out of the changed-file list the model sees.
+   */
+  baselineGlobs: readonly string[];
   debug?: (message: string) => void;
   onLiveOutput?: (chunk: HeadlessOutputChunk) => void;
   stageRunId?: number | null;
@@ -74,47 +79,94 @@ export interface UatBaselinePrecheckOutcome {
   approved: readonly UatBaselinePrecheckApproval[];
   /** The report section; present only when at least one approval was recorded. */
   section?: string;
+  /** Why the whole pre-check did not run; the block reason states it for the user. */
+  skippedReason?: string;
+  /** Targets a model call received, including failed and aborted batches. */
+  sent: number;
+  /** Batches whose call produced nothing usable. */
+  failedBatches: number;
+  /** Batches that opened a process run — the denominator of "every batch failed". */
+  batches: number;
+  /** The first failed batch's reason, for the block reason. */
+  firstFailureReason?: string;
+}
+
+/** The counts the gate reported, carried onto the outcome unchanged. */
+function countsOf(
+  result: BaselinePrecheckResult,
+): Pick<UatBaselinePrecheckOutcome, 'sent' | 'failedBatches' | 'batches' | 'skippedReason' | 'firstFailureReason'> {
+  return {
+    sent: result.sent,
+    failedBatches: result.failedBatches,
+    batches: result.batches,
+    ...(result.skippedReason === undefined ? {} : { skippedReason: result.skippedReason }),
+    ...(result.firstFailureReason === undefined ? {} : { firstFailureReason: result.firstFailureReason }),
+  };
 }
 
 /**
- * The `src/ui/**` paths of the branch diff, one `git diff` per worktree/merge-base
- * pair the pending entries came from. A git failure is an empty list plus one
- * debug line: a missing hint must never fail the review.
+ * The branch's changed files — the model's context for the images, in ANY
+ * project layout, not just karst's own webview layout. The WORKING TREE is
+ * diffed against the merge-base (at UAT nothing is committed yet), and
+ * untracked files are added because `git diff` cannot see them. The baseline
+ * files themselves are left out: their globs become `:(glob,exclude)`
+ * pathspecs on both calls. Tracked paths come first, then untracked,
+ * de-duplicated in that order.
+ *
+ * A git failure is an empty list plus one debug line: a missing hint must never
+ * fail the review.
  */
-async function changedUiPaths(input: UatBaselinePrecheckInput): Promise<string[]> {
+async function changedFiles(input: UatBaselinePrecheckInput): Promise<string[]> {
   const bases = new Map<string, { cwd: string; mergeBase: string }>();
   for (const entry of input.pending) {
     bases.set(`${entry.cwd}\0${entry.mergeBase}`, { cwd: entry.cwd, mergeBase: entry.mergeBase });
   }
+  const exclude = input.baselineGlobs.map((glob) => `:(glob,exclude)${glob}`);
   const seen = new Set<string>();
   const paths: string[] = [];
   for (const { cwd, mergeBase } of bases.values()) {
-    let result: { exitCode: number; stdout: string; stderr: string };
-    try {
-      result = await input.git(['diff', '--name-only', mergeBase, 'HEAD', '--', 'src/ui'], cwd);
-    } catch (error) {
-      input.debug?.(
-        `[gate] uat baseline pre-check ticket ${input.ticketId}: could not read the src/ui diff in ` +
-          `${cwd} (${collapseDiagnostic(error instanceof Error ? error.message : String(error))}) — ` +
-          'sending no UI paths',
-      );
-      continue;
-    }
-    if (result.exitCode !== 0) {
-      input.debug?.(
-        `[gate] uat baseline pre-check ticket ${input.ticketId}: could not read the src/ui diff in ` +
-          `${cwd} (git exit ${result.exitCode}) — sending no UI paths`,
-      );
-      continue;
-    }
-    for (const line of result.stdout.split('\n')) {
-      const path = line.trim();
-      if (path === '' || seen.has(path)) continue;
+    const tracked = await gitLines(input, cwd, ['diff', '--name-only', mergeBase, '--', '.', ...exclude]);
+    const untracked = await gitLines(input, cwd, [
+      'ls-files',
+      '--others',
+      '--exclude-standard',
+      '--',
+      '.',
+      ...exclude,
+    ]);
+    for (const path of [...(tracked ?? []), ...(untracked ?? [])]) {
+      if (seen.has(path)) continue;
       seen.add(path);
       paths.push(path);
     }
   }
   return paths;
+}
+
+/** One git call's paths, or `null` (one debug line) when git could not answer. */
+async function gitLines(
+  input: UatBaselinePrecheckInput,
+  cwd: string,
+  args: string[],
+): Promise<string[] | null> {
+  const fail = (why: string): null => {
+    input.debug?.(
+      `[gate] uat baseline pre-check ticket ${input.ticketId}: could not read the changed files in ` +
+        `${cwd} (${why}) — sending no paths`,
+    );
+    return null;
+  };
+  let result: { exitCode: number; stdout: string; stderr: string };
+  try {
+    result = await input.git(args, cwd);
+  } catch (error) {
+    return fail(collapseDiagnostic(error instanceof Error ? error.message : String(error)));
+  }
+  if (result.exitCode !== 0) return fail(`git exit ${result.exitCode}`);
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
 }
 
 /**
@@ -128,7 +180,7 @@ export async function runUatBaselinePrecheck(
   const precheck = input.precheck ?? precheckBaselines;
   const now = input.now ?? nowIso;
   try {
-    const uiPaths = await changedUiPaths(input);
+    const changedPaths = await changedFiles(input);
     const result = await precheck({
       store: input.store,
       ticketId: input.ticketId,
@@ -143,7 +195,7 @@ export async function runUatBaselinePrecheck(
         // The Tester's charter field is `intent`; fall back to the ticket form's brief.
         brief: input.ticket.intent ?? input.ticket.brief ?? '',
       },
-      uiPaths,
+      changedPaths,
       ...(input.tester === undefined ? {} : { tester: input.tester }),
       catalog: input.catalog,
       ...(input.debug === undefined ? {} : { debug: input.debug }),
@@ -152,7 +204,7 @@ export async function runUatBaselinePrecheck(
       ...(input.attempt === undefined ? {} : { attempt: input.attempt }),
       ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
-    if (result.approved.length === 0) return { approved: [] };
+    if (result.approved.length === 0) return { approved: [], ...countsOf(result) };
 
     const byKey = new Map(input.pending.map((entry) => [baselineKey(entry.repo, entry.path), entry]));
     const rows: BaselineDecisionInput[] = [];
@@ -172,9 +224,18 @@ export async function runUatBaselinePrecheck(
       });
       approved.push({ repo: entry.repo, path: entry.path, reason: approval.reason });
     }
-    if (rows.length === 0) return { approved: [] };
+    if (rows.length === 0)
+      return {
+        approved: [],
+        sent: result.sent,
+        failedBatches: result.failedBatches,
+        batches: result.batches,
+        ...(result.firstFailureReason === undefined ? {} : { firstFailureReason: result.firstFailureReason }),
+      };
 
-    // One transaction: either every pre-check approval lands or none does.
+    // One transaction: either every pre-check approval lands or none does. It
+    // runs AFTER the gate returned, so an abort mid-run still records what the
+    // finished batches approved.
     recordBaselineDecisions(input.store, input.ticketId, rows, now());
     const remaining = Math.max(0, input.pending.length - approved.length);
     const section = [
@@ -186,13 +247,22 @@ export async function runUatBaselinePrecheck(
       `[gate] uat baseline pre-check ticket ${input.ticketId}: recorded ${approved.length} approval(s), ` +
         `${remaining} left for the user`,
     );
-    return { approved, section };
+    return { approved, section, ...countsOf(result) };
   } catch (error) {
     const detail = collapseDiagnostic(error instanceof Error ? error.message : String(error));
     input.debug?.(
       `[gate] uat baseline pre-check ticket ${input.ticketId}: failed (${detail}) — no approvals, ` +
         'the baseline review blocks as today',
     );
-    return { approved: [] };
+    // Every batch this run would have sent failed; the reason is a failure, not
+    // a skip, so the block reason states it as `(pre-check failed: …)`.
+    const failed = Math.max(1, Math.ceil(input.pending.length / PRECHECK_BATCH_SIZE));
+    return {
+      approved: [],
+      sent: 0,
+      failedBatches: failed,
+      batches: failed,
+      firstFailureReason: detail,
+    };
   }
 }

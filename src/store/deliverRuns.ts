@@ -176,6 +176,14 @@ export function currentDeliverRun(store: Store, ticketId: number): DeliverRun | 
   return row ? rowToRun(row) : null;
 }
 
+/** Every run of the ticket, oldest first — the Ship round evidence joins a round window to the pushes it holds. */
+export function listDeliverRuns(store: Store, ticketId: number): DeliverRun[] {
+  return store.db
+    .prepare(`${RUN_SELECT} WHERE r.ticket_id = ? ORDER BY r.id ASC`)
+    .all(ticketId)
+    .map((r) => rowToRun(r as RunRow));
+}
+
 /** One run by id, so a caller reads the run it opened, not the newest run of the ticket. */
 export function getDeliverRun(store: Store, runId: number | null): DeliverRun | null {
   // A null id (a refusal that named no run) matches no row: the caller gets the same "none" answer as a missing id.

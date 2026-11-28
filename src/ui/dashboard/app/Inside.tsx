@@ -2,7 +2,7 @@
  * The Inside block, rendered by React into the page's static `#inside` root through a `RegionPortal` (the region
  * parity snapshot pins the root as static markup). Same DOM as the
  * vanilla `renderInside` it replaced: a viewing bar, the three-cell header (stage title, the live operation, the
- * clock) with the ⋯ menu, the Deliver row, the round switcher, then the ship preview and the process ledger.
+ * clock) with the ⋯ menu, the Deliver row, the round switcher, then the process ledger.
  *
  * React owns the stage selection (`stageSelection.ts`), shared with the rail. The host re-sends the snapshot every
  * second while work runs (migration plan A4): the block reads one structural FRAME that ignores the ticking facts, and
@@ -20,7 +20,7 @@ import { StageMenu } from './InsideMenu.js';
 import { Icon } from './Icon.js';
 import { AgentId } from './InsideParts.js';
 import { RegionPortal } from './RegionPortal.js';
-import { ShipPreview } from './ShipPreview.js';
+import { ShipPreviewRefresh } from './ShipPreview.js';
 import { sameIgnoringLive } from './insideLive.js';
 import { frameOf, selectTicketStage, type Frame } from './insideSlices.js';
 import { statusWord } from './insideText.js';
@@ -28,7 +28,6 @@ import { shownStage } from './stageSelection.js';
 import { useSlice } from './useSlice.js';
 import './Inside.css';
 import './InsideEvidence.css';
-import './InsideShipPreview.css';
 import './InsideResponsive.css';
 
 /** The header IS the current operation. No status WORD beside the glyph: the spinning arc says "running" and the amber bars say "waiting"; the word survives as the glyph's accessible name. */
@@ -92,7 +91,15 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
             <LiveLine stage={stage} live={frame.live} />
           </span>
           {frame.autopilot ? <AutofixOverride autopilot={frame.autopilot} /> : null}
-          <StageClock stage={stage} />
+          {/* The ship preview's Refresh and as-of time live in the header, not in a block of their own (D142). */}
+          {frame.preview ? (
+            <span className="inside-tail">
+              <StageClock stage={stage} />
+              <ShipPreviewRefresh preview={frame.preview.data} />
+            </span>
+          ) : (
+            <StageClock stage={stage} />
+          )}
           {anyMenu ? <StageMenu key={selection.epoch} stageKey={view.stageKey} menu={menu} main={main} /> : null}
         </div>
         {/* Ship only: who works now and what comes next while GitHub CI alone waits (T1140). It wraps; the PR number never truncates. */}
@@ -109,8 +116,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
             {view.attemptNote ? <div className="attempt-note">{view.attemptNote}</div> : null}
           </div>
         ) : null}
-        {/* The ship preview sits ABOVE the ledger (D142, UI-R40 reading order): the first thing read before the Confirm click. */}
-        {frame.preview ? <ShipPreview preview={frame.preview.data} /> : null}
+        {/* The ledger carries the preview as the leading "will" rows of Commit, Push and Pull request (D142, UI-R40). */}
         {view.processes.length ? <Ledger stageKey={view.stageKey} processes={view.processes} consoleStage={view.console ? view.stageKey : null} attemptKey={view.selectedAttempt} /> : <div className="blurb">{view.blurb}</div>}
       </section>
     </InsideScopeContext.Provider>
