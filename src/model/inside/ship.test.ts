@@ -1802,63 +1802,83 @@ describe('Auto-fix is its own process row (T1070)', () => {
   });
 });
 
-describe('Deliver process (T1072)', () => {
+describe('the Deliver push is the Push row (T1072, T1403)', () => {
   const A = 'a'.repeat(40);
   const B = 'b'.repeat(40);
   const facts = { running: null, failures: [], takenOver: null, roundActive: false, headSha: A } as const;
   const dv = (over: Partial<NonNullable<ShipProcessesInput['deliver']>> = {}): ShipProcessesInput['deliver'] => ({
     notOnPr: 2, inSandbox: 0, canDeliver: true, auto: null, ...over,
   });
-  const deliverOf = (deliver: ShipProcessesInput['deliver']) => shipProcesses(shipInput({ deliver })).find((p) => p.id === 'deliver');
+  const pushOf = (deliver: ShipProcessesInput['deliver']) => shipProcesses(shipInput({ deliver })).find((p) => p.id === 'push')!;
 
-  it('is absent when nothing is undelivered and no auto-deliver left a record', () => {
-    expect(deliverOf(undefined)).toBeUndefined();
-    expect(deliverOf(null)).toBeUndefined();
-    expect(deliverOf(dv({ canDeliver: false, notOnPr: 0 }))).toBeUndefined();
+  it('has no deliver process id, in any deliver state', () => {
+    expect(shipProcesses(shipInput({ deliver: dv() })).map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
+    expect(shipProcesses(shipInput({ deliver: dv() })).some((p) => p.id === 'deliver')).toBe(false);
   });
 
-  it('sits after Auto-fix and before Merge', () => {
-    const ids = shipProcesses(shipInput({ deliver: dv() })).map((p) => p.id);
-    expect(ids).toEqual(['commit', 'push', 'pr', 'deliver', 'merge']);
-  });
-
-  it('states the commits not on the PR and carries the Push title', () => {
-    const row = deliverOf(dv({ inSandbox: 1 }))!;
-    expect(row).toMatchObject({ kind: 'deliver', label: 'Deliver', status: 'wait', detail: '2 commits not on the PR (1 still in the sandbox)' });
+  it('states the commits not on the PR on Push and carries the Push title and console record', () => {
+    const row = pushOf(dv({ inSandbox: 1 }));
+    expect(row).toMatchObject({ kind: 'push', label: 'Push', status: 'note', detail: '2 commits not on the PR (1 still in the sandbox)' });
     expect(row.deliver!.title).toBe('Push — sync the sandbox, then push the branch onto the open pull request');
-    expect(row.evidence).toEqual({ kind: 'rows', rows: [{ label: 'Sync the sandbox', status: 'pending' }, { label: 'Push the branch', detail: 'after the sync', status: 'pending' }] });
+    expect(row.console).toBeUndefined();
+    expect(rowsOf(row).slice(-2)).toEqual([{ label: 'Sync the sandbox', status: 'pending' }, { label: 'Push the branch', detail: 'after the sync', status: 'pending' }]);
   });
 
   it('uses the singular for one commit', () => {
-    expect(deliverOf(dv({ notOnPr: 1 }))!.detail).toBe('1 commit not on the PR');
+    expect(pushOf(dv({ notOnPr: 1 }))!.detail).toBe('1 commit not on the PR');
   });
 
-  it('shows the running gate as "gate n of m" and its hint as the Push title', () => {
-    const row = deliverOf(dv({ auto: { ...facts, running: { n: 4, m: 5, gate: 'docs' } } }))!;
+  it('turns Push run while a deliver gate runs and appends its detail parts', () => {
+    const row = pushOf(dv({ auto: { ...facts, running: { n: 4, m: 5, gate: 'docs' } } }));
     expect(row.status).toBe('run');
     expect(row.detail).toBe('2 commits not on the PR · gate 4 of 5');
     expect(row.deliver!.title).toBe('Push — auto-deliver runs gate 4/5 (docs). Deliver stops these gates and pushes; if the base moved since the merge, the gates run on the new merge first.');
-    const rows = rowsOf(row);
-    expect(rows[0]).toMatchObject({ label: 'Gate 4 of 5', detail: 'docs', status: 'run' });
+    expect(row.console).toBe(true);
+    expect(rowsOf(row)[0]).toMatchObject({ label: 'Gate 4 of 5', detail: 'docs', status: 'run' });
   });
 
-  it('keeps one fail row per kept failure, with its head, its dismiss and its output', () => {
+  it('lists one row per pre-push gate after the per-repository push rows', () => {
+    const deliver = dv({
+      auto: {
+        ...facts,
+        running: { n: 2, m: 3, gate: 'docs' },
+        gates: [
+          { name: 'unit', repo: '/web', status: 'pass', startedAt: '2026-07-20T12:00:00.000Z', endedAt: '2026-07-20T12:01:00.000Z', exitCode: 0 },
+          { name: 'docs', repo: '/web', status: 'run', startedAt: null, endedAt: null, exitCode: null },
+          { name: 'visual', repo: '/web', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+        ],
+      },
+    });
+    const row = shipProcesses(shipInput({ deliver, repoNameFor: (repo) => (repo === '/web' ? 'web' : undefined) })).find((p) => p.id === 'push')!;
+    const rows = rowsOf(row);
+    expect(rows.map((r) => r.label)).toEqual(['unit', 'docs', 'visual', 'Sync the sandbox', 'Push the branch']);
+    // The manifest name lookup the push rows use also names the gate rows.
+    expect(rows[0]!.repo).toBe('web');
+  });
+
+  it('turns Push fail while a kept failure is on record', () => {
     const f = { gate: 'unit', repo: 'web', exitCode: 2, headSha: A, summary: 'boom' };
     const old = { gate: 'docs', repo: 'web', exitCode: 1, headSha: B, summary: null };
-    const row = deliverOf(dv({ auto: { ...facts, failures: [f, old] } }))!;
+    const row = pushOf(dv({ auto: { ...facts, failures: [f, old] } }));
     expect(row.status).toBe('fail');
-    const rows = rowsOf(row);
-    const fails = rows.filter((r) => r.status === 'fail');
-    expect(fails).toEqual([
+    expect(rowsOf(row).filter((r) => r.status === 'fail')).toEqual([
       { label: 'Gate unit failed', detail: `exit 2 · on the current head ${'a'.repeat(9)}`, status: 'fail', deliverDismiss: { gate: 'unit' }, output: 'boom' },
       { label: 'Gate docs failed', detail: `exit 1 · on an older head ${'b'.repeat(9)}`, status: 'fail', deliverDismiss: { gate: 'docs' } },
     ]);
   });
 
-  it('shows the takeover line when a manual Deliver took over', () => {
-    const row = deliverOf(dv({ canDeliver: false, notOnPr: 0, auto: { ...facts, takenOver: { failed: ['unit'], skipped: [] } } }))!;
+  it('shows the takeover line when a manual Deliver took over, with no Push button', () => {
+    const row = pushOf(dv({ canDeliver: false, notOnPr: 0, auto: { ...facts, takenOver: { failed: ['unit'], skipped: [] } } }));
     expect(row.deliver).toBeUndefined();
     expect(row.status).toBe('note');
     expect(row.detail).toBe('Delivery taken over by a manual Deliver; failed: unit; skipped: none');
+  });
+
+  it('keeps a first-push-only Push row exactly as before', () => {
+    const plain = shipProcesses(shipInput())[1]!;
+    expect(plain.id).toBe('push');
+    expect(plain.deliver).toBeUndefined();
+    expect(plain.console).toBeUndefined();
+    expect(shipProcesses(shipInput({ deliver: dv() }))[1]!.evidence).not.toEqual(plain.evidence);
   });
 });

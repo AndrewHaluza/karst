@@ -16,7 +16,7 @@ import type {
 import { STAGE_BLURBS, STAGE_TITLES } from '../../model/inside/types.js';
 import { boundedEvidenceRows } from '../../model/inside/bounds.js';
 import { REPOSITORY_EVIDENCE_LIMIT } from '../../model/inside/ship.js';
-import { deliverProcess } from '../../model/inside/shipDeliver.js';
+import { deliverPushRows, deliverPushSummary } from '../../model/inside/shipDeliver.js';
 import { STAGE_KEYS, type StageKey, type StageStatus } from '../../model/types.js';
 import type { StepperCell } from '../../model/stepper.js';
 import { buildStageRail } from '../../model/stageRail.js';
@@ -1371,17 +1371,28 @@ function hoursAgo(hours: number): string {
 }
 
 /**
- * The ship view with the Deliver row the host would build from `state.deliver` (T1072). A fixture that sets the
- * undelivered counts or the auto-deliver record by hand calls this, so the row shows where the host puts it: after
- * Auto-fix, before Merge.
+ * The ship view with the Deliver push the host would build from `state.deliver` (T1072, T1403). The Deliver push is part
+ * of the Push row, so this appends its gate rows and summary to that row. A fixture that sets the undelivered counts or
+ * the auto-deliver record by hand calls this.
  */
 export function withDeliverRow(state: DashboardState): DashboardState {
   const d = state.deliver;
-  const row = deliverProcess({ canDeliver: d.available, notOnPr: d.notOnPr, inSandbox: d.inSandbox, auto: d.auto ?? null });
-  if (!row) return state;
+  const input = { canDeliver: d.available, notOnPr: d.notOnPr, inSandbox: d.inSandbox, auto: d.auto ?? null };
+  const summary = deliverPushSummary(input);
+  if (!summary) return state;
+  const rows = deliverPushRows(input, new Date(FIXTURE_NOW_MS).toISOString());
   const view = state.insideViews.ship;
-  const rest = view.processes.filter((p) => p.id !== 'deliver');
-  const at = rest.findIndex((p) => p.id === 'merge');
-  const processes = at < 0 ? [...rest, row] : [...rest.slice(0, at), row, ...rest.slice(at)];
+  const processes = view.processes.map((p) => {
+    if (p.id !== 'push') return p;
+    const parts = [...(p.detail ? [p.detail] : []), ...summary.detailParts];
+    return {
+      ...p,
+      status: summary.status === 'run' || summary.status === 'fail' ? summary.status : p.status,
+      ...(parts.length > 0 ? { detail: parts.join(' · ') } : {}),
+      ...(summary.deliver ? { deliver: summary.deliver } : {}),
+      ...(summary.console ? { console: true } : {}),
+      evidence: p.evidence?.kind === 'rows' ? { ...p.evidence, rows: [...p.evidence.rows, ...rows] } : p.evidence,
+    };
+  });
   return { ...state, insideViews: { ...state.insideViews, ship: { ...view, processes } } };
 }

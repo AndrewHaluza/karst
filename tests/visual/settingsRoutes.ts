@@ -29,6 +29,9 @@ const AGENTS_HASHES: readonly string[] = [
   formatAgentsHash({ tab: 'profiles', selected: `builtin:${FIRST_ROLE}` }),
   formatAgentsHash({ tab: 'accounts' }),
   formatAgentsHash({ tab: 'sandbox' }),
+  // T1405: the read-only Channels map (default core, and the unsupported-cell view).
+  formatAgentsHash({ tab: 'channels' }),
+  formatAgentsHash({ tab: 'channels', selected: 'antigravity' }),
 ];
 
 export function settingsRoutes(): readonly LayoutRoute[] {

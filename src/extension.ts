@@ -473,6 +473,7 @@ import { clearCiRound } from './store/autopilot.js';
 import { shipTicket as runShipTicket, hasCompletedShipRun } from './workflow/stages/ship.js';
 import { shipClearedEvent, shipStepEvent } from './model/inside/progress.js';
 import { buildGraphInsideInput } from './ui/dashboard/graphInside.js';
+import { repoNameFor as manifestRepoName } from './ui/dashboard/resolvers.js';
 import { advanceTicketOnShip, statusPushSkipNote } from './workflow/stages/done.js';
 import { advanceTicketOnStart } from './workflow/stages/start.js';
 import { setShipCiDebug } from './store/shipCi.js';
@@ -6085,7 +6086,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       undefined,
       undefined,
       (step) => {
-        const event = shipStepEvent(ticketId, step);
+        // The live line names the repository as the ledger rows do: the manifest NAME, never the raw path (T1403).
+        const repoName = manifestRepoName(currentManifest() ?? emptyManifest(), step.repo);
+        const event = shipStepEvent(ticketId, { ...step, repoName });
         if (event) dashboard.postInsideProgress(ticketId, event);
         // Each step event marks a store write the ledger reads (a step row
         // opened or closed). Push the snapshot now so a subprocess's checkmark

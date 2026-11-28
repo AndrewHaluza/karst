@@ -96,7 +96,7 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Unlink a cloud session | `unlink` | sidebar context window, manual links only |
 | Link a cloud session to a ticket/draft | `link` | sidebar unlinked-session row |
 | Collapse all | `chevrons-up` | Planning section header |
-| Push the branch onto the pull request (Inside, Deliver row) | `git-branch` | row action, label "Push" |
+| Push the branch onto the pull request (Inside, Push row; the Deliver push, T1403) | `git-branch` | row action, label "Push" |
 | Resume a paused stage (Inside) | `player-play` | row action, label "Resume" |
 | Retry a failed stage (Inside) | `refresh` | stage header main action, label "Retry" |
 | Send the CI failure to the agent (Inside) | `send` | stage header main action, label "Send CI failure" |

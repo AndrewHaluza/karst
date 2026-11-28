@@ -35,6 +35,7 @@ Everything that is true of every agent core, and the places a core-specific fix 
 - Autonomous permissions only inside an enforced sandbox
 - Sandbox backends — the ssh backend
 - Agent accounts — one active account per core
+- The Channels tab is a read-only map of every agent channel
 END_DOC_BLOCK: [@arch:AC-01]
 
 ## [@arch:AC-02] Ticket-context shaping lives ONCE in `src/context/ticketContext.ts`
@@ -117,6 +118,15 @@ claude has one environment key of its own: on darwin, when the inherited `$SHELL
 
 An oversized kickoff has ONE argv backstop on the seam — see AC-41.
 END_DOC_BLOCK: [@arch:AC-52]
+
+## [@arch:CHANNEL-MAP] The Channels tab is a read-only map of every agent channel
+
+Settings › Agents › Channels shows, for one agent core, which of karst's channels each session kind gets and why (D841). It is READ-ONLY: the Commands and Signals layers are host-owned and karst chooses the transport, so a toggle could only break runs (`stage`, `context`, hooks). It adds no manifest key and no control that saves.
+
+The map lives in `src/ui/settings/channelMap.ts`: `buildChannelMap` builds it host-side and `buildSettingsState` pushes it with the settings state, so the webview renders facts and derives none (UI-R31). The core-dependent cells are READ from the same seam the launch uses, never from a copied per-core table — the ticket MCP and hook channels from `resolveAdapter(p).surfaces.mcpConfigInteractive` / `.hookChannel` (an unsupported surface's own `reason` is the cell's reason), the instruction layer from `resolveAdapter(p).instructions`, the mail pointer route from `messageRouteFor(p, CODEX_STOP_BLOCK_SUPPORTED)`, and the planning command surface from `PLANNING_VERBS` (`src/cli/planningVerbs.ts`). A new channel, or a change to one of those surfaces, must update `buildChannelMap` in the same commit; the tab's tests read the real adapters.
+
+covers: src/ui/settings/channelMap.ts#buildChannelMap
+END_DOC_BLOCK: [@arch:CHANNEL-MAP]
 
 ## [@arch:AC-41] An oversized kickoff spills to a file — one argv backstop on the seam
 

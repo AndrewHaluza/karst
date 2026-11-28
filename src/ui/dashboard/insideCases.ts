@@ -1190,12 +1190,49 @@ export const INSIDE_CASES: readonly InsideCase[] = [
   {
     stage: 'ship',
     id: 'deliver-auto-running',
-    state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: { n: 3, m: 5, gate: 'integration-sandbox-docker-layout-visual-regression-gate' }, failures: [], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
+    // T1403: the Deliver push is the Push row, and its pre-push gates show one row per gate: gate 2 of 5 runs, 1 passed,
+    // 3 queued. The clock is the fixture clock (renderFixtures.FIXTURE_NOW_MS).
+    state: legacy('ship', (s) => withDeliverRow({
+      ...s,
+      deliver: {
+        available: true, notOnPr: 2, inSandbox: 0,
+        auto: {
+          running: { n: 2, m: 5, gate: 'integration-sandbox-docker-layout-visual-regression-gate' },
+          failures: [], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          gates: [
+            { name: 'unit', repo: 'karst', status: 'pass', startedAt: '2026-10-27T21:44:00.000Z', endedAt: '2026-10-27T21:45:00.000Z', exitCode: 0 },
+            { name: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', status: 'run', startedAt: null, endedAt: null, exitCode: null },
+            { name: 'visual', repo: 'karst', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+            { name: 'layout', repo: 'karst', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+            { name: 'docs-graph', repo: 'karst', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+          ],
+        },
+      },
+    })),
   },
   {
     stage: 'ship',
     id: 'deliver-auto-failed',
-    state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: { n: 4, m: 5, gate: 'visual' }, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
+    state: legacy('ship', (s) => withDeliverRow({
+      ...s,
+      deliver: {
+        available: true, notOnPr: 2, inSandbox: 0,
+        auto: {
+          running: { n: 4, m: 5, gate: 'visual' },
+          failures: [
+            { gate: 'docs', repo: 'karst', exitCode: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' },
+          ],
+          takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          gates: [
+            { name: 'unit', repo: 'karst', status: 'pass', startedAt: '2026-10-27T21:40:00.000Z', endedAt: '2026-10-27T21:41:00.000Z', exitCode: 0 },
+            { name: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', status: 'fail', startedAt: '2026-10-27T21:41:00.000Z', endedAt: '2026-10-27T21:43:00.000Z', exitCode: 1 },
+            { name: 'docs-graph', repo: 'karst', status: 'pass', startedAt: '2026-10-27T21:43:00.000Z', endedAt: '2026-10-27T21:44:00.000Z', exitCode: 0 },
+            { name: 'visual', repo: 'karst', status: 'run', startedAt: null, endedAt: null, exitCode: null },
+            { name: 'layout', repo: 'karst', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+          ],
+        },
+      },
+    })),
   },
   {
     stage: 'ship',
@@ -1206,6 +1243,26 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     stage: 'ship',
     id: 'deliver-auto-older-head',
     state: legacy('ship', (s) => withDeliverRow({ ...s, deliver: { available: true, notOnPr: 2, inSandbox: 0, auto: { running: null, failures: [{ gate: 'integration-sandbox-docker-layout-visual-regression-gate', repo: 'karst', exitCode: 1, headSha: '0f9e8d7c6b5a49382716f5e4d3c2b1a099887766', summary: 'Error: expected 3 results but received 2 while comparing the very-long-recorded-baseline-name-for-the-dashboard-view.png' }], takenOver: null, roundActive: false, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678' } } })),
+  },
+  {
+    stage: 'ship',
+    id: 'deliver-base-check',
+    // A base check runs before a push: one phase heading, then one row per gate of that run.
+    state: legacy('ship', (s) => withDeliverRow({
+      ...s,
+      deliver: {
+        available: false, notOnPr: 2, inSandbox: 0,
+        auto: {
+          running: { n: 2, m: 3, gate: 'unit', baseCheck: true },
+          failures: [], takenOver: null, roundActive: true, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          gates: [
+            { name: 'docs-graph', repo: 'karst', status: 'pass', startedAt: '2026-10-27T21:50:00.000Z', endedAt: '2026-10-27T21:51:00.000Z', exitCode: 0 },
+            { name: 'unit', repo: 'karst', status: 'run', startedAt: null, endedAt: null, exitCode: null },
+            { name: 'integration', repo: 'karst', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+          ],
+        },
+      },
+    })),
   },
   { stage: 'ship', id: 'preview-ready', aliasOf: 'confirm-ship', state: () => shipPreviewStateFor('ready') },
   { stage: 'ship', id: 'preview-blocked', aliasOf: 'ship-blocked', state: () => shipPreviewStateFor('blocked') },
