@@ -67,12 +67,15 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   //   4 x 4 tiers x 1 theme (dark) (+16 screenshots); skipLayout, because the page is the running dashboard whose
   //   header CSS every existing dashboard layout route already measures at 1280/900/700/699/480 (inside-* at 320),
   //   and these pages would only add two pre-existing clips outside this ticket (see `headerVariants`).
+  // T1400 (@ui:UI-R57): the planning session link's hover card — `header-planning-card` at wide/mid/narrow (focus
+  //   opens it at 0 ms) and the tight twin's ⋯ menu, 4 x 1 theme (dark) (+4 screenshots); skipLayout, because the page
+  //   is the running dashboard whose header CSS every existing layout route already measures (as T1396 above).
   // T1401 (@ui:UI-R57): panel-pr-checks-pending-wide — an open PR waiting on pending checks alone
-  // (no status chip, no wait/blocked chip, no readiness box) beside a draft that keeps its chip.
-  // 1 theme (dark), wide only (+1 screenshot); skipLayout, because the panel routes already measure the page.
+  //   (no status chip, no wait/blocked chip, no readiness box) beside a draft that keeps its chip.
+  //   1 theme (dark), wide only (+1 screenshot); skipLayout, because the panel routes already measure the page.
   // T1403 (@ui:UI-R57): inside-ship-deliver-base-check — the Push row's pre-push base check, one phase heading and
   //   one row per gate of the current run. 1 theme (dark) (+1 screenshot) and 1 new page x 8 widths (+8 layout runs).
-  dashboard: { screenshots: 366, layout: 872 },
+  dashboard: { screenshots: 370, layout: 872 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

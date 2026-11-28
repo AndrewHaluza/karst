@@ -9,6 +9,7 @@ import type { PrPanelRow } from '../../../model/prPanelView.js';
 import { CopyUrl, OpenLink } from './PrActionButtons.js';
 import { Icon } from './Icon.js';
 import { useAnchoredPopover } from '../../shared/useAnchoredPopover.js';
+import { announceSurfaceOpen } from './useHoverCard.js';
 
 const POPOVER_WIDTH = 300;
 
@@ -102,7 +103,12 @@ export function PrInfo({ p, open, onToggle }: PrInfoProps) {
         aria-expanded={open}
         aria-label="Pull request details"
         title="Pull request details"
-        onClick={() => onToggle(repo, !open)}
+        onClick={() => {
+          // One header surface at a time (T1400): claim the header BEFORE the popover opens. Doing this from
+          // the click rather than the `open` effect keeps the sibling's synchronous close out of a React commit.
+          if (!open) announceSurfaceOpen('pr-info');
+          onToggle(repo, !open);
+        }}
       >
         <Icon name="info-circle" size={13} />
       </button>

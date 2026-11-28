@@ -7,6 +7,7 @@
 import { briefSourceLabel } from '../../../model/briefSource.js';
 import { parseBriefSections, type ParsedBrief } from '../../../integrations/briefMarkdown.js';
 import type { DashboardState } from '../state.js';
+import type { DashboardOriginView } from '../stateTypes.js';
 
 export type DetailsTabId = 'brief' | 'desc' | 'raw';
 
@@ -55,7 +56,15 @@ const group = (title: string, rows: readonly FactRow[]): FactGroup[] => (rows.le
 
 function karstRows(state: DashboardState): FactRow[] {
   const rows: FactRow[] = [];
-  if (state.origin) rows.push({ label: 'From', value: state.origin });
+  // The drawer keeps the full `from D… (P…)` line the header row used to carry (T1400 moved it into the
+  // `P<n>` link + card). A panel restored from a pre-T1400 snapshot still holds the old string; show it as is.
+  const origin = state.origin as DashboardOriginView | string | null;
+  const from = typeof origin === 'string'
+    ? origin
+    : origin
+      ? `from ${origin.draftRef} (${origin.session.ref})`
+      : null;
+  if (from) rows.push({ label: 'From', value: from });
   if (state.subtaskParent) rows.push({ label: 'Sub-task of', value: state.subtaskParent.ref, ref: state.subtaskParent.ref });
   if (state.priority?.text) rows.push({ label: 'Priority', value: state.priority.text });
   if (state.approach) rows.push({ label: 'Approach', value: [state.approach.id, ...state.approach.phases].join(' · ') });

@@ -3302,6 +3302,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         driver,
         stall.hostFor(ticketId),
         (id, repo) => aheadFor(undelivered.get(id), repo),
+        // The header's `P<n>` link opens the planning session through the same
+        // ops the sidebar binds (`plan-open` / `plan-artifacts`, T1400).
+        planning,
       );
     },
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),

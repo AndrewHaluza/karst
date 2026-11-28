@@ -435,6 +435,16 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       if (text.length > MAX_ENV_TEXT_CHARS) return null;
       return { type: 'env-overrides-save', scope, text };
     }
+    // The session id crosses the trust boundary typed and finite, exactly like
+    // the sidebar's own `plan-open` (src/ui/sidebar/messages.ts): a string, NaN,
+    // Infinity or a missing field drops the whole message instead of being
+    // coerced into a session the webview never named. The host resolves the id
+    // through its planning ops, so a stale one simply fails there.
+    case 'plan-open':
+    case 'plan-artifacts':
+      return isFiniteNumber(m.sessionId)
+        ? { type: m.type, sessionId: m.sessionId as number }
+        : null;
     default:
       return null;
   }

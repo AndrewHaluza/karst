@@ -319,10 +319,20 @@ describe('variant registry coverage (ui:UI-R57)', () => {
       'header-stuck-wide',
     ]);
     for (const v of scrolled) expect(v.capture, v.id).toBe('viewport');
-    // The four screenshot-only header states: the shared header CSS is measured by every existing dashboard layout
-    // route at 1280/900/700/699/480 (and the inside-* routes at 400/399/320), so these pages add no layout run.
+    // T1400: `header-planning-card-{wide,mid,narrow}` focus `#planLink` (the card opens at once); the tight twin
+    // clicks ⋯ instead, since the inline link is hidden there.
+    const focused = Object.values(VARIANTS).flat().filter((x) => x.focus !== undefined);
+    expect(focused.map((x) => x.id).sort()).toEqual([
+      'header-planning-card-mid',
+      'header-planning-card-narrow',
+      'header-planning-card-wide',
+    ]);
+    for (const x of focused) expect(x.focus, x.id).toBe('#planLink');
+    // The screenshot-only header states (T1396's four families plus T1400's planning card): the shared header CSS is
+    // measured by every existing dashboard layout route at 1280/900/700/699/480 (and the inside-* routes at
+    // 400/399/320), so these pages add no layout run.
     const headers = VARIANTS.dashboard.filter((v) => v.id.startsWith('header-'));
-    expect(headers).toHaveLength(16);
+    expect(headers).toHaveLength(20);
     for (const v of headers) expect(v.skipLayout, v.id).toBe(true);
   });
 });

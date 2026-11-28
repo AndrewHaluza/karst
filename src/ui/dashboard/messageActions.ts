@@ -268,4 +268,13 @@ export interface DashboardActions {
    * binds the ticket id, so the webview names no target.
    */
   onServerLogsDetach?: () => void | Promise<void>;
+  /**
+   * Open the planning session that produced this ticket (the header's `P<n>`
+   * link). Takes the session id from the message; the host resolves it through
+   * the same planning ops the sidebar uses, so a stale id fails there rather
+   * than opening anything the webview invented.
+   */
+  planOpen: (sessionId: number) => void | Promise<void>;
+  /** Open that planning session's artifacts folder (the card's Artifacts button). */
+  planArtifacts: (sessionId: number) => void | Promise<void>;
 }

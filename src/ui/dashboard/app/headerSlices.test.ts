@@ -22,8 +22,7 @@ const identity = (priority: unknown) =>
     } as unknown as DashboardState,
   } as DashboardSnapshot);
 
-describe('selectIdentity — priority view', () => {
-  it('trims the word of the current shape', () => {
+describe('selectIdentity — priority view', () => {  it('trims the word of the current shape', () => {
     expect(identity({ level: 'high', text: ' high ', source: 'you' })?.priority).toEqual({ level: 'high', text: 'high', source: 'you' });
   });
 
@@ -44,5 +43,33 @@ describe('selectIdentity — priority view', () => {
     expect(identity('   ')?.priority).toBeNull();
     expect(identity(null)?.priority).toBeNull();
     expect(identity(undefined)?.priority).toBeNull();
+  });
+});
+
+const ORIGIN = {
+  draftRef: 'D88',
+  session: {
+    id: 17, ref: 'P17', title: 'Plan', status: 'filed', core: 'claude', model: null,
+    drafts: { accepted: 1, pending: 2, discarded: 0 }, createdAt: '2026-08-10T14:02:00.000Z',
+  },
+} as const;
+
+const withOrigin = (origin: unknown) =>
+  selectIdentity({
+    state: { idLabel: 'T1', key: 'FEAT-1', title: 'Title', provider: null, priority: null, origin, ticketUrl: null, stageCurrent: 'impl', paused: false, agentState: 'idle' } as unknown as DashboardState,
+  } as DashboardSnapshot);
+
+describe('selectIdentity — origin view (T1400)', () => {
+  it('passes the structured planning origin through', () => {
+    expect(withOrigin(ORIGIN)?.origin).toEqual(ORIGIN);
+  });
+
+  it('reads null and undefined as no origin', () => {
+    expect(withOrigin(null)?.origin).toBeNull();
+    expect(withOrigin(undefined)?.origin).toBeNull();
+  });
+
+  it('upgrades a legacy display string to no origin instead of throwing', () => {
+    expect(withOrigin('from D88 (P17)')?.origin).toBeNull();
   });
 });

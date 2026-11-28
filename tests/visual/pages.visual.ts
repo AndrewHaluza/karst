@@ -116,6 +116,9 @@ karstTest.describe('full-page screenshots', () => {
           await page.evaluate((m) => window.dispatchEvent(new MessageEvent('message', { data: m })), msg);
         }
         if (v.hover !== undefined) await page.locator(v.hover).first().hover();
+        // T1400: a hover card that also opens on keyboard focus opens at once (0 ms) — `waitForPopoversSettled`
+        // below then waits for the fixed card's box to settle before the shot.
+        if (v.focus !== undefined) await page.locator(v.focus).first().focus();
         if (v.blur) await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         if (v.scrollY !== undefined) {
           // T1396: a sticky-row variant records the page scrolled under it. The stick state comes from an

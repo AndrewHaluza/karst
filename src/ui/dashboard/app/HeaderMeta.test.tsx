@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { fireEvent } from '@testing-library/react';
-import { $, headerState, installHeaderDoubles, mountHeader } from './fixtures/headerKit.js';
+import { $, headerState, installHeaderDoubles, mountHeader, originView } from './fixtures/headerKit.js';
 import { ticketRefView } from '../../shared/ticketRefView.js';
 
 installHeaderDoubles();
@@ -16,18 +16,25 @@ describe('HeaderMeta — relations', () => {
     expect($('#parentRef').hidden).toBe(true);
   });
 
-  it('joins origin, sub-task and follow-up relations with a dot, in one text run', () => {
-    mountHeader(headerState({ origin: 'from D88', subtaskParent: { key: 'A', ref: 'T1 · A', title: null }, parent: { key: 'B', ref: 'T2 · B', title: null } }));
+  it('joins sub-task and follow-up relations with a dot, in one text run, and never the planning origin', () => {
+    mountHeader(headerState({ origin: originView(), subtaskParent: { key: 'A', ref: 'T1 · A', title: null }, parent: { key: 'B', ref: 'T2 · B', title: null } }));
     expect(row().hidden).toBe(false);
-    expect($('#parentRef').textContent).toBe('from D88 · Sub-task of T1 · A · Follow-up of T2 · B');
+    expect($('#parentRef').textContent).toBe('Sub-task of T1 · A · Follow-up of T2 · B');
+    expect($('#parentRef').textContent).not.toContain('from D');
     expect($('#parentRef').childNodes).toHaveLength(1);
+  });
+
+  it('hides row 2 when the planning origin is the only fact it has — the P28 link lives in row 1', () => {
+    mountHeader(headerState({ origin: originView() }));
+    expect(row().hidden).toBe(true);
+    expect($('#parentRef').hidden).toBe(true);
   });
 
   it('draws blockers as chips, linking only those with a ticket, and posts the dependency once', () => {
     const h = mountHeader(
-      headerState({ origin: 'from D88', blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-1' }, { ticketId: null, idLabel: null, label: 'external' }] }),
+      headerState({ blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-1' }, { ticketId: null, idLabel: null, label: 'external' }] }),
     );
-    expect($('#parentRef').textContent).toBe('from D88');
+    expect($('#parentRef').textContent).toBe('');
     expect($('#refGroups [aria-label="Waits on"] .refGroupLabel').textContent).toBe('Waits on');
     const chips = document.querySelectorAll('#refGroups .k-ticket-ref');
     expect(chips).toHaveLength(2);

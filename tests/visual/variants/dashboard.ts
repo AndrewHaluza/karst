@@ -184,6 +184,14 @@ const insideGraphDagNarrow = (): Variant[] => {
 /** T1099: a viewport height above the 966px content of the ship/wide menu variant. */
 const SHIP_MENU_WIDE_VIEWPORT_H = 1000;
 
+/**
+ * T1400: the menu-open tight pages are ~1201-1217 px tall, so a 720 px viewport made the full-page capture flip by
+ * 2 px and move the open menu's edge by 1 px (311 px of difference between two otherwise identical renders). A
+ * viewport above the content pins the capture, the same fix T1099 gave ship/wide. Both stages at tight need it: the
+ * review page (1203 px) and the ship page (1217 px) are the same family.
+ */
+const MENU_OPEN_TIGHT_VIEWPORT_H = 1250;
+
 /** T1072 (F): the stage menu open at the wide and narrow tiers, on a ship with a main action plus rest, and on a failed review. */
 const stageMenuOpenVariants = (): Variant[] => {
   const cases = [
@@ -199,6 +207,8 @@ const stageMenuOpenVariants = (): Variant[] => {
         click: `[data-stage-menu="${key}"]`,
         // T1099: the full-page capture of ship/wide flips 964/966px while the DOM height is a stable 966px; a viewport above the content pins it.
         ...(stage === 'ship' && tier === 'wide' ? { viewportHeight: SHIP_MENU_WIDE_VIEWPORT_H } : {}),
+        // T1400: the same 2 px capture flip on the menu-open tight pages (review and ship).
+        ...(tier === 'tight' ? { viewportHeight: MENU_OPEN_TIGHT_VIEWPORT_H } : {}),
       }),
     );
   });
@@ -581,7 +591,8 @@ const emptyPanels = (s: DashboardState): DashboardState => ({
 /**
  * T1396 (@ui:UI-R57): the ticket header at the four container tiers (@ui:RD-TIERS). Four states: a graph ticket with a
  * planner's HIGH and a long key, a provider label that names no level (`P2`, the neutral chip), a closed ticket (the
- * status chip says Closed and there is no Done chip), and the scrolled sticky row with the tier's own width.
+ * status chip says Closed and there is no Done chip), and the scrolled sticky row with the tier's own width. T1400 adds
+ * `header-planning-card`: the `P28` link's hover card open at wide, mid and narrow, and the ⋯ twin at tight.
  *
  * Screenshot-only (`skipLayout`), like the other header-changing dashboard states (`graph-header`, `layout-*`,
  * `ticket-menu-*`): the page is the running dashboard, whose header CSS every existing dashboard layout route already
@@ -626,12 +637,42 @@ const headerVariants = (): Variant[] => {
     ...s,
     priority: { level: 'high', text: 'high', source: 'provider' },
   });
+  /** T1400: a ticket filed from `D849` in `P28`, with a realistic session and the catalog label its model renders. */
+  const planning = (s: DashboardState): DashboardState => ({
+    ...s,
+    origin: {
+      draftRef: 'D849',
+      session: {
+        id: 28,
+        ref: 'P28',
+        title: 'Ticket header revamp',
+        status: 'filed',
+        core: 'claude',
+        model: 'claude-opus-5-5',
+        drafts: { accepted: 4, pending: 0, discarded: 1 },
+        createdAt: '2026-08-10T14:02:00.000Z',
+      },
+    },
+    agentSwitch: {
+      ...s.agentSwitch,
+      modelsByCore: {
+        ...s.agentSwitch.modelsByCore,
+        claude: [{ id: 'claude-opus-5-5', label: 'Opus 5.5', providers: ['claude'], tags: ['multimodal', 'vision'], efforts: ['low', 'high'] }],
+      },
+    },
+  });
   const tier = (id: string, corpus: () => ViewCorpus, name: string, width: number): Variant =>
     variant('dashboard', `header-${id}-${name}`, corpus, { width, skipLayout: true });
   return [
     ...HEADER_TIERS.map(([name, width]) => tier('graph-high', headerCorpus(graphHigh), name, width)),
     ...HEADER_TIERS.map(([name, width]) => tier('provider-label', headerCorpus(providerLabel), name, width)),
     ...HEADER_TIERS.map(([name, width]) => tier('closed', headerCorpus(closed), name, width)),
+    // T1400: the `P28` link's hover card. Focus opens it at once (0 ms), so the shot records the open card at wide,
+    // mid and narrow; at tight the link is hidden and ⋯ carries "Open planning session P28" (no card).
+    ...HEADER_TIERS.filter(([name]) => name !== 'tight').map(([name, width]) =>
+      variant('dashboard', `header-planning-card-${name}`, headerCorpus(planning), { width, skipLayout: true, focus: '#planLink' }),
+    ),
+    variant('dashboard', 'header-planning-card-tight', headerCorpus(planning), { width: 360, skipLayout: true, click: '#moreBtn' }),
     ...HEADER_TIERS.map(([name, width]) =>
       variant('dashboard', `header-stuck-${name}`, headerCorpus(stuck), {
         width,

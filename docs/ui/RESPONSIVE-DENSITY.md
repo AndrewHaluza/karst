@@ -17,7 +17,7 @@ Goal: every webview usable at 320 px (floor) with 3–4 editor groups on a 14" l
 | `ui:RD-LADDERS`, `ui:RD-LADDERS2` | Collapse ladder per shared element (2nd: tables, tabs, forms, drawers, toasts) |
 | `ui:RD-NEVER` | Never-collapse list |
 | `ui:RD-A11Y` | Icon-only accessibility contract |
-| `ui:RD-VIEWS` | Per-view region tables |
+| `ui:RD-VIEWS`, `ui:RD-VIEWS2` | Per-view region tables (2nd: sidebar, settings, usage, diffs, ticket form) |
 | `ui:RD-PRIMITIVES` | Primitive API proposals (vanilla + React) |
 | `ui:RD-GATE` | Gate plan and known-failures ledger |
 | `ui:RD-BACKLOG` | Ordered implementation backlog |
@@ -229,6 +229,7 @@ Columns: audited element → ladder → target at each tier. Grid templates use 
 | header | title row | ticket id + title | one row; row 1 sticks (`--k-z-sticky`), row 2 (`#headerMeta`) scrolls | same | title own line, actions row below; priority chip stays | same, actions = primary + ⋯; provider icon, ↗ and ▤ move to ⋯ as "Open in provider" / "Ticket details" |
 | header | identity chips | id, status, priority, key | id + state pill; priority = the sidebar chip (`URG`/`HIGH`/`LOW`, none for normal, `P2` neutral) | same | same: the chip never drops | same; key one line, ellipsis, full key in `data-tip` |
 | header | core identity | core | full | short model | name | icon |
+| header | planning link | `#planLink` | `P28` after ▤ in row 1; hover/focus = planning card (session facts, Artifacts), click opens the session | same | same | hidden; ⋯ "Open planning session P28", no card |
 | header | `.headerActions` | action row | all | 3 + ⋯ | primary + 2 icons | primary + ⋯ |
 | stage rail | `.stepper` | measured steps | labels | labels | current label (`IMPL`) | marker + `IMPL` |
 | `#inside` | `.session-head` (`:1013`) | core, numbers, time | `20px minmax(78px,110px) minmax(0,1fr) auto` | same | `20px minmax(0,1fr) auto` (core name into row 2) | `20px minmax(0,1fr)` + row 2: core icon, tok, time |
@@ -243,6 +244,13 @@ Columns: audited element → ladder → target at each tier. Grid templates use 
 | layout | `.grid` | – | `1fr 1fr` | `1fr 1fr` | `minmax(0,1fr)` (**declared after** base rule) | same |
 | sandbox | strip + popover | buttons | row | row | wrap | wrap; popover `max-width:min(300px,calc(100vw - 2*S5))`, end-anchored |
 | drawer | `.tdDrawer` | drawers | right | right | right 92vw | sheet 100vw, `visibility:hidden` closed |
+
+Sidebar, Settings, Usage/Resources, Diffs and Ticket form: continued in `ui:RD-VIEWS2`.
+END_DOC_BLOCK: [@ui:RD-VIEWS]
+
+## [@ui:RD-VIEWS2] Per-view region tables, continued: sidebar, settings, usage, diffs, ticket form
+
+Split out of `ui:RD-VIEWS`.
 
 ### Sidebar (reference, verify only)
 
@@ -296,7 +304,7 @@ Layout B′ (prototype: `docs/design/ticket-form-b-prime.html`). Regions in DOM 
 ### gettingStarted, serverLogs
 
 No change; keep in the gate at 400 and 320.
-END_DOC_BLOCK: [@ui:RD-VIEWS]
+END_DOC_BLOCK: [@ui:RD-VIEWS2]
 
 ## [@ui:RD-PRIMITIVES] Primitive API proposals
 

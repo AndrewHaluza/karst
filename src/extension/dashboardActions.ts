@@ -21,6 +21,7 @@ import { graphRecoveryRefusalNotice, graphRefusalContext, projectMaxReplans, rep
 import type { Notify } from './ops/notify.js';
 import { conflictRounds, armConflictRound } from './ops/autoDeliverOps.js';
 import { makeDependencyOps } from './ops/dependencyOps.js';
+import { makePlanningLinkActions, type DashboardPlanningHost } from './ops/planningLinkOps.js';
 import { addressPrFeedback } from './ops/prFeedbackAction.js';
 import { deliverToPrAction, rebaseOnBaseAction, sendCiFailureAction, sendGateFailureAction, type CiActionsInput, type CiHost } from './ops/ciActionsWiring.js';
 import { resolveStageLogPath } from './ops/stageLogArtifact.js';
@@ -101,6 +102,14 @@ export interface StallHost {
   startPlanning: (title: string, kickoff: string) => Promise<unknown>;
   blockingSeverity: () => Severity | 'none';
 }
+
+/**
+ * The planning surface the dashboard's `P<n>` link drives (T1400). A narrow seam
+ * on purpose: the dashboard only opens a session (or its artifacts folder), and
+ * both calls are the SAME ones the sidebar's `plan-open` / `plan-artifacts`
+ * bind (`createPlanningOps`), so the two surfaces can never diverge.
+ */
+export type { DashboardPlanningHost } from './ops/planningLinkOps.js';
 
 export function makeDashboardActions(
   store: Store,
@@ -202,6 +211,8 @@ export function makeDashboardActions(
   stall: StallHost,
   // Commits the ticket holds that its PRs lack (the in-memory undelivered tracker); Merge all skips PRs while it is above 0.
   unpushedCount: (ticketId: number, repo: string) => number,
+  // The planning sessions the header's `P<n>` link opens (T1400) — the same ops the sidebar binds.
+  planning: DashboardPlanningHost,
 ): DashboardActions {
   // Every toast of this dashboard links its karst_events row to the ticket (D641).
   const toast = {
@@ -300,6 +311,12 @@ export function makeDashboardActions(
       const key = getTicket(store, ticketId).key ?? formatId('ticket', ticketId);
       void vscode.env.clipboard.writeText(key);
     },
+    // The header's `P<n>` link (T1400): the SAME planning ops the sidebar's
+    // `plan-open` / `plan-artifacts` call. The returned promise settles the
+    // webview's pending state on the REAL outcome (UI-R13): the rejection is
+    // logged and re-thrown, because swallowing it here would resolve the
+    // promise and `reportAction` would post `action-result { ok: true }`.
+    ...makePlanningLinkActions(planning, logError),
     copyTicketMarkdown: (text) => void vscode.env.clipboard.writeText(text),
     openTicketMarkdown: async (text) => {
       const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: text });

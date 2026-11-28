@@ -4,6 +4,7 @@ import { afterEach, beforeEach, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import type { HostMessage } from '../../messages.js';
 import type { DashboardState } from '../../state.js';
+import type { DashboardOriginView } from '../../stateTypes.js';
 import type { DashboardHostBridge, DashboardSender } from '../hostBridge.js';
 import { DashboardAppProvider, useOverlays, usePendingOps } from '../DashboardAppContext.js';
 import type { OverlayStack } from '../overlayStack.js';
@@ -52,6 +53,21 @@ export const headerState = (over: Record<string, unknown> = {}): DashboardState 
     ...over,
   }) as unknown as DashboardState;
 
+/** The structured planning origin a ticket filed from a draft carries (T1400), for row-1/row-2 assertions. */
+export const originView = (): DashboardOriginView => ({
+  draftRef: 'D88',
+  session: {
+    id: 17,
+    ref: 'P17',
+    title: 'Per-repo base branch override',
+    status: 'filed',
+    core: 'claude',
+    model: 'm2',
+    drafts: { accepted: 3, pending: 1, discarded: 0 },
+    createdAt: '2026-08-10T14:02:00.000Z',
+  },
+});
+
 export interface HeaderHarness {
   readonly send: Record<string, ReturnType<typeof vi.fn>>;
   readonly emit: (message: HostMessage) => void;
@@ -71,6 +87,7 @@ const SENDERS = [
   'copyTicketKey', 'copyTicketMarkdown', 'openTicketMarkdown', 'openTicketLink', 'openDependency', 'detachSubtask', 'closeTicket', 'reopenTicket', 'archiveTicket', 'editTicket',
   'pauseExecution', 'unpauseExecution', 'createFollowUpTicket', 'setDisabledGates', 'toggleBind', 'setLayout', 'switchAgent', 'shipTicket',
   'sandboxSync', 'sandboxDiff', 'sandboxStashUpdate', 'sandboxShell', 'sandboxStop', 'sandboxRemove', 'sandboxCarry', 'openSettings',
+  'planOpen', 'planArtifacts',
 ] as const;
 
 export function mountHeader(initial: DashboardState | null): HeaderHarness {
