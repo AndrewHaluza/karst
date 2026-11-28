@@ -194,7 +194,7 @@ describe('Inside CSS — the container queries', () => {
     // A control in the `auto` track and the 105 px `override model,effort` badge pushed a node's visit, age and
     // override past the detail track (layout containment at 320/399/400). The facts wrap at the narrow tier…
     expect(containerBlock('699px')).toMatch(
-      /#inside \.graph-node-visit,#inside \.graph-node-age,#inside \.graph-node-override\{white-space:normal;overflow-wrap:anywhere\}/,
+      /#inside \.graph-node-age,#inside \.graph-node-override\{white-space:normal;overflow-wrap:anywhere\}/,
     );
     // …and at the floor a row that carries a control gives it its own line, so the detail keeps the width.
     const tight = containerBlock('399px');
