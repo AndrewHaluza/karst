@@ -16,6 +16,7 @@ import type {
 } from '../../approaches/graph/transport/agentTransport.js';
 import { buildGraphInsideInput, graphBlockRecovery, type GraphInsideDeps } from './graphInside.js';
 import { createGraphRun } from '../../store/graph/graphRuns.js';
+import { recordTokenUsage } from '../../store/tokenUsage.js';
 
 let store: Store;
 
@@ -314,6 +315,70 @@ describe('buildGraphInsideInput', () => {
       nodes: [{ id: 'a' }, { id: 'b' }],
       edges: [{ from: 'a', to: 'b' }],
     });
+  });
+
+  it('keeps each node label and task id for the node details card', () => {
+    const { graphRunId } = seedGraph({});
+    const long = 'x'.repeat(300);
+    store.db
+      .prepare('UPDATE approach_graph_revisions SET canonical_graph = ? WHERE graph_run_id = ?')
+      .run(
+        JSON.stringify({
+          nodes: [
+            { id: 'a', label: 'Design the parser', instructionsArtifact: 'design-task' },
+            { id: 'b', label: 42, instructionsArtifact: '' },
+            { id: 'c', label: long },
+          ],
+          edges: [],
+        }),
+        graphRunId,
+      );
+    const input = buildGraphInsideInput(deps(), 1)!;
+    // A malformed label or task is dropped; the node itself stays.
+    expect(input.topology!.nodes).toEqual([
+      { id: 'a', label: 'Design the parser', task: 'design-task' },
+      { id: 'b' },
+      { id: 'c', label: 'x'.repeat(200) },
+    ]);
+  });
+
+  it('attaches each node run\'s token sums by node run id', () => {
+    const { graphRunId, revisionId } = seedGraph({});
+    const insert = store.db.prepare(
+      `INSERT INTO approach_node_runs
+         (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+       VALUES (?, ?, ?, 'agent', 1, 'completed')`,
+    );
+    const a = Number(insert.run(graphRunId, revisionId, 'a').lastInsertRowid);
+    const b = Number(insert.run(graphRunId, revisionId, 'b').lastInsertRowid);
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: 1,
+      approachNodeRunId: a,
+      callSite: 'graph-node',
+      provider: 'codex',
+      outcome: 'ok',
+      recordedAt: '2026-08-12T00:00:00.000Z',
+      usage: {
+        inputTokens: 100,
+        outputTokens: 20,
+        reasoningTokens: 0,
+        cacheReadTokens: 30,
+        cacheWriteTokens: 0,
+        totalTokens: 150,
+        model: 'sol',
+        estimated: false,
+      },
+    });
+    const input = buildGraphInsideInput(deps(), 1)!;
+    expect(input.nodeRuns.find((n) => n.nodeRunId === a)!.tokens).toEqual({
+      input: 100,
+      output: 20,
+      cacheRead: 30,
+      cacheWrite: 0,
+      total: 150,
+    });
+    expect(input.nodeRuns.find((n) => n.nodeRunId === b)!.tokens).toBeUndefined();
   });
 
   it('skips parsing an oversized compiled graph and says so through debug', () => {

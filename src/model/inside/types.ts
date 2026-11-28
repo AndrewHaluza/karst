@@ -701,6 +701,25 @@ export const EVIDENCE_KINDS: readonly ProcessEvidenceView['kind'][] = [
 /** The closed entry kinds of the graph ledger. */
 export type GraphLedgerEntryKind = 'planner' | 'node' | 'deferred';
 
+/** One `label → value` fact of a graph node's details card (UI-R31: the host
+ *  words it, the webview presents it). */
+export interface GraphNodeCardFact {
+  label: string;
+  value: string;
+}
+
+/**
+ * A graph node's details card: the title and ordered facts the webview shows
+ * on hover or focus. Every string is host-formatted and already sanitized and
+ * bounded (`sanitizeGraphText`); the webview renders `facts` in this order and
+ * adds nothing — no labels, no separators, no derived words.
+ */
+export interface GraphNodeCard {
+  /** The node's title (the canonical graph's `label`); absent when it has none. */
+  title?: string;
+  facts: readonly GraphNodeCardFact[];
+}
+
 /**
  * One entry of the graph process's chronological ledger — a planner run, a
  * node run, or a deferred (ready-but-refused) node. Structured so the webview
@@ -742,6 +761,13 @@ export interface GraphNodeListRow {
   age?: string;
   outcome?: string;
   reason?: string;
+  /**
+   * The node's details card — node entries only, host-formatted and sanitized:
+   * the webview renders `facts` in order and adds nothing. Present on a node
+   * entry even when it has no facts, so a future card surface never has to
+   * invent one.
+   */
+  card?: GraphNodeCard;
   /** The node row's single control (open/discard/edit-override), if any. */
   action?: TypedInsideAction;
 }
@@ -754,6 +780,13 @@ export interface GraphDagChip {
   displayStatus: InsideStatus;
   /** Short state copy — `running 10m`, `deferred`, `pending`. */
   state: string;
+  /**
+   * The details card of the latest node ledger entry (host-formatted and
+   * sanitized, exactly as the node row carries it); absent on the planner chip
+   * and on a node with no run. The webview renders the facts in order and adds
+   * nothing.
+   */
+  card?: GraphNodeCard;
 }
 
 /**
