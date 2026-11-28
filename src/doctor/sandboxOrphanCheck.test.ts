@@ -10,4 +10,8 @@ describe('checkSandboxOrphans', () => {
       fix: { tier: 'report', summary: 'orphan sandbox', nextStep: 'run "Karst: Clean Up Orphan Sandboxes" and confirm (unsynced commits in it are lost)' },
     }]);
   });
+  it('an ssh orphan names its remote so two remotes never look alike (D824)', () => {
+    expect(checkSandboxOrphans([{ name: 'karst-ab12cd34-9-claude', ticketId: 9, remote: 'devbox' }])[0]!.detail)
+      .toBe('sandbox karst-ab12cd34-9-claude on devbox belongs to ticket 9, which is not live');
+  });
 });

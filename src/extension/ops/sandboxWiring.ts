@@ -30,6 +30,7 @@ import { createShellAvailabilityCache, openSandboxShellOp, sandboxShellAvailabil
 import { carrySandboxOp } from './sandboxCarryOp.js';
 import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js';
 import { runSandboxReconcile } from './bootSweeps.js';
+import { sshPlacementTarget } from './sshPlacementOps.js';
 import { repairHostSessions } from './hostSessionRepair.js';
 import {
   sandboxKindOfCore, cleanupOrphansOp, depsForListedBox, listingFailedFor, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
@@ -197,7 +198,14 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     return projectId === undefined ? [] : listTickets(w.store, { projectId }).filter((t) => t.archivedAt === null && !merged.has(t.id));
   };
   /** Live tickets for the reconcile: each carries its recorded placement, the only source of host-vs-sandbox (arch:AC-32). */
-  const reconcileTickets = () => liveTickets().map((t) => ({ id: t.id, sessionId: t.sessionId, sessionProvider: t.sessionProvider, placementBackend: getPlacement(w.store, t.id)?.backend ?? null }));
+  const reconcileTickets = () => liveTickets().map((t) => {
+    const placement = getPlacement(w.store, t.id);
+    return {
+      id: t.id, sessionId: t.sessionId, sessionProvider: t.sessionProvider, placementBackend: placement?.backend ?? null,
+      // A per-remote ssh listing: only the ticket's own remote can prove its workspace gone (D824).
+      placementRemote: sshPlacementTarget(placement)?.remote ?? null,
+    };
+  });
   /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
   const resolved = async (ticketId: number, projectRoot: string): Promise<SandboxSyncTarget> => {
     const t = target(ticketId);
@@ -244,7 +252,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const t = live.get(box.ticketId);
       if (box.invalidCore === true || t === undefined || seen.has(box.ticketId)) return [];
       seen.add(box.ticketId);
-      return [{ label: t.key ?? String(t.id), description: `${box.runner} ${box.core} (${box.state}) \u00b7 ${t.title}`, ticketId: t.id }];
+      return [{ label: t.key ?? String(t.id), description: `${box.runner}${box.remote === undefined ? '' : ` ${box.remote}`} ${box.core} (${box.state}) \u00b7 ${t.title}`, ticketId: t.id }];
     });
     if (picks.length === 0) {
       w.notify.info(`No ticket in this project has a sandbox to ${verb}.`);
@@ -579,7 +587,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const d = deps();
       if (!d || w.projectId() === undefined) return 0;
       const tickets = liveTickets().map((t) => ({ id: t.id, updatedAtMs: t.updatedAt === null ? Number.NaN : parseDbTimeMs(t.updatedAt), sessionOpen: w.sessionOpen(t.id) }));
-      const idle = idleSandboxes(await inventoryOf(d), tickets, d.owns, (w.now ?? Date.now)(), STUCK_IDLE_MINUTES * 60_000);
+      const idle = idleSandboxes(await inventoryOf(d), tickets, d.owns, (w.now ?? Date.now)(), STUCK_IDLE_MINUTES * 60_000, w.gateRunning);
       let stopped = 0;
       // A listed box is stopped by its own runner, never by the placement's (D826).
       for (const box of idle) if (await stopSandboxOp(depsForListedBox(d, box), { ...target(box.ticketId), core: box.core })) stopped += 1;

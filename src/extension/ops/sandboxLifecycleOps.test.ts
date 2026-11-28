@@ -8,7 +8,7 @@ import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
 import { SSH_STRAYS_FILE } from '../../agent/ssh/sshStrays.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { TicketPlacement } from '../../store/placement.js';
-import { fakeSshPlacement, fakeSshRunnerDeps } from './fakeSshRunnerDeps.js';
+import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir, FAKE_INSTALL_ID } from './fakeSshRunnerDeps.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
@@ -482,6 +482,9 @@ describe('idleSandboxes', () => {
     expect(idleSandboxes(inv, [{ id: 1, updatedAtMs: H, sessionOpen: false }], () => true, 3 * H, 2 * H)).toEqual([]);
     expect(idleSandboxes({ sandboxes: [box(9)], errors: [] }, tickets, () => true, 3 * H, 2 * H)).toEqual([]);
   });
+  it('defers the stop while a gate of the ticket runs (T1008)', () => {
+    expect(idleSandboxes(inv, tickets, (id) => id !== 5, 3 * H, 2 * H, (id) => id === 1)).toEqual([]);
+  });
 });
 
 describe('onDoneOp (arch:AC-37)', () => {
@@ -552,6 +555,31 @@ describe('reconcileSandboxes with an ssh placement (D826)', () => {
     const clear = vi.fn();
     expect(reconcileSandboxes({ sandboxes: [], errors: ['ssh A: x'] }, [sbx], () => true, clear).missing).toEqual([8]);
     expect(reconcileSandboxes({ sandboxes: [], errors: ['sbx ls failed'] }, [sbx], () => true, vi.fn()).missing).toEqual([]);
+  });
+  it('a clean listing of the ticket\'s own remote proves an absent ssh workspace missing (D824)', () => {
+    const clear = vi.fn();
+    const t = { ...sshTicket, placementRemote: 'devbox' };
+    const r = reconcileSandboxes({ sandboxes: [], errors: ['ssh other: down'] }, [t], () => true, clear);
+    expect(r.missing).toEqual([7]);
+    expect(clear).toHaveBeenCalledWith(7);
+  });
+  it('a failed or untrusted remote is unknown: its workspace is not missing and the session stays (D824)', () => {
+    const clear = vi.fn();
+    const t = { ...sshTicket, placementRemote: 'devbox' };
+    const r = reconcileSandboxes({ sandboxes: [], errors: ['ssh devbox: ssh remote devbox not confirmed'] }, [t], () => true, clear);
+    expect(r.missing).toEqual([]);
+    expect(clear).not.toHaveBeenCalled();
+  });
+  it('an ssh placement with no parsable remote is unknown, never absent', () => {
+    const clear = vi.fn();
+    const r = reconcileSandboxes({ sandboxes: [], errors: [] }, [{ ...sshTicket, placementRemote: null }], () => true, clear);
+    expect(r.missing).toEqual([]);
+    expect(clear).not.toHaveBeenCalled();
+  });
+  it('a listed running ssh workspace is adopted on the next open', () => {
+    const sshBox: ProjectSandbox = { runner: 'ssh', name: 'karst-x-7-claude', remote: 'devbox', ticketId: 7, core: 'claude', state: 'running' };
+    const r = reconcileSandboxes({ sandboxes: [sshBox], errors: [] }, [{ ...sshTicket, placementRemote: 'devbox' }], () => true, vi.fn());
+    expect(r).toEqual({ running: [7], stopped: [], missing: [], orphans: [] });
   });
 });
 
@@ -739,5 +767,156 @@ describe('forgotten remote strays (D824, edit 2)', () => {
     await expect(removeSandboxGuarded(d, t, { skipSync: true })).resolves.toBe(true);
     expect(disposed(ssh)).toBe(false);
     expect(d.bridges?.dispose).not.toHaveBeenCalled();
+  });
+});
+
+describe('ssh lifecycle: done, idle, archive, orphans and provider switch (D824, edits 3 and 5)', () => {
+  const INSTALL = FAKE_INSTALL_ID;
+  const PREFIX = sshProjectPrefix('/p', INSTALL);
+  const DIR = '/srv/karst';
+  const sshName = (ticketId: number): string => `${PREFIX}-${ticketId}-claude`;
+  const dirListing = (name: string | undefined, tmux = false): FakeSshAnswer => ({
+    stdout: `__KARST_DIRS__\n${name ?? ''}\n__KARST_TMUX__\n${tmux && name !== undefined ? name : ''}\n`,
+  });
+  const sha = 'a'.repeat(40);
+  const headKey = 'git -C /wt rev-parse --verify --quiet refs/karst/sandbox/feat/x^{commit}';
+
+  /**
+   * An ssh fake whose directed workspace listing loses `name` and whose probe
+   * flips to `probeAfter` the moment the dispose step ran, so a removal is
+   * verified by a REAL re-list / probe (never by an optimistic answer).
+   */
+  function sshDisposable(name: string, probeAfter = 44): ReturnType<typeof fakeSshProcess> {
+    const answers: Record<string, FakeSshAnswer> = {
+      'karst-ssh-probe': { code: 0 },
+      'karst-ssh-stop': { code: 0 },
+      'karst-ssh-dispose': { code: 0 },
+      [DIR]: dirListing(name, true),
+    };
+    const ssh = fakeSshProcess(answers);
+    const run = ssh.run;
+    return Object.assign(ssh, {
+      run: async (...a: Parameters<typeof run>) => {
+        const out = await run(...a);
+        if ((a[0].at(-1) ?? '').includes('karst-ssh-dispose')) {
+          answers[DIR] = dirListing(undefined);
+          answers['karst-ssh-probe'] = { code: probeAfter };
+        }
+        return out;
+      },
+    });
+  }
+  const remoteCmds = (ssh: ReturnType<typeof fakeSshProcess>): string[] => ssh.calls.map((c) => c.args.at(-1) ?? '');
+  const disposed = (ssh: ReturnType<typeof fakeSshProcess>): boolean =>
+    remoteCmds(ssh).some((s) => s.includes('karst-ssh-dispose') && s.includes('rm -rf'));
+  const dockerCalls = (d: SandboxLifecycleDeps): { args: readonly string[] }[] =>
+    (d.dockerProc as unknown as { calls: { args: readonly string[] }[] }).calls;
+  const sshTarget = { ticketId: 7, ticketLabel: 'T-7', core: 'claude', worktree: { path: '/wt', branch: 'feat/x' } };
+
+  it('done+merged disposes the ssh workspace (no pre-sync), and the bridge dir goes with it', async () => {
+    const ssh = sshDisposable(sshName(7));
+    const { d, proc } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh),
+    });
+    await expect(onDoneOp(d, sshTarget, true)).resolves.toBe(true);
+    expect(disposed(ssh)).toBe(true);
+    expect(remoteCmds(ssh).some((s) => s.includes('karst-ssh-thin-bundle'))).toBe(false);
+    expect([...proc.calls, ...dockerCalls(d)].some((c) => c.args[0] === 'rm' || (c.args[0] === 'volume' && c.args[1] === 'rm'))).toBe(false);
+    expect(d.bridges.dispose).toHaveBeenCalledWith(7);
+  });
+
+  it('done unmerged syncs the ssh workspace then stops it, and never disposes it', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 }, 'karst-ssh-thin-bundle': { stdout: 'bundle' }, 'karst-ssh-stop': { code: 0 } });
+    const { d, proc } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt',
+      sshRunner: fakeSshRunnerDeps(ssh, { host: fakeSbxProcess() }),
+    });
+    await onDoneOp(d, sshTarget, false);
+    const cmds = remoteCmds(ssh);
+    const bundleAt = cmds.findIndex((s) => s.includes('karst-ssh-thin-bundle'));
+    const stopAt = cmds.findIndex((s) => s.includes('karst-ssh-stop'));
+    expect(bundleAt).toBeGreaterThanOrEqual(0);
+    expect(stopAt).toBeGreaterThan(bundleAt);
+    expect(disposed(ssh)).toBe(false);
+    expect(proc.calls.some((c) => c.args[0] === 'rm')).toBe(false);
+  });
+
+  it('archive (guarded removal) with a refused sync asks before losing commits, then cancels', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 } });
+    const { d, notify } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt',
+      // The sandbox head is unreadable: the sync refuses instead of fast-forwarding.
+      sshRunner: fakeSshRunnerDeps(ssh, { host: fakeSbxProcess({ [headKey]: { code: 1 } }) }),
+    });
+    await expect(removeSandboxGuarded(d, sshTarget)).resolves.toBe(false);
+    expect(d.choose).toHaveBeenCalledWith(expect.stringContaining('did not sync'), [OPEN_SYNC_DIFF, REMOVE_ANYWAY, CANCEL]);
+    expect(disposed(ssh)).toBe(false);
+    expect(notify.warn).toHaveBeenCalledWith('The sandbox of T-7 stays. You did not confirm the removal.');
+  });
+
+  it('provider switch removes the old ssh workspace with the same guard, then drops the session', async () => {
+    const ssh = sshDisposable(sshName(7));
+    const host = fakeSbxProcess({
+      [headKey]: { stdout: `${sha}\n` },
+      [`git -C /wt merge-base --is-ancestor HEAD ${sha}`]: { code: 0 },
+      [`git -C /wt merge --ff-only ${sha}`]: { code: 0 },
+    });
+    const clearSession = vi.fn();
+    const { d } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt',
+      sshRunner: fakeSshRunnerDeps(ssh, { host }),
+    });
+    await expect(switchProviderOp({ ...d, clearSession }, sshTarget, 'codex')).resolves.toBe(true);
+    expect(disposed(ssh)).toBe(true);
+    expect(clearSession).toHaveBeenCalledWith(7);
+  });
+
+  it('a blocked ssh removal cancels the provider switch and keeps the session id', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 } });
+    const clearSession = vi.fn();
+    const { d } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt',
+      sshRunner: fakeSshRunnerDeps(ssh, { host: fakeSbxProcess({ [headKey]: { code: 1 } }) }),
+    });
+    await expect(switchProviderOp({ ...d, clearSession }, sshTarget, 'codex')).resolves.toBe(false);
+    expect(clearSession).not.toHaveBeenCalled();
+    expect(disposed(ssh)).toBe(false);
+  });
+
+  it('an ssh orphan goes to the ssh runner of its own remote and its guarded delete; docker and sbx see no call', async () => {
+    const orphan = sshName(9);
+    const ssh = sshDisposable(orphan);
+    const { d, proc, notify } = deps({
+      inv: [box(7)], projectRoot: '/p', sshRunner: fakeSshRunnerDeps(ssh), choose: vi.fn(async () => REMOVE_ORPHANS),
+    });
+    await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(1);
+    expect(disposed(ssh)).toBe(true);
+    expect(remoteCmds(ssh).some((s) => s.includes(orphan))).toBe(true);
+    expect(proc.calls.filter((c) => c.args[0] === 'rm')).toEqual([]);
+    expect(dockerCalls(d).filter((c) => c.args[0] === 'rm' || (c.args[0] === 'volume' && c.args[1] === 'rm'))).toEqual([]);
+    expect(d.bridges.dispose).toHaveBeenCalledWith(9);
+    expect(notify.info).toHaveBeenCalledWith('Removed 1 orphan sandbox.');
+  });
+
+  it('an ssh orphan whose remote removal fails stays listed and warns with the reason', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 }, [DIR]: dirListing(sshName(9)), 'karst-ssh-dispose': { code: 1, stderr: 'permission denied\n' } });
+    const { d, notify } = deps({
+      inv: [box(7)], projectRoot: '/p', sshRunner: fakeSshRunnerDeps(ssh), choose: vi.fn(async () => REMOVE_ORPHANS),
+    });
+    await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
+    expect(notify.warn).toHaveBeenCalledWith(expect.stringContaining('permission denied'));
+    expect(d.bridges.dispose).not.toHaveBeenCalled();
+  });
+
+  it('an untrusted remote is never reached, so its workspace is not even listed as an orphan', async () => {
+    const ssh = fakeSshProcess({ [DIR]: dirListing(sshName(9)) });
+    const { d } = deps({
+      inv: [box(7)], projectRoot: '/p', sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }),
+      choose: vi.fn(async () => REMOVE_ORPHANS),
+    });
+    await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
+    expect(ssh.calls).toEqual([]);
+    expect(d.choose).not.toHaveBeenCalled();
+    expect(d.notify.info).toHaveBeenCalledWith('This project has no orphan sandboxes.');
   });
 });

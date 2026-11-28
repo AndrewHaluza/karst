@@ -15,7 +15,8 @@ import { getPlacement, recordPlacement, GRAPH_RUN_PLACEMENT } from '../../store/
 import { createGraphRun } from '../../store/graph/graphRuns.js';
 import type { SessionRunner } from '../../agent/sessionRunner.js';
 import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
-import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
+import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir, FAKE_INSTALL_ID } from './fakeSshRunnerDeps.js';
+import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
 
 let store: Store;
 let id: number;
@@ -1319,5 +1320,96 @@ describe('makeSandboxWiring hands its own process seams and worktree to every ho
     const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT_FILE, proc, info });
     await w.ensureInSync(id);
     expect(lines(proc).some((l) => l.includes(codex) && !l.startsWith('sbx ls'))).toBe(true);
+  });
+});
+
+describe('makeSandboxWiring ssh lifecycle: palette, idle and recovery (D824)', () => {
+  const ROOT = '/p';
+  const nameOf = (ticketId: number): string => `${sshProjectPrefix(ROOT, FAKE_INSTALL_ID)}-${ticketId}-claude`;
+  const dirs = (name: string | undefined, tmux = false): { stdout: string } => ({
+    stdout: `__KARST_DIRS__\n${name ?? ''}\n__KARST_TMUX__\n${tmux && name !== undefined ? name : ''}\n`,
+  });
+  function liveSsh(opts: { ageMin?: number } = {}) {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'S-1', title: 'ssh ticket', projectId }).id;
+    setSessionId(store, a, 's1', 'claude');
+    recordPlacement(store, a, fakeSshPlacement(a), 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(a);
+    if (opts.ageMin !== undefined) store.db.prepare(`UPDATE tickets SET updated_at = datetime('now', '-${opts.ageMin} minutes') WHERE id = ?`).run(a);
+    return { projectId, a };
+  }
+
+  it('palette command target includes an ssh ticket listed on its remote', async () => {
+    const { projectId, a } = liveSsh();
+    const ssh = fakeSshProcess({ '/srv/karst': dirs(nameOf(a), true) });
+    const pickTicket = vi.fn(async (picks: readonly { ticketId: number }[]) => picks[0]!.ticketId);
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, sshRunner: fakeSshRunnerDeps(ssh), pickTicket });
+    await expect(w.commandTarget(undefined, 'dispose')).resolves.toBe(a);
+    expect(pickTicket.mock.calls[0]![0]).toEqual([{ label: 'S-1', description: expect.stringContaining('ssh devbox claude (running)'), ticketId: a }]);
+  });
+
+  it('an idle ssh workspace is stopped by its own ssh runner; the stop waits while a gate runs (T1008)', async () => {
+    const { projectId, a } = liveSsh({ ageMin: 121 });
+    const gate = { on: true };
+    const ssh = fakeSshProcess({
+      'karst-ssh-probe': { code: 0 }, '/srv/karst': dirs(nameOf(a), true),
+      'karst-ssh-thin-bundle': { code: 1 }, 'karst-ssh-stop': { code: 0 },
+    });
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]), sessionOpen: () => false,
+      sshRunner: fakeSshRunnerDeps(ssh, { host: fakeSbxProcess() }), gateRunning: () => gate.on,
+    });
+    await expect(w.idleSweep()).resolves.toBe(0);
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('karst-ssh-stop'))).toBe(false);
+    gate.on = false;
+    await expect(w.idleSweep()).resolves.toBe(1);
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('karst-ssh-stop'))).toBe(true);
+  });
+
+  it('an unconfirmed ssh remote makes zero ssh calls at reconcile and keeps the session', async () => {
+    const { projectId, a } = liveSsh();
+    const ssh = fakeSshProcess();
+    const info = vi.fn();
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      sshRunner: fakeSshRunnerDeps(ssh, { globalStorageDir: fakeTrustDir({}) }), info,
+    });
+    await w.reconcile();
+    expect([ssh.calls, ssh.stdinCalls, ssh.pipes, ssh.streams]).toEqual([[], [], [], []]);
+    expect(getTicket(store, a).sessionId).toBe('s1');
+    expect(info).toHaveBeenCalledWith('karst: sandbox listing: ssh devbox: ssh remote devbox not confirmed');
+  });
+
+  it('a missing workspace on a listed remote drops the session; a failed listing changes nothing', async () => {
+    const { projectId, a } = liveSsh();
+    const info = vi.fn();
+    const gone = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      sshRunner: fakeSshRunnerDeps(fakeSshProcess({ '/srv/karst': dirs(undefined) })), info,
+    });
+    await gone.w.reconcile();
+    expect(getTicket(store, a).sessionId).toBeNull();
+    expect(info).toHaveBeenCalledWith(`karst: sandbox(es) missing for ticket(s) ${a}: next open starts a fresh session`);
+
+    setSessionId(store, a, 's1', 'claude');
+    const down = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      sshRunner: fakeSshRunnerDeps(fakeSshProcess({ '/srv/karst': { code: 255, transport: true, stderr: 'connection refused' } })),
+    });
+    await down.w.reconcile();
+    expect(getTicket(store, a).sessionId).toBe('s1');
+  });
+
+  it('hard delete (beforeArchive) is cancelled when the ssh workspace cannot be removed', async () => {
+    const { projectId, a } = liveSsh();
+    const headKey = 'git -C /wt/r rev-parse --verify --quiet refs/karst/sandbox/feat/r^{commit}';
+    const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 } });
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      // The head is unreadable: the pre-remove sync refuses, so the user is asked and cancels by default.
+      sshRunner: fakeSshRunnerDeps(ssh, { host: fakeSbxProcess({ [headKey]: { code: 1 } }) }),
+    });
+    await expect(w.beforeArchive(a)).resolves.toBe(false);
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('karst-ssh-dispose'))).toBe(false);
   });
 });

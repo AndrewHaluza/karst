@@ -3,6 +3,13 @@ import type { DoctorCheck } from './types.js';
 export interface OrphanSandbox {
   readonly name: string;
   readonly ticketId: number;
+  /** The `remotes.<name>` of an ssh workspace (D824): named in the line so two remotes never look alike. */
+  readonly remote?: string;
+}
+
+/** `sandbox <name>` or `sandbox <name> on <remote>`: an ssh orphan names its remote. */
+function label(o: OrphanSandbox): string {
+  return o.remote === undefined ? `sandbox ${o.name}` : `sandbox ${o.name} on ${o.remote}`;
 }
 
 /**
@@ -14,7 +21,7 @@ export function checkSandboxOrphans(orphans: readonly OrphanSandbox[]): DoctorCh
     id: `state.sandbox-orphan.${o.name}`,
     area: 'state',
     status: 'warn',
-    detail: `sandbox ${o.name} belongs to ticket ${o.ticketId}, which is not live`,
+    detail: `${label(o)} belongs to ticket ${o.ticketId}, which is not live`,
     fix: {
       tier: 'report',
       summary: 'orphan sandbox',
