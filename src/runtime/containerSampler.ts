@@ -1,5 +1,7 @@
-import { parseSandboxContainerName, projectPrefix } from '../agent/sandboxInventory.js';
+import { parseSandboxContainerName, projectPrefix, type ProjectSandbox } from '../agent/sandboxInventory.js';
 import type { SbxProcess } from '../agent/sbx/sbxProcess.js';
+import type { AttributedRow } from './resourceInventory.js';
+import { remoteWorkspaceFacts, remoteWorkspaceRows } from './remoteWorkspaces.js';
 
 /**
  * One async sample of the docker containers karst owns. On macOS every
@@ -86,6 +88,19 @@ async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, ms: num
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+/**
+ * Remote workspaces as Resources rows (D824, edit 7): the remote, its state and
+ * its disk in the label, with `cost: null` so it never counts toward host
+ * memory pressure or the totals. `sizes` is keyed by `remote/name` from a
+ * trusted `du -sk` probe; absent = `disk unknown`.
+ */
+export function sampleRemoteWorkspaces(
+  sandboxes: readonly ProjectSandbox[],
+  sizes?: ReadonlyMap<string, number>,
+): AttributedRow[] {
+  return remoteWorkspaceRows(remoteWorkspaceFacts(sandboxes, sizes));
 }
 
 export async function sampleContainers(deps: {

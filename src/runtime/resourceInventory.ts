@@ -29,9 +29,10 @@ export interface KnownPid {
 }
 
 export interface AttributedRow {
-  /** 0 for a `container` row: a detached container has no host pid. */
+  /** 0 for a `container` or `remote` row: neither has a host pid. */
   pid: number;
-  kind: KnownPid['kind'] | 'container';
+  /** `remote` is an ssh workspace: it has a remote and a disk, but no host cost (D824). */
+  kind: KnownPid['kind'] | 'container' | 'remote';
   ticketId: number | null;
   label: string | null;
   serverId: number | null;

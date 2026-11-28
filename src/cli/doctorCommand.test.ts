@@ -6,6 +6,11 @@ import { openStore } from '../store/db.js';
 import { formatDoctorBytes } from '../doctor/formatBytes.js';
 import { STORAGE_WARN_BYTES } from '../doctor/storageCheck.js';
 import { DoctorExit, parseDoctorArgs, runDoctorCommand, type GitHealthProbe, type ListSandboxes, type SandboxProbe, type StorageUsageProbe } from './doctorCommand.js';
+import { fakeSshProcess, type FakeSshProcess } from '../agent/ssh/fakeSshProcess.js';
+import { remoteTrustKey } from '../agent/ssh/remoteTrust.js';
+import { sshProjectPrefix } from '../agent/ssh/sshNames.js';
+import { listProjectSandboxes } from '../agent/sandboxInventory.js';
+import type { RemoteDef } from '../manifest/types.js';
 
 function seed() {
   const store = openStore(':memory:');
@@ -321,6 +326,178 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
     const probe: SandboxProbe = { backends: vi.fn(ready.backends), dockerDisk: vi.fn(ready.dockerDisk) };
     await doctorWith('agentBackend: host\n', vi.fn(async () => ({ sandboxes: [], errors: [] })), probe, 'tools');
     expect(probe.backends).not.toHaveBeenCalled();
+  });
+});
+
+describe('karst doctor ssh remotes (edit 6)', () => {
+  const REMOTE: RemoteDef = { host: 'devbox.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+  const INSTALL_ID = 'b'.repeat(32);
+  const PREFLIGHT = [
+    'os=Linux',
+    'uid=1000',
+    'gid=1000',
+    'git=git version 2.43.0',
+    'setsid=yes',
+    'setsidW=yes',
+    'tmux=yes',
+    'node=v22.11.0',
+    'remoteDirStat=1000 700',
+    'allowTcpForwarding=yes',
+    'freeKb=51200000',
+    'coreBin=/usr/bin/claude',
+    'coreVersion=1.2.3',
+  ].join('\n');
+
+  interface RemoteDoctor {
+    readonly checks: { id: string; status: string; detail: string; fix?: { tier: string } }[];
+    readonly ssh: FakeSshProcess;
+    /** The manifest path the doctor hashed into the ssh prefix. */
+    readonly manifestPath: string;
+  }
+
+  async function remoteDoctor(opts: {
+    trust?: 'ok' | 'missing' | 'changed';
+    area?: string;
+    sandboxes?: { runner: 'ssh'; name: string; ticketId: number; core: string; state: 'running' | 'stopped'; remote: string }[];
+    workspaceAges?: string;
+    foreign?: string;
+    /** A path the caller already hashed into an ssh name (the doctor uses the manifest path as the prefix input). */
+    manifestPath?: string;
+  } = {}): Promise<RemoteDoctor> {
+    const dir = opts.manifestPath === undefined ? mkdtempSync(join(tmpdir(), 'doctor-ssh-')) : dirname(opts.manifestPath);
+    // The launcher hashes the manifest path; the doctor must use the same string.
+    const manifestPath = opts.manifestPath ?? join(dir, 'karst.yml');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      manifestPath,
+      [
+        'host: localhost',
+        'portRange: [4000, 4999]',
+        'baselineBranch: develop',
+        'agentBackends:',
+        '  claude: ssh:devbox',
+        'remotes:',
+        '  devbox:',
+        '    host: devbox.example.com',
+        '    user: karst',
+        '    mode: direct',
+        '    remoteDir: /srv/karst',
+        'repositories:',
+        '  app:',
+        '    repoPath: ../app',
+        '',
+      ].join('\n'),
+    );
+    mkdirSync(join(dir, 'ssh'), { recursive: true });
+    writeFileSync(join(dir, 'ssh', 'install-id'), `${INSTALL_ID}\n`);
+    if (opts.trust !== 'missing') {
+      const key = opts.trust === 'changed' ? remoteTrustKey('devbox', { ...REMOTE, host: 'changed.example.com' }) : remoteTrustKey('devbox', REMOTE);
+      writeFileSync(join(dir, 'ssh-trust.json'), JSON.stringify({ devbox: key }));
+    }
+    const ssh = fakeSshProcess({
+      '# karst-ssh-preflight': { stdout: PREFLIGHT },
+      '# karst-ssh-remote-disk': { stdout: 'count=1\nusedKb=2048\nfreeKb=51200000\n' },
+      '# karst-ssh-remote-workspaces': { stdout: opts.workspaceAges ?? '' },
+      '# karst-ssh-foreign-list': { stdout: opts.foreign ?? '' },
+    });
+    const list = vi.fn(async () => ({ sandboxes: opts.sandboxes ?? [], errors: [] }));
+    try {
+      await runDoctorCommand(seed(), join(dir, 'karst.db'), manifestPath, ['doctor', '--json', '--area', opts.area ?? 'tools'], {}, list, undefined, undefined, undefined, ssh);
+    } catch (e) {
+      if (!(e instanceof DoctorExit)) throw e;
+      return { checks: JSON.parse(e.output).checks, ssh, manifestPath };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    throw new Error('expected DoctorExit');
+  }
+
+  it('runs the preflight of a trusted remote and reports it ok', async () => {
+    const { checks, ssh } = await remoteDoctor({ trust: 'ok' });
+    expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-ssh-devbox', status: 'ok' }));
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('# karst-ssh-preflight'))).toBe(true);
+  });
+
+  it('an unconfirmed remote reports "not confirmed" and makes zero ssh calls', async () => {
+    for (const trust of ['missing', 'changed'] as const) {
+      const { checks, ssh } = await remoteDoctor({ trust });
+      expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-ssh-devbox', status: 'warn', detail: 'ssh devbox: not confirmed (confirm it in the editor)' }));
+      expect(ssh.calls).toHaveLength(0);
+    }
+  });
+
+  it('the real inventory also makes zero ssh calls for an unconfirmed remote (trust first, D553 C1)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'doctor-ssh-inv-'));
+    const manifestPath = join(dir, 'karst.yml');
+    const name = `${sshProjectPrefix(manifestPath, INSTALL_ID)}-7-claude`;
+    // No ssh-trust.json: the lister must stop before its first `ls`.
+    mkdirSync(join(dir, 'ssh'), { recursive: true });
+    writeFileSync(join(dir, 'ssh', 'install-id'), `${INSTALL_ID}\n`);
+    const ssh = fakeSshProcess({ '# karst-ssh-inventory': { stdout: `__KARST_DIRS__\n${name}\n` } });
+    const empty = { run: async () => ({ code: 0, stdout: '', stderr: '' }) };
+    const list: ListSandboxes = (projectRoot, ctx) =>
+      listProjectSandboxes({
+        projectRoot,
+        sbx: empty,
+        docker: empty,
+        remotes: ctx?.remotes,
+        installId: INSTALL_ID,
+        trustDir: ctx?.globalStorageDir,
+        ssh,
+      });
+    try {
+      const store = seed();
+      store.db.prepare("INSERT INTO tickets (id, key, stage_current) VALUES (7, 'T-7', 'impl')").run();
+      try {
+        await runDoctorCommand(store, join(dir, 'karst.db'), manifestPath, ['doctor', '--json', '--area', 'state'], {}, list, undefined, undefined, undefined, ssh);
+      } catch (e) {
+        if (!(e instanceof DoctorExit)) throw e;
+        const checks = JSON.parse(e.output).checks as { id: string; status: string }[];
+        expect(checks.some((c) => c.id === 'state.sandbox-stale.devbox.' + name)).toBe(false);
+        expect(checks.some((c) => c.id.startsWith('state.sandbox-disk.devbox'))).toBe(false);
+      }
+      expect(ssh.calls).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('state: a trusted remote gets its disk facts; an unconfirmed one is skipped', async () => {
+    const trusted = await remoteDoctor({ trust: 'ok', area: 'state' });
+    expect(trusted.checks).toContainEqual(expect.objectContaining({ id: 'state.sandbox-disk.devbox', status: 'ok' }));
+    expect(trusted.checks.find((c) => c.id === 'state.sandbox-disk.devbox')!.detail).toContain('1 workspace');
+    const untrusted = await remoteDoctor({ trust: 'missing', area: 'state' });
+    expect(untrusted.checks.some((c) => c.id === 'state.sandbox-disk.devbox')).toBe(false);
+    expect(untrusted.ssh.calls).toHaveLength(0);
+  });
+
+  it('state: a workspace stopped 15 days warns with its size; 13 days does not', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'doctor-ssh-prefix-'));
+    const manifestPath = join(dir, 'karst.yml');
+    const name = `${sshProjectPrefix(manifestPath, INSTALL_ID)}-7-claude`;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const box = { runner: 'ssh' as const, name, ticketId: 7, core: 'claude', state: 'stopped' as const, remote: 'devbox' };
+    try {
+      const fifteen = await remoteDoctor({ trust: 'ok', area: 'state', sandboxes: [box], workspaceAges: `${name}\t${String(nowSeconds - 15 * 86_400)}\t2048\n`, manifestPath });
+      const stale = fifteen.checks.find((c) => c.id === `state.sandbox-stale.devbox.${name}`);
+      expect(stale).toMatchObject({ status: 'warn' });
+      expect(stale!.detail).toBe(`ssh devbox: ${name} stopped 15 days, 2.0 MB`);
+      const thirteen = await remoteDoctor({ trust: 'ok', area: 'state', sandboxes: [box], workspaceAges: `${name}\t${String(nowSeconds - 13 * 86_400)}\t2048\n`, manifestPath });
+      expect(thirteen.checks.some((c) => c.id.startsWith(`state.sandbox-stale.devbox.`))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('state: foreign karst-* dirs are listed with age and size, never as strays', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const foreign = `karst-deadbeef-7-claude\t${String(nowSeconds - 40 * 86_400)}\t2048\t-\t0\tno\n`;
+    const { checks } = await remoteDoctor({ trust: 'ok', area: 'state', foreign });
+    const c = checks.find((x) => x.id === 'state.sandbox-foreign.devbox.karst-deadbeef-7-claude');
+    expect(c).toMatchObject({ status: 'warn' });
+    expect(c!.detail).toContain('foreign workspace');
+    expect(c!.detail).toContain('40 days');
+    expect(checks.some((x) => x.id.startsWith('state.sandbox-stray.'))).toBe(false);
   });
 });
 

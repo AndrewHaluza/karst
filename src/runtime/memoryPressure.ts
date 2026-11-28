@@ -3,6 +3,11 @@ export interface SandboxFootprint {
   readonly name: string;
   readonly ticketId: number;
   readonly footprintBytes: number;
+  /**
+   * The `remotes.<name>` of an ssh workspace: its memory is on the remote VM,
+   * not this host, so the pressure warning never names it (D824, edit 7).
+   */
+  readonly remote?: string;
 }
 
 export const PRESSURE_DEBOUNCE_MS = 10 * 60_000;
@@ -20,9 +25,11 @@ export interface PressureWatchDeps {
 
 const gb = (b: number): string => (b / 1024 ** 3).toFixed(1);
 
-/** The sandbox with the largest footprint, or undefined with none running. */
+/** The HOST sandbox with the largest footprint, or undefined with none running. A remote one never counts. */
 export function largestSandbox(list: readonly SandboxFootprint[]): SandboxFootprint | undefined {
-  return list.reduce<SandboxFootprint | undefined>((a, b) => (a === undefined || b.footprintBytes > a.footprintBytes ? b : a), undefined);
+  return list
+    .filter((s) => s.remote === undefined)
+    .reduce<SandboxFootprint | undefined>((a, b) => (a === undefined || b.footprintBytes > a.footprintBytes ? b : a), undefined);
 }
 
 /**

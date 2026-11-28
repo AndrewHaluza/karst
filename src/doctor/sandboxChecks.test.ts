@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { SANDBOX_DISK_WARN_BYTES, checkSandboxBackends, checkSandboxSetupDeclared, parseDockerSize, type SetupRepoFact } from './sandboxChecks.js';
+import {
+  SANDBOX_DISK_WARN_BYTES,
+  STALE_REMOTE_WORKSPACE_DAYS,
+  checkForeignRemoteWorkspaces,
+  checkRemoteDiskFacts,
+  checkSandboxBackends,
+  checkSandboxSetupDeclared,
+  checkSshRemotes,
+  checkStaleRemoteWorkspaces,
+  parseDockerSize,
+  type SetupRepoFact,
+  type SshPreflightFacts,
+} from './sandboxChecks.js';
 import { formatDoctorBytes } from './formatBytes.js';
 
 const OK = { ok: true } as const;
@@ -76,6 +88,116 @@ describe('parseDockerSize', () => {
   it('no memory check without docker selected or an unknown size', () => {
     expect(checkSandboxBackends({ ...base, dockerMemBytes: 1 * 2 ** 30 }).some((c) => c.id === 'tools.docker-memory')).toBe(false);
     expect(checkSandboxBackends({ ...base, selected: ['docker'] }).some((c) => c.id === 'tools.docker-memory')).toBe(false);
+  });
+});
+
+const FACTS: SshPreflightFacts = {
+  os: 'Linux',
+  uid: 1000,
+  gid: 1000,
+  git: '2.43.0',
+  setsid: true,
+  setsidW: true,
+  tmux: true,
+  node: '22.11.0',
+  remoteDirOk: true,
+  allowTcpForwarding: 'yes',
+  freeMb: 50_000,
+  coreBin: '/usr/bin/claude',
+  coreVersion: '1.2.3',
+};
+
+describe('checkSshRemotes (edit 6)', () => {
+  it('reports a trusted remote ok with its preflight facts', () => {
+    const [c] = checkSshRemotes([{ name: 'devbox', trusted: true, preflight: { ok: true, facts: FACTS, warnings: [] } }]);
+    expect(c).toMatchObject({ id: 'tools.sandbox-ssh-devbox', area: 'tools', status: 'ok', title: 'Sandbox remote (devbox)' });
+    expect(c!.detail).toContain('ssh devbox ready');
+  });
+
+  it('warns with the preflight reason as the fix hint', () => {
+    const [c] = checkSshRemotes([{ name: 'devbox', trusted: true, preflight: { ok: false, reason: 'ssh devbox: tmux not found' } }]);
+    expect(c).toMatchObject({ status: 'warn', fix: { tier: 'report', nextStep: 'ssh devbox: tmux not found' } });
+    expect(c!.detail).toBe('ssh devbox: tmux not found');
+  });
+
+  it('an unconfirmed remote warns and is never probed', () => {
+    const [c] = checkSshRemotes([{ name: 'devbox', trusted: false }]);
+    expect(c).toMatchObject({ id: 'tools.sandbox-ssh-devbox', status: 'warn' });
+    expect(c!.detail).toBe('ssh devbox: not confirmed (confirm it in the editor)');
+    expect(c!.fix).toMatchObject({ tier: 'report', nextStep: 'confirm it in the editor' });
+  });
+
+  it('a preflight warning (no tmux) is a warn naming the reason', () => {
+    const [c] = checkSshRemotes([{ name: 'devbox', trusted: true, preflight: { ok: true, facts: { ...FACTS, tmux: false }, warnings: ['ssh devbox: tmux not found'] } }]);
+    expect(c).toMatchObject({ status: 'warn', detail: 'ssh devbox: tmux not found' });
+  });
+});
+
+describe('checkRemoteDiskFacts (edit 6)', () => {
+  it('reports the prefix size and the free disk per trusted remote', () => {
+    const [c] = checkRemoteDiskFacts([{ remote: 'devbox', workspaces: 2, usedKb: 1024 * 1024, freeKb: 50 * 1024 * 1024 }]);
+    expect(c).toMatchObject({ id: 'state.sandbox-disk.devbox', area: 'state', status: 'ok', title: 'Remote sandbox disk (devbox)' });
+    expect(c!.detail).toBe('ssh devbox: 2 workspaces, ~1.0 GB, 50.0 GB free');
+  });
+
+  it('warns over 10 GB and reports an unknown size without pretending it is zero', () => {
+    const over = checkRemoteDiskFacts([{ remote: 'devbox', workspaces: 1, usedKb: 11 * 1024 * 1024, freeKb: undefined }])[0]!;
+    expect(over.status).toBe('warn');
+    const unknown = checkRemoteDiskFacts([{ remote: 'devbox', workspaces: 1, usedKb: undefined, freeKb: undefined }])[0]!;
+    expect(unknown.detail).toContain('size unknown');
+  });
+
+  it('a trusted remote whose probe failed is reported, never silently dropped', () => {
+    const [c] = checkRemoteDiskFacts([{ remote: 'devbox', error: 'ssh devbox: transport failed: timeout' }]);
+    expect(c).toMatchObject({ id: 'state.sandbox-disk.devbox', status: 'warn', detail: 'ssh devbox: transport failed: timeout' });
+  });
+});
+
+describe('checkStaleRemoteWorkspaces (edit 12)', () => {
+  const box = (over: Partial<Parameters<typeof checkStaleRemoteWorkspaces>[0][number]> = {}) => ({
+    remote: 'devbox',
+    name: 'karst-ab12cd34-7-claude',
+    state: 'stopped' as const,
+    ageDays: 15,
+    sizeKb: 1.5 * 1024 * 1024,
+    ...over,
+  });
+
+  it('warns for a workspace stopped longer than 14 days, naming its size', () => {
+    const [c] = checkStaleRemoteWorkspaces([box()]);
+    expect(c).toMatchObject({ id: 'state.sandbox-stale.devbox.karst-ab12cd34-7-claude', area: 'state', status: 'warn' });
+    expect(c!.detail).toBe('ssh devbox: karst-ab12cd34-7-claude stopped 15 days, 1.5 GB');
+    expect(c!.fix).toMatchObject({ tier: 'report' });
+    expect((c!.fix as { nextStep: string }).nextStep).toContain('confirm');
+  });
+
+  it('13 days does not warn', () => {
+    expect(checkStaleRemoteWorkspaces([box({ ageDays: 13 })])).toEqual([]);
+  });
+
+  it('exactly 14 days does not warn; running workspaces never warn', () => {
+    expect(checkStaleRemoteWorkspaces([box({ ageDays: STALE_REMOTE_WORKSPACE_DAYS })])).toEqual([]);
+    expect(checkStaleRemoteWorkspaces([box({ ageDays: 90, state: 'running' })])).toEqual([]);
+  });
+});
+
+describe('checkForeignRemoteWorkspaces (edit 13)', () => {
+  it('lists a foreign karst-* dir with its age and size, apart from the strays list', () => {
+    const [c] = checkForeignRemoteWorkspaces({
+      dirs: [{ remote: 'devbox', name: 'karst-deadbeef-7-claude', ageDays: 40, sizeKb: 2048 }],
+      errors: [],
+    });
+    expect(c).toMatchObject({ id: 'state.sandbox-foreign.devbox.karst-deadbeef-7-claude', area: 'state', status: 'warn' });
+    expect(c!.detail).toContain('foreign workspace karst-deadbeef-7-claude');
+    expect(c!.detail).toContain('40 days');
+    expect(c!.detail).toContain('2.0 MB');
+    expect(c!.id.startsWith('state.sandbox-orphan.')).toBe(false);
+    expect(c!.id.startsWith('state.sandbox-stray.')).toBe(false);
+  });
+
+  it('reports a trusted remote whose foreign listing failed', () => {
+    const [c] = checkForeignRemoteWorkspaces({ dirs: [], errors: ['ssh devbox: transport failed: nope'] });
+    expect(c).toMatchObject({ id: 'state.sandbox-foreign.devbox', status: 'warn', detail: 'ssh devbox: transport failed: nope' });
   });
 });
 

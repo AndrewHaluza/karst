@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseDockerStats, parseMemUsage, sampleContainers } from './containerSampler.js';
-import { parseSandboxContainerName, projectPrefix } from '../agent/sandboxInventory.js';
+import { parseDockerStats, parseMemUsage, sampleContainers, sampleRemoteWorkspaces } from './containerSampler.js';
+import { parseSandboxContainerName, projectPrefix, type ProjectSandbox } from '../agent/sandboxInventory.js';
+import { remoteWorkspaceKey } from './remoteWorkspaces.js';
 import type { ProcessResult, SbxProcess } from '../agent/sbx/sbxProcess.js';
 
 const ROOT = '/proj';
@@ -42,6 +43,39 @@ describe('parseDockerStats', () => {
   it('parseMemUsage rejects garbage', () => {
     expect(parseMemUsage('lots')).toBeNull();
     expect(parseMemUsage('3 parsecs / 4')).toBeNull();
+  });
+});
+
+describe('sampleRemoteWorkspaces (edit 7)', () => {
+  const sshBox = (over: Partial<ProjectSandbox> = {}): ProjectSandbox => ({
+    runner: 'ssh',
+    name: 'karst-ab12cd34-7-claude',
+    ticketId: 7,
+    core: 'claude',
+    state: 'stopped',
+    remote: 'devbox',
+    ...over,
+  });
+
+  it('shows the remote, the state and the disk, with no host cost', () => {
+    const sizes = new Map([[remoteWorkspaceKey('devbox', 'karst-ab12cd34-7-claude'), 1.5 * 1024 * 1024]]);
+    const [row] = sampleRemoteWorkspaces([sshBox()], sizes);
+    expect(row).toMatchObject({ kind: 'remote', ticketId: 7, cost: null, label: 'ssh devbox · stopped · 1.5 GB' });
+    expect(row!.pid).toBe(0);
+  });
+
+  it('says disk unknown when the remote was not probed, never 0 B', () => {
+    expect(sampleRemoteWorkspaces([sshBox({ state: 'running' })])[0]!.label).toBe('ssh devbox · running · disk unknown');
+  });
+
+  it('ignores local sandboxes and an ssh row with no remote', () => {
+    const local: ProjectSandbox = { runner: 'docker', name: 'karst-ab12cd34-8-opencode', ticketId: 8, core: 'opencode', state: 'running' };
+    expect(sampleRemoteWorkspaces([local, { ...sshBox(), remote: undefined }])).toEqual([]);
+  });
+
+  it('a remote row keeps the inventory totals at nothing (cost null)', () => {
+    const rows = sampleRemoteWorkspaces([sshBox()]);
+    expect(rows.every((r) => r.cost === null)).toBe(true);
   });
 });
 
