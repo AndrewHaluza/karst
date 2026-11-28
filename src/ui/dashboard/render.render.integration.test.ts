@@ -226,8 +226,8 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  // Variant 2 (DASHBOARD-HEADER-SHOW-ONLY-ROLE): the second header row lists
-  // only the roles whose model differs from implementation, grouped by model.
+  // T1413: the customized-model chips left row 2 for ONE Models button in row 1 (`#modelsBtn`, a card on hover or
+  // focus). Row 2 keeps only the relations and hides when it has none; the role-visibility rules are unchanged.
   const caps = (impl: [string, string], uat: [string, string], review: [string, string]) => ({
     implementation: { provider: impl[0], model: impl[1] },
     uatTester: { provider: uat[0], model: uat[1] },
@@ -243,37 +243,36 @@ describe('dashboard render — fixture corpus', () => {
   const OPUS: [string, string] = ['claude', 'claude-opus-5-5'];
   const SONNET: [string, string] = ['claude', 'claude-sonnet-5-5'];
 
-  it('hides the role row when every role matches implementation', async () => {
+  it('draws no Models button and hides row 2 when every role matches implementation', async () => {
     const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS)) });
     await drainReactWork(h);
     expect(h.errors).toEqual([]);
     expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(true);
+    expect(h.query('#modelsBtn')).toBeNull();
     expect(h.queryAll('.capChip')).toHaveLength(0);
     h.close();
   });
 
-  it('renders one chip when only review differs, with friendly labels and full-id tooltip', async () => {
+  it('names a differing review on the Models button, keeps row 2 hidden, and leaves no chip behind', async () => {
     const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, SONNET)) });
     await drainReactWork(h);
-    expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(false);
-    const chips = h.queryAll('.capChip');
-    expect(chips).toHaveLength(1);
-    expect(chips[0]!.textContent).toContain('Review');
-    expect(chips[0]!.textContent).not.toContain('UAT');
-    expect(chips[0]!.textContent).toContain('Sonnet 5.5');
-    expect(chips[0]!.getAttribute('title')).toContain('claude/claude-sonnet-5-5');
+    expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(true);
+    const btn = h.query('#modelsBtn')!;
+    expect(btn.getAttribute('aria-label')).toBe('Models: Review Claude Code Sonnet 5.5');
+    expect(btn.querySelectorAll('.modelsIcon')).toHaveLength(1);
+    expect(h.queryAll('.capChip')).toHaveLength(0);
     h.close();
   });
 
-  it('groups UAT and review into one chip when they share a different model', async () => {
+  it('groups UAT and review into one Models icon when they share a different model', async () => {
     const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, SONNET, SONNET)) });
     await drainReactWork(h);
-    const chips = h.queryAll('.capChip');
-    expect(chips).toHaveLength(1);
-    expect(chips[0]!.textContent).toContain('UAT · Review');
+    const btn = h.query('#modelsBtn')!;
+    expect(btn.querySelectorAll('.modelsIcon')).toHaveLength(1);
+    expect(btn.getAttribute('aria-label')).toBe('Models: UAT · Review Claude Code Sonnet 5.5');
     h.close();
   });
 
@@ -281,7 +280,7 @@ describe('dashboard render — fixture corpus', () => {
     const h = await renderWebviewReady('dashboard');
     h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, ['codex', 'gpt-x'])) });
     await drainReactWork(h);
-    expect(h.queryAll('.capChip')[0]!.textContent).toContain('gpt-x');
+    expect(h.query('#modelsBtn')!.getAttribute('aria-label')).toContain('gpt-x');
     h.close();
   });
 

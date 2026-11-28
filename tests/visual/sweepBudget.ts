@@ -75,7 +75,10 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   //   1 theme (dark), wide only (+1 screenshot); skipLayout, because the panel routes already measure the page.
   // T1403 (@ui:UI-R57): inside-ship-deliver-base-check — the Push row's pre-push base check, one phase heading and
   //   one row per gate of the current run. 1 theme (dark) (+1 screenshot) and 1 new page x 8 widths (+8 layout runs).
-  dashboard: { screenshots: 370, layout: 872 },
+  // T1413 (@ui:UI-R57): the Models button's card open on focus (`header-models-card-*`), row 2 with relations only
+  //   (`header-relations-*`) and the urgent needs-you ticket whose row 2 hides (`header-needs-you-urgent-*`),
+  //   3 families x 4 tiers x 1 theme (dark) (+12 screenshots); skipLayout, as T1396 above.
+  dashboard: { screenshots: 382, layout: 872 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21

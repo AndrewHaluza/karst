@@ -1,11 +1,11 @@
 /**
- * The header's second row (`#headerMeta`): the parent relations, the "Waits on" and "Unblocks" chip groups, then
- * one chip per capability model that differs from implementation. Hidden when both are empty. The row root is static in webview.html (the region
- * parity snapshot pins it without any data-* attribute), so its `hidden` is set on the node here.
+ * The header's second row (`#headerMeta`): the parent relations, then the "Waits on" and "Unblocks" chip groups.
+ * Hidden when both are empty. The row root is static in webview.html (the region parity snapshot pins it without any
+ * data-* attribute), so its `hidden` is set on the node here. The customized-model chips that used to end this row
+ * moved behind the row-1 Models button (T1413); row 2 keeps only the relations.
  */
 import { memo, useLayoutEffect, type ReactNode } from 'react';
 import { useDashboardSend } from './DashboardAppContext.js';
-import { RuntimeIcon } from './AgentIcon.js';
 import { RegionPortal } from './RegionPortal.js';
 import { selectMeta, type MetaSlice } from './headerSlices.js';
 import { usePendingAction } from './usePendingAction.js';
@@ -62,56 +62,12 @@ function RefGroup({ label, refs }: { readonly label: string; readonly refs: read
   );
 }
 
-// Variant 2: list only roles whose provider/model differs from implementation (already on #agentButton), grouped by identity.
-const CAP_ROLES = [
-  ['uatTester', 'UAT'],
-  ['review', 'Review'],
-] as const;
-
-// A graph ticket runs its nodes on these roles, not on the implementation core:
-// they are always listed (no "same as implementation" omission).
-const GRAPH_CAP_ROLES = [
-  ['graphExpert', 'Expert'],
-  ['graphWorker', 'Worker'],
-  ['graphFast', 'Fast'],
-] as const;
-
-interface CapGroup {
-  readonly full: string;
-  readonly provider: string;
-  readonly model: string;
-  readonly roles: string[];
-}
-
-function capabilityGroups(meta: MetaSlice): CapGroup[] {
-  const impl = meta.capabilities.implementation;
-  const groups = new Map<string, CapGroup>();
-  const add = (id: MetaSlice['capabilities'][keyof MetaSlice['capabilities']], roleLabel: string): void => {
-    if (!id || !id.provider || !id.model) return;
-    const full = `${id.provider}/${id.model}`;
-    const group = groups.get(full) ?? { full, provider: id.provider, model: id.model, roles: [] };
-    group.roles.push(roleLabel);
-    groups.set(full, group);
-  };
-  for (const [key, roleLabel] of CAP_ROLES) {
-    const id = meta.capabilities[key];
-    if (impl && id && impl.provider === id.provider && impl.model === id.model) continue;
-    add(id, roleLabel);
-  }
-  for (const [key, roleLabel] of GRAPH_CAP_ROLES) add(meta.capabilities[key], roleLabel);
-  return [...groups.values()];
-}
-
-const modelLabel = (meta: MetaSlice, provider: string, model: string): string =>
-  (meta.modelsByCore[provider] ?? []).find((m) => m && m.id === model)?.label || model;
-
 export const HeaderMeta = memo(function HeaderMeta() {
   const meta = useSlice(selectMeta);
   const relations = meta ? relationNodes(meta) : { nodes: [], count: 0 };
-  const groups = meta ? capabilityGroups(meta) : [];
   const waitsOn = meta?.blockers ?? [];
   const unblocks = meta?.unblocks ?? [];
-  const hidden = relations.count === 0 && groups.length === 0 && waitsOn.length === 0 && unblocks.length === 0;
+  const hidden = relations.count === 0 && waitsOn.length === 0 && unblocks.length === 0;
   useLayoutEffect(() => {
     const row = document.getElementById('headerMeta');
     if (row) row.hidden = hidden;
@@ -128,20 +84,6 @@ export const HeaderMeta = memo(function HeaderMeta() {
           {unblocks.length ? <RefGroup label="Unblocks" refs={unblocks} /> : null}
         </span>
       ) : null}
-      <span id="capabilityLabels" className="capabilityLabels">
-        {meta
-          ? groups.map((g) => {
-              const roles = g.roles.join(' · ');
-              return (
-                <span key={g.full} className="capChip" title={`${roles}: ${g.full}`}>
-                  <span>{roles}</span>
-                  <RuntimeIcon kind="agent" provider={g.provider} />
-                  <span className="capModel">{modelLabel(meta, g.provider, g.model)}</span>
-                </span>
-              );
-            })
-          : null}
-      </span>
     </RegionPortal>
   );
 });

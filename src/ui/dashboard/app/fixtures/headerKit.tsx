@@ -160,7 +160,7 @@ export function installHeaderDoubles(): void {
         `<svg class="k-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path data-icon="${name}"/></svg>`,
       agentIconHtml: (p: string) => `<span class="agenticon" aria-hidden="true"><svg data-p="${p}"></svg></span>`,
       providerIconHtml: (p: string) => (p === 'clickup' ? '<span class="provicon" aria-hidden="true"><svg></svg></span>' : ''),
-      agentLabel: (p: string) => (p === 'claude' ? 'Claude Code' : p),
+      agentLabel: (p: string) => (p === 'claude' ? 'Claude Code' : p === 'opencode' ? 'OpenCode' : p),
     });
   });
   afterEach(() => {

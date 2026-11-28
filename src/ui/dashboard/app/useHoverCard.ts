@@ -70,6 +70,8 @@ export interface HoverCardCardHandlers extends HoverCardHandlers {
 export interface HoverCardView {
   readonly open: boolean;
   readonly close: () => void;
+  /** Opens the card at once (the click-toggle path; hover/focus go through `triggerProps`). */
+  readonly show: () => void;
   readonly triggerProps: HoverCardTriggerHandlers;
   readonly cardProps: HoverCardCardHandlers;
 }
@@ -201,6 +203,7 @@ export function useHoverCard({ id, triggerRef, cardRef, width, enabled = true }:
   return {
     open,
     close,
+    show,
     triggerProps: { onPointerEnter: scheduleOpen, onPointerLeave: scheduleClose, onMouseEnter: scheduleOpen, onMouseLeave: scheduleClose, onFocus, onBlur },
     cardProps: { onPointerEnter: cancelClose, onPointerLeave: scheduleClose, onMouseEnter: cancelClose, onMouseLeave: scheduleClose, onBlur },
   };
