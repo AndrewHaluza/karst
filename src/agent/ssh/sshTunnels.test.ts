@@ -52,11 +52,14 @@ interface Harness {
   readonly debug: ReturnType<typeof vi.fn>;
   /** What the loopback probe answers; tests flip it to fail a re-open. */
   connectOk: boolean;
+  /** What the pre-spawn host port check answers; tests flip it to plant a squatter. */
+  hostPortHeld: boolean;
 }
 
 function harness(
   over: {
     readonly connect?: (port: number) => Promise<boolean>;
+    readonly portInUse?: (port: number) => Promise<boolean>;
     readonly onSpawn?: (child: FakeChild, index: number) => void;
   } = {},
 ): Harness {
@@ -68,6 +71,7 @@ function harness(
     warn,
     debug,
     connectOk: true,
+    hostPortHeld: false,
     deps: {
       spawn: (argv: readonly string[]): TunnelChild => {
         const child = new FakeChild(argv);
@@ -76,6 +80,7 @@ function harness(
         return child as unknown as TunnelChild;
       },
       connect: over.connect ?? (() => Promise.resolve(h.connectOk)),
+      portInUse: over.portInUse ?? (() => Promise.resolve(h.hostPortHeld)),
       warn,
       debug,
     },
@@ -279,6 +284,75 @@ describe('openTunnel first-open failure', () => {
     const error = await openTunnel(h.deps, spec()).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(TunnelOpenError);
     expect((error as TunnelOpenError).portTaken).toBe(true);
+  });
+});
+
+describe('openTunnel host port held by another process', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('refuses a -L open with portTaken when another process already listens on the host port', async () => {
+    const portInUse = vi.fn(() => Promise.resolve(true));
+    const h = harness({ portInUse });
+    const error = await openTunnel(h.deps, spec()).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TunnelOpenError);
+    const failure = error as TunnelOpenError;
+    expect(failure.portTaken).toBe(true);
+    expect(failure.message).toBe(`ssh: ${KEY_L} tunnel failed: host port 8080 is already in use`);
+    expect(portInUse).toHaveBeenCalledWith(8080);
+    expect(h.spawned).toHaveLength(0);
+  });
+
+  it('does not check the host port for a -R tunnel', async () => {
+    const portInUse = vi.fn(() => Promise.resolve(true));
+    const h = harness({ portInUse });
+    const opened = openTunnel(h.deps, spec({ key: KEY_R, kind: 'R', hostPort: 5432, remotePort: 5432 }));
+    await advance(TUNNEL_R_READY_MS);
+    await advance(0);
+    expect((await opened).state).toBe('up');
+    expect(portInUse).not.toHaveBeenCalled();
+  });
+
+  it('does not re-open a -L tunnel onto a host port that another process took meanwhile', async () => {
+    const h = harness();
+    const handle = await openTunnel(h.deps, spec());
+
+    h.hostPortHeld = true;
+    h.spawned[0]!.exit(255, 'ssh: Connection reset by peer');
+    await advance(0);
+    await advance(TUNNEL_BACKOFF_START_MS);
+    await advance(0);
+
+    expect(h.spawned).toHaveLength(1);
+    expect(handle.state).toBe('reconnecting');
+
+    h.hostPortHeld = false;
+    await advance(2 * TUNNEL_BACKOFF_START_MS);
+    await advance(0);
+    expect(h.spawned).toHaveLength(2);
+    expect(handle.state).toBe('up');
+  });
+
+  it('gives up with the in-use reason when the host port stays taken', async () => {
+    const h = harness();
+    const handle = await openTunnel(h.deps, spec());
+
+    h.hostPortHeld = true;
+    h.spawned[0]!.exit(255, 'ssh: Connection reset by peer');
+    await advance(0);
+    for (let attempt = 0; attempt < TUNNEL_MAX_ATTEMPTS; attempt += 1) {
+      await advance(TUNNEL_BACKOFF_MAX_MS);
+    }
+    await advance(0);
+
+    expect(h.spawned).toHaveLength(1);
+    expect(handle.state).toBe('down');
+    expect(handle.reason).toBe('host port 8080 is already in use');
   });
 });
 

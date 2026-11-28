@@ -24,6 +24,8 @@ export interface FakeTunnelsOptions {
   readonly onSpawn?: (child: FakeTunnelChild) => void;
   /** The `-L` readiness answer; default true (ready at once). */
   readonly connect?: boolean;
+  /** The pre-spawn host port check; default false (the port is free). */
+  readonly portInUse?: boolean;
 }
 
 /** A fresh registry (never the window singleton) over a fake spawn; timers fire at once. */
@@ -37,6 +39,7 @@ export function fakeTunnels(over: FakeTunnelsOptions = {}): FakeTunnels {
       return child as unknown as TunnelChild;
     },
     connect: () => Promise.resolve(over.connect ?? true),
+    portInUse: () => Promise.resolve(over.portInUse ?? false),
     setTimeout: (cb) => setTimeout(cb, 0),
     clearTimeout: (h) => clearTimeout(h),
   };

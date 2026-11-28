@@ -146,6 +146,11 @@ export interface TunnelDeps {
   spawn(argv: readonly string[]): TunnelChild;
   /** A TCP connect to `127.0.0.1:<port>`: `-L` readiness (and nothing else). */
   connect(port: number): Promise<boolean>;
+  /**
+   * Does another process already accept on `127.0.0.1:<port>`? Asked before each
+   * `-L` spawn: a readiness connect cannot tell that process from the forward.
+   */
+  portInUse(port: number): Promise<boolean>;
   /** Defaults to the host timers; fake timers in tests. */
   setTimeout?(callback: () => void, ms: number): TimerHandle;
   clearTimeout?(handle: TimerHandle): void;
@@ -288,6 +293,9 @@ class Tunnel implements TunnelHandle {
   }
 
   async start(): Promise<TunnelHandle> {
+    if (await this.hostPortHeld()) {
+      throw new TunnelOpenError(this.key, `ssh: ${this.key} tunnel failed: ${this.heldReason()}`, '', true);
+    }
     const attempt = this.launch();
     if (!(await this.waitLive(attempt))) {
       attempt.child.kill();
@@ -315,6 +323,24 @@ class Tunnel implements TunnelHandle {
     this.attempt = undefined;
     this.deps.debug?.(`[ssh] tunnel ${this.key}: closed`);
     attempt?.child.kill();
+  }
+
+  /**
+   * A `-L` host port that answers before the spawn belongs to another process.
+   * The readiness connect would reach that process and report `up` while ssh
+   * fails its bind, so the open refuses instead.
+   */
+  private async hostPortHeld(): Promise<boolean> {
+    if (this.kind !== 'L') return false;
+    return this.deps.portInUse(this.hostPort).catch((error: unknown) => {
+      // The ssh bind still fails on a held port (`ExitOnForwardFailure=yes`).
+      this.deps.debug?.(`[ssh] tunnel ${this.key}: host port check failed: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    });
+  }
+
+  private heldReason(): string {
+    return `host port ${String(this.hostPort)} is already in use`;
   }
 
   private launch(): TunnelAttempt {
@@ -408,6 +434,14 @@ class Tunnel implements TunnelHandle {
   }
 
   private async reopen(): Promise<void> {
+    if (await this.hostPortHeld()) {
+      if (this.closed) return;
+      this.why = this.heldReason();
+      this.deps.debug?.(`[ssh] tunnel ${this.key}: ${this.why}`);
+      this.scheduleReconnect();
+      return;
+    }
+    if (this.closed) return;
     const attempt = this.launch();
     if (!(await this.waitLive(attempt))) {
       attempt.child.kill();
@@ -667,7 +701,7 @@ export function createTunnelRegistry(deps: TunnelDeps): TunnelRegistry {
   };
 }
 
-/** A loopback TCP connect: `-L` readiness, and the only network read in this module. */
+/** A loopback TCP connect: the `-L` host port check and readiness, the only network read in this module. */
 export function probeLocalPort(port: number, timeoutMs = 1000): Promise<boolean> {
   assertPort(port, 'port');
   return new Promise<boolean>((resolve) => {
@@ -692,6 +726,8 @@ export interface TunnelDepsOptions {
   readonly debug?: (message: string) => void;
   /** Override the loopback probe (tests). */
   readonly connect?: (port: number) => Promise<boolean>;
+  /** Override the pre-spawn host port check (tests). */
+  readonly portInUse?: (port: number) => Promise<boolean>;
 }
 
 /** Production deps: the ssh seam's stream spawn, the loopback probe, the host timers. */
@@ -702,6 +738,7 @@ export function createTunnelDeps(
   return {
     spawn: (argv) => ssh.spawnStream(argv),
     connect: opts.connect ?? probeLocalPort,
+    portInUse: opts.portInUse ?? probeLocalPort,
     ...(opts.warn === undefined ? {} : { warn: opts.warn }),
     ...(opts.debug === undefined ? {} : { debug: opts.debug }),
   };

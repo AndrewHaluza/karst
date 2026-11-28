@@ -83,6 +83,14 @@ describe('direct publishPort / unpublishPort / listPorts', () => {
       .toMatchObject({ ok: false, portTaken: false });
   });
 
+  it('a host port that another process holds is portTaken: true and spawns no tunnel', async () => {
+    const squatted = tunnels({ portInUse: true });
+    expect(await runner(fakeSshProcess(present), squatted).publishPort!({ hostPort: 18080, sandboxPort: 8080 }))
+      .toEqual({ ok: false, reason: `ssh: ${NAME}:L:18080 tunnel failed: host port 18080 is already in use`, portTaken: true });
+    expect(squatted.spawned).toHaveLength(0);
+    expect(squatted.registry.list(`${NAME}:L:`)).toEqual([]);
+  });
+
   it('listPorts is null when the probe is unknown, and leaves a down tunnel out', async () => {
     const t = tunnels();
     expect(await runner(fakeSshProcess({ '# karst-ssh-probe': { code: 255, transport: true } }), t).listPorts!()).toBeNull();
