@@ -136,6 +136,6 @@ describe('cleanupForeignRemoteOp (D824, edit 13)', () => {
     await expect(cleanupForeignRemoteOp(d)).resolves.toBe(0);
     expect(ssh.calls).toEqual([]);
     expect(pick).not.toHaveBeenCalled();
-    expect(n.warn).toHaveBeenCalledWith('karst: ssh devbox: ssh remote devbox not confirmed');
+    expect(n.warn).toHaveBeenCalledWith('ssh devbox: ssh remote devbox not confirmed');
   });
 });

@@ -87,7 +87,7 @@ export async function cleanupForeignRemoteOp(deps: SandboxForeignDeps): Promise<
   }
   if (installId === undefined) {
     // An install id is what tells this install's workspaces from foreign ones.
-    deps.notify.info('karst: the ssh install id is not available; no remote workspace can be classified.');
+    deps.notify.info('The ssh install id is not available, so no remote workspace can be classified.');
     return 0;
   }
   const ssh = deps.ssh ?? NODE_SSH_PROCESS;
@@ -102,7 +102,7 @@ export async function cleanupForeignRemoteOp(deps: SandboxForeignDeps): Promise<
   })));
   const found: SelectedForeign[] = [];
   for (const { remote, def, listing } of listings) {
-    if (listing.error !== undefined) deps.notify.warn(`karst: ${listing.error}`);
+    if (listing.error !== undefined) deps.notify.warn(listing.error);
     for (const dir of listing.dirs) found.push({ remote, def, dir });
   }
   if (found.length === 0) {
@@ -149,7 +149,7 @@ export async function cleanupForeignRemoteOp(deps: SandboxForeignDeps): Promise<
       removed += 1;
       deps.debug?.(`[ssh ${s.remote}] removed foreign workspace ${s.dir.path}`);
     } else {
-      deps.notify.warn(`karst: the foreign remote workspace ${s.dir.path} was not removed: ${result.reason}`);
+      deps.notify.warn(`The foreign remote workspace ${s.dir.path} was not removed: ${result.reason}`);
     }
   }
   deps.notify.info(`Removed ${plural(removed, 'foreign remote workspace', 'foreign remote workspaces')}.`);
