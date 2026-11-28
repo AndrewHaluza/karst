@@ -88,9 +88,9 @@ function commitRows(r: ShipPreviewRepo, label: string): EvidenceRow[] {
   return rows;
 }
 
-/** The Push process's will row for one repository. */
+/** The Push process's will row for one repository. A genuinely unchanged repository has no commit, so no push (`arch:SHIP-UNCHANGED`). */
 function pushRows(r: ShipPreviewRepo, label: string): EvidenceRow[] {
-  if (r.error || r.status === 'blocked') return [];
+  if (r.error || r.status === 'blocked' || genuinelyUnchanged(r)) return [];
   if (r.status === 'already-shipped') return [{ status: 'note', label, detail: `skipped — PR #${prNumber(r)} open` }];
   if (r.status === 'already-merged') return [{ status: 'note', label, detail: `nothing to ship — merged in #${prNumber(r)}` }];
   // A re-ship commits and pushes INTO the live PR (FIX-46), so it is never reported as skipped.
@@ -100,7 +100,7 @@ function pushRows(r: ShipPreviewRepo, label: string): EvidenceRow[] {
 
 /** The Pull request process's will row for one repository. */
 function prRows(r: ShipPreviewRepo, label: string): EvidenceRow[] {
-  if (r.error || r.status === 'blocked' || r.status === 'already-shipped' || r.status === 'already-merged') return [];
+  if (r.error || r.status === 'blocked' || r.status === 'already-shipped' || r.status === 'already-merged' || genuinelyUnchanged(r)) return [];
   if (r.prNumber != null) return [{ status: 'pending', label, detail: `PR #${r.prNumber} open — this commit is pushed onto it` }];
   return [{ status: 'pending', label, detail: `will open — ${r.prTitle}` }];
 }

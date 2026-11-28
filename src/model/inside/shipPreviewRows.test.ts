@@ -192,6 +192,41 @@ describe('withShipPreviewRows — the Commit rows', () => {
     );
     expect(rowsOf(out, 'commit')[0]!.label).toBe('web');
   });
+
+  it('claims no push and no pull request when EVERY repository is genuinely unchanged (arch:SHIP-UNCHANGED)', () => {
+    const out = withShipPreviewRows(
+      processes(),
+      preview([
+        repo({ repo: 'web', status: 'nothing-to-commit', changedFromBase: false }),
+        repo({ repo: 'api', status: 'nothing-to-commit', changedFromBase: false }),
+      ]),
+      identity,
+    );
+    expect(rowsOf(out, 'push')).toEqual([]);
+    expect(rowsOf(out, 'pr')).toEqual([]);
+  });
+
+  it('claims no push and no pull request for one genuinely unchanged repository beside a changed one', () => {
+    const out = withShipPreviewRows(
+      processes(),
+      preview([
+        repo({ repo: 'web', status: 'nothing-to-commit', changedFromBase: false }),
+        repo({ repo: 'api' }),
+      ]),
+      identity,
+    );
+    expect(rowsOf(out, 'push').map((r) => r.label)).toEqual(['api']);
+    expect(rowsOf(out, 'pr').map((r) => r.label)).toEqual(['api']);
+  });
+
+  it('still pushes a repository whose only changes the agent committed', () => {
+    const out = withShipPreviewRows(
+      processes(),
+      preview([repo({ repo: 'web', status: 'nothing-to-commit', changedFromBase: true })]),
+      identity,
+    );
+    expect(rowsOf(out, 'push')).toEqual([{ status: 'pending', label: 'web', detail: 'will push the branch' }]);
+  });
 });
 
 describe('withShipPreviewRows — the Push and Pull request rows', () => {
