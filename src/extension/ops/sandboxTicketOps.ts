@@ -42,6 +42,7 @@ import { ticketHostGate } from './sandboxHostGate.js';
 import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
 import { blockedSshRunner } from './sshPlacementOps.js';
 import { sshDockerKillContextFor, sshRunnerFor, type SshRunnerDeps } from './sshRunnerFor.js';
+import { hasRunningSandboxService } from './sshTunnelReattach.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -89,6 +90,12 @@ export interface TicketSandboxDeps {
   readonly dockerProc?: DockerProcess;
   readonly platform?: NodeJS.Platform;
   readonly debug?: (message: string) => void;
+  /**
+   * True when this window controls the ticket (its own session or autopilot
+   * run). An ssh reattach re-opens host tunnels, so only the controlling
+   * window does it (D823). Absent = every ticket is allowed (tests, one window).
+   */
+  readonly controls?: (ticketId: number) => boolean;
   /** Non-blocking user warning (bound from `notify.warn`, deduped): a lockfile repo with no `sandbox.setup` (arch:AC-40). */
   readonly warn?: (message: string) => void;
 }
@@ -292,6 +299,11 @@ export async function reattachTicketSandbox(
   ticketId: number,
   isHealthy: (row: { repo: string; port: number }) => Promise<boolean>,
 ): Promise<ReverifyResult | null> {
+  // Tunnels belong to one window: another window's ticket keeps the tunnels its own window holds.
+  if (deps.placementOf?.(ticketId)?.backend === 'ssh' && deps.controls?.(ticketId) === false) {
+    deps.debug?.(`[runtime] ticket ${ticketId}: ssh reattach skipped: this window does not control the ticket`);
+    return null;
+  }
   const ctx = await ticketSandboxContext(deps, ticketId);
   if (!ctx) return null;
   const allow = await allowBaselineHostPorts(ctx.runner, baselineHostPorts(manifest, ticketBaselineKeys(store, ticketId)));
@@ -454,7 +466,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         const sandboxed = ticketSandboxRunner(deps, ticketId) !== undefined;
         return (
           (sandboxed &&
-            (input.store.db.prepare("SELECT 1 FROM servers WHERE ticket_id = ? AND status = 'running' AND sandbox IS NOT NULL").get(ticketId) !== undefined ||
+            (hasRunningSandboxService(input.store, ticketId) ||
               hasRunningHostPlacedServices(input.store, ticketId, isHostPlaced))) ||
           (manifest?.uat?.keepStackForUser === true && hasRunningHostServices(input.store, ticketId))
         );

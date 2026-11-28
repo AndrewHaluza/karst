@@ -33,6 +33,8 @@ import { SANDBOX_NAME_RE } from './sshNames.js';
 import { SSH_BIN, sshArgv, type SshProcess, type SshResult } from './sshProcess.js';
 import { killRemoteGate, GATE_KILL_GRACE_SECONDS, sshRunGate, type SshGateContext } from './sshRunGate.js';
 import { remoteSh, sshQuote } from './sshQuote.js';
+import { createSshServices, defaultSshTunnels } from './sshServices.js';
+import type { TunnelRegistry } from './sshTunnels.js';
 
 /**
  * The `mode: direct` ssh runner (D555, edit 6). The agent runs PROMPTED on the
@@ -69,6 +71,11 @@ export interface SshRunnerOptions {
   readonly gateProcess?: GateProcessRunner;
   /** TERM → KILL grace of a remote gate kill (default 10 s; tests use 0). */
   readonly killGraceSeconds?: number;
+  /** The window's tunnel registry (D823); default `windowTunnelRegistry` over `opts.ssh`. */
+  readonly tunnels?: TunnelRegistry;
+  /** INFO lines (the unenforced setup window); bound to the window logger. */
+  readonly info?: (message: string) => void;
+  readonly warn?: (message: string) => void;
   readonly debug?: (message: string) => void;
 }
 
@@ -202,6 +209,14 @@ export function createSshSessionRunner(opts: SshRunnerOptions): SessionRunner {
     await Promise.all([...registry.live(registryKey)].map((runId) => killRemoteGate(gateCtx, runId)));
   };
 
+  const services = createSshServices({
+    ssh: opts.ssh, remote: opts.remote, remoteName: opts.remoteName, controlDir: opts.controlDir,
+    sandboxName: opts.sandboxName, ticketId: opts.ticketId, workspace: paths.workspace,
+    tunnels: opts.tunnels ?? defaultSshTunnels(opts.ssh, opts), probe,
+    ...(opts.info ? { info: opts.info } : {}), ...(opts.debug ? { debug: opts.debug } : {}),
+  });
+  const { releaseAll, ...serviceMembers } = services;
+
   const dispose = async (): Promise<DisposeResult> => {
     const target = disposeTarget(opts.remote.remoteDir, opts.sandboxName, opts.projectPrefix);
     if (!target.ok || target.path !== paths.workspace) {
@@ -209,6 +224,8 @@ export function createSshSessionRunner(opts: SshRunnerOptions): SessionRunner {
       return disposeResult([{ step: 'dispose guard', status: 'failed', stderr: reason }]);
     }
     await stop();
+    // The services run detached: kill them, then close this sandbox's tunnels and stop their watchers.
+    await releaseAll();
     const removed = await run(`# karst-ssh-dispose\nrm -rf -- ${sshQuote(target.path)}`);
     const step: DisposeStep = removed.transport === true
       ? { step: 'workspace', status: 'failed', stderr: shellQuoteFailure(opts.remoteName, 'workspace removal', removed) }
@@ -254,6 +271,7 @@ export function createSshSessionRunner(opts: SshRunnerOptions): SessionRunner {
       return dispose();
     },
     runGate: sshRunGate(gateCtx),
+    ...serviceMembers,
     probeSandbox: probe,
     hasSandbox: async () => (await probe()).state === 'present',
     stop,

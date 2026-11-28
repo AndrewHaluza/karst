@@ -1,4 +1,5 @@
 import type { Store } from '../store/db.js';
+import { KILL_SERVICE_GROUP } from './serviceKill.js';
 import type { ServerRecord } from '../runtime/supervisor.js';
 import { markServerStopped, stopTicketServers } from '../runtime/supervisor.js';
 import { PUBLISH_HOST } from './sandboxPorts.js';
@@ -11,7 +12,7 @@ import type { PortMapping, SessionRunner } from './sessionRunner.js';
  * sandbox handle (`servers.sandbox`), never a host pid.
  */
 
-export type SandboxServiceRunner = Pick<SessionRunner, 'kind' | 'publishPort' | 'unpublishPort' | 'listPorts' | 'runGate' | 'allowHostPorts' | 'hasSandbox' | 'canHostServices' | 'stopServices' | 'writeServiceEnv' | 'removeServiceEnv'>;
+export type SandboxServiceRunner = Pick<SessionRunner, 'kind' | 'publishPort' | 'unpublishPort' | 'listPorts' | 'runGate' | 'allowHostPorts' | 'hasSandbox' | 'canHostServices' | 'stopServices' | 'writeServiceEnv' | 'removeServiceEnv' | 'serviceStateDir' | 'probeRemotePorts'>;
 
 export class SandboxServiceError extends Error {
   constructor(message: string) {
@@ -25,9 +26,19 @@ export function sandboxHandle(kind: string, name: string, sandboxPort: number): 
   return `${kind}:${name}:${sandboxPort}`;
 }
 
-/** sbx and docker names are `[a-z0-9-]`; a remote (`ssh`) handle may also carry a host or path qualifier. */
+/** sbx and docker names are `[a-z0-9-]`. */
 const LOCAL_HANDLE = /^(sbx|docker):([a-z0-9-]+):(\d{1,5})$/;
-const SSH_HANDLE = /^ssh:([a-z0-9._@/-]+):(\d{1,5})$/;
+/**
+ * `ssh:<remote>/<name>:<sandboxPort>` for a DIRECT remote, and the remote-less
+ * `ssh:<name>:<sandboxPort>` a `mode: docker` remote recorded (the sandbox name
+ * IS the container name there). The remote token is the D553 remote name or its
+ * `user@host` destination; the name token is the D555 sandbox / docker container
+ * token (`[a-z0-9-]`). Both are validated separately, so `..`, a space or an
+ * extra slash can never reach a workspace, a `docker rm` or a tmux target.
+ */
+const SSH_HANDLE = /^ssh:(?:([^/]+)\/)?([a-z0-9][a-z0-9-]*):(\d{1,5})$/;
+/** The D553 remote names and destinations: a manifest name, or `user@host` / `host`. */
+const REMOTE_TOKEN = /^(?:[a-z0-9][a-z0-9-]{0,30}|(?:[a-z_][a-z0-9_-]{0,31}@)?[A-Za-z0-9][A-Za-z0-9.-]{0,252})$/;
 
 export function parseSandboxHandle(handle: string): { kind: string; name: string; sandboxPort: number } | null {
   const local = LOCAL_HANDLE.exec(handle);
@@ -35,7 +46,11 @@ export function parseSandboxHandle(handle: string): { kind: string; name: string
   // `mode: docker` on a remote records the port the RELAY forwards to there,
   // not the one on this host, so the handle must survive a remote name.
   const remote = SSH_HANDLE.exec(handle);
-  return remote ? { kind: 'ssh', name: remote[1]!, sandboxPort: Number(remote[2]) } : null;
+  if (!remote) return null;
+  const [, qualified, bare, port] = remote;
+  if (qualified !== undefined && !REMOTE_TOKEN.test(qualified)) return null;
+  const name = qualified === undefined ? bare! : `${qualified}/${bare!}`;
+  return { kind: 'ssh', name, sandboxPort: Number(port) };
 }
 
 /** A unit key (`repo` or `repo/service`) as a file-name-safe token inside the sandbox. */
@@ -47,15 +62,69 @@ export function serviceToken(unitKey: string): string {
 /** Stops a previous instance first: a restart must not race its own old process for the port. */
 export const START_SCRIPT =
   'k=$1; d=$2; shift 2; f="/tmp/karst-svc-$k.pid"; ' +
-  'if [ -f "$f" ]; then p=$(cat "$f"); kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null; fi; ' +
+  'if [ -f "$f" ]; then p=$(cat "$f"); ' + KILL_SERVICE_GROUP + 'fi; ' +
   'cd "$d" || exit 1; ' +
   'if command -v setsid >/dev/null 2>&1; then setsid nohup "$@" >"/tmp/karst-svc-$k.log" 2>&1 & ' +
   'else nohup "$@" >"/tmp/karst-svc-$k.log" 2>&1 & fi; echo $! >"$f"';
 export const STOP_SCRIPT =
   'f="/tmp/karst-svc-$1.pid"; if [ -f "$f" ]; then p=$(cat "$f"); ' +
-  'kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null; rm -f "$f"; fi; exit 0';
+  KILL_SERVICE_GROUP + 'rm -f "$f"; fi; exit 0';
+
+/**
+ * The state-dir guard shared by the `_SD` scripts: `$sd` must not be a symlink
+ * and must be owned by the remote user, checked BEFORE and AFTER the `mkdir`
+ * (the same `[ -L ]`/`[ -O ]` pair as `prepareScript` in `sshRunner.ts`). `/tmp`
+ * on a shared VM is common to every ticket, so the pid and log files live in
+ * the ticket's own `<ws>/svc` instead.
+ */
+const SD_GUARD =
+  '[ -L "$sd" ] && { echo "karst: refusing $sd: it is a symlink" >&2; exit 1; }; ' +
+  'mkdir -p -m 700 "$sd" || exit 1; ' +
+  '[ -L "$sd" ] && { echo "karst: refusing $sd: it is a symlink" >&2; exit 1; }; ' +
+  '[ -O "$sd" ] || { echo "karst: refusing $sd: it is not owned by the user" >&2; exit 1; }; ';
+
+/**
+ * `START_SCRIPT` with the service state dir as `$1`: the pid and log files live
+ * under it, never in the shared `/tmp`. The env file is not sourced here: the
+ * runner's `runGate` sources the `envFile` the caller passes.
+ */
+export const START_SCRIPT_SD =
+  'sd=$1; k=$2; d=$3; shift 3; ' + SD_GUARD +
+  'f="$sd/karst-svc-$k.pid"; ' +
+  'if [ -f "$f" ]; then p=$(cat "$f"); ' + KILL_SERVICE_GROUP + 'fi; ' +
+  'cd "$d" || exit 1; ' +
+  'if command -v setsid >/dev/null 2>&1; then setsid nohup "$@" >"$sd/karst-svc-$k.log" 2>&1 & ' +
+  'else nohup "$@" >"$sd/karst-svc-$k.log" 2>&1 & fi; echo $! >"$f"';
+
+/** `STOP_SCRIPT` with the service state dir as `$1`. It never touches the env file: `removeServiceEnv` owns that. */
+export const STOP_SCRIPT_SD =
+  'sd=$1; k=$2; ' + SD_GUARD +
+  'f="$sd/karst-svc-$k.pid"; if [ -f "$f" ]; then p=$(cat "$f"); ' +
+  KILL_SERVICE_GROUP + 'rm -f "$f"; fi; exit 0';
 
 const EXEC_TIMEOUT_MS = 30_000;
+
+/**
+ * The start argv of one runner. A runner without `serviceStateDir` (sbx, docker)
+ * keeps the old argv and the `/tmp` pid and log paths; its script changed only in
+ * the kill step, which now signals the whole service group (`KILL_SERVICE_GROUP`,
+ * the same fix for every runner). A direct remote inserts the state dir as the
+ * first element after the `$0` name (so `sd=$1`).
+ */
+function startArgv(runner: SandboxServiceRunner, token: string, serviceCwd: string, rest: readonly string[]): string[] {
+  const stateDir = runner.serviceStateDir;
+  return stateDir === undefined
+    ? ['-c', START_SCRIPT, 'karst-svc', token, serviceCwd, ...rest]
+    : ['-c', START_SCRIPT_SD, 'karst-svc', stateDir, token, serviceCwd, ...rest];
+}
+
+/** The stop argv of one runner; `serviceStateDir` selects the `_SD` variant, as in `startArgv`. */
+function stopArgv(runner: SandboxServiceRunner, token: string): string[] {
+  const stateDir = runner.serviceStateDir;
+  return stateDir === undefined
+    ? ['-c', STOP_SCRIPT, 'karst-svc-stop', token]
+    : ['-c', STOP_SCRIPT_SD, 'karst-svc-stop', stateDir, token];
+}
 
 export interface SandboxServiceStart {
   readonly store: Store;
@@ -140,11 +209,10 @@ export async function startSandboxService(input: SandboxServiceStart): Promise<S
       throw new SandboxServiceError(`${input.service}: cannot write the service env file (${err instanceof Error ? err.message : String(err)})`);
     }
   }
-  const started = await execIn(input.runner, input.worktree, [
-    '-c', START_SCRIPT, 'karst-svc', token, input.serviceCwd,
+  const started = await execIn(input.runner, input.worktree, startArgv(input.runner, token, input.serviceCwd, [
     ...(envFile === undefined ? envArgv(input.env) : []),
     input.command, ...input.args,
-  ], input.signal, envFile);
+  ]), input.signal, envFile);
   if (started !== null) {
     await removeEnv();
     await unpublish();
@@ -153,7 +221,7 @@ export async function startSandboxService(input: SandboxServiceStart): Promise<S
   try {
     await input.waitHealthy(input.healthUrlFor(mapping.hostPort), input.signal);
   } catch (err) {
-    await execIn(input.runner, input.worktree, ['-c', STOP_SCRIPT, 'karst-svc-stop', token]);
+    await execIn(input.runner, input.worktree, stopArgv(input.runner, token));
     await removeEnv();
     await unpublish();
     throw new SandboxServiceError(`${input.service}: not healthy on ${PUBLISH_HOST}:${mapping.hostPort}: ${err instanceof Error ? err.message : String(err)}`);
@@ -198,7 +266,7 @@ export async function stopSandboxService(store: Store, serverId: number, runner:
     .prepare('SELECT id, repo, port, cwd, sandbox FROM servers WHERE id = ? AND sandbox IS NOT NULL')
     .get(serverId) as SandboxRow | undefined;
   if (!row) return;
-  await execIn(runner, row.cwd, ['-c', STOP_SCRIPT, 'karst-svc-stop', serviceToken(row.repo)]);
+  await execIn(runner, row.cwd, stopArgv(runner, serviceToken(row.repo)));
   // The env file names a stopped service: remove it with the process (best-effort).
   await runner.removeServiceEnv?.(serviceToken(row.repo));
   const mapping = mappingOf(row);
@@ -247,13 +315,16 @@ export async function reverifySandboxServices(
   const dropped: string[] = [];
   for (const row of rows) {
     const mapping = mappingOf(row);
-    const present = mapping !== null && live.some((m) => m.hostPort === mapping.hostPort && m.sandboxPort === mapping.sandboxPort);
+    // A `down` row is listed for the ports UI, but nothing reaches it: republish it.
+    const present = mapping !== null && live.some((m) => m.state !== 'down' && m.hostPort === mapping.hostPort && m.sandboxPort === mapping.sandboxPort);
     let reachable = mapping !== null;
     if (mapping && !present) {
       const r = await needs(runner, 'publishPort')(mapping);
       if (r.ok) republished.push(row.repo);
-      // A mapping that cannot be restored leaves the row pointing at nothing.
-      else reachable = false;
+      // ssh (D823): a taken host port is most likely the `-L` of another karst
+      // window of this project, which holds this kept stack. Keep the row; the
+      // health check below still drops it when nothing serves there.
+      else if (!(runner.kind === 'ssh' && r.portTaken)) reachable = false;
     }
     if (!reachable || !(await isHealthy(row))) {
       if (mapping) await runner.unpublishPort?.(mapping);
