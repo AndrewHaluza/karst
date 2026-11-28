@@ -1,6 +1,7 @@
 import type { RemoteDef } from '../../manifest/types.js';
-import { isMirrorName } from '../bridge/mirror.js';
+import { isMirrorName, type MirrorKind } from '../bridge/mirror.js';
 import { SEQ_PATTERN } from '../bridge/markerReply.js';
+import { readMirrorDir } from '../bridge/transcriptMirror.js';
 import { isRemoteTrusted, readRemoteTrust } from './remoteTrust.js';
 import { ensureSshControlDir, sshControlDir, type SshControlResult } from './sshControlDir.js';
 import { NODE_SSH_PROCESS, sshArgv, type SshProcess } from './sshProcess.js';
@@ -90,7 +91,7 @@ export async function mirrorToRemote(
   remote: MirrorRemote,
   runDir: string,
   rel: string,
-  body: string,
+  body: string | Buffer,
   deps: SshMirrorDeps,
 ): Promise<MirrorResult> {
   const trust = readRemoteTrust(deps.trustDir, deps.warn);
@@ -109,7 +110,7 @@ export async function mirrorToRemote(
   const ssh = deps.ssh ?? NODE_SSH_PROCESS;
   const out = await ssh.runWithStdin(
     sshArgv(remote.def, controlDir, mirrorScript(runDir, rel)),
-    Buffer.from(body, 'utf8'),
+    typeof body === 'string' ? Buffer.from(body, 'utf8') : body,
     { maxStdoutBytes: 4 * 1024 },
   );
   if (out.transport === true) {
@@ -120,4 +121,40 @@ export async function mirrorToRemote(
   }
   deps.debug?.(`[ssh ${remote.name}] mirrored ${rel}`);
   return { ok: true };
+}
+
+export type MirrorDirsResult =
+  | { readonly ok: true; readonly mirrored: readonly string[]; readonly skipped: readonly string[] }
+  | { readonly ok: false; readonly reason: string; readonly mirrored: readonly string[]; readonly skipped: readonly string[] };
+
+/**
+ * Copy the host bridge dir's `attachments/` and `logs/` copies into the remote
+ * run dir (D556 edit 5): the remote agent reads the same attachment and gate
+ * log path the launch/fix text names. Trust is first (D553): an unconfirmed
+ * remote makes ZERO ssh calls. A failure is returned, never thrown: a caller
+ * logs it and the host copy stays the source of truth.
+ */
+export async function mirrorBridgeMirrors(
+  remote: MirrorRemote,
+  runDir: string,
+  hostBridgeDir: string,
+  deps: SshMirrorDeps,
+): Promise<MirrorDirsResult> {
+  const trust = readRemoteTrust(deps.trustDir, deps.warn);
+  if (!isRemoteTrusted(trust, remote.name, remote.def)) {
+    return { ok: false, reason: `ssh remote ${remote.name} not confirmed`, mirrored: [], skipped: [] };
+  }
+  const mirrored: string[] = [];
+  const skipped: string[] = [];
+  for (const kind of ['attachments', 'logs'] as const satisfies readonly MirrorKind[]) {
+    const read = await readMirrorDir(hostBridgeDir, kind).catch(() => ({ files: [], skipped: [] }) as const);
+    skipped.push(...read.skipped);
+    for (const file of read.files) {
+      const out = await mirrorToRemote(remote, runDir, file.rel, file.body, deps);
+      if (!out.ok) return { ok: false, reason: out.reason, mirrored, skipped };
+      mirrored.push(file.rel);
+    }
+  }
+  if (skipped.length > 0) deps.debug?.(`[ssh ${remote.name}] mirror dirs: skipped ${skipped.join(', ')}`);
+  return { ok: true, mirrored, skipped };
 }

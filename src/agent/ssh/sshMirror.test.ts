@@ -1,11 +1,19 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
+import { MIRROR_MAX_BYTES } from '../bridge/mirror.js';
 import { recordRemoteTrust } from './remoteTrust.js';
 import { fakeSshProcess } from './fakeSshProcess.js';
-import { isValidMirrorRel, mirrorScript, mirrorToRemote, type MirrorRemote, type SshMirrorDeps } from './sshMirror.js';
+import {
+  isValidMirrorRel,
+  mirrorBridgeMirrors,
+  mirrorScript,
+  mirrorToRemote,
+  type MirrorRemote,
+  type SshMirrorDeps,
+} from './sshMirror.js';
 
 const def: RemoteDef = {
   host: 'devbox.example.com',
@@ -118,5 +126,60 @@ describe('mirrorScript', () => {
     expect(script).toContain(`d='/srv/karst/ws/bridge/7/inbox'`);
     expect(script).toContain(`t='/srv/karst/ws/bridge/7/inbox/fix-1.md'.tmp.$$`);
     expect(script).toContain("trap 'rm -f \"$t\"' EXIT");
+  });
+});
+
+describe('mirrorBridgeMirrors (D556 edit 5)', () => {
+  /** A host bridge dir with one binary attachment, one log, a link and an oversized file. */
+  const hostBridge = (): string => {
+    const dir = tempDir();
+    mkdirSync(join(dir, 'attachments'), { recursive: true });
+    mkdirSync(join(dir, 'logs'), { recursive: true });
+    writeFileSync(join(dir, 'attachments', 'scan.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]));
+    writeFileSync(join(dir, 'logs', 'gate.log'), 'gate output\n');
+    symlinkSync('/etc/hosts', join(dir, 'attachments', 'link.png'));
+    writeFileSync(join(dir, 'logs', 'huge.log'), Buffer.alloc(MIRROR_MAX_BYTES + 1, 0x61));
+    return dir;
+  };
+
+  it('an unconfirmed remote is refused and makes ZERO ssh calls', async () => {
+    const ssh = fakeSshProcess();
+    const out = await mirrorBridgeMirrors(remote, RUN_DIR, hostBridge(), {
+      trustDir: tempDir(),
+      ssh,
+      controlDir: '/tmp/karst-ssh-test/',
+      ensureControlDir: async () => CONTROL,
+    });
+    expect(out).toEqual({ ok: false, reason: 'ssh remote devbox not confirmed', mirrored: [], skipped: [] });
+    expect(ssh.calls).toEqual([]);
+    expect(ssh.stdinCalls).toEqual([]);
+  });
+
+  it('copies attachments and logs byte-for-byte and skips a link and an oversized file', async () => {
+    const { deps, ssh } = await trustedDeps();
+    const out = await mirrorBridgeMirrors(remote, RUN_DIR, hostBridge(), deps);
+    expect(out.ok).toBe(true);
+    expect(out.mirrored).toEqual(['attachments/scan.png', 'logs/gate.log']);
+    expect([...out.skipped].sort()).toEqual(['huge.log', 'link.png']);
+    expect(ssh.stdinCalls.map((c) => c.args.at(-1))).toEqual([
+      expect.stringContaining(`${RUN_DIR}/attachments/scan.png`),
+      expect.stringContaining(`${RUN_DIR}/logs/gate.log`),
+    ]);
+    // The attachment's bytes are unchanged (a utf8 round trip would corrupt them).
+    expect([...ssh.stdinCalls[0]!.stdin]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
+  });
+
+  it('a refused copy stops the mirror and reports the remote reason', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-mirror': { code: 1, stderr: 'disk full' } });
+    const { deps } = await trustedDeps(ssh);
+    const out = await mirrorBridgeMirrors(remote, RUN_DIR, hostBridge(), deps);
+    expect(out).toMatchObject({ ok: false, reason: expect.stringContaining('disk full') });
+  });
+
+  it('a missing host mirror dir is an empty success with no ssh call', async () => {
+    const { deps, ssh } = await trustedDeps();
+    const out = await mirrorBridgeMirrors(remote, RUN_DIR, tempDir(), deps);
+    expect(out).toEqual({ ok: true, mirrored: [], skipped: [] });
+    expect(ssh.stdinCalls).toEqual([]);
   });
 });

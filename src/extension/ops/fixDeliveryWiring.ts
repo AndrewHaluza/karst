@@ -97,6 +97,11 @@ export interface FixDeliveryWiringDeps {
    * is kept for host/sbx/docker callers.
    */
   mirror?: (ticketId: number, rel: string, body: string) => Awaitable<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
+  /**
+   * Copy the host `attachments/` and `logs/` copies a brief names to the ssh
+   * remote (D556 edit 5). Absent, or a non-ssh placement, is a no-op success.
+   */
+  mirrorDirs?: (ticketId: number) => Awaitable<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
   /** `<globalStorage>`: a sandboxed brief's host attachment and gate-log paths are mirrored and rewritten from it. */
   storageDir: string;
   literal: () => CliTokens;
@@ -164,7 +169,22 @@ function writeFixBrief(deps: FixDeliveryWiringDeps, ticketId: number, deliveryId
       deps.debug(`[driver] fix delivery #${deliveryId}: remote mirror failed (${err instanceof Error ? err.message : String(err)})`);
       return 'mirror-refused';
     };
-    return isThenable(mirror) ? mirror.then(settle, reject) : settle(mirror);
+    /** The attachment/gate-log copies the body names (loaded by the transform above) must exist remotely too. */
+    const settleDirs = (written: boolean | 'mirror-refused'): Awaitable<boolean | 'mirror-refused'> => {
+      if (written !== true || deps.mirrorDirs === undefined) return written;
+      const dirs = deps.mirrorDirs(ticketId);
+      const onDirs = (result: { readonly ok: true } | { readonly ok: false; readonly reason: string }): boolean | 'mirror-refused' => {
+        if (result.ok) return true;
+        deps.debug(`[driver] fix delivery #${deliveryId}: remote attachment/log mirror refused (${result.reason})`);
+        return 'mirror-refused';
+      };
+      const onDirsReject = (err: unknown): 'mirror-refused' => {
+        deps.debug(`[driver] fix delivery #${deliveryId}: remote attachment/log mirror failed (${err instanceof Error ? err.message : String(err)})`);
+        return 'mirror-refused';
+      };
+      return isThenable(dirs) ? Promise.resolve(dirs).then(onDirs, onDirsReject) : onDirs(dirs);
+    };
+    return isThenable(mirror) ? mirror.then(settle, reject).then(settleDirs) : settleDirs(settle(mirror));
   } catch (err) {
     deps.debug(`[driver] fix delivery #${deliveryId}: inbox write refused (${err instanceof Error ? err.message : String(err)})`);
     return false;

@@ -24,6 +24,8 @@ export function sandboxCwdFor(
     if (slash <= 0) return {};
     const def = remotes?.[placement.sandboxName.slice(0, slash)];
     if (def === undefined) return {};
+    // A remote docker session runs in the container, not in the remote clone.
+    if (def.mode === 'docker') return { sandboxCwd: CONTAINER_REPO };
     const workspace = `${def.remoteDir.replace(/\/+$/, '')}/${placement.sandboxName.slice(slash + 1)}`;
     return { sandboxCwd: `${workspace}/repo` };
   }

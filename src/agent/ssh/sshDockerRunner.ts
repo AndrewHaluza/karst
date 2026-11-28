@@ -27,6 +27,7 @@ import type {
 } from '../sessionRunner.js';
 import { remoteAssetsDir, PROXY_BUNDLE } from './sshDockerAssets.js';
 import { uploadBridgeScripts } from './sshBridge.js';
+import { mirrorBridgeMirrors } from './sshMirror.js';
 import {
   diffSshDockerClone,
   fetchSshDockerClone,
@@ -39,6 +40,7 @@ import { sshDockerGateProcess } from './sshDockerGate.js';
 import { sshDockerArgv, sshDockerProcess } from './sshDockerProcess.js';
 import { disposeTarget } from './sshDisposeGuard.js';
 import { remoteEnv } from './sshEnv.js';
+import type { SshControlResult } from './sshControlDir.js';
 import { SSH_BIN, sshArgv, type SshProcess } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
 import { defaultSshTunnels } from './sshServices.js';
@@ -122,6 +124,8 @@ export interface SshDockerRunnerOptions {
   readonly projectPrefix: string;
   /** `<globalStorage>`: the dir of `ssh-trust.json`, re-read by the launch upload (D553). */
   readonly trustDir?: string;
+  /** Test seam: the control-dir check of the upload and the mirror (default `ensureSshControlDir`). */
+  readonly ensureControlDir?: (dir: string) => Promise<SshControlResult>;
   readonly memory?: DockerMemoryLimits;
   /** The host gate boundary `sshDockerGateProcess` wraps (default `runProcess`). */
   readonly gateProcess?: GateProcessRunner;
@@ -175,6 +179,21 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
     controlDir: opts.controlDir, image: OPENCODE_IMAGE, volume: opts.names.repoVolume, user: opts.user,
     ...(opts.debug ? { debug: opts.debug } : {}),
   };
+  /** The host bridge dir of the last prepared launch: the attachment/log mirror source (edit 5). */
+  let hostBridgeDir: string | undefined;
+  /** Copy the host bridge dir's attachments and gate logs into the remote run dir (best effort). */
+  const mirrorMirrors = async (): Promise<void> => {
+    const host = hostBridgeDir;
+    const trustDir = opts.trustDir;
+    if (host === undefined || trustDir === undefined) return;
+    const out = await mirrorBridgeMirrors(
+      { name: opts.remoteName, def: opts.remote },
+      mountRoot.bridgeDir,
+      host,
+      { trustDir, ssh: opts.ssh, controlDir: opts.controlDir, ...(opts.ensureControlDir !== undefined ? { ensureControlDir: opts.ensureControlDir } : {}), ...(opts.debug ? { debug: opts.debug } : {}) },
+    ).catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err), mirrored: [], skipped: [] }));
+    if (!out.ok) opts.debug?.(`[ssh ${opts.remoteName}] attachment/log mirror: ${out.reason}`);
+  };
   const cloneInput = (ticket: SandboxTicketRef) => ({
     hostWorktreePath: ticket.hostWorktreePath,
     branch: ticket.branch,
@@ -218,13 +237,17 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
       });
       // D556 edit 3: the same remote run dir the mount exposes at `/karst-bridge/<ticketId>`.
       if (spec.bridgeDir !== undefined) {
+        hostBridgeDir = spec.bridgeDir;
         const upload = await uploadBridgeScripts({
           ssh: opts.ssh, remote: opts.remote, remoteName: opts.remoteName, core: opts.core,
           hostBridgeDir: spec.bridgeDir, runDir: mountRoot.bridgeDir,
           ...(opts.trustDir !== undefined ? { trustDir: opts.trustDir } : {}),
+          ...(opts.ensureControlDir !== undefined ? { ensureControlDir: opts.ensureControlDir } : {}),
           ...(opts.debug ? { debug: opts.debug } : {}),
         });
         if (!upload.ok) throw new Error(upload.reason);
+        // D556 edit 5: attachments and gate logs must exist remotely too.
+        await mirrorMirrors();
       }
     },
     /**
@@ -297,7 +320,12 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
       await closeTunnels();
     },
     stop: async (): Promise<void> => base.stop!(),
-    runGate: base.runGate!,
+    runGate: async (command, args, cwd, gateOpts) => {
+      const out = await base.runGate!(command, args, cwd, gateOpts);
+      // D556 edit 5: copy the new gate log to the remote too.
+      await mirrorMirrors();
+      return out;
+    },
     // A launch the guard discarded after this runner resolved must not leave the remote proxy up.
     abortLaunch: async (): Promise<void> => { await base.abortLaunch?.(); },
     setupWindow: (hosts) => base.setupWindow!(hosts),

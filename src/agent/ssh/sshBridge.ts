@@ -3,10 +3,21 @@ import { open, readFile, rename, writeFile, type FileHandle } from 'node:fs/prom
 import type { ChildProcess } from 'node:child_process';
 import type { RemoteDef } from '../../manifest/types.js';
 import { MAX_BRIDGE_LINE_BYTES } from '../bridge/bridgeVerifier.js';
+import { openHostTranscript } from '../bridge/transcriptMirror.js';
 import { isRemoteTrusted, readRemoteTrust } from './remoteTrust.js';
 import { ensureSshControlDir, sshControlDir, type SshControlResult } from './sshControlDir.js';
 import { sshArgv, type SshProcess } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
+import {
+  CLAUDE_PROJECTS_DIRNAME,
+  CODEX_ROLLOUTS_FILE,
+  CODEX_SESSIONS_DIRNAME,
+  codexRolloutExpr,
+  codexRolloutListScript,
+  isClaudeTranscriptRel,
+  isCodexRolloutRel,
+  transcriptListScript,
+} from './sshTranscript.js';
 
 /**
  * The remote half of the evidence bridge (D556, edit 1): one `tail -F` over ssh
@@ -24,8 +35,11 @@ import { sshQuote } from './sshQuote.js';
  * makes ZERO ssh calls. One forwarder per ticket per window; only the window
  * that controls the ticket starts it (@arch:AC-37, @arch:GLOBAL).
  *
- * The module keeps its forward specs in a list so a later step can add more
- * paths (`claude-projects/**`, D556 edit 5) without changing the lifecycle.
+ * The forwarder runs one stream per path: the events file (line split) and,
+ * since D556 edit 5, every discovered transcript file (byte exact): claude's
+ * linked `claude-projects/**` and the codex rollouts named in
+ * `<runDir>/codex-rollouts.txt`. Each file keeps its own offset in the same
+ * state file, so a reload resumes all of them.
  */
 
 export interface ForwardSpec {
@@ -35,9 +49,65 @@ export interface ForwardSpec {
   readonly hostRel: string;
 }
 
-/** The paths this step forwards. Edit 5 adds the transcript tree here. */
+/** The paths the line-split forwarder mirrors; the transcript trees come from `transcriptTrees`. */
 export function forwardSpecs(): readonly ForwardSpec[] {
   return [{ rel: 'events.ndjson', hostRel: 'events.ndjson' }];
+}
+
+/**
+ * One append-only stream: the remote file, its per-file offset key, the host
+ * name it lands on, and whether the bytes are copied verbatim (a transcript,
+ * `edit 5`) or split into complete lines (the events file).
+ */
+interface StreamSpec {
+  readonly key: string;
+  readonly remoteExpr: string;
+  readonly hostRel: string;
+  readonly byteExact: boolean;
+}
+
+/**
+ * A discovered transcript tree (edit 5): the listing script runs over ssh, the
+ * host validates every name before it opens anything, and each accepted file
+ * becomes its own append-only stream with its own offset.
+ */
+interface TreeSpec {
+  readonly name: string;
+  readonly listScript: string;
+  readonly valid: (rel: string) => boolean;
+  readonly remoteExpr: (rel: string) => string;
+  readonly key: (rel: string) => string;
+  readonly hostRel: (rel: string) => string;
+}
+
+/**
+ * The transcript trees the forwarder mirrors (D556 edit 5): claude's
+ * `claude-projects/**` (the linked project dir) and codex's rollout list
+ * (`codex-rollouts.txt` -> `<hostBridge>/codex-sessions/`). Both are append-only
+ * `.jsonl`, so each file keeps its own byte offset.
+ */
+export function transcriptTrees(runDir: string): readonly TreeSpec[] {
+  const dir = runDir.replace(/\/+$/, '');
+  return [
+    {
+      name: CLAUDE_PROJECTS_DIRNAME,
+      listScript: transcriptListScript(`${dir}/${CLAUDE_PROJECTS_DIRNAME}`, 2),
+      valid: isClaudeTranscriptRel,
+      remoteExpr: (rel) => sshQuote(`${dir}/${CLAUDE_PROJECTS_DIRNAME}/${rel}`),
+      key: (rel) => `${CLAUDE_PROJECTS_DIRNAME}/${rel}`,
+      hostRel: (rel) => `${CLAUDE_PROJECTS_DIRNAME}/${rel}`,
+    },
+    {
+      name: CODEX_SESSIONS_DIRNAME,
+      listScript: codexRolloutListScript(`${dir}/${CODEX_ROLLOUTS_FILE}`),
+      valid: isCodexRolloutRel,
+      remoteExpr: codexRolloutExpr,
+      // The remote path is the offset key; the host copy is FLAT, so the codex
+      // watch can find `rollout-*-<sessionId>.jsonl` without the day dirs.
+      key: (rel) => `${CODEX_SESSIONS_DIRNAME}/${rel}`,
+      hostRel: (rel) => `${CODEX_SESSIONS_DIRNAME}/${rel.split('/').at(-1)!}`,
+    },
+  ];
 }
 
 const NEWLINE = 0x0a;
@@ -45,6 +115,10 @@ const NEWLINE = 0x0a;
 const MAX_LINE = MAX_BRIDGE_LINE_BYTES;
 /** A `ControlPath` retry never needs to wait longer than this, and a dead remote gets one attempt a minute. */
 export const SSH_BRIDGE_BACKOFF_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 60_000];
+/** How often the forwarder re-lists the transcript trees (a new session file appears after a resume). */
+export const SSH_BRIDGE_DISCOVERY_MS = 15_000;
+/** A discovery listing is a handful of relative names. */
+const TREE_LIST_BYTES = 64 * 1024;
 const TAIL_MARKER = /^KARST_TAIL_OFFSET=(\d+)$/;
 
 const HOST_EVENTS_FLAGS =
@@ -66,9 +140,16 @@ function tail(text: string): string {
  * the host counts from the same byte.
  */
 export function bridgeTailScript(remoteFile: string, offset: number): string {
-  const file = sshQuote(remoteFile);
+  return tailScriptFor(sshQuote(remoteFile), offset);
+}
+
+/**
+ * The same script over a shell EXPRESSION (`"$HOME"/…`, already quoted as a
+ * whole): used by the codex rollout tree, whose root is the remote home.
+ */
+export function tailScriptFor(fileExpr: string, offset: number): string {
   const n = Number.isFinite(offset) && offset > 0 ? Math.trunc(offset) : 0;
-  const lines = ['# karst-ssh-bridge-tail', `f=${file}`];
+  const lines = ['# karst-ssh-bridge-tail', `f=${fileExpr}`];
   if (n === 0) {
     lines.push('printf "KARST_TAIL_OFFSET=0\\n"', 'exec tail -c +1 -F "$f"');
     return lines.join('\n');
@@ -101,6 +182,8 @@ export interface SshBridgeForwarderOptions {
   readonly signal?: AbortSignal;
   /** Injected so a test's reconnect is instant and deterministic. */
   readonly sleep?: (ms: number) => Promise<void>;
+  /** How often the transcript trees are re-listed (default {@link SSH_BRIDGE_DISCOVERY_MS}). */
+  readonly discoveryMs?: number;
   readonly debug?: (message: string) => void;
   readonly warn?: (message: string) => void;
 }
@@ -199,6 +282,7 @@ class ActiveForwarder {
   private currentChild: ChildProcess | undefined;
   private finishStream: (() => void) | undefined;
   private persistChain: Promise<void> = Promise.resolve();
+  private readonly wakers = new Set<() => void>();
 
   constructor(opts: SshBridgeForwarderOptions) {
     this.opts = opts;
@@ -223,8 +307,18 @@ class ActiveForwarder {
   async run(): Promise<void> {
     try {
       this.offsets.offsets = (await loadOffsets(this.stateFile)).offsets;
-      const specs = forwardSpecs();
-      await Promise.all(specs.map((spec) => this.runSpec(spec)));
+      const runDir = forwardRunDir(this.opts.ws, this.opts.ticketId);
+      const streams: StreamSpec[] = forwardSpecs().map((spec) => ({
+        key: spec.rel,
+        remoteExpr: sshQuote(`${runDir}/${spec.rel}`),
+        hostRel: spec.hostRel,
+        byteExact: false,
+      }));
+      const trees = transcriptTrees(runDir);
+      await Promise.all([
+        ...streams.map((spec) => this.runStream(spec)),
+        ...trees.map((tree) => this.runTree(tree)),
+      ]);
     } finally {
       this.stopped = true;
       if (FORWARDERS.get(this.opts.ticketId) === this) FORWARDERS.delete(this.opts.ticketId);
@@ -232,7 +326,7 @@ class ActiveForwarder {
     }
   }
 
-  private async runSpec(spec: ForwardSpec): Promise<void> {
+  private async runStream(spec: StreamSpec): Promise<void> {
     let attempt = 0;
     while (!this.stopped) {
       if (this.aborted()) return;
@@ -246,20 +340,73 @@ class ActiveForwarder {
         (err: unknown): SshControlResult => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }),
       );
       if (!control.ok) {
-        this.dbg(`forwarder ${spec.rel}: ${control.reason}`);
+        this.dbg(`forwarder ${spec.key}: ${control.reason}`);
         attempt += 1;
         if (!(await this.wait(attempt))) return;
         continue;
       }
-      const offset = this.offsets.offsets[spec.rel] ?? 0;
-      const remoteFile = `${forwardRunDir(this.opts.ws, this.opts.ticketId)}/${spec.rel}`;
-      const argv = sshArgv(this.opts.remote, controlDir, bridgeTailScript(remoteFile, offset));
+      const offset = this.offsets.offsets[spec.key] ?? 0;
+      const argv = sshArgv(this.opts.remote, controlDir, tailScriptFor(spec.remoteExpr, offset));
       attempt = 0;
       await this.streamOnce(spec, argv, offset);
       if (this.stopped || this.aborted()) return;
       attempt += 1;
-      this.dbg(`forwarder ${spec.rel} closed; reconnect in ${String(backoff(attempt))} ms`);
+      this.dbg(`forwarder ${spec.key} closed; reconnect in ${String(backoff(attempt))} ms`);
       if (!(await this.wait(attempt))) return;
+    }
+  }
+
+  /**
+   * Discover one transcript tree (edit 5) and follow every accepted file as its
+   * own append-only stream. Rediscovery runs every `discoveryMs`; a file already
+   * streaming is not started twice. Trust is first at every discovery, and a
+   * name the remote chose that fails validation is skipped and logged.
+   */
+  private async runTree(tree: TreeSpec): Promise<void> {
+    const active = new Set<string>();
+    while (!this.stopped) {
+      if (this.aborted()) return;
+      if (!this.trusted()) {
+        this.opts.warn?.(`ssh remote ${this.opts.remoteName} not confirmed`);
+        return;
+      }
+      const controlDir = this.opts.controlDir ?? sshControlDir();
+      const control = await (this.opts.ensureControlDir ?? ensureSshControlDir)(controlDir).catch(
+        (err: unknown): SshControlResult => ({ ok: false, reason: err instanceof Error ? err.message : String(err) }),
+      );
+      if (!control.ok) {
+        this.dbg(`forwarder ${tree.name}: ${control.reason}`);
+      } else {
+        const listed = await this.opts.ssh
+          .run(sshArgv(this.opts.remote, controlDir, tree.listScript), { maxStdoutBytes: TREE_LIST_BYTES })
+          .catch((err: unknown): { readonly code: number; readonly stdout: string; readonly stderr: string } => ({
+            code: 1,
+            stdout: '',
+            stderr: err instanceof Error ? err.message : String(err),
+          }));
+        if (listed.code !== 0) {
+          this.dbg(`forwarder ${tree.name}: list failed (exit ${String(listed.code)})${tail(listed.stderr) === '' ? '' : `: ${tail(listed.stderr)}`}`);
+        } else {
+          for (const raw of listed.stdout.split('\n')) {
+            const rel = raw.trim();
+            if (rel === '') continue;
+            if (!tree.valid(rel)) {
+              this.dbg(`forwarder ${tree.name}: skipped a refused name ${JSON.stringify(rel.slice(0, 200))}`);
+              continue;
+            }
+            if (active.has(rel)) continue;
+            active.add(rel);
+            const spec: StreamSpec = {
+              key: tree.key(rel),
+              remoteExpr: tree.remoteExpr(rel),
+              hostRel: tree.hostRel(rel),
+              byteExact: true,
+            };
+            void this.runStream(spec).finally(() => active.delete(rel));
+          }
+        }
+      }
+      if (!(await this.intervalWait(this.opts.discoveryMs ?? SSH_BRIDGE_DISCOVERY_MS))) return;
     }
   }
 
@@ -270,12 +417,35 @@ class ActiveForwarder {
     return !this.stopped && !this.aborted();
   }
 
+  /** The discovery interval, woken early by `stop` (a timer that never holds the process open). */
+  private intervalWait(ms: number): Promise<boolean> {
+    if (this.stopped || this.aborted()) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        this.wakers.delete(done);
+        resolve(!this.stopped && !this.aborted());
+      };
+      const timer = setTimeout(done, ms);
+      timer.unref?.();
+      this.wakers.add(done);
+    });
+  }
+
   /**
    * One connection: read the remote stream, append complete host lines, and
    * persist the first unconsumed byte after each append. Partial lines wait in
    * memory; if the connection drops they are re-read from the stored offset.
    */
-  private streamOnce(spec: ForwardSpec, argv: readonly string[], storedOffset: number): Promise<void> {
+  /**
+   * One connection: read the remote stream, write the host copy, and persist the
+   * first unconsumed byte after each write. The events stream appends complete
+   * host LINES (a partial line waits in memory; a line over 64 KiB is dropped);
+   * a transcript stream appends the BYTES verbatim, so the host copy is the same
+   * append-only `.jsonl` the remote wrote. If the connection drops, unpersisted
+   * bytes are re-read from the stored offset.
+   */
+  private streamOnce(spec: StreamSpec, argv: readonly string[], storedOffset: number): Promise<void> {
     return new Promise<void>((resolve) => {
       let settled = false;
       let child: ChildProcess | undefined;
@@ -308,7 +478,7 @@ class ActiveForwarder {
       try {
         child = this.opts.ssh.spawnStream(argv, this.opts.signal ? { signal: this.opts.signal } : {});
       } catch (err) {
-        this.dbg(`forwarder ${spec.rel}: cannot spawn: ${err instanceof Error ? err.message : String(err)}`);
+        this.dbg(`forwarder ${spec.key}: cannot spawn: ${err instanceof Error ? err.message : String(err)}`);
         resolve();
         return;
       }
@@ -318,51 +488,67 @@ class ActiveForwarder {
 
       let work: Promise<void> = Promise.resolve();
 
+      const openHost = async (): Promise<FileHandle | undefined> => {
+        if (spec.byteExact) {
+          const transcript = await openHostTranscript(this.opts.hostBridgeDir, spec.hostRel).catch(() => undefined);
+          if (transcript === undefined) {
+            // A planted link, a bad part or a non-directory parent: never follow it.
+            this.dbg(`forwarder ${spec.key}: refused the host copy ${spec.hostRel}`);
+          }
+          return transcript;
+        }
+        return open(`${this.opts.hostBridgeDir}/${spec.hostRel}`, HOST_EVENTS_FLAGS, HOST_SCRIPT_MODE);
+      };
+
       const append = async (line: Buffer): Promise<void> => {
         if (line.length > MAX_LINE) {
-          this.dbg(`forwarder ${spec.rel}: dropped an oversized line (${String(line.length)} bytes)`);
+          this.dbg(`forwarder ${spec.key}: dropped an oversized line (${String(line.length)} bytes)`);
           return;
         }
         try {
-          hostHandle ??= await open(`${this.opts.hostBridgeDir}/${spec.hostRel}`, HOST_EVENTS_FLAGS, HOST_SCRIPT_MODE);
+          hostHandle ??= await openHost();
+          if (hostHandle === undefined) return;
           await hostHandle.write(`${line.toString('utf8')}\n`);
         } catch (err) {
-          this.dbg(`forwarder ${spec.rel}: append failed: ${err instanceof Error ? err.message : String(err)}`);
+          this.dbg(`forwarder ${spec.key}: append failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       };
 
       const persist = (position: number): Promise<void> => {
-        this.offsets.offsets[spec.rel] = Math.max(0, Math.trunc(position));
+        this.offsets.offsets[spec.key] = Math.max(0, Math.trunc(position));
         this.persistChain = this.persistChain
           .then(() => saveOffsets(this.stateFile, this.offsets))
-          .catch((err: unknown) => this.dbg(`forwarder ${spec.rel}: offset persist failed: ${err instanceof Error ? err.message : String(err)}`));
+          .catch((err: unknown) => this.dbg(`forwarder ${spec.key}: offset persist failed: ${err instanceof Error ? err.message : String(err)}`));
         return this.persistChain;
       };
 
-      const consume = async (chunk: Buffer): Promise<void> => {
+      /** The protocol marker that starts every stream; returns true once consumed. */
+      const consumeMarker = (): boolean => {
+        const nl = carry.indexOf(NEWLINE);
+        // A marker line is short: an unterminated first chunk is still the marker waiting for its newline.
+        if (nl === -1) return false;
+        const first = carry.subarray(0, nl).toString('utf8');
+        carry = carry.subarray(nl + 1);
+        markerSeen = true;
+        const marked = TAIL_MARKER.exec(first);
+        if (marked !== null) {
+          const effective = Number(marked[1]);
+          if (effective !== base) this.dbg(`forwarder ${spec.key}: remote offset ${String(effective)} (stored ${String(base)})`);
+          // The remote decides the start (a truncation restarts from 0). The
+          // marker line is protocol, not file content, so it never counts.
+          base = effective;
+          received -= first.length + 1;
+        } else if (first !== '') {
+          // A first line without the marker is content: keep it for the stream.
+          carry = Buffer.concat([Buffer.from(`${first}\n`, 'utf8'), carry]);
+        }
+        return true;
+      };
+
+      const consumeLines = async (chunk: Buffer): Promise<void> => {
         received += chunk.length;
         carry = Buffer.concat([carry, chunk]);
-        if (!markerSeen) {
-          const nl = carry.indexOf(NEWLINE);
-          if (nl === -1) {
-            // A marker line is short: an unterminated first chunk is still the marker waiting for its newline.
-            return;
-          }
-          const first = carry.subarray(0, nl).toString('utf8');
-          carry = carry.subarray(nl + 1);
-          markerSeen = true;
-          const marked = TAIL_MARKER.exec(first);
-          if (marked !== null) {
-            const effective = Number(marked[1]);
-            if (effective !== base) this.dbg(`forwarder ${spec.rel}: remote offset ${String(effective)} (stored ${String(base)})`);
-            // The remote decides the start (a truncation restarts from 0). The
-            // marker line is protocol, not file content, so it never counts.
-            base = effective;
-            received -= first.length + 1;
-          } else if (first !== '') {
-            await append(Buffer.from(first, 'utf8'));
-          }
-        }
+        if (!markerSeen && !consumeMarker()) return;
         if (discarding) {
           const nl = carry.indexOf(NEWLINE);
           if (nl === -1) {
@@ -379,7 +565,7 @@ class ActiveForwarder {
           if (line.length > 0) await append(line);
         }
         if (carry.length > MAX_LINE) {
-          this.dbg(`forwarder ${spec.rel}: dropped an oversized unterminated line (${String(carry.length)} bytes)`);
+          this.dbg(`forwarder ${spec.key}: dropped an oversized unterminated line (${String(carry.length)} bytes)`);
           discarding = true;
           carry = Buffer.alloc(0);
           await persist(base + received);
@@ -389,18 +575,44 @@ class ActiveForwarder {
         await persist(base + received - carry.length);
       };
 
+      const consumeBytes = async (chunk: Buffer): Promise<void> => {
+        received += chunk.length;
+        carry = carry.length === 0 ? chunk : Buffer.concat([carry, chunk]);
+        if (!markerSeen && !consumeMarker()) return;
+        if (carry.length === 0) return;
+        try {
+          hostHandle ??= await openHost();
+          if (hostHandle === undefined) {
+            // A permanent host-side refusal (a planted link): drop the bytes and
+            // move the offset on rather than re-reading them on every reconnect.
+            carry = Buffer.alloc(0);
+            await persist(base + received);
+            return;
+          }
+          const bytes = carry;
+          await hostHandle.write(bytes);
+          carry = Buffer.alloc(0);
+        } catch (err) {
+          this.dbg(`forwarder ${spec.key}: append failed: ${err instanceof Error ? err.message : String(err)}`);
+          return; // not persisted: the next connection re-reads these bytes
+        }
+        await persist(base + received);
+      };
+
+      const consume = spec.byteExact ? consumeBytes : consumeLines;
+
       child.stdout?.on('data', (buf: Buffer) => {
         work = work.then(() => consume(buf)).catch((err: unknown) => {
-          this.dbg(`forwarder ${spec.rel}: read failed: ${err instanceof Error ? err.message : String(err)}`);
+          this.dbg(`forwarder ${spec.key}: read failed: ${err instanceof Error ? err.message : String(err)}`);
         });
       });
       child.stderr?.on('data', (buf: Buffer) => {
         const text = buf.toString('utf8');
         const line = tail(text);
-        if (line !== '') this.dbg(`forwarder ${spec.rel}: remote: ${line}`);
+        if (line !== '') this.dbg(`forwarder ${spec.key}: remote: ${line}`);
       });
       child.on('error', (err: Error) => {
-        this.dbg(`forwarder ${spec.rel}: stream error: ${err.message}`);
+        this.dbg(`forwarder ${spec.key}: stream error: ${err.message}`);
         void work.then(done);
       });
       child.on('close', () => { void work.then(done); });
@@ -415,6 +627,7 @@ class ActiveForwarder {
     }
     // A fake (or a child that ignores the signal) must not leave the wait pending.
     this.finishStream?.();
+    for (const wake of [...this.wakers]) wake();
     await this.persistChain;
   }
 }

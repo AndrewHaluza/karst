@@ -366,7 +366,7 @@ import { createTunnelDeps, windowTunnelRegistry } from './agent/ssh/sshTunnels.j
 import { hasRunningSandboxService, sshTunnelReattachTickets } from './extension/ops/sshTunnelReattach.js';
 import { confirmRemoteTrust, sshRemoteFor } from './extension/ops/sshTrustOps.js';
 import { liveRemoteSession, sshSessionQuotaLine } from './extension/ops/sshPlacementOps.js';
-import { makeTicketMirror } from './extension/ops/sshMirrorFor.js';
+import { makeTicketMirror, makeTicketMirrorDirs } from './extension/ops/sshMirrorFor.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, wantsSbxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
@@ -1323,6 +1323,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     warn: (m) => logger.warn(m),
     debug: (m) => logger.debug(m),
   });
+  // D556 edit 5: the attachment and gate-log copies a brief names travel with it.
+  const mirrorTicketDirs = makeTicketMirrorDirs({
+    trustDir: storageDir,
+    placementOf: (id) => getPlacement(localStore, id),
+    remotes: () => currentManifest()?.remotes,
+    bridgeRoot: () => bridgeRoot,
+    ssh: NODE_SSH_PROCESS,
+    ensureControlDir: (dir) => ensureSshControlDir(dir),
+    warn: (m) => logger.warn(m),
+    debug: (m) => logger.debug(m),
+  });
   const graphDeps = createGraphDepsPreflight({ manifest: currentManifest, domainsOf: (id) => graphDomainsFor(id), gitCommonDirOf: gitCommonDirFromFs });
   sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), sshRunner: sshRunnerDeps, startSshBridge: sshBridge.start, controls: (id) => autopilotControls(id) || sandboxLife.controls(id) }); // AC-32, D823: only the controlling window re-opens ssh tunnels (the session owner, or this project when no window runs the ticket: a kept stack)
   // The host gate re-run (@arch:AC-45): one dependency set for its three call sites, run through `runGateList`.
@@ -2209,6 +2220,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
     bridgePaths: (id) => sandboxB?.deps.bridgeOf?.(id), storageDir: context.globalStorageUri.fsPath,
     mirror: (id, rel, body) => mirrorTicketFile(id, rel, body),
+    mirrorDirs: (id) => mirrorTicketDirs(id),
     literal: () => cliLiteral(context, dbPath),
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
@@ -6451,6 +6463,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore,
     listTerminals: () => vscode.window.terminals,
     identifyTerminal: (terminal) => terminalIdentity.identify(terminal as vscode.Terminal),
+    bridgeRoot: () => bridgeRoot,
     onRollout: (id, sid, text) => interactiveUsageLimit.onCodexRollout(id, sid, text),
     debug: (message) => logger.debug(message),
     logError,

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { GateProcessRunner, ProcessOutcome, RunProcessOptions } from '../../workflow/gates/run.js';
 import { fakeSbxProcess } from '../sbx/fakeSbxProcess.js';
 import { SHELL_NO_SANDBOX } from '../sandboxShell.js';
 import type { BridgePaths } from '../bridge/bridgeDir.js';
+import { encodeClaudeProjectDir } from '../claudeTranscriptWatch.js';
 import { fakeSshProcess, type FakeSshAnswer } from './fakeSshProcess.js';
+import { recordRemoteTrust } from './remoteTrust.js';
 import { createSshGateRegistry, sshGateKey } from './sshGateRegistry.js';
 import { createSshSessionRunner, interactiveScript, type SshRunnerOptions } from './sshRunner.js';
 import { disposeTarget } from './sshDisposeGuard.js';
@@ -31,7 +36,8 @@ function runner(ssh: Ssh, over: Partial<SshRunnerOptions> = {}) {
   return createSshSessionRunner({
     ssh, sshBin: 'ssh', host: fakeSbxProcess(), remote: REMOTE, remoteName: 'devbox', sandboxName: NAME,
     projectPrefix: PREFIX, controlDir: '/tmp/karst-ssh-0/', core: 'claude', ticketId: 7, hostWorktreePath: WT,
-    tmux: true, registry: createSshGateRegistry(), newRunId: () => RUN_ID, killGraceSeconds: 0, tunnels: fakeTunnels().registry, ...over,
+    tmux: true, registry: createSshGateRegistry(), newRunId: () => RUN_ID, killGraceSeconds: 0, tunnels: fakeTunnels().registry,
+    ensureControlDir: async () => ({ ok: true as const }), ...over,
   });
 }
 
@@ -435,5 +441,85 @@ describe('runGate service env file (D823)', () => {
     const out = await runner(fakeSshProcess(), { gateProcess: g }).runGate!('sh', ['-c', 'true'], WT, { envFile });
     expect(out).toMatchObject({ kind: 'spawnFailed' });
     expect(g.seen).toHaveLength(0);
+  });
+});
+
+describe('transcripts and mirrors (D556 edit 5)', () => {
+  const temp = (prefix: string): string => mkdtempSync(join(tmpdir(), prefix));
+  const confirmedTrust = async (): Promise<string> => {
+    const dir = temp('karst-ssh-runner-trust-');
+    await recordRemoteTrust(dir, 'devbox', REMOTE);
+    return dir;
+  };
+  /** A host bridge dir with the two mirrored kinds the launch and a gate produce. */
+  const hostBridgeWithMirrors = (): string => {
+    const dir = temp('karst-ssh-runner-bridge-');
+    mkdirSync(join(dir, 'attachments'), { recursive: true });
+    mkdirSync(join(dir, 'logs'), { recursive: true });
+    writeFileSync(join(dir, 'attachments', 'a.txt'), 'A');
+    writeFileSync(join(dir, 'logs', 'gate.log'), 'G');
+    return dir;
+  };
+  const mirrorScripts = (ssh: Ssh): string[] =>
+    ssh.stdinCalls.map((c) => scriptOf(c.args)).filter((s) => s.includes('# karst-ssh-mirror'));
+
+  it('claude links the remote project dir into the run dir, copying an existing one first', async () => {
+    const ssh = fakeSshProcess();
+    const out = await runner(ssh).linkTranscripts!({ bridgeDir: BRIDGE, hostWorktreePath: WT });
+    expect(out).toEqual({ ok: true });
+    expect(ssh.calls).toHaveLength(1);
+    const script = scriptOf(ssh.calls[0]!.args);
+    expect(script).toContain('ln -s "$t" "$d"');
+    expect(script).toContain('cp -a "$d"/. "$t"/');
+    expect(script).toContain(`${WS}/bridge/7/claude-projects/${encodeClaudeProjectDir(REPO)}`);
+  });
+
+  it('codex writes the rollout list instead of a link', async () => {
+    const ssh = fakeSshProcess();
+    const out = await runner(ssh, { core: 'codex', sandboxName: `${PREFIX}-7-codex` }).linkTranscripts!({ bridgeDir: BRIDGE, hostWorktreePath: WT });
+    expect(out).toEqual({ ok: true });
+    const script = scriptOf(ssh.calls[0]!.args);
+    expect(script).toContain(`/srv/karst/${PREFIX}-7-codex/bridge/7/codex-rollouts.txt`);
+    expect(script).toContain(`grep -qF -- '/srv/karst/${PREFIX}-7-codex/repo'`);
+    expect(script).not.toContain('ln -s');
+  });
+
+  it('makes zero ssh calls for an unconfirmed remote', async () => {
+    const ssh = fakeSshProcess();
+    const out = await runner(ssh, { trustDir: temp('karst-ssh-runner-untrusted-') }).linkTranscripts!({ bridgeDir: BRIDGE, hostWorktreePath: WT });
+    expect(out).toEqual({ ok: false, reason: 'ssh remote devbox not confirmed' });
+    expect(ssh.calls).toEqual([]);
+    expect(ssh.stdinCalls).toEqual([]);
+    expect(ssh.streams).toEqual([]);
+  });
+
+  it('no linkTranscripts for a core with no transcript (opencode)', () => {
+    expect(runner(fakeSshProcess(), { core: 'opencode', sandboxName: `${PREFIX}-7-opencode` }).linkTranscripts).toBeUndefined();
+  });
+
+  it('mirrors attachments and logs into the remote run dir at launch', async () => {
+    const ssh = fakeSshProcess();
+    const hostBridge = hostBridgeWithMirrors();
+    await runner(ssh, { trustDir: await confirmedTrust() }).prepareInteractive!(spec({ bridgeDir: hostBridge }));
+    const scripts = mirrorScripts(ssh).join('\n');
+    expect(scripts).toContain(`${WS}/bridge/7/attachments/a.txt`);
+    expect(scripts).toContain(`${WS}/bridge/7/logs/gate.log`);
+  });
+
+  it('mirrors them again after each gate', async () => {
+    const ssh = fakeSshProcess(exitAnswer({ stdout: `${RUN_ID}:0\n` }));
+    const r = runner(ssh, { gateProcess: gate(completed(0)), trustDir: await confirmedTrust() });
+    await r.prepareInteractive!(spec({ bridgeDir: hostBridgeWithMirrors() }));
+    const atLaunch = mirrorScripts(ssh).length;
+    await r.runGate!('true', [], WT);
+    expect(mirrorScripts(ssh).length).toBe(atLaunch + 2);
+  });
+
+  it('the launch mirror makes zero ssh calls for an unconfirmed remote', async () => {
+    // The upload refuses first (the runner exists only after trust): no mirror call ever runs.
+    const ssh = fakeSshProcess();
+    await expect(runner(ssh, { trustDir: temp('karst-ssh-runner-untrusted-') })
+      .prepareInteractive!(spec({ bridgeDir: hostBridgeWithMirrors() }))).rejects.toThrow(/not confirmed/);
+    expect(mirrorScripts(ssh)).toEqual([]);
   });
 });

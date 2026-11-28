@@ -1,11 +1,14 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdirSync, symlinkSync } from 'node:fs';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import { buildFileHookSettings } from '../fileHookSettings.js';
+import { encodeClaudeProjectDir } from '../claudeTranscriptWatch.js';
+import { sweepClaudeTranscript } from '../claudeTranscriptSweep.js';
 import { sandboxMarkerCommand } from '../sandboxInstructions.js';
 import { recordRemoteTrust } from './remoteTrust.js';
 import {
@@ -52,10 +55,19 @@ class FakeSsh implements SshProcess {
   readonly spawns: string[][] = [];
   readonly runs: Array<{ args: string[]; stdin?: string }> = [];
   readonly streams: FakeStream[] = [];
-  constructor(private readonly onSpawn?: (stream: FakeStream, index: number) => void) {}
+  constructor(
+    private readonly onSpawn?: (stream: FakeStream, index: number) => void,
+    private readonly onRun?: (args: readonly string[]) => { code?: number; stdout?: string; stderr?: string } | undefined,
+  ) {}
   run(args: readonly string[]): Promise<SshResult> {
     this.runs.push({ args: [...args] });
-    return Promise.resolve({ code: 0, stdout: '', stdoutBuffer: Buffer.alloc(0), stderr: '' });
+    const custom = this.onRun?.(args);
+    return Promise.resolve({
+      code: custom?.code ?? 0,
+      stdout: custom?.stdout ?? '',
+      stdoutBuffer: Buffer.from(custom?.stdout ?? ''),
+      stderr: custom?.stderr ?? '',
+    });
   }
   runWithStdin(args: readonly string[], stdin: Buffer | NodeJS.ReadableStream): Promise<SshResult> {
     this.runs.push({ args: [...args], stdin: Buffer.isBuffer(stdin) ? stdin.toString('utf8') : undefined });
@@ -336,5 +348,121 @@ describe('script and plugin upload (edit 3)', () => {
     const settings = buildFileHookSettings({ endpointUrl: `file://${RUN_DIR}/events.ndjson`, configDir: hostBridgeDir, runDir: RUN_DIR }, 'claude');
     expect(settings).toContain(`${RUN_DIR}/claude/bridge.cjs`);
     expect(settings).not.toContain(hostBridgeDir);
+  });
+});
+
+describe('transcript forwarding (edit 5)', () => {
+  const SESSION = '11111111-1111-4111-8111-111111111111';
+  const REMOTE_REPO = `${WS}/repo`;
+  const ENC = encodeClaudeProjectDir(REMOTE_REPO);
+  const CLAUDE_REL = `${ENC}/${SESSION}.jsonl`;
+  const claudeHostFile = (): string => join(hostBridgeDir, 'claude-projects', ENC, `${SESSION}.jsonl`);
+  const textOf = async (file: string): Promise<string | undefined> => {
+    try {
+      return await readFile(file, 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  const assistantLine = (uuid: string, input: number, output: number): string =>
+    JSON.stringify({ type: 'assistant', uuid, message: { usage: { input_tokens: input, output_tokens: output } } });
+  /** Answer the claude tree listing with `names`; every other script keeps the default. */
+  const listing = (names: readonly string[]) => (args: readonly string[]): { stdout: string } | undefined => {
+    const script = args.at(-1) ?? '';
+    return script.includes('# karst-ssh-transcripts') ? { stdout: `${names.join('\n')}\n` } : undefined;
+  };
+
+  it('forwards a remote .jsonl and the host sweep meters it exactly once', async () => {
+    const line = assistantLine('u1', 10, 5);
+    const ssh = new FakeSsh(
+      (stream, index) => {
+        if ((ssh.spawns[index - 1]!.at(-1) ?? '').includes('claude-projects')) {
+          stream.push(`KARST_TAIL_OFFSET=0\n${line}\n`);
+        }
+      },
+      listing([CLAUDE_REL]),
+    );
+    await recordRemoteTrust(trustDir, NAME, REMOTE);
+    await start(ssh);
+    await waitFor(async () => (await textOf(claudeHostFile())) === `${line}\n`, 'the forwarded transcript');
+
+    const state = { transcriptPath: null as string | null, eventId: null as string | null, fingerprint: null as { mtimeMs: number; size: number } | null };
+    const dispatched: Array<{ hook_event_name: string; usage: Record<string, unknown> }> = [];
+    const sweep = () => sweepClaudeTranscript(
+      {
+        stat: async (p) => { const st = await stat(p); return { mtimeMs: st.mtimeMs, size: st.size }; },
+        readFile: (p) => readFile(p, 'utf8'),
+        debug: () => undefined,
+        onError: () => undefined,
+        onTranscript: () => undefined,
+        dispatch: (payload) => { dispatched.push(payload as unknown as { hook_event_name: string; usage: Record<string, unknown> }); },
+      },
+      { ticketId: TICKET, sessionId: SESSION, transcriptPath: claudeHostFile(), cwd: '/host/wt', state },
+    );
+    expect(await sweep()).toBe('swept');
+    expect(await sweep()).toBe('unchanged');
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]).toMatchObject({ hook_event_name: 'UsageUpdate', usage: { event_id: 'u1', input: 10, output: 5 } });
+  });
+
+  it('skips dot-dot, a third part and a space, and logs every refused name', async () => {
+    const line = assistantLine('u2', 1, 1);
+    const logged: string[] = [];
+    const ssh = new FakeSsh(
+      (stream, index) => {
+        if ((ssh.spawns[index - 1]!.at(-1) ?? '').includes('claude-projects')) {
+          stream.push(`KARST_TAIL_OFFSET=0\n${line}\n`);
+        }
+      },
+      listing(['../escape.jsonl', 'a/b/c.jsonl', 'bad name/x.jsonl', CLAUDE_REL]),
+    );
+    await recordRemoteTrust(trustDir, NAME, REMOTE);
+    await start(ssh, { debug: (m: string) => logged.push(m) });
+    await waitFor(async () => (await textOf(claudeHostFile())) === `${line}\n`, 'the one accepted transcript');
+    expect(logged.join('\n')).toMatch(/skipped a refused name "\.\.\/escape\.jsonl"/);
+    expect(logged.join('\n')).toMatch(/skipped a refused name "a\/b\/c\.jsonl"/);
+    expect(logged.join('\n')).toMatch(/skipped a refused name "bad name\/x\.jsonl"/);
+    const transcriptStreams = ssh.spawns.filter((args) => (args.at(-1) ?? '').includes('claude-projects'));
+    expect(transcriptStreams).toHaveLength(1);
+  });
+
+  it('refuses a host-side symlink at the forwarded name and logs it', async () => {
+    const outside = join(root, 'outside.jsonl');
+    await writeFile(outside, 'ORIGINAL\n');
+    mkdirSync(join(hostBridgeDir, 'claude-projects', ENC), { recursive: true });
+    symlinkSync(outside, claudeHostFile());
+    const logged: string[] = [];
+    const ssh = new FakeSsh(
+      (stream, index) => {
+        if ((ssh.spawns[index - 1]!.at(-1) ?? '').includes('claude-projects')) {
+          stream.push(`KARST_TAIL_OFFSET=0\n${assistantLine('u3', 2, 2)}\n`);
+        }
+      },
+      listing([CLAUDE_REL]),
+    );
+    await recordRemoteTrust(trustDir, NAME, REMOTE);
+    await start(ssh, { debug: (m: string) => logged.push(m) });
+    await waitFor(() => logged.some((m) => /refused the host copy/.test(m)), 'the refusal log');
+    expect(await readFile(outside, 'utf8')).toBe('ORIGINAL\n');
+  });
+
+  it('forwards a codex rollout into <hostBridge>/codex-sessions/', async () => {
+    const codexRel = `2026/11/28/rollout-2026-11-28T09-00-00-${SESSION}.jsonl`;
+    const line = JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete' } });
+    const onRun = (args: readonly string[]): { stdout: string } | undefined =>
+      (args.at(-1) ?? '').includes('# karst-ssh-codex-list') ? { stdout: `${codexRel}\n` } : undefined;
+    const ssh = new FakeSsh(
+      (stream, index) => {
+        if ((ssh.spawns[index - 1]!.at(-1) ?? '').includes('.codex/sessions')) {
+          stream.push(`KARST_TAIL_OFFSET=0\n${line}\n`);
+        }
+      },
+      onRun,
+    );
+    await recordRemoteTrust(trustDir, NAME, REMOTE);
+    await start(ssh);
+    const host = join(hostBridgeDir, 'codex-sessions', codexRel.split('/').at(-1)!);
+    await waitFor(async () => (await textOf(host)) === `${line}\n`, 'the forwarded rollout');
+    expect(await textOf(host)).toBe(`${line}\n`);
   });
 });

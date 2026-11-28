@@ -134,6 +134,7 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
       // A host step has no preflight (`withRemoteDockerUser` probes the REMOTE ids
       // for the ops that need them): the launch resolved runs as the remote user.
       user,
+      ...(deps.ensureControlDir !== undefined ? { ensureControlDir: deps.ensureControlDir } : {}),
       memory: resolveDockerMemoryLimits(ticket.memTotalBytes, ticket.sandboxMemory),
       tunnels,
       ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
@@ -187,7 +188,7 @@ export function sshDockerKillContextFor(
 /** The async ops that reach the remote: each first makes sure the control dir is private. */
 const REMOTE_OPS = [
   'sync', 'refresh', 'fetchClone', 'diff', 'shellCommand', 'stop', 'dispose', 'rebuild', 'hasSandbox', 'probeSandbox',
-  'oomReport', 'ensureWritable', 'ensureCloneReady', 'prepareInteractive', 'runGate',
+  'oomReport', 'ensureWritable', 'ensureCloneReady', 'prepareInteractive', 'runGate', 'linkTranscripts',
   // `mode: docker` remote ops (D822): a setup window, a port relay, a service env
   // file and the host-service allow all reach the remote daemon.
   'setupWindow', 'canHostServices', 'stopServices', 'publishPort', 'unpublishPort', 'listPorts', 'allowHostPorts',

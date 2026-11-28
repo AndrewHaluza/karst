@@ -311,6 +311,7 @@ async function resolveDockerSteps(
     ticketId: input.ticketId, names, user, hostWorktreePath: worktree.hostWorktreePath,
     projectPrefix: sshProjectPrefix(input.projectRoot, input.installId), memory,
     ...(deps.trustDir !== undefined ? { trustDir: deps.trustDir } : {}),
+    ...(deps.ensureControlDir !== undefined ? { ensureControlDir: deps.ensureControlDir } : {}),
     ...(deps.debug ? { debug: deps.debug } : {}),
   });
   // tmux carries the direct session only: a docker launch is `ssh -t … docker run -it`, so a
