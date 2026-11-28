@@ -152,6 +152,7 @@ describe('precheckBaselines', () => {
     ticket: { title: 'Move the save button', description: 'The button moves.', brief: '' },
     uiPaths: ['src/ui/settings/app/Save.tsx'],
     tester: { assignment: ASSIGNMENT, adapter: answer('{"entries":[]}').adapter },
+    catalog: bundledModelCatalog,
     ...over,
   });
 

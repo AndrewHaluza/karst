@@ -9,7 +9,7 @@ import { noChangeClaimFor } from '../noChangeClaim.js';
 import { runnableSubset, unitsOf, unitsOfRepos } from '../../manifest/runnable.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
-import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { bundledModelCatalog, type ModelCatalog } from '../../agent/modelCatalog.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { GateRunInput, GateSkipReason } from '../../store/gateRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
@@ -923,7 +923,8 @@ export async function runUat(
         decisions: latestBaselineDecisions(store, opts.ticketId),
         ticket: getTicket(store, opts.ticketId),
         ...(tester === undefined ? {} : { tester }),
-        ...(deps.catalog === undefined ? {} : { catalog: deps.catalog }),
+        // The bundled fallback lives here: uat.ts is an accepted agent seam, the gate is not.
+        catalog: deps.catalog ?? bundledModelCatalog,
         git,
         ...(opts.debug === undefined ? {} : { debug: opts.debug }),
         ...(opts.onTesterOutput === undefined ? {} : { onLiveOutput: opts.onTesterOutput }),

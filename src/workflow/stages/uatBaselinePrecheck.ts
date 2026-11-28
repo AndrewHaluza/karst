@@ -47,9 +47,9 @@ export interface UatBaselinePrecheckInput {
   tester?: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
   /**
    * The loaded model catalog, read only for the image-capability check of the
-   * Tester's model. Absent → the gate falls back to the bundled catalog.
+   * Tester's model. The UAT step passes the loaded catalog or the bundled one.
    */
-  catalog?: () => ModelCatalog;
+  catalog: () => ModelCatalog;
   /** The stage's git seam; reads the branch's `src/ui` diff for the prompt. */
   git: GitRunner;
   debug?: (message: string) => void;
@@ -145,7 +145,7 @@ export async function runUatBaselinePrecheck(
       },
       uiPaths,
       ...(input.tester === undefined ? {} : { tester: input.tester }),
-      ...(input.catalog === undefined ? {} : { catalog: input.catalog }),
+      catalog: input.catalog,
       ...(input.debug === undefined ? {} : { debug: input.debug }),
       ...(input.onLiveOutput === undefined ? {} : { onLiveOutput: input.onLiveOutput }),
       ...(input.stageRunId === undefined ? {} : { stageRunId: input.stageRunId }),

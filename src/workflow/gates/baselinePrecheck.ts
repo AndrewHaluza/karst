@@ -28,7 +28,7 @@ import { mkdir, rm, writeFile as writeFileToDisk } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
-import { bundledModelCatalog, type ModelCatalog } from '../../agent/modelCatalog.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import {
@@ -122,10 +122,11 @@ export interface BaselinePrecheckInput {
   tester?: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
   /**
    * The loaded model catalog (`catalog: () => modelCatalog` in the host), read
-   * only to decide whether the Tester's model can read images. Absent → the
-   * bundled catalog.
+   * only to decide whether the Tester's model can read images. The UAT step
+   * passes the bundled catalog when the host has none (this layer may not
+   * value-import `agent/`).
    */
-  catalog?: () => ModelCatalog;
+  catalog: () => ModelCatalog;
   debug?: (message: string) => void;
   onLiveOutput?: (chunk: HeadlessOutputChunk) => void;
   timeoutMs?: number;
@@ -208,7 +209,7 @@ export async function precheckBaselines(
   if (!input.enabled) return skipped('pre-check disabled');
   const tester = input.tester;
   if (tester === undefined) return skipped('no UAT tester');
-  const catalog = input.catalog ?? bundledModelCatalog;
+  const catalog = input.catalog;
   // An unreadable catalog is an UNKNOWN capability, and unknown runs: the gate
   // never throws to its caller, exactly like every other failure here.
   let canReadImages: boolean;
