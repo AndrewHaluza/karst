@@ -1248,6 +1248,31 @@ describe('ssh reattach re-opens the tunnels, only in the controlling window (D82
     expect(debug).toHaveBeenCalledWith('[runtime] ticket 7: ssh reattach skipped: this window does not control the ticket');
   });
 
+  it('a window without a controls seam reattaches an ssh ticket', async () => {
+    const store = await seeded();
+    const after = fakeTunnels();
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    await expect(reattachTicketSandbox(sshDeps(ssh, after), store, manifest, 7, () => Promise.resolve(true)))
+      .resolves.toEqual({ republished: ['api'], dropped: [] });
+  });
+
+  it('a window that does not control the ticket skips it without a debug seam', async () => {
+    const store = await seeded();
+    const after = fakeTunnels();
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    await expect(reattachTicketSandbox(sshDeps(ssh, after, { controls: () => false }), store, manifest, 7, () => Promise.resolve(true)))
+      .resolves.toBeNull();
+    expect(after.spawned).toHaveLength(0);
+  });
+
+  it('a ticket with no recorded placement does not read controls', async () => {
+    const store = openStore(':memory:');
+    const controls = vi.fn(() => false);
+    await expect(reattachTicketSandbox(deps({ proc: fakeSbxProcess(), placementOf: () => null, controls }), store, manifest, 7, () => Promise.resolve(true)))
+      .resolves.toBeNull();
+    expect(controls).not.toHaveBeenCalled();
+  });
+
   it('controls is read only for an ssh placement: an sbx ticket reattaches whatever it says', async () => {
     const store = openStore(':memory:');
     const controls = vi.fn(() => false);

@@ -119,9 +119,8 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
   const ssh = deps.ssh ?? NODE_SSH_PROCESS;
   // Resolved once: every docker rebuild (`withRemoteDockerUser`) shares one registry.
   const tunnels = deps.tunnels ?? defaultSshTunnels(ssh, deps);
-  const log = {
-    ...(deps.info ? { info: deps.info } : {}), ...(deps.warn ? { warn: deps.warn } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
-  };
+  // `warn` goes only to the tunnel registry above: a runner given `tunnels` reads no `warn`.
+  const log = { ...(deps.info ? { info: deps.info } : {}), ...(deps.debug ? { debug: deps.debug } : {}) };
   if (def.mode === 'docker') {
     // The remote image ships opencode v1 and v2 only (D822): no claude, no codex, no agy.
     if (!isSshDockerCore(core)) return blockedSshRunner(sshDockerCoreRefusal(core));
@@ -136,8 +135,7 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
       user,
       memory: resolveDockerMemoryLimits(ticket.memTotalBytes, ticket.sandboxMemory),
       tunnels,
-      ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.warn ? { warn: deps.warn } : {}),
-      ...(deps.debug ? { debug: deps.debug } : {}),
+      ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
     });
     const runner = withRemoteDockerUser(build(undefined), build, () => remoteDockerUser(ssh, def, controlDir));
     return withControlDir(runner, () => (deps.ensureControlDir ?? ensureSshControlDir)(controlDir));
