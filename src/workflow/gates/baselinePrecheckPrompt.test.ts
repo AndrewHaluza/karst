@@ -81,6 +81,37 @@ describe('parseBaselinePrecheckAnswer', () => {
     expect(parsed?.get('web:a.png')).toBe('ok');
   });
 
+  it('reads the JSON object from a final message wrapped in prose (antigravity shape)', () => {
+    const message = [
+      'I looked at both images for the save button change.',
+      '',
+      '{"entries":[{"path":"web:a.png","verdict":"approve","reason":"button moved right"}]}',
+      '',
+      'That is my review.',
+    ].join('\n');
+    const parsed = parseBaselinePrecheckAnswer(message, labels, message);
+    expect(parsed?.get('web:a.png')).toBe('button moved right');
+  });
+
+  it('reads the JSON object from a fenced block surrounded by prose (opencode shape)', () => {
+    const message = [
+      'Here is the review:',
+      '```json',
+      '{"entries":[{"path":"web:b.png","verdict":"approve","reason":"intended"}]}',
+      '```',
+    ].join('\n');
+    const parsed = parseBaselinePrecheckAnswer('streamed narration', labels, message);
+    expect(parsed?.get('web:b.png')).toBe('intended');
+  });
+
+  it('prefers a shaped answer over an unrelated JSON object in the same message', () => {
+    const parsed = parseBaselinePrecheckAnswer(
+      '{"type":"session","meta":{"tool":"read"}} {"entries":[{"path":"web:c.png","verdict":"approve","reason":"ok"}]}',
+      labels,
+    );
+    expect(parsed?.get('web:c.png')).toBe('ok');
+  });
+
   it('falls back to the core final message when the raw stream is unreadable', () => {
     const parsed = parseBaselinePrecheckAnswer(
       'narration only',
@@ -88,6 +119,34 @@ describe('parseBaselinePrecheckAnswer', () => {
       JSON.stringify({ entries: [{ path: 'web:a.png', verdict: 'approve', reason: 'ok' }] }),
     );
     expect(parsed?.get('web:a.png')).toBe('ok');
+  });
+
+  it('reads the last shaped answer in raw, never an earlier approve draft', () => {
+    const raw = [
+      'Draft: {"entries":[{"path":"web:a.png","verdict":"approve","reason":"looks ok"}]}',
+      'On a second look the text is clipped.',
+      '{"entries":[{"path":"web:a.png","verdict":"human","reason":"clipped text"}]}',
+    ].join('\n');
+    expect(parseBaselinePrecheckAnswer(raw, labels)?.get('web:a.png')).toBeUndefined();
+  });
+
+  it('reads the last fenced answer, never an earlier fenced approve draft', () => {
+    const raw = [
+      '```json',
+      '{"entries":[{"path":"web:a.png","verdict":"approve","reason":"looks ok"}]}',
+      '```',
+      'Correction:',
+      '```json',
+      '{"entries":[{"path":"web:a.png","verdict":"human","reason":"clipped text"}]}',
+      '```',
+    ].join('\n');
+    expect(parseBaselinePrecheckAnswer(raw, labels)?.get('web:a.png')).toBeUndefined();
+  });
+
+  it('prefers the core final message over an approve draft in the raw stream', () => {
+    const raw = '{"entries":[{"path":"web:a.png","verdict":"approve","reason":"looks ok"}]}';
+    const final = '{"entries":[{"path":"web:a.png","verdict":"human","reason":"clipped text"}]}';
+    expect(parseBaselinePrecheckAnswer(raw, labels, final)?.get('web:a.png')).toBeUndefined();
   });
 
   it('is unreadable for prose and a wrong shape', () => {
@@ -133,6 +192,25 @@ describe('buildBaselinePrecheckPrompt', () => {
     expect(prompt).toContain('"approve"');
     expect(prompt).toContain('"human"');
     expect(prompt).toContain('"verdict"');
+  });
+
+  it('names no core-specific tool and tells the model to open each image and look at it', () => {
+    const prompt = buildBaselinePrecheckPrompt({
+      ticket: { title: 't', description: '', brief: '' },
+      uiPaths: [],
+      targets: [target({ label: 'web:a.png' })],
+    });
+    expect(prompt).not.toContain('Read tool');
+    expect(prompt).toContain('open EACH image file below and look at it');
+  });
+
+  it('rules that an image whose pixels cannot be seen answers "human"', () => {
+    const prompt = buildBaselinePrecheckPrompt({
+      ticket: { title: 't', description: '', brief: '' },
+      uiPaths: [],
+      targets: [target({ label: 'web:a.png' })],
+    });
+    expect(prompt).toContain('If you cannot see the pixels of an image, answer "human" for that entry.');
   });
 
   it('bounds an oversized ticket description', () => {

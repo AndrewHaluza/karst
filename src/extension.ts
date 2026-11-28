@@ -3884,6 +3884,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // process: nothing is created or instrumented for the disabled role,
           // and the Fix seam performs no launch or nudge.
           uatTester: (id, override) => processFor(id, 'uat-tester', override),
+          // The loaded model catalog (replaced when the feed arrives), read by
+          // the UAT baseline pre-check for the Tester model's image capability
+          // (@arch:BASELINE-PRECHECK). Passed as a function so the pre-check
+          // always sees the catalog in force at run time.
+          catalog: () => modelCatalog,
           reviewProcess: (id, override) => processFor(id, 'review', override),
           laneProvider: carriedPick.laneProvider,
           carryActivity: carriedPick.carryActivity,

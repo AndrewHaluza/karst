@@ -11,6 +11,7 @@
 
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
@@ -44,6 +45,11 @@ export interface UatBaselinePrecheckInput {
   ticket: UatBaselinePrecheckTicket;
   /** The Tester's assignment and adapter; the pre-check reuses them (no new process role). */
   tester?: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
+  /**
+   * The loaded model catalog, read only for the image-capability check of the
+   * Tester's model. The UAT step passes the loaded catalog or the bundled one.
+   */
+  catalog: () => ModelCatalog;
   /** The stage's git seam; reads the branch's `src/ui` diff for the prompt. */
   git: GitRunner;
   debug?: (message: string) => void;
@@ -139,6 +145,7 @@ export async function runUatBaselinePrecheck(
       },
       uiPaths,
       ...(input.tester === undefined ? {} : { tester: input.tester }),
+      catalog: input.catalog,
       ...(input.debug === undefined ? {} : { debug: input.debug }),
       ...(input.onLiveOutput === undefined ? {} : { onLiveOutput: input.onLiveOutput }),
       ...(input.stageRunId === undefined ? {} : { stageRunId: input.stageRunId }),

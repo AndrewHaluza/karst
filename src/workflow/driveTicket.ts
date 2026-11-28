@@ -22,6 +22,7 @@ import {
 import { nowIso } from '../model/time.js';
 import { resolveLaneProcess, type CarryLaneRole } from './carriedPick.js';
 import type { AgentProvider } from '../manifest/types.js';
+import type { ModelCatalog } from '../agent/modelCatalog.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
 import type { IntegrateOutcome } from './subtaskIntegration.js';
 import { runUat, type UatSpin, type UatStopServers } from './stages/uat.js';
@@ -142,6 +143,13 @@ export interface DriveTicketDeps {
     /** A carried usage-limit pick (@arch:AC-65): the core/model for this one run. */
     override?: { provider: AgentProvider; model: string | null },
   ) => DriveProcessBundle | null;
+  /**
+   * The loaded model catalog (the host's `modelCatalog`, which the feed
+   * replaces once it loads). The UAT baseline pre-check reads it only to
+   * decide whether the Tester's model can read images
+   * (@arch:BASELINE-PRECHECK). Absent → the pre-check uses the bundled catalog.
+   */
+  catalog?: () => ModelCatalog;
   /**
    * The lane guard's provider read (@arch:AC-65): the role's resolved provider
    * WITHOUT building an adapter, so the guard can look for a carried pick
@@ -509,6 +517,7 @@ export async function driveTicket(
             },
             {
               tester,
+              ...(deps.catalog === undefined ? {} : { catalog: deps.catalog }),
               runVerifier: deps.runVerifier,
               spin: deps.spin ?? spinTicket,
               stopServers: deps.stopServers ?? stopTicketServers,
