@@ -3,6 +3,7 @@ import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { mirrorBridgeMirrors, mirrorToRemote, type MirrorDirsResult, type MirrorResult, type SshMirrorDeps } from '../../agent/ssh/sshMirror.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import { sshPlacementTarget } from './sshPlacementOps.js';
+import { sshBridgeWorkspace } from './sshBridgeOps.js';
 
 /**
  * The ticket-level mirror seam (D556, edit 2): `mirrorToRemote` needs the remote
@@ -27,7 +28,7 @@ export function makeTicketMirror(deps: TicketMirrorDeps): TicketMirror {
     if (target === undefined) return { ok: true };
     const def = deps.remotes()?.[target.remote];
     if (def === undefined) return { ok: false, reason: `ssh remote ${target.remote} not in karst.yml` };
-    const workspace = `${def.remoteDir.replace(/\/+$/, '')}/${target.sandboxName}`;
+    const workspace = sshBridgeWorkspace(def, target.sandboxName);
     return mirrorToRemote({ name: target.remote, def }, `${workspace}/bridge/${String(ticketId)}`, rel, body, deps);
   };
 }
@@ -56,7 +57,7 @@ export function makeTicketMirrorDirs(deps: TicketMirrorDirsDeps): TicketMirrorDi
     }
     const root = deps.bridgeRoot();
     if (root === undefined) return { ok: true, mirrored: [], skipped: [] };
-    const workspace = `${def.remoteDir.replace(/\/+$/, '')}/${target.sandboxName}`;
+    const workspace = sshBridgeWorkspace(def, target.sandboxName);
     return mirrorBridgeMirrors(
       { name: target.remote, def },
       `${workspace}/bridge/${String(ticketId)}`,

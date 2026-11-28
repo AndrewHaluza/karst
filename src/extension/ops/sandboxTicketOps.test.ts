@@ -967,6 +967,38 @@ describe('an ssh placement on a mode: docker remote uses the ssh docker runner (
   const remoteScript = (args: readonly string[]): string =>
     (args.at(-1) ?? '').replaceAll(`'\\''`, "'").replaceAll("'", '').replace(/^sh -c /, '');
 
+  describe('reattach restarts the ssh evidence bridge forwarder (D556 edit 6)', () => {
+    const manifest = { repositories: {} } as unknown as Manifest;
+    const ok = () => Promise.resolve(true);
+
+    it('starts the forwarder of an ssh ticket once', async () => {
+      const startSshBridge = vi.fn(async () => 'started' as const);
+      await reattachTicketSandbox(dockerTicket(fakeSshProcess(), { startSshBridge }), openStore(':memory:'), manifest, 7, ok);
+      expect(startSshBridge.mock.calls).toEqual([[7]]);
+    });
+
+    it('an ssh ticket without the forwarder seam reattaches without it', async () => {
+      const debug = vi.fn();
+      await expect(reattachTicketSandbox(dockerTicket(fakeSshProcess(), { debug }), openStore(':memory:'), manifest, 7, ok)).resolves.not.toBeNull();
+      expect(debug.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('ssh bridge'))).toEqual([]);
+    });
+
+    it('a rejected start is logged with its exact text and the reattach goes on', async () => {
+      const debug = vi.fn();
+      const startSshBridge = vi.fn(() => Promise.reject(new Error('ssh down')));
+      await expect(reattachTicketSandbox(dockerTicket(fakeSshProcess(), { startSshBridge, debug }), openStore(':memory:'), manifest, 7, ok)).resolves.not.toBeNull();
+      expect(debug).toHaveBeenCalledWith('[runtime] ticket 7: ssh bridge forwarder did not start: ssh down');
+    });
+
+    it('never starts a forwarder for a non-ssh or unplaced ticket', async () => {
+      const startSshBridge = vi.fn(async () => 'started' as const);
+      const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${SBX}\n` } });
+      await reattachTicketSandbox(deps({ proc, startSshBridge }), openStore(':memory:'), manifest, 7, ok);
+      await reattachTicketSandbox(deps({ proc, startSshBridge, placementOf: () => ({ backend: 'sbx', core: 'claude', sandboxName: SBX, reason: null }) }), openStore(':memory:'), manifest, 7, ok);
+      expect(startSshBridge).not.toHaveBeenCalled();
+    });
+  });
+
   it('ticketSandboxRunner returns the ssh docker runner, with its setup window, over ssh', async () => {
     const ssh = fakeSshProcess();
     const found = ticketSandboxRunner(dockerTicket(ssh), 7);

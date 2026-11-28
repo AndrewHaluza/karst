@@ -116,6 +116,20 @@ describe('conflict delivery (@arch:AP-01)', () => {
     nudge.mockReturnValue(true);
   });
 
+  describe('async live delivery (D556 mirror)', () => {
+    it.each([
+      ['resolves true: focus, no seed', () => Promise.resolve(true), true],
+      ['resolves false: seed, no focus', () => Promise.resolve(false), false],
+      ['rejects: seed, no focus', () => Promise.reject(new Error('mirror down')), false],
+    ] as const)('%s', async (_name, deliverLive, focused) => {
+      const recordSeed = vi.fn();
+      await makeConflictDelivery({ ...baseDeps(), deliverLive, recordSeed })(h.ticketId, BRIEF, 'api');
+      expect(focus).toHaveBeenCalledTimes(focused ? 1 : 0);
+      expect(open).toHaveBeenCalledTimes(focused ? 0 : 1);
+      expect(recordSeed).toHaveBeenCalledTimes(focused ? 0 : 1);
+    });
+  });
+
   function baseDeps(): ConflictDeliveryDeps {
     return {
       isLive: () => h.state.live,

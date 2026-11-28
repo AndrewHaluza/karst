@@ -193,6 +193,7 @@ function writeFixBrief(deps: FixDeliveryWiringDeps, ticketId: number, deliveryId
 
 export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryWiring {
   const now = (): string => new Date().toISOString();
+  const roundOf = (deliveryId: number): 'fix' | 'conflict' => getFixDelivery(deps.store, deliveryId)?.kind ?? 'fix';
   const host: FixDeliveryHost = {
     store: deps.store,
     now,
@@ -204,20 +205,20 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     isRunning: (id) => getTicket(deps.store, id).agentState === 'running',
     isIdle: (id) => getTicket(deps.store, id).agentState === 'idle',
     sendPointer: (id, deliveryId, hooks, opts): Awaitable<TypedSendResult> => {
-      if (!deps.isLive(id) || deps.isGraphTicket(id)) return 'unavailable';
+      const unavailable: TypedSendResult = 'unavailable';
+      if (!deps.isLive(id) || deps.isGraphTicket(id)) return unavailable;
       if (deps.agyBusy(id)) return 'held';
       const channel = deps.sessionChannel(id);
       const send = (): TypedSendResult => {
-        const kind = getFixDelivery(deps.store, deliveryId)?.kind ?? 'fix';
-        const line = messagePointer(fixPointer(deliveryId, getTicket(deps.store, id).stageCurrent, kind), channel);
-        return deps.nudge(id, line, hooks) ? 'queued' : 'unavailable';
+        const line = messagePointer(fixPointer(deliveryId, getTicket(deps.store, id).stageCurrent, roundOf(deliveryId)), channel);
+        return deps.nudge(id, line, hooks) ? 'queued' : unavailable;
       };
       if (!isSandboxChannel(channel) || opts?.briefWritten === true) return send();
       // The remote agent must have its own brief BEFORE the pointer: a refused
       // or async mirror holds the line until it resolves (D556).
       const written = writeFixBrief(deps, id, deliveryId);
-      if (isThenable(written)) return written.then((ok) => (ok === true ? send() : 'unavailable'));
-      return written === true ? send() : 'unavailable';
+      const afterWrite = (ok: boolean | 'mirror-refused'): TypedSendResult => (ok === true ? send() : unavailable);
+      return isThenable(written) ? written.then(afterWrite) : afterWrite(written);
     },
     writeBrief: (id, deliveryId) => {
       return !isSandboxChannel(deps.sessionChannel(id)) || writeFixBrief(deps, id, deliveryId);
@@ -230,14 +231,11 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       if (!stuck) return null;
       const file = `inbox/${inboxRef(fixPointer(deliveryId))}.md`;
       const written = writeFixBrief(deps, id, deliveryId);
-      const settle = (ok: boolean | 'mirror-refused'): string | null => {
-        if (ok === true) return file;
-        // The host file still exists when only the REMOTE mirror failed (D556):
-        // a human must still be asked after the unsendable window. Only a
-        // missing bridge dir or row has nothing at all to name.
-        return deps.bridgePaths?.(id) !== undefined && getFixDelivery(deps.store, deliveryId) !== null ? file : null;
-      };
-      return isThenable(written) ? written.then(settle) : settle(written);
+      // A written brief and a host file whose REMOTE mirror failed (D556) both
+      // name the file: a human must still be asked after the unsendable window.
+      // Only a missing bridge dir or row has nothing at all to name.
+      const settle = (): string | null => (deps.bridgePaths?.(id) !== undefined && getFixDelivery(deps.store, deliveryId) !== null ? file : null);
+      return isThenable(written) ? written.then(settle) : settle();
     },
     hostUnsendable: (id, deliveryId) => {
       if (deps.owns?.(id) === false) return null;
@@ -269,7 +267,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       const id = upsertFixDelivery(deps.store, { ticketId, recoveryRoundId: null, launchId: deps.currentLaunchId(ticketId) ?? null, body: brief, truncatedFooter: '… truncated', at, kind: 'conflict', repo });
       claimRead(deps.store, id, 'seed', at);
     },
-    roundOf: (deliveryId) => getFixDelivery(deps.store, deliveryId)?.kind ?? 'fix',
+    roundOf,
     recordSeed: (ticketId, roundId, launchId): Awaitable<void> => {
       const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId), deps.sessionChannel(ticketId) === 'mcp');
       const id = upsertFixDelivery(deps.store, {

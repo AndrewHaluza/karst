@@ -134,7 +134,7 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
       // A host step has no preflight (`withRemoteDockerUser` probes the REMOTE ids
       // for the ops that need them): the launch resolved runs as the remote user.
       user,
-      ...(deps.ensureControlDir !== undefined ? { ensureControlDir: deps.ensureControlDir } : {}),
+      ensureControlDir: deps.ensureControlDir,
       memory: resolveDockerMemoryLimits(ticket.memTotalBytes, ticket.sandboxMemory),
       tunnels,
       ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.debug ? { debug: deps.debug } : {}),

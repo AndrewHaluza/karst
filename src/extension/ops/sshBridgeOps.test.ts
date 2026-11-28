@@ -10,7 +10,8 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import { runBridgeSweep } from './bootSweeps.js';
-import { makeSshBridgeLifecycle } from './sshBridgeOps.js';
+import { makeSshBridgeLifecycle, sshBridgeWorkspace, type SshBridgeLifecycleDeps } from './sshBridgeOps.js';
+import type { SshBridgeForwarderOptions, SshBridgeStartResult } from '../../agent/ssh/sshBridge.js';
 
 /**
  * The D556 edit 6 lifecycle: a forwarder starts only for an ssh ticket, only in
@@ -119,5 +120,62 @@ describe('makeSshBridgeLifecycle', () => {
     });
     expect(ssh.streams).toHaveLength(0);
     expect(ssh.calls).toHaveLength(0);
+  });
+});
+
+describe('makeSshBridgeLifecycle with an injected forwarder', () => {
+  const fakeStart = (result: SshBridgeStartResult) => vi.fn(async (_o: SshBridgeForwarderOptions): Promise<SshBridgeStartResult> => result);
+  const base = (over: Partial<SshBridgeLifecycleDeps>): SshBridgeLifecycleDeps => ({
+    bridgeRoot: () => bridgeRoot, trustDir, placementOf: () => PLACEMENT, remotes: () => ({ devbox: REMOTE }), ...over,
+  });
+  const OK: SshBridgeStartResult = { ok: true, handle: { ticketId: 7, stopped: false, stop: async () => undefined } };
+
+  it('sshBridgeWorkspace drops every trailing slash of the remote dir', () => {
+    expect(sshBridgeWorkspace({ ...REMOTE, remoteDir: '/srv/karst//' }, 'n')).toBe('/srv/karst/n');
+    expect(sshBridgeWorkspace({ ...REMOTE, remoteDir: '/srv/karst' }, 'n')).toBe('/srv/karst/n');
+  });
+
+  it('skips with no bridge root, and never starts the forwarder', async () => {
+    const startForwarder = fakeStart(OK);
+    await expect(makeSshBridgeLifecycle(base({ bridgeRoot: () => undefined, startForwarder })).start(7)).resolves.toBe('skipped');
+    expect(startForwarder).not.toHaveBeenCalled();
+  });
+
+  it('refuses a remote missing from karst.yml with its exact warning', async () => {
+    const warn = vi.fn();
+    const startForwarder = fakeStart(OK);
+    await expect(makeSshBridgeLifecycle(base({ remotes: () => undefined, warn, startForwarder })).start(7)).resolves.toBe('refused');
+    expect(warn.mock.calls).toEqual([['ssh remote devbox not in karst.yml']]);
+    expect(startForwarder).not.toHaveBeenCalled();
+  });
+
+  it('hands the forwarder every option, with its optional deps', async () => {
+    const ssh = fakeSshProcess();
+    const signal = new AbortController().signal;
+    const debug = vi.fn();
+    const warn = vi.fn();
+    const startForwarder = fakeStart(OK);
+    await expect(makeSshBridgeLifecycle(base({ ssh, controlDir: '/c', signal, debug, warn, startForwarder })).start(7)).resolves.toBe('started');
+    expect(startForwarder.mock.calls).toEqual([[{
+      ssh, remote: REMOTE, remoteName: 'devbox', ws: `/srv/karst/${NAME}`, ticketId: 7,
+      hostBridgeDir: join(bridgeRoot, 'events', '7'), stateDir: join(bridgeRoot, 'state'), trustDir,
+      controlDir: '/c', signal, debug, warn,
+    }]]);
+    expect(debug.mock.calls).toEqual([[`[ssh bridge] ticket 7: forwarding devbox/${NAME}`]]);
+  });
+
+  it('without optional deps uses the node ssh process and passes no optional option', async () => {
+    const startForwarder = fakeStart(OK);
+    await makeSshBridgeLifecycle(base({ startForwarder })).start(7);
+    const opts = startForwarder.mock.calls[0]![0];
+    expect(opts.ssh).toBeDefined();
+    expect([opts.controlDir, opts.signal, opts.debug, opts.warn]).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it('a refused forwarder logs its exact reason and returns refused', async () => {
+    const debug = vi.fn();
+    const startForwarder = fakeStart({ ok: false, reason: 'ssh remote devbox is not confirmed' });
+    await expect(makeSshBridgeLifecycle(base({ debug, startForwarder })).start(7)).resolves.toBe('refused');
+    expect(debug.mock.calls).toEqual([['[ssh bridge] ticket 7: ssh remote devbox is not confirmed']]);
   });
 });

@@ -1,8 +1,8 @@
 import type { RemoteDef } from '../../manifest/types.js';
-import { ensureSshControlDir, type SshControlResult } from '../../agent/ssh/sshControlDir.js';
-import { NODE_SSH_PROCESS, type SshProcess } from '../../agent/ssh/sshProcess.js';
+import type { SshControlResult } from '../../agent/ssh/sshControlDir.js';
+import type { SshProcess } from '../../agent/ssh/sshProcess.js';
 import type { TicketPlacement } from '../../store/placement.js';
-import { makeSshBridgeLifecycle, type SshBridgeLifecycle } from './sshBridgeOps.js';
+import { makeSshBridgeLifecycle, type SshBridgeLifecycle, type SshBridgeLifecycleDeps } from './sshBridgeOps.js';
 import { makeTicketMirror, makeTicketMirrorDirs, type TicketMirror, type TicketMirrorDirs } from './sshMirrorFor.js';
 
 /**
@@ -21,6 +21,8 @@ export interface SshBridgeWiringDeps {
   readonly ensureControlDir?: (dir: string) => Promise<SshControlResult>;
   readonly debug: (message: string) => void;
   readonly warn: (message: string) => void;
+  /** The forwarder lifecycle factory; a test injects a fake (default {@link makeSshBridgeLifecycle}). */
+  readonly makeLifecycle?: (deps: SshBridgeLifecycleDeps) => SshBridgeLifecycle;
 }
 
 export interface SshBridgeWiring {
@@ -32,11 +34,11 @@ export interface SshBridgeWiring {
 }
 
 export function wireSshBridge(deps: SshBridgeWiringDeps): SshBridgeWiring {
-  const ssh = deps.ssh ?? NODE_SSH_PROCESS;
-  const ensureControlDir = deps.ensureControlDir ?? ((dir: string) => ensureSshControlDir(dir));
+  // The callees default `ssh` (NODE_SSH_PROCESS) and `ensureControlDir` (ensureSshControlDir) themselves.
+  const ensureControlDir = deps.ensureControlDir;
   const abort = new AbortController();
-  const shared = { trustDir: deps.trustDir, placementOf: deps.placementOf, remotes: deps.remotes, ssh, warn: deps.warn, debug: deps.debug };
-  const sshBridge = makeSshBridgeLifecycle({ ...shared, bridgeRoot: deps.bridgeRoot, signal: abort.signal });
+  const shared = { trustDir: deps.trustDir, placementOf: deps.placementOf, remotes: deps.remotes, ssh: deps.ssh, warn: deps.warn, debug: deps.debug };
+  const sshBridge = (deps.makeLifecycle ?? makeSshBridgeLifecycle)({ ...shared, bridgeRoot: deps.bridgeRoot, signal: abort.signal });
   const mirrorTicketFile = makeTicketMirror({ ...shared, ensureControlDir });
   const mirrorTicketDirs = makeTicketMirrorDirs({ ...shared, ensureControlDir, bridgeRoot: deps.bridgeRoot });
   const dispose = (): void => {

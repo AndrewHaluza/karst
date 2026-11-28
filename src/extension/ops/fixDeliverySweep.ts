@@ -216,6 +216,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
   return {
     sweep(): Awaitable<void> {
       const projectId = deps.projectId();
+      // Stryker disable next-line ConditionalExpression: equivalent — an unbound project binds NULL and lists no row.
       if (projectId === undefined) return;
       const rows = [...listOpenFixDeliveries(deps.store, projectId)];
       const run = (from: number): Awaitable<void> => {
@@ -249,9 +250,9 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
 }
 
 /** Run steps in order; stop at the first async one and continue after it resolves. */
-function chainSteps(steps: readonly (() => Awaitable<void>)[]): Awaitable<void> {
-  for (let i = 0; i < steps.length; i++) {
+function chainSteps(steps: readonly (() => Awaitable<void>)[], from = 0): Awaitable<void> {
+  for (let i = from; i < steps.length; i++) {
     const result = steps[i]!();
-    if (isThenable(result)) return result.then(() => chainSteps(steps.slice(i + 1)));
+    if (isThenable(result)) return result.then(() => chainSteps(steps, i + 1));
   }
 }

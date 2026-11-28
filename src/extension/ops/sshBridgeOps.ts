@@ -1,7 +1,9 @@
 import { dirname } from 'node:path';
 import type { RemoteDef } from '../../manifest/types.js';
 import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
-import { startSshBridgeForwarder, stopAllSshBridgeForwarders, stopSshBridgeForwarder } from '../../agent/ssh/sshBridge.js';
+import {
+  startSshBridgeForwarder, stopAllSshBridgeForwarders, stopSshBridgeForwarder, type SshBridgeForwarderOptions, type SshBridgeStartResult,
+} from '../../agent/ssh/sshBridge.js';
 import { NODE_SSH_PROCESS, type SshProcess } from '../../agent/ssh/sshProcess.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import { sshPlacementTarget } from './sshPlacementOps.js';
@@ -31,6 +33,8 @@ export interface SshBridgeLifecycleDeps {
   readonly signal?: AbortSignal;
   readonly debug?: (message: string) => void;
   readonly warn?: (message: string) => void;
+  /** The forwarder entry point; a test injects a fake (default {@link startSshBridgeForwarder}). */
+  readonly startForwarder?: (options: SshBridgeForwarderOptions) => Promise<SshBridgeStartResult>;
 }
 
 export type SshBridgeStartStatus = 'started' | 'skipped' | 'refused';
@@ -61,7 +65,7 @@ export function makeSshBridgeLifecycle(deps: SshBridgeLifecycleDeps): SshBridgeL
     // `paths.stateFile` is `<root>/state/<ticketId>.json`; the forwarder's offset
     // file sits beside it, outside the agent-writable events dir.
     const stateDir = dirname(paths.stateFile);
-    const result = await startSshBridgeForwarder({
+    const result = await (deps.startForwarder ?? startSshBridgeForwarder)({
       ssh: deps.ssh ?? NODE_SSH_PROCESS,
       remote: def,
       remoteName: target.remote,
@@ -70,10 +74,10 @@ export function makeSshBridgeLifecycle(deps: SshBridgeLifecycleDeps): SshBridgeL
       hostBridgeDir: paths.dir,
       stateDir,
       trustDir: deps.trustDir,
-      ...(deps.controlDir !== undefined ? { controlDir: deps.controlDir } : {}),
-      ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
-      ...(deps.debug !== undefined ? { debug: deps.debug } : {}),
-      ...(deps.warn !== undefined ? { warn: deps.warn } : {}),
+      controlDir: deps.controlDir,
+      signal: deps.signal,
+      debug: deps.debug,
+      warn: deps.warn,
     });
     if (!result.ok) {
       deps.debug?.(`[ssh bridge] ticket ${String(ticketId)}: ${result.reason}`);

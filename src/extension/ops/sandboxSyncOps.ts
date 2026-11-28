@@ -115,7 +115,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
       remoteTrusted: input.remoteTrust ?? (() => false),
       ...(input.remotes ? { remotes: input.remotes } : {}),
       ...(input.installId !== undefined ? { installId: input.installId } : {}),
-      ...(input.trustDir !== undefined ? { trustDir: input.trustDir } : {}),
+      trustDir: input.trustDir,
       extendBackendStep: input.extendBackendStep,
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...accountFor(input.core, input.resumeSessionId, input.account),

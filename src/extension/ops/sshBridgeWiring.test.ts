@@ -1,10 +1,11 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import { fakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import type { SshBridgeLifecycleDeps } from './sshBridgeOps.js';
 import { wireSshBridge } from './sshBridgeWiring.js';
 
 const def: RemoteDef = { host: 'devbox.example.com', user: 'karst', port: 22, mode: 'direct', remoteDir: '/srv/karst' };
@@ -47,5 +48,37 @@ describe('wireSshBridge', () => {
     w.dispose();
     await new Promise((r) => setTimeout(r, 0));
     expect(debug.filter((m) => m.includes('on dispose failed'))).toEqual([]);
+  });
+
+  const withLifecycle = (stopAll: () => Promise<void>) => {
+    const seen: SshBridgeLifecycleDeps[] = [];
+    const debug = vi.fn<(m: string) => void>();
+    const w = wireSshBridge({
+      bridgeRoot: () => '/b', trustDir: '/t', placementOf: () => HOST, remotes: () => undefined, debug, warn: () => undefined,
+      makeLifecycle: (d) => {
+        seen.push(d);
+        return { start: async () => 'skipped', stop: async () => undefined, stopAll };
+      },
+    });
+    return { w, seen, debug };
+  };
+
+  it('dispose aborts the forwarder signal and stops every forwarder', async () => {
+    const stopAll = vi.fn(async () => undefined);
+    const { w, seen, debug } = withLifecycle(stopAll);
+    expect(seen[0]!.signal!.aborted).toBe(false);
+    expect(seen[0]!.bridgeRoot()).toBe('/b');
+    w.dispose();
+    await Promise.resolve();
+    expect(seen[0]!.signal!.aborted).toBe(true);
+    expect(stopAll).toHaveBeenCalledTimes(1);
+    expect(debug).not.toHaveBeenCalled();
+  });
+
+  it('a rejected stopAll on dispose is logged with its exact text', async () => {
+    const { w, debug } = withLifecycle(() => Promise.reject(new Error('ssh down')));
+    w.dispose();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(debug.mock.calls).toEqual([['[ssh] bridge forwarders on dispose failed: ssh down']]);
   });
 });

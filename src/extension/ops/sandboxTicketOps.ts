@@ -317,8 +317,8 @@ export async function reattachTicketSandbox(
   // D556 edit 6: the ticket's remote is reachable (the ssh runner resolved), so
   // its evidence bridge can be forwarded again after a reload. Trust is checked
   // inside the forwarder before any ssh call.
-  if (deps.startSshBridge !== undefined && deps.placementOf?.(ticketId)?.backend === 'ssh') {
-    await deps.startSshBridge(ticketId).catch((err: unknown) => {
+  if (deps.placementOf?.(ticketId)?.backend === 'ssh') {
+    await deps.startSshBridge?.(ticketId).catch((err: unknown) => {
       deps.debug?.(`[runtime] ticket ${ticketId}: ssh bridge forwarder did not start: ${err instanceof Error ? err.message : String(err)}`);
     });
   }

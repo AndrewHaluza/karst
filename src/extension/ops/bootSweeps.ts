@@ -365,12 +365,10 @@ export async function runBridgeSweep(deps: BridgeSweepDeps): Promise<void> {
     // here; the forwarder of every attached ssh ticket is restarted from its
     // stored offset. Only the window that controls the ticket is in `attach`.
     for (const id of attach) {
-      if (deps.startSshBridge === undefined) break;
-      await deps.startSshBridge(id).catch((err: unknown) => deps.logError(`karst: ssh bridge forwarder of ticket ${String(id)} failed to start`, err));
+      await deps.startSshBridge?.(id).catch((err: unknown) => deps.logError(`karst: ssh bridge forwarder of ticket ${String(id)} failed to start`, err));
     }
     for (const id of removed) {
-      if (deps.stopSshBridge === undefined) break;
-      await deps.stopSshBridge(id).catch((err: unknown) => deps.logError(`karst: ssh bridge forwarder of ticket ${String(id)} failed to stop`, err));
+      await deps.stopSshBridge?.(id).catch((err: unknown) => deps.logError(`karst: ssh bridge forwarder of ticket ${String(id)} failed to stop`, err));
     }
   } catch (err) {
     deps.logError('karst: sandbox bridge sweep failed', err);
