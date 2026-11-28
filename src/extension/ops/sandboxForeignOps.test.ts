@@ -27,7 +27,7 @@ function trust(entries: Record<string, string> = { devbox: remoteTrustKey('devbo
   return dir;
 }
 
-function line(name: string, over: { unmerged?: number; tmux?: 'yes' | 'no'; last?: string } = {}): string {
+function line(name: string, over: { unmerged?: number | string; tmux?: 'yes' | 'no'; last?: string } = {}): string {
   return [name, 1_799_900_000, 1024, over.last ?? '2026-11-01T10:00:00+00:00', over.unmerged ?? 0, over.tmux ?? 'no'].join('\t');
 }
 
@@ -110,6 +110,27 @@ describe('cleanupForeignRemoteOp (D824, edit 13)', () => {
     await expect(cleanupForeignRemoteOp(d)).resolves.toBe(0);
     expect(choose).toHaveBeenCalledTimes(2);
     expect(choose.mock.calls[1]![0]).toContain('2 commit');
+    expect(scripts(ssh).some((s) => s.includes('foreign-remove') || s.includes('kill-session'))).toBe(false);
+  });
+
+  it('a dir whose clone git cannot read needs the second confirm and says the count is unknown; cancel keeps it', async () => {
+    const { d, choose, pick, ssh } = deps({
+      ssh: fakeSshProcess({
+        'karst-ssh-foreign-list': { stdout: `${line(FOREIGN, { unmerged: '?' })}\n` },
+        'karst-ssh-foreign-remove': { code: 0 },
+        'tmux kill-session': { code: 0 },
+      }),
+      choose: vi.fn()
+        .mockResolvedValueOnce(REMOVE_FOREIGN as string | undefined)
+        .mockResolvedValueOnce(CANCEL as string | undefined),
+    });
+    await expect(cleanupForeignRemoteOp(d)).resolves.toBe(0);
+    const path = `/srv/karst/${FOREIGN}`;
+    expect(pick.mock.calls[0]![0][0]!.description).toBe('last commit 2026-11-01T10:00:00+00:00 · an unknown number of commits not in refs/karst/base/* · 1 day old · 1 MB');
+    expect(choose.mock.calls).toEqual([
+      [`Remove 1 foreign remote workspace?\n${path} — last commit 2026-11-01T10:00:00+00:00, an unknown number of commits not in refs/karst/base/*`, [REMOVE_FOREIGN, CANCEL]],
+      [`1 foreign workspace has commits not in refs/karst/base/*, which the removal loses:\n${path} — an unknown number of commits (git cannot read the clone)`, [REMOVE_FOREIGN, CANCEL]],
+    ]);
     expect(scripts(ssh).some((s) => s.includes('foreign-remove') || s.includes('kill-session'))).toBe(false);
   });
 

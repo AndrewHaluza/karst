@@ -64,11 +64,18 @@ describe('sampleRemoteWorkspaces (edit 7)', () => {
     ...over,
   });
 
-  it('shows the remote, the state and the disk, with no host cost', () => {
-    const sizes = new Map([[remoteWorkspaceKey('devbox', 'karst-ab12cd34-7-claude'), 1.5 * 1024 * 1024]]);
-    const [row] = sampleRemoteWorkspaces([sshBox()], sizes);
-    expect(row).toMatchObject({ kind: 'remote', ticketId: 7, cost: null, label: 'ssh devbox · stopped · 1.5 GB' });
+  const probed = (ageDays: number, sizeKb = 1.5 * 1024 * 1024) => new Map([[remoteWorkspaceKey('devbox', 'karst-ab12cd34-7-claude'), { sizeKb, ageDays }]]);
+
+  it('shows the remote, the state, the age since the last launch and the disk, with no host cost', () => {
+    const [row] = sampleRemoteWorkspaces([sshBox()], probed(3));
+    expect(row).toMatchObject({ kind: 'remote', ticketId: 7, cost: null, label: 'ssh devbox · stopped 3 days · 1.5 GB' });
     expect(row!.pid).toBe(0);
+    expect(sampleRemoteWorkspaces([sshBox()], probed(1))[0]!.label).toBe('ssh devbox · stopped 1 day · 1.5 GB');
+    expect(sampleRemoteWorkspaces([sshBox()], probed(0, 512))[0]!.label).toBe('ssh devbox · stopped 0 days · 512 KB');
+  });
+
+  it('shows no age for a running workspace', () => {
+    expect(sampleRemoteWorkspaces([sshBox({ state: 'running' })], probed(3))[0]!.label).toBe('ssh devbox · running · 1.5 GB');
   });
 
   it('says disk unknown when the remote was not probed, never 0 B', () => {
@@ -140,15 +147,16 @@ describe('sampleProjectRemoteWorkspaces (edit 7)', () => {
   });
   const listing = (name: string): FakeSshAnswer => ({ stdout: `__KARST_DIRS__\n${name}\n__KARST_TMUX__\n\n` });
 
-  it('lists a confirmed remote over ssh and gives one cost-free row per workspace with its measured disk', async () => {
+  it('lists a confirmed remote over ssh and gives one cost-free row per workspace with its age and measured disk', async () => {
+    const launched = Math.floor(Date.now() / 1000) - 3 * 86_400 - 60;
     const ssh = fakeSshProcess({
       '/srv/karst': listing(NAME),
-      'karst-ssh-remote-workspaces': { stdout: `${NAME}\t1700000000\t2048\n` },
+      'karst-ssh-remote-workspaces': { stdout: `${NAME}\t${launched}\t2048\n` },
     });
     const sample = await sampleProjectRemoteWorkspaces(source(ssh, true), '/p');
     expect(sample.failed).toEqual(new Set());
     expect(sample.rows.get('devbox')).toEqual([
-      expect.objectContaining({ kind: 'remote', ticketId: 7, cost: null, label: 'ssh devbox · stopped · 2.0 MB', comm: NAME }),
+      expect.objectContaining({ kind: 'remote', ticketId: 7, cost: null, label: 'ssh devbox · stopped 3 days · 2.0 MB', comm: NAME }),
     ]);
     expect(ssh.calls.filter((c) => (c.args.at(-1) ?? '').includes('karst-ssh-remote-workspaces'))).toHaveLength(1);
   });

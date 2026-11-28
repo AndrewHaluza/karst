@@ -10,6 +10,7 @@ import { startSandboxService } from '../../agent/sandboxServices.js';
 import type { Manifest } from '../../manifest/types.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
+import type { TicketPlacement } from '../../store/placement.js';
 import {
   reattachTicketSandbox, resolveTicketSandbox, ticketGateProcess, ticketKillContextOf, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
 } from './sandboxTicketOps.js';
@@ -1206,13 +1207,45 @@ describe('an ssh placement routes every ticket step to the ssh runner (D826)', (
   });
 });
 
+describe('ticketSshRemote', () => {
+  const backends = { claude: 'sbx', codex: 'ssh:devbox', opencode: 'ssh:gpu' } as const;
+  const ssh = (core: string | null, sandboxName: string | null): TicketPlacement => ({ backend: 'ssh', core, sandboxName, reason: null });
+
+  it('takes the recorded remote of an ssh placement over the core', async () => {
+    const { ticketSshRemote } = await import('./sandboxTicketOps.js');
+    expect(ticketSshRemote(ssh('codex', 'other/karst-x-7-codex'), backends, 'opencode')).toBe('other');
+  });
+
+  it('takes the remote of the placement core, then of the ticket core, for an ssh placement without a name', async () => {
+    const { ticketSshRemote } = await import('./sandboxTicketOps.js');
+    expect(ticketSshRemote(ssh('opencode', null), backends, 'codex')).toBe('gpu');
+    expect(ticketSshRemote(ssh(null, null), backends, 'codex')).toBe('devbox');
+    expect(ticketSshRemote(ssh(null, null), backends, null)).toBeUndefined();
+  });
+
+  it('gives no remote for a non-ssh placement, even when its core selects ssh', async () => {
+    const { ticketSshRemote } = await import('./sandboxTicketOps.js');
+    expect(ticketSshRemote({ backend: 'sbx', core: 'codex', sandboxName: 'sb', reason: null }, backends, 'codex')).toBeUndefined();
+    expect(ticketSshRemote({ backend: 'host', core: 'codex', sandboxName: null, reason: null }, backends, 'codex')).toBeUndefined();
+  });
+
+  it('takes the remote of the ticket core without a placement', async () => {
+    const { ticketSshRemote } = await import('./sandboxTicketOps.js');
+    expect(ticketSshRemote(null, backends, 'codex')).toBe('devbox');
+    expect(ticketSshRemote(null, backends, 'claude')).toBeUndefined();
+    expect(ticketSshRemote(null, backends, null)).toBeUndefined();
+    expect(ticketSshRemote(null, undefined, 'codex')).toBeUndefined();
+  });
+});
+
 describe('the default inventory counts the failures of the ticket runner (arch:AC-39, D827)', () => {
   const ERR = 'ssh devbox: ssh remote devbox not confirmed';
-  const setup = async (over: { placement?: ReturnType<typeof fakeSshPlacement> | null; backends?: Record<string, string>; sbxCode?: number; noPlacementOf?: boolean }) => {
+  const setup = async (over: { placement?: TicketPlacement | null; backends?: Record<string, string>; sbxCode?: number; noPlacementOf?: boolean; core?: string | null }) => {
     const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
     const store = openStore(':memory:');
     const base = deps({
       backends: () => (over.backends ?? { claude: 'sbx' }) as never,
+      ...(over.core === undefined ? {} : { coreOf: () => over.core ?? null }),
       proc: fakeSbxProcess({ 'sbx ls': { code: over.sbxCode ?? 0, stderr: over.sbxCode === undefined ? '' : 'sbx daemon down' } }),
       dockerProc: fakeDockerProcess(),
       sshRunner: fakeSshRunnerDeps(fakeSshProcess(), { globalStorageDir: fakeTrustDir({}) }),
@@ -1234,6 +1267,19 @@ describe('the default inventory counts the failures of the ticket runner (arch:A
   it('ignores a failure of another remote than the placement remote', async () => {
     const other = { ...fakeSshPlacement(7), sandboxName: 'other/karst-x-7-claude' };
     await expect((await setup({ placement: other })).inventory!(7)).resolves.toEqual([]);
+  });
+
+  it('ignores the failure of a remote that another core selects (T801: only the own runner counts)', async () => {
+    const backends = { claude: 'sbx', codex: 'ssh:devbox' };
+    const sbx: TicketPlacement = { backend: 'sbx', core: 'claude', sandboxName: null, reason: null };
+    await expect((await setup({ placement: sbx, backends })).inventory!(7)).resolves.toEqual([]);
+    await expect((await setup({ placement: null, backends, core: 'claude' })).inventory!(7)).resolves.toEqual([]);
+    await expect((await setup({ placement: null, backends, core: null })).inventory!(7)).resolves.toEqual([]);
+  });
+
+  it('throws on a failure of the remote that the ticket core selects when there is no placement', async () => {
+    const d = await setup({ placement: null, backends: { claude: 'sbx', codex: 'ssh:devbox' }, core: 'codex' });
+    await expect(d.inventory!(7)).rejects.toThrow(ERR);
   });
 
   it('throws on a failure of any one selected runner kind', async () => {

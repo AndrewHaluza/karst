@@ -33,8 +33,8 @@ export interface ForeignDir {
   readonly sizeKb: number;
   /** `%cI` of the clone's HEAD; `null` when there is no clone. */
   readonly lastCommit: string | null;
-  /** `git rev-list --count HEAD --not --glob=refs/karst/base/*`; 0 when there is no clone. */
-  readonly unmergedCommits: number;
+  /** `git rev-list --count HEAD --not --glob=refs/karst/base/*`; 0 when there is no clone; `null` (unknown) when git fails on the clone. */
+  readonly unmergedCommits: number | null;
   /** A live tmux session of that name (the second modal the command needs). */
   readonly tmux: boolean;
 }
@@ -97,7 +97,8 @@ export function foreignListScript(remoteDir: string): string {
     '  m=$(stat -c %Y "$p" 2>/dev/null || echo 0)',
     '  k=$(du -sk "$p" 2>/dev/null | awk \'NR == 1 { print $1 }\')',
     '  l=$(git -C "$p/repo" log -1 --format=%cI 2>/dev/null || true)',
-    `  c=$(git -C "$p/repo" rev-list --count HEAD --not ${sshQuote('--glob=refs/karst/base/*')} 2>/dev/null || echo 0)`,
+    // 0 only with no clone: a clone that git cannot read is `?` (unknown), so the removal still asks the second confirm.
+    `  if [ -d "$p/repo" ]; then c=$(git -C "$p/repo" rev-list --count HEAD --not ${sshQuote('--glob=refs/karst/base/*')} 2>/dev/null || echo '?'); else c=0; fi`,
     '  t=$(tmux has-session -t "=$n" 2>/dev/null && echo yes || echo no)',
     '  printf \'%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n\' "$n" "$m" "$k" "$l" "$c" "$t"',
     'done',
@@ -106,8 +107,13 @@ export function foreignListScript(remoteDir: string): string {
 }
 
 function int(text: string): number {
+  return count(text) ?? 0;
+}
+
+/** A non-negative integer, or `null` for any other text (a failed probe). */
+function count(text: string): number | null {
   const n = Number(text);
-  return Number.isInteger(n) && n >= 0 ? n : 0;
+  return text.trim() !== '' && Number.isInteger(n) && n >= 0 ? n : null;
 }
 
 /** `name\tmtime\tkb\tlastCommit\tunmerged\ttmux` lines; an unparsable line is skipped. */
@@ -126,7 +132,7 @@ export function parseForeignListing(stdout: string, def: RemoteDef, nowMs: numbe
       ageDays: Math.max(0, Math.floor((nowMs / 1000 - int(mtime ?? '0')) / 86_400)),
       sizeKb: int(kb ?? '0'),
       lastCommit,
-      unmergedCommits: int(unmerged ?? '0'),
+      unmergedCommits: count(unmerged ?? ''),
       tmux: tmux !== undefined && tmux.trim() === 'yes',
     });
   }

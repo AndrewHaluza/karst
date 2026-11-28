@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { Manifest } from '../../manifest/types.js';
-import { backendForCore, selectedSandboxBackends, type AgentBackends } from '../../agent/backendChoices.js';
+import { backendForCore, parseSshBackend, selectedSandboxBackends, type AgentBackends } from '../../agent/backendChoices.js';
 import type { Store } from '../../store/db.js';
 import { bridgePaths, type BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { isDockerCore } from '../../agent/docker/dockerImage.js';
@@ -348,6 +348,19 @@ export function withSandboxSpin<S, M, O extends object, R>(
   };
 }
 
+/**
+ * The remote of a ticket's own ssh workspace: the recorded placement decides (D827: a ticket can select a remote
+ * no core selects); with no placement or no recorded name, the remote that the core selects. Undefined for a non-ssh ticket.
+ */
+export function ticketSshRemote(placement: TicketPlacement | null, backends: AgentBackends | undefined, core: string | null): string | undefined {
+  if (placement !== null && placement.backend !== 'ssh') return undefined;
+  const recorded = sshPlacementTarget(placement)?.remote;
+  if (recorded !== undefined) return recorded;
+  // An ssh placement without a workspace name yet: its core still names the remote.
+  const selecting = placement?.core ?? core;
+  return selecting === null ? undefined : parseSshBackend(backendForCore(backends, selecting));
+}
+
 export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bridgeOf'> {
   /** The bridge registry's root once the hook endpoint is bound. */
   readonly bridgeRoot: () => string | undefined;
@@ -381,11 +394,11 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         ...inventorySshDeps(input.sshRunner),
       });
       // A configured runner that could not list may be the one holding this ticket's sandbox: not "none" (arch:AC-39).
-      const wanted = selectedSandboxBackends(input.backends());
-      // An ssh ticket can select a remote no core selects (D827): its own remote's failure counts too.
-      const placementRemote = sshPlacementTarget(input.placementOf?.(ticketId) ?? null)?.remote;
+      // An ssh listing is per remote: only the ticket's OWN remote counts (T801), never a remote another core selects.
+      const wanted = selectedSandboxBackends(input.backends()).filter((kind) => kind !== 'ssh');
+      const ownRemote = ticketSshRemote(deps.placementOf?.(ticketId) ?? null, input.backends(), deps.coreOf(ticketId));
       // Stryker disable next-line ConditionalExpression: equivalent, no listing error starts with "ssh undefined:"
-      const ownRemoteFailed = (e: string): boolean => placementRemote !== undefined && e.startsWith(`ssh ${placementRemote}:`);
+      const ownRemoteFailed = (e: string): boolean => ownRemote !== undefined && e.startsWith(`ssh ${ownRemote}:`);
       const failed = inv.errors.filter((e) => wanted.some((kind) => e.startsWith(`${kind} `)) || ownRemoteFailed(e));
       if (failed.length > 0 && !inv.sandboxes.some((b) => b.ticketId === ticketId)) throw new Error(failed.join('; '));
       return inv.sandboxes;

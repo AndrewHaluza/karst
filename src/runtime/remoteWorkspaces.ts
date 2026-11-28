@@ -9,8 +9,9 @@ import type { AttributedRow } from './resourceInventory.js';
  * `cost: null` (every total and the memory-pressure check skip it), and its
  * facts live in the label until the Resources table grows dedicated columns.
  *
- * The disk comes from a trusted `du -sk` probe; without one the label says
- * `disk unknown`, never `0 B` (a measured-looking zero, RS-23).
+ * The disk and the age come from one trusted probe (`du -sk`, and the mtime of
+ * `<ws>/env/env.sh` for the last launch); without it the label says
+ * `disk unknown`, never `0 B` (a measured-looking zero, RS-23), and no age.
  */
 
 /** One ssh workspace of this project, as the Resources view lists it. */
@@ -21,6 +22,14 @@ export interface RemoteWorkspaceFact {
   readonly state: 'running' | 'stopped';
   /** `du -sk` of `<ws>`; absent when the remote was not asked (no ssh for an unconfirmed remote). */
   readonly sizeKb?: number;
+  /** Whole days since the last launch; absent when the remote was not asked. */
+  readonly ageDays?: number;
+}
+
+/** The probed facts of one workspace: its disk and the whole days since its last launch. */
+export interface RemoteWorkspaceProbeFacts {
+  readonly sizeKb: number;
+  readonly ageDays: number;
 }
 
 /** The key a size probe is filed under. */
@@ -32,21 +41,25 @@ export function formatRemoteKb(kb: number): string {
   return kb >= 1024 ** 2 ? `${(kb / 1024 ** 2).toFixed(1)} GB` : kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`;
 }
 
-/** `ssh devbox · stopped · 1.2 GB`: the row's one label, built host-side like every other display string. */
+/** `ssh devbox · stopped 3 days · 1.2 GB`: the row's one label, built host-side like every other display string. */
 export function remoteWorkspaceLabel(fact: RemoteWorkspaceFact): string {
   const disk = fact.sizeKb === undefined ? 'disk unknown' : formatRemoteKb(fact.sizeKb);
-  return `ssh ${fact.remote} · ${fact.state} · ${disk}`;
+  // A stopped workspace shows the age since its last launch, the fact that tells an old one to remove (edit 12).
+  const state = fact.state === 'stopped' && fact.ageDays !== undefined
+    ? `stopped ${String(fact.ageDays)} ${fact.ageDays === 1 ? 'day' : 'days'}`
+    : fact.state;
+  return `ssh ${fact.remote} · ${state} · ${disk}`;
 }
 
-/** The ssh sandboxes of an inventory as Resources facts; a size map is keyed by `remote/name`. */
+/** The ssh sandboxes of an inventory as Resources facts; a probe map is keyed by `remote/name`. */
 export function remoteWorkspaceFacts(
   sandboxes: readonly ProjectSandbox[],
-  sizes?: ReadonlyMap<string, number>,
+  probes?: ReadonlyMap<string, RemoteWorkspaceProbeFacts>,
 ): RemoteWorkspaceFact[] {
   return sandboxes.flatMap((s) => {
     if (s.runner !== 'ssh' || s.remote === undefined) return [];
-    const sizeKb = sizes?.get(remoteWorkspaceKey(s.remote, s.name));
-    return [{ remote: s.remote, name: s.name, ticketId: s.ticketId, state: s.state, ...(sizeKb === undefined ? {} : { sizeKb }) }];
+    const probe = probes?.get(remoteWorkspaceKey(s.remote, s.name));
+    return [{ remote: s.remote, name: s.name, ticketId: s.ticketId, state: s.state, ...(probe === undefined ? {} : { sizeKb: probe.sizeKb, ageDays: probe.ageDays }) }];
   });
 }
 

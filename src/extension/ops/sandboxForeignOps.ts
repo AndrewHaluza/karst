@@ -56,6 +56,11 @@ function plural(n: number, one: string, many: string): string {
   return `${String(n)} ${n === 1 ? one : many}`;
 }
 
+/** The unmerged count; `null` is a clone that git could not read. */
+function commits(n: number | null): string {
+  return n === null ? 'an unknown number of commits' : plural(n, 'commit', 'commits');
+}
+
 function age(sizeKb: number): string {
   const mb = Math.round(sizeKb / 1024);
   return mb >= 1 ? `${String(mb)} MB` : `${String(sizeKb)} kB`;
@@ -65,13 +70,13 @@ function itemOf(s: SelectedForeign): ForeignPickItem {
   return {
     id: `${s.remote}\u0000${s.dir.name}`,
     label: `${s.remote}: ${s.dir.path}`,
-    description: `last commit ${s.dir.lastCommit ?? 'none'} · ${plural(s.dir.unmergedCommits, 'commit', 'commits')} not in refs/karst/base/* · ${plural(s.dir.ageDays, 'day', 'days')} old · ${age(s.dir.sizeKb)}`,
+    description: `last commit ${s.dir.lastCommit ?? 'none'} · ${commits(s.dir.unmergedCommits)} not in refs/karst/base/* · ${plural(s.dir.ageDays, 'day', 'days')} old · ${age(s.dir.sizeKb)}`,
     detail: s.dir.tmux ? 'a live tmux session uses it' : undefined,
   };
 }
 
 function pathLine(s: SelectedForeign): string {
-  return `${s.dir.path} — last commit ${s.dir.lastCommit ?? 'none'}, ${plural(s.dir.unmergedCommits, 'commit', 'commits')} not in refs/karst/base/*`;
+  return `${s.dir.path} — last commit ${s.dir.lastCommit ?? 'none'}, ${commits(s.dir.unmergedCommits)} not in refs/karst/base/*`;
 }
 
 /**
@@ -121,11 +126,12 @@ export async function cleanupForeignRemoteOp(deps: SandboxForeignDeps): Promise<
   ].join('\n');
   if ((await deps.choose(first, [REMOVE_FOREIGN, CANCEL])) !== REMOVE_FOREIGN) return 0;
 
-  const unmerged = selected.filter((s) => s.dir.unmergedCommits > 0);
+  // An unknown count (`null`) can hide commits too, so it needs the second confirm.
+  const unmerged = selected.filter((s) => s.dir.unmergedCommits !== 0);
   if (unmerged.length > 0) {
     const second = [
       `${plural(unmerged.length, 'foreign workspace has', 'foreign workspaces have')} commits not in refs/karst/base/*, which the removal loses:`,
-      ...unmerged.map((s) => `${s.dir.path} — ${plural(s.dir.unmergedCommits, 'commit', 'commits')}`),
+      ...unmerged.map((s) => `${s.dir.path} — ${s.dir.unmergedCommits === null ? `${commits(null)} (git cannot read the clone)` : commits(s.dir.unmergedCommits)}`),
     ].join('\n');
     if ((await deps.choose(second, [REMOVE_FOREIGN, CANCEL])) !== REMOVE_FOREIGN) return 0;
   }

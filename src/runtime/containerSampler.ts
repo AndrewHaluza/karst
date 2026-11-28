@@ -8,7 +8,7 @@ import { sshControlDir } from '../agent/ssh/sshControlDir.js';
 import { NODE_SSH_PROCESS, type SshProcess } from '../agent/ssh/sshProcess.js';
 import type { RemoteDef } from '../manifest/types.js';
 import type { AttributedRow } from './resourceInventory.js';
-import { remoteWorkspaceFacts, remoteWorkspaceKey, remoteWorkspaceRows } from './remoteWorkspaces.js';
+import { remoteWorkspaceFacts, remoteWorkspaceKey, remoteWorkspaceRows, type RemoteWorkspaceProbeFacts } from './remoteWorkspaces.js';
 
 /**
  * One async sample of the docker containers karst owns. On macOS every
@@ -98,16 +98,17 @@ async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, ms: num
 }
 
 /**
- * Remote workspaces as Resources rows (D824, edit 7): the remote, its state and
- * its disk in the label, with `cost: null` so it never counts toward host
- * memory pressure or the totals. `sizes` is keyed by `remote/name` from a
- * trusted `du -sk` probe; absent = `disk unknown`.
+ * Remote workspaces as Resources rows (D824, edits 7 and 12): the remote, its
+ * state (with the age since the last launch when stopped) and its disk in the
+ * label, with `cost: null` so it never counts toward host memory pressure or
+ * the totals. `probes` is keyed by `remote/name` from a trusted probe; absent =
+ * `disk unknown` and no age.
  */
 export function sampleRemoteWorkspaces(
   sandboxes: readonly ProjectSandbox[],
-  sizes?: ReadonlyMap<string, number>,
+  probes?: ReadonlyMap<string, RemoteWorkspaceProbeFacts>,
 ): AttributedRow[] {
-  return remoteWorkspaceRows(remoteWorkspaceFacts(sandboxes, sizes));
+  return remoteWorkspaceRows(remoteWorkspaceFacts(sandboxes, probes));
 }
 
 /** One remote-workspace sample: rows per remote that listed, and the remotes whose listing failed. */
@@ -135,22 +136,22 @@ export async function sampleProjectRemoteWorkspaces(
   const listed = remotes.filter((r) => !failed.has(r));
   const rows = new Map(await Promise.all(listed.map(async (r) => {
     const boxes = inv.sandboxes.filter((s) => s.remote === r);
-    const sizes = boxes.length === 0 ? undefined : await remoteSizes(r, deps.remotes![r]!, { ...deps, projectRoot });
-    return [r, sampleRemoteWorkspaces(boxes, sizes)] as const;
+    const probes = boxes.length === 0 ? undefined : await remoteProbes(r, deps.remotes![r]!, { ...deps, projectRoot });
+    return [r, sampleRemoteWorkspaces(boxes, probes)] as const;
   })));
   return { rows, failed };
 }
 
 /**
- * The `du -sk` of each workspace on one listed remote, keyed by `remote/name`.
- * The probe checks trust again; a failed probe gives no sizes, so the rows say
- * `disk unknown` and the listing still counts (the remote answered).
+ * The `du -sk` and the last-launch age of each workspace on one listed remote,
+ * keyed by `remote/name`. The probe checks trust again; a failed probe gives no
+ * facts, so the rows say `disk unknown` and the listing still counts (the remote answered).
  */
-async function remoteSizes(
+async function remoteProbes(
   remote: string,
   def: RemoteDef,
   deps: { readonly projectRoot: string; readonly installId?: string; readonly trustDir?: string; readonly ssh?: SshProcess; readonly controlDir?: string; readonly warn?: (message: string) => void },
-): Promise<ReadonlyMap<string, number> | undefined> {
+): Promise<ReadonlyMap<string, RemoteWorkspaceProbeFacts> | undefined> {
   if (deps.installId === undefined || deps.trustDir === undefined) return undefined;
   const probe = await probeRemoteWorkspaces(deps.ssh ?? NODE_SSH_PROCESS, remote, def, {
     projectRoot: deps.projectRoot, installId: deps.installId, trustDir: deps.trustDir, controlDir: deps.controlDir ?? sshControlDir(),
@@ -159,7 +160,7 @@ async function remoteSizes(
     deps.warn?.(`${probe.error} (workspace sizes)`);
     return undefined;
   }
-  return new Map(probe.map((w) => [remoteWorkspaceKey(remote, w.name), w.sizeKb] as const));
+  return new Map(probe.map((w) => [remoteWorkspaceKey(remote, w.name), { sizeKb: w.sizeKb, ageDays: w.ageDays }] as const));
 }
 
 export async function sampleContainers(deps: {

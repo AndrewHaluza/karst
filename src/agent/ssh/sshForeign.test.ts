@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fakeSshProcess } from './fakeSshProcess.js';
-import { listForeignRemoteDirs, removeForeignRemoteDir, type ForeignRemoveContext } from './sshForeign.js';
+import { foreignListScript, listForeignRemoteDirs, parseForeignListing, removeForeignRemoteDir, type ForeignRemoveContext } from './sshForeign.js';
 import { REMOTE_TRUST_FILE, remoteTrustKey } from './remoteTrust.js';
 import { sshProjectPrefix } from './sshNames.js';
 import type { RemoteDef } from '../../manifest/types.js';
@@ -25,7 +25,7 @@ function ctx(dir = trustDir()): ForeignRemoveContext {
 }
 
 /** One `name\tmtime\tkb\tlastCommit\tunmerged\ttmux` line of the foreign listing. */
-function line(name: string, over: { mtime?: number; kb?: number; last?: string; unmerged?: number; tmux?: 'yes' | 'no' } = {}): string {
+function line(name: string, over: { mtime?: number; kb?: number; last?: string; unmerged?: number | string; tmux?: 'yes' | 'no' } = {}): string {
   return [name, over.mtime ?? 1_799_900_000, over.kb ?? 2048, over.last ?? '2026-11-01T10:00:00+00:00', over.unmerged ?? 0, over.tmux ?? 'no'].join('\t');
 }
 
@@ -43,6 +43,21 @@ describe('listForeignRemoteDirs (D824, edit 13)', () => {
       unmergedCommits: 3,
       tmux: true,
     }]);
+  });
+
+  it('a failed git probe of a clone is an unknown unmerged count, never 0', () => {
+    const now = 1_800_000_000_000;
+    const counts = ['?', '', 'x', '-1', '1.5'].map((u) => parseForeignListing(line(FOREIGN, { unmerged: u }), REMOTE, now)[0]!.unmergedCommits);
+    expect(counts).toEqual([null, null, null, null, null]);
+    expect(parseForeignListing(line(FOREIGN, { unmerged: 0 }), REMOTE, now)[0]!.unmergedCommits).toBe(0);
+    expect(parseForeignListing(line(FOREIGN, { unmerged: 2 }), REMOTE, now)[0]!.unmergedCommits).toBe(2);
+    expect(parseForeignListing([FOREIGN, '1', '1', '-'].join('\t'), REMOTE, now)[0]!.unmergedCommits).toBeNull();
+  });
+
+  it('the listing script prints 0 only when there is no clone, and ? when git fails on a clone', () => {
+    const script = foreignListScript('/srv/karst');
+    expect(script).toContain(`  if [ -d "$p/repo" ]; then c=$(git -C "$p/repo" rev-list --count HEAD --not '--glob=refs/karst/base/*' 2>/dev/null || echo '?'); else c=0; fi`);
+    expect(script).not.toContain("base/*' 2>/dev/null || echo 0");
   });
 
   it('an unconfirmed remote runs no ssh call and reports it', async () => {
