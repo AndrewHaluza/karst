@@ -308,15 +308,27 @@ const menuPatch = (sendBack: boolean) => (s: DashboardState): DashboardState => 
   sendBack: sendBack ? ({ available: true, stage: 'review' } as DashboardState['sendBack']) : s.sendBack,
 });
 
-/** HAND-WRITTEN: twelve round tabs and a long caption (the model caps real attempts lower); the round row must wrap, not clip. */
-const manyRoundsPatch = (count: number, note: string) => (s: DashboardState): DashboardState => {
+/** HAND-WRITTEN: twelve round tabs and a long caption in the tab row (the model caps real attempts lower); the round row must wrap, not clip. */
+const manyRoundsPatch = (count: number, caption: string, note?: string) => (s: DashboardState): DashboardState => {
   const view = s.insideViews.review;
   const base = view.attempts?.[0];
   if (!base) throw new Error('insideCases: no review attempt to repeat');
   const attempts = Array.from({ length: count }, (_, i) => ({ ...base, key: `sr:${i + 1}` as typeof base.key, label: `R${i + 1}`, round: i + 1, latest: i === count - 1 }));
+  // The base view's own caption/warning describe ITS selected attempt, not the
+  // hand-written series here, so both are replaced rather than merged.
+  const { attemptCaption: _caption, attemptNote: _note, ...rest } = view;
   return {
     ...s,
-    insideViews: { ...s.insideViews, review: { ...view, attempts, selectedAttempt: attempts[count - 1]!.key, attemptNote: note } },
+    insideViews: {
+      ...s.insideViews,
+      review: {
+        ...rest,
+        attempts,
+        selectedAttempt: attempts[count - 1]!.key,
+        attemptCaption: caption,
+        ...(note ? { attemptNote: note } : {}),
+      },
+    },
   };
 };
 
@@ -1098,7 +1110,8 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       items: ['[high] sandbox egress stays open after the run (src/agent/sbx.ts:88)', '[medium] the timeout is not configurable (src/agent/sbx.ts:120)'],
     })),
   },
-  { stage: 'review', id: 'rounds-12', state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(12, 'opened by Review blocking findings · 1m 0s · no fix attempts left')) },
+  // D871: the caption is a plain fact in the tab row; only exhaustion is the band.
+  { stage: 'review', id: 'rounds-12', state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(12, 'opened by Review blocking findings · 1m 0s', 'no fix attempts left')) },
   { stage: 'review', id: 'long-attempt-note', state: fromFacts('review', loopFacts('review', 'failed'), manyRoundsPatch(2, `${LONG_SENTENCE} ${LONG_WORDS}`)) },
   {
     stage: 'review',

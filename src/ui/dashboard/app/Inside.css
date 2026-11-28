@@ -141,8 +141,14 @@
 #inside .attempt-tabs-label{color:var(--p-muted2);font-size:var(--p-xs);margin-right:var(--p-s1)}
 #inside .attempt-conn{flex:0 0 var(--p-s3);height:1px;background:var(--p-border)}
 #inside .attempt-tab-tail{color:var(--p-muted);font-weight:normal}
+/* The selected round's plain caption, muted, at the end of the tab row
+   (D871): why the round opened and, once settled, how long it took. It is a
+   fact, not a warning, so it never takes the attention band; the row already
+   wraps, so the tight tier drops it onto its own line under the tabs. */
+#inside .attempt-caption{color:var(--p-muted);font-size:var(--p-sm);margin-left:var(--p-s2);min-width:0;overflow-wrap:anywhere}
 /* The attemptNote banner: host-authored prose only (UI-R31 — the webview
-   composes no copy of its own), the selected round's caption, one line under the tabs. */
+   composes no copy of its own). Reserved for the facts a reader must act on —
+   `no fix attempts left`, a superseded round — one line under the tabs. */
 #inside .inside-now{padding:var(--p-s2) var(--p-s4);color:var(--p-muted);overflow-wrap:anywhere;white-space:normal}
 #inside .inside-now p{margin:0}
 #inside .inside-now p:first-child{color:var(--p-running)}
