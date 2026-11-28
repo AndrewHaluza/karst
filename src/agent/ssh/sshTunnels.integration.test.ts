@@ -1,13 +1,19 @@
 import { createServer, type Server } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
-import { createTunnelDeps, openTunnel, TunnelOpenError, type TunnelChild } from './sshTunnels.js';
+import { createTunnelDeps, openTunnel, probeLocalPort, TunnelOpenError, type TunnelChild } from './sshTunnels.js';
 
 const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
 
-function listen(): Promise<{ server: Server; port: number }> {
+/** `reset`: the other process resets each connection at once (the probe must not throw on it). */
+function listen(mode: 'reply' | 'reset' = 'reply'): Promise<{ server: Server; port: number }> {
   return new Promise((resolve, reject) => {
-    const server = createServer((socket) => socket.end('other process\n'));
+    const server = createServer((socket) => {
+      // The probe destroys its end, so this end can see ECONNRESET: expected here.
+      socket.on('error', () => undefined);
+      if (mode === 'reset') socket.resetAndDestroy();
+      else socket.end('other process\n');
+    });
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
@@ -47,5 +53,15 @@ describe('openTunnel with the production host port check', () => {
     expect(error).toBeInstanceOf(TunnelOpenError);
     expect((error as TunnelOpenError).portTaken).toBe(true);
     expect(spawnStream).not.toHaveBeenCalled();
+  });
+
+  it('the production probe settles for a port whose process resets each connection, and throws nothing later', async () => {
+    const held = await listen('reset');
+    server = held.server;
+    for (let i = 0; i < 20; i += 1) {
+      await expect(probeLocalPort(held.port)).resolves.toEqual(expect.any(Boolean));
+    }
+    // Let a late reset reach the probe socket before the test ends.
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
 });
