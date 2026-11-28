@@ -101,7 +101,7 @@
      narrows that track, and the `override model,effort` badge (105 px) is wider than the 81 px
      track it lands in at 399/400. Every fact stays inside the bordered box (T1361). */
   #inside .graph-node-detail>*{min-width:0}
-  #inside .graph-node-visit,#inside .graph-node-age,#inside .graph-node-override{white-space:normal;overflow-wrap:anywhere}
+  #inside .graph-node-age,#inside .graph-node-override{white-space:normal;overflow-wrap:anywhere}
 }
   /* Tight (<=399) down to 320: chrome thins, nothing is hidden. The status and the name never drop (handoff §10). Every
    agent core is icon-only (UI-R10c tight exception: aria-label = the core name, tooltip = core · model), and only the

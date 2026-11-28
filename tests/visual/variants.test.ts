@@ -322,17 +322,25 @@ describe('variant registry coverage (ui:UI-R57)', () => {
     // T1400: `header-planning-card-{wide,mid,narrow}` focus `#planLink` (the card opens at once); the tight twin
     // clicks ⋯ instead, since the inline link is hidden there. T1413: every `header-models-card-*` focuses `#modelsBtn`
     // (the button stays at every tier, one icon at tight).
+    // T1418 (@ui:UI-R22): the two graph card variants hover their node row / chip AND focus the same trigger, so the
+    // fixed card is open when the shot runs instead of racing the 300 ms pointer delay (the card opens at once on
+    // focus). No other variant may name a focus selector.
     const focused = Object.values(VARIANTS).flat().filter((x) => x.focus !== undefined);
-    expect(focused.map((x) => x.id).sort()).toEqual([
-      'header-models-card-mid',
-      'header-models-card-narrow',
-      'header-models-card-tight',
-      'header-models-card-wide',
-      'header-planning-card-mid',
-      'header-planning-card-narrow',
-      'header-planning-card-wide',
+    expect(focused.map((x) => [x.id, x.focus]).sort()).toEqual([
+      ['header-models-card-mid', '#modelsBtn'],
+      ['header-models-card-narrow', '#modelsBtn'],
+      ['header-models-card-tight', '#modelsBtn'],
+      ['header-models-card-wide', '#modelsBtn'],
+      ['header-planning-card-mid', '#planLink'],
+      ['header-planning-card-narrow', '#planLink'],
+      ['header-planning-card-wide', '#planLink'],
+      ['inside-impl-graph-card', '.graph-node[data-node-card]'],
+      ['inside-impl-graph-dag-card', '.graph-dag-chip[data-node-card]'],
     ]);
-    for (const x of focused) expect(x.focus, x.id).toBe(x.id.startsWith('header-models-card-') ? '#modelsBtn' : '#planLink');
+    for (const id of ['inside-impl-graph-card', 'inside-impl-graph-dag-card']) {
+      const v = VARIANTS.dashboard.find((x) => x.id === id)!;
+      expect(v.hover, id).toBe(v.focus);
+    }
     // The screenshot-only header states (T1396's four families, T1400's planning card and T1413's three families): the
     // shared header CSS is measured by every existing dashboard layout route at 1280/900/700/699/480 (and the inside-*
     // routes at 400/399/320), so these pages add no layout run.
