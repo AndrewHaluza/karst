@@ -321,8 +321,10 @@ export async function reverifySandboxServices(
     if (mapping && !present) {
       const r = await needs(runner, 'publishPort')(mapping);
       if (r.ok) republished.push(row.repo);
-      // A mapping that cannot be restored leaves the row pointing at nothing.
-      else reachable = false;
+      // ssh (D823): a taken host port is most likely the `-L` of another karst
+      // window of this project, which holds this kept stack. Keep the row; the
+      // health check below still drops it when nothing serves there.
+      else if (!(runner.kind === 'ssh' && r.portTaken)) reachable = false;
     }
     if (!reachable || !(await isHealthy(row))) {
       if (mapping) await runner.unpublishPort?.(mapping);

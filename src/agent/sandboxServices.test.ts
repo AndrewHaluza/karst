@@ -350,6 +350,27 @@ describe('stop, restart re-verify, cleanup', () => {
     expect(rows(store)).toEqual([]);
   });
 
+  it('ssh: keeps a healthy row when another window holds its host port (D823)', async () => {
+    const { store } = await seeded();
+    const taken = { ok: false, reason: 'host port 4100 is taken', portTaken: true } as const;
+    const f = fakeRunner({ live: [], publish: [taken, taken] });
+    const ssh = { ...f.runner, kind: 'ssh' as const };
+    await expect(reverifySandboxServices(store, 7, ssh, () => Promise.resolve(true))).resolves.toEqual({ republished: [], dropped: [] });
+    expect(f.unpublished).toEqual([]);
+    expect(rows(store)).toHaveLength(1);
+    // Nothing serves on the taken port: the row goes, as for any unhealthy row.
+    await expect(reverifySandboxServices(store, 7, ssh, () => Promise.resolve(false))).resolves.toEqual({ republished: [], dropped: ['api'] });
+  });
+
+  it('drops the row when a republish fails for another reason, or on a non-ssh runner', async () => {
+    const other = await seeded();
+    const ssh = { ...fakeRunner({ live: [], publish: [{ ok: false, reason: 'ssh: gone', portTaken: false }] }).runner, kind: 'ssh' as const };
+    await expect(reverifySandboxServices(other.store, 7, ssh, () => Promise.resolve(true))).resolves.toEqual({ republished: [], dropped: ['api'] });
+    const sbx = await seeded();
+    const taken = fakeRunner({ live: [], publish: [{ ok: false, reason: 'taken', portTaken: true }] });
+    await expect(reverifySandboxServices(sbx.store, 7, taken.runner, () => Promise.resolve(true))).resolves.toEqual({ republished: [], dropped: ['api'] });
+  });
+
   it('changes nothing when the sandbox cannot list (stopped), and is a no-op without rows', async () => {
     const { store } = await seeded();
     const f = fakeRunner({ live: null });

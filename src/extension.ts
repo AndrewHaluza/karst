@@ -7598,7 +7598,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logger.info(
           `session recovery: adopted late-restored terminal for ticket ${session.ticketId}`,
         );
-        provider.refresh();
+        provider.refresh(); if (getPlacement(localStore, session.ticketId)?.backend === 'ssh') sandboxB?.reattach(session.ticketId); // D823: its tunnels died with the old window
         dashboard.pushState(session.ticketId);
         return;
       }
