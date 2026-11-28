@@ -358,12 +358,30 @@ describe('DashboardManager', () => {
     expect(panels[0]!.posted.length).toBeLessThanOrEqual(pushed + 1);
   });
 
-  it('reads the ship preview only while the ship slot waits, and overlays it', async () => {
+  it('reads the ship preview only while the ship slot waits, overlays it, and turns its facts into will rows', async () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
     setStage(store, t.id, 'ship', { status: 'pending' });
     const { host, panels } = fakeHost();
-    const preview = { computedAt: '2026-01-01T00:00:00.000Z', repos: [] };
+    const preview = {
+      computedAt: '2026-01-01T00:00:00.000Z',
+      repos: [
+        {
+          repo: 'web',
+          prTitle: 'feat(web): land it',
+          commitMessage: 'feat(web): land it',
+          commitFiles: ['src/app.ts'],
+          excludedFiles: [],
+          committedExcludedWarning: [],
+          deny: [],
+          prNumber: null,
+          changedFromBase: true,
+          branchCommits: [],
+          branchCommitsMore: 0,
+          status: 'will-commit' as const,
+        },
+      ],
+    };
     const loadShipPreview = vi.fn(async () => preview);
     const mgr = new DashboardManager(
       store, host, () => ({}) as never,
@@ -372,14 +390,24 @@ describe('DashboardManager', () => {
       undefined, undefined, undefined, undefined, undefined, undefined, loadShipPreview,
     );
     mgr.openDashboard(t.id);
+    type Seen = {
+      shipPreview?: unknown;
+      insideViews: { ship: { processes: Array<{ id: string; openByDefault?: true; evidence?: { rows: Array<{ detail?: string }> } }> } };
+    };
     await vi.waitFor(() => {
-      const states = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{ state: { shipPreview?: unknown } }>;
+      const states = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{ state: Seen }>;
       expect(states.at(-1)!.state.shipPreview).toEqual(preview);
     });
+    const states = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{ state: Seen }>;
+    const processes = states.at(-1)!.state.insideViews.ship.processes;
+    const commit = processes.find((p) => p.id === 'commit')!;
+    expect(commit.openByDefault).toBe(true);
+    expect(commit.evidence!.rows[0]!.detail).toBe('will commit — feat(web): land it');
+    expect(processes.find((p) => p.id === 'push')!.evidence!.rows[0]!.detail).toBe('will push the branch');
     expect(loadShipPreview).toHaveBeenCalledOnce();
   });
 
-  it('omits the ship preview outside the confirm/retry slot and never reads it', () => {
+  it('omits the ship preview outside the confirm/retry slot, never reads it, and adds no will rows', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
     setStage(store, t.id, 'impl', { status: 'running' });
@@ -392,8 +420,12 @@ describe('DashboardManager', () => {
       undefined, undefined, undefined, undefined, undefined, undefined, loadShipPreview,
     );
     mgr.openDashboard(t.id);
-    const states = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{ state: { shipPreview?: unknown } }>;
-    expect(states.at(-1)!.state.shipPreview).toBeUndefined();
+    const states = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{
+      state: { shipPreview?: unknown; insideViews: { ship: { processes: Array<{ openByDefault?: true }> } } };
+    }>;
+    const last = states.at(-1)!.state;
+    expect(last.shipPreview).toBeUndefined();
+    expect(last.insideViews.ship.processes.every((p) => p.openByDefault === undefined)).toBe(true);
     expect(loadShipPreview).not.toHaveBeenCalled();
   });
 

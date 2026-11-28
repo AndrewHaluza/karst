@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import type { HostMessage } from '../messages.js';
+import { shipPreviewFixture } from '../renderFixtures.js';
 import { installRuntimeDoubles } from './fixtures/prsPanelKit.js';
 import { all, cleanupInside, insideState, must, mountInside, proc, q, text, view } from './fixtures/insideKit.js';
 
@@ -35,6 +36,23 @@ describe('Inside — the shell', () => {
   it('names the stage by its display title, not its key (DB-13)', () => {
     mountInside(insideState({ stageCurrent: 'impl', views: { impl: view('impl', { title: 'Implementation' }) } }));
     expect(text(must('#inside-title'))).toBe('Inside Implementation');
+  });
+
+  it('carries the ship preview Refresh in the header only while the ship slot waits, with no preview block (D142)', () => {
+    mountInside(
+      insideState({
+        stageCurrent: 'ship',
+        ship: { kind: 'confirm' },
+        shipPreview: shipPreviewFixture('ready')!,
+        views: { ship: view('ship', { title: 'Ship' }) },
+      }),
+    );
+    expect(must('.inside-head').querySelector('[data-act="refresh-ship-preview"]')).not.toBeNull();
+    expect(text(must('.ship-preview-meta'))).toMatch(/^as of /);
+    expect(q('section.ship-preview')).toBeNull();
+    cleanupInside();
+    mountInside(insideState({ stageCurrent: 'ship', views: { ship: view('ship', { title: 'Ship' }) } }));
+    expect(q('[data-act="refresh-ship-preview"]')).toBeNull();
   });
 
   it('gives the auto-fix chip a header track of its own, and one more when the actions menu renders (DB-1)', () => {
