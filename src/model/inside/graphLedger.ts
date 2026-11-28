@@ -112,14 +112,18 @@ export function nodeRunStatus(status: string): InsideStatus {
       return 'run';
     case 'completed':
       return 'pass';
+    // FAULT_NODE_STATUSES (completion.ts): a fault waits on recovery.
     case 'blocked':
     case 'failed-to-launch':
     case 'launch-unknown':
     case 'termination-unknown':
-      return 'wait';
     case 'stale':
+    case 'output-artifact-missing':
+    case 'artifact-unsafe':
+      return 'wait';
+    // A replan cancels its node; the work it produced is not used.
     case 'cancelled':
-      return 'note';
+      return 'skip';
     default:
       return 'pending';
   }
