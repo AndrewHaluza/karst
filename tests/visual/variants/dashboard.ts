@@ -182,6 +182,33 @@ const insideGraphDagNarrow = (): Variant[] => {
   ];
 };
 
+/**
+ * T1418 (@ui:VISUAL-VARIANTS, @ui:UI-R22): a node's details card open over the minimal node row and over a Graph view
+ * chip. The card opens on a 300 ms pointer hover or at once on keyboard focus; the shot hovers the trigger and also
+ * focuses it, so the fixed card is open when the capture runs and no shot races the delay (the T1400
+ * `header-planning-card` precedent). Screenshot-only: the same pages' layout runs open no card (`skipLayout`).
+ */
+const insideGraphCardVariants = (): Variant[] => {
+  const running = INSIDE_CASES.find((x) => x.stage === 'impl' && x.id === 'graph-running');
+  const dag = INSIDE_CASES.find((x) => x.stage === 'impl' && x.id === 'graph-dag');
+  if (!running || !dag) throw new Error('variants: no impl graph cases');
+  return [
+    variant('dashboard', 'inside-impl-graph-card', () => stateMessage(running.state()), {
+      themes: ALL_THEMES,
+      skipLayout: true,
+      hover: '.graph-node[data-node-card]',
+      focus: '.graph-node[data-node-card]',
+    }),
+    variant('dashboard', 'inside-impl-graph-dag-card', () => stateMessage(dag.state()), {
+      width: 1600,
+      skipLayout: true,
+      clicks: INSIDE_CASE_CLICKS['impl-graph-dag']!,
+      hover: '.graph-dag-chip[data-node-card]',
+      focus: '.graph-dag-chip[data-node-card]',
+    }),
+  ];
+};
+
 /** T1099: a viewport height above the 966px content of the ship/wide menu variant. */
 const SHIP_MENU_WIDE_VIEWPORT_H = 1000;
 
@@ -792,6 +819,7 @@ export const dashboardVariants = (): Variant[] => [
   ...insideCaseVariants(),
   ...insideTierVariants(),
   ...insideGraphDagNarrow(),
+  ...insideGraphCardVariants(),
   ...headerVariants(),
   ...stageMenuOpenVariants(),
   ...liveTokenVariants(),

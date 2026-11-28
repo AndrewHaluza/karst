@@ -475,6 +475,8 @@ const graphRunningFacts: GraphFacts = {
       launchAttempt: 1,
       startedAt: t(13),
       endedAt: t(20),
+      // T1418: the details card's Tokens fact — measured spend, summed per node run by the host as in production.
+      tokens: { input: 4_200, output: 900, cacheRead: 1_800, cacheWrite: 400, total: 7_300 },
     },
     {
       nodeRunId: 11,
@@ -492,6 +494,7 @@ const graphRunningFacts: GraphFacts = {
       launchAttempt: 1,
       startedAt: t(21),
       endedAt: null,
+      tokens: { input: 3_100, output: 640, cacheRead: 1_200, cacheWrite: 0, total: 4_940 },
     },
   ],
   overrides: [{ revisionId: 1, nodeId: 'build-ui', kinds: ['model', 'effort'] }],
@@ -529,7 +532,14 @@ const graphRunningFacts: GraphFacts = {
   liveSessions: [{ kind: 'node', runId: 11 }],
   attach: caseGraphAttach,
   topology: {
-    nodes: [{ id: 'spec-api' }, { id: 'build-ui' }, { id: 'verify-e2e' }, { id: 'join-impl' }],
+    // T1418: the authored title (`label`) and instructions artifact (`task`) ride the topology so the real
+    // `nodeCardView` words the card's title and Task fact; the webview never invents either.
+    nodes: [
+      { id: 'spec-api', label: 'Specify the API', task: 'spec-api-task' },
+      { id: 'build-ui', label: 'Build the UI', task: 'build-ui-task' },
+      { id: 'verify-e2e', label: 'Verify end to end', task: 'verify-e2e-task' },
+      { id: 'join-impl', label: 'Join the implementation', task: 'join-impl-task' },
+    ],
     edges: [
       { from: 'spec-api', to: 'build-ui' },
       { from: 'spec-api', to: 'verify-e2e' },
@@ -594,6 +604,8 @@ const graphDagFacts: GraphFacts = {
       launchAttempt: 1,
       startedAt: t(13),
       endedAt: t(16),
+      // T1418: the first chip's card carries every fact, Tokens included (the host sums the run's spend).
+      tokens: { input: 3_800, output: 820, cacheRead: 1_500, cacheWrite: 200, total: 6_320 },
     },
     {
       nodeRunId: 31,
@@ -638,17 +650,26 @@ const graphDagFacts: GraphFacts = {
       waitSince: t(21),
     },
   ],
-  artifacts: [],
+  artifacts: [
+    // T1418: the first chip's card has an Output fact; the real nesting attributes it to node run 30.
+    {
+      artifactId: 'api-contract',
+      byteSize: 2860,
+      mediaType: 'application/json',
+      createdAt: t(16),
+      producerNodeRunId: 30,
+    },
+  ],
   diagnostics: [],
   liveSessions: [{ kind: 'node', runId: 31 }],
   attach: caseGraphAttach,
   topology: {
     nodes: [
-      { id: 'spec-api' },
-      { id: 'build-ui' },
-      { id: 'build-api' },
-      { id: 'verify-e2e' },
-      { id: 'join-build' },
+      { id: 'spec-api', label: 'Specify the API', task: 'spec-api-task' },
+      { id: 'build-ui', label: 'Build the UI', task: 'build-ui-task' },
+      { id: 'build-api', label: 'Build the API', task: 'build-api-task' },
+      { id: 'verify-e2e', label: 'Verify end to end', task: 'verify-e2e-task' },
+      { id: 'join-build', label: 'Join the builds', task: 'join-build-task' },
       ...DAG_CHAIN.map((id) => ({ id })),
       { id: 'tail-a' },
       { id: 'tail-b' },
@@ -724,6 +745,7 @@ const graphFailedFacts: GraphFacts = {
       launchAttempt: 1,
       startedAt: t(13),
       endedAt: t(17),
+      tokens: { input: 2_900, output: 560, cacheRead: 900, cacheWrite: 0, total: 4_360 },
     },
     {
       nodeRunId: 21,
@@ -741,6 +763,7 @@ const graphFailedFacts: GraphFacts = {
       launchAttempt: 1,
       startedAt: t(18),
       endedAt: t(25),
+      tokens: { input: 3_400, output: 700, cacheRead: 1_100, cacheWrite: 150, total: 5_350 },
     },
   ],
   overrides: [],
@@ -750,7 +773,10 @@ const graphFailedFacts: GraphFacts = {
   liveSessions: [],
   attach: caseGraphAttach,
   topology: {
-    nodes: [{ id: 'spec-api' }, { id: 'build-api' }],
+    nodes: [
+      { id: 'spec-api', label: 'Specify the API', task: 'spec-api-task' },
+      { id: 'build-api', label: 'Build the API', task: 'build-api-task' },
+    ],
     edges: [{ from: 'spec-api', to: 'build-api' }],
   },
 };

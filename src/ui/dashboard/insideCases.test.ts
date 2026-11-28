@@ -92,6 +92,30 @@ describe('inside case registry (ui:VISUAL-VARIANTS)', () => {
     expect(dag!.columns.flat().some((chip) => chip.id === 'uat')).toBe(false);
   });
 
+  it('gives the graph fixtures every fact of a node details card (T1418)', () => {
+    const cardOf = (caseId: string, nodeId: string) => {
+      const row = (rowsOf(graphOf(caseId)).nodes ?? []).find((n) => n.nodeId === nodeId)!;
+      expect(row.card, `${caseId} ${nodeId} card`).toBeDefined();
+      return row.card!;
+    };
+    const labels = (caseId: string, nodeId: string) => cardOf(caseId, nodeId).facts.map((f) => f.label);
+    // The node list row's card: title, and Role/Core/Model/Ran/Tokens/Visit/Output/Task/Outcome in that order.
+    expect(cardOf('graph-running', 'spec-api').title).toBe('Specify the API');
+    expect(labels('graph-running', 'spec-api')).toEqual([
+      'Role', 'Core', 'Model', 'Ran', 'Tokens', 'Visit', 'Output', 'Task', 'Outcome',
+    ]);
+    // The DAG chip carries the same card, so its shot shows the whole card too.
+    const chip = rowsOf(graphOf('graph-dag')).dag!.columns.flat().find((c) => c.id === 'spec-api')!;
+    expect(chip.card?.title).toBe('Specify the API');
+    expect(chip.card?.facts.map((f) => f.label)).toEqual([
+      'Role', 'Core', 'Model', 'Ran', 'Tokens', 'Visit', 'Output', 'Task', 'Outcome',
+    ]);
+    // A blocked node's card appends Outcome and Reason.
+    expect(labels('graph-failed', 'build-api')).toEqual([
+      'Role', 'Core', 'Model', 'Ran', 'Tokens', 'Visit', 'Task', 'Outcome', 'Reason',
+    ]);
+  });
+
   it('parks the failed graph with the banner, the needs-you rail and recovery controls (T1361)', () => {
     const state = stateOf('graph-failed');
     expect(state.currentStage?.blocked).toMatchObject({ kind: 'approach-graph-failed', resumable: true });

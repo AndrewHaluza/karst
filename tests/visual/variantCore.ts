@@ -127,6 +127,10 @@ const PAGE_CAPTURE_PREFIXES: readonly string[] = [
   'inside-impl-interrupted',
   'inside-done-closed',
   'inside-scope-needs-you',
+  // T1418: a node's details card is a fixed popover placed beside its node row or Graph view chip; the element shot
+  // of `#inside` would clip the card (it may hang left of or above the region's box), so these two keep the page.
+  'inside-impl-graph-card',
+  'inside-impl-graph-dag-card',
   // T1364: these ship cases differ only in the rail outside #inside, so the element shot would collide
   // (`records a distinct picture`); keep the page so the variant's real diff is recorded.
   'inside-ship-failed',
