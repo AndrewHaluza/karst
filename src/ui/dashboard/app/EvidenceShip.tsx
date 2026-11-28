@@ -15,8 +15,12 @@ type Of<K extends ProcessEvidenceView['kind']> = Extract<ProcessEvidenceView, { 
 
 export function EvidenceCommits({ ev, stage, id }: { readonly ev: Of<'commits'>; readonly stage: string; readonly id: string }) {
   if (!ev.repos || !ev.repos.length) return <EvidenceRows ev={ev} stage={stage} id={id} />;
+  // The ship preview's "will" rows lead a body that also carries the recorded grid
+  // (`arch:SHIP-PREVIEW`): the host says how many, the grid follows.
+  const lead = Math.min(ev.leadRows ?? 0, ev.rows.length);
   return (
     <>
+      {lead > 0 ? <EvidenceRows ev={{ kind: 'rows', rows: ev.rows.slice(0, lead) }} stage={stage} id={id} /> : null}
       <div className="commit-grid">
         {withKeys(ev.repos, (r) => r.repo).map(([key, r]) => (
           <div className="commit-repo" key={key}>
@@ -58,8 +62,11 @@ const Arrow = () => (
 
 export function EvidencePrs({ ev, stage, id }: { readonly ev: Of<'prs'>; readonly stage: string; readonly id: string }) {
   if (!ev.branches || !ev.branches.length) return <EvidenceRows ev={ev} stage={stage} id={id} />;
+  // The preview's "will" rows lead the recorded PR paths (`arch:SHIP-PREVIEW`).
+  const lead = Math.min(ev.leadRows ?? 0, ev.rows.length);
   return (
     <>
+      {lead > 0 ? <EvidenceRows ev={{ kind: 'rows', rows: ev.rows.slice(0, lead) }} stage={stage} id={id} /> : null}
       <div className="pr-branches">
         {withKeys(ev.branches, (b) => `${b.repo}/${b.number}`).map(([key, b]) => {
           const steps = b.steps || [];

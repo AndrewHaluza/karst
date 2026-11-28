@@ -1,6 +1,6 @@
 /**
  * Source-text guards for the Inside rules that moved out of webview.html with the markup (`Inside.css`,
- * `InsideEvidence.css`, `InsideShipPreview.css`, `InsideResponsive.css`).
+ * `InsideEvidence.css`, `InsideResponsive.css`).
  *
  * Be honest about what these are: a text assertion CANNOT catch a visual regression. It cannot tell you a row wraps
  * or the spine drifts, only that the rule which stops that is still in the file. Each exists so the fix cannot be
@@ -16,7 +16,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const read = (name: string): string => readFileSync(join(HERE, name), 'utf8');
 /** In import order, which is the order the rules cascade in. */
-const CSS = ['Inside.css', 'InsideEvidence.css', 'InsideShipPreview.css', 'InsideResponsive.css'].map(read).join('\n');
+const CSS = ['Inside.css', 'InsideEvidence.css', 'InsideResponsive.css'].map(read).join('\n');
 const PAGE = readFileSync(join(HERE, '..', 'webview.html'), 'utf8');
 const INSIDE_TSX = read('Inside.tsx');
 
@@ -45,9 +45,9 @@ function containerBlock(w: string): string {
 }
 
 describe('Inside CSS — where it lives', () => {
-  it('imports the four files in cascade order, the responsive overrides last', () => {
+  it('imports the three files in cascade order, the responsive overrides last', () => {
     const imports = [...INSIDE_TSX.matchAll(/import '\.\/(Inside[A-Za-z]*\.css)'/g)].map((m) => m[1]);
-    expect(imports).toEqual(['Inside.css', 'InsideEvidence.css', 'InsideShipPreview.css', 'InsideResponsive.css']);
+    expect(imports).toEqual(['Inside.css', 'InsideEvidence.css', 'InsideResponsive.css']);
   });
 
   it('leaves no #inside rule in the page stylesheet', () => {
@@ -252,8 +252,10 @@ describe('Inside CSS — the container queries', () => {
     }
   });
 
-  it('stacks the ship preview rows label-above-value in the narrow tier (UI-R43), and keeps the page grid rule where it was', () => {
-    expect(containerBlock('699px')).toMatch(/#inside \.sp-row\{grid-template-columns:minmax\(0,1fr\)/);
+  it('keeps the ship preview header control on the clock line at the narrow tier (UI-R43), and keeps the page grid rule where it was', () => {
+    // The preview's clock + Refresh share one grid item (`.inside-tail`); narrow wraps them onto their own line.
+    expect(containerBlock('699px')).toMatch(/#inside \.inside-tail\{grid-column:1\/-1/);
+    expect(containerBlock('699px')).toMatch(/#inside \.ship-preview-meta\{white-space:normal/);
     expect(PAGE).toMatch(/@media \(max-width: 699px\)\{\s*\.grid\{grid-template-columns:1fr\}/);
   });
 

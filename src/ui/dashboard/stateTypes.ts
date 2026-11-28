@@ -311,7 +311,10 @@ export interface DashboardState {
    * because it reads git: it names per repo what ship's sweep commit will carry,
    * what `ship.exclude` keeps out, what the deny scan refuses, and the commit
    * subject / PR title ship would render. A read failure is per repo; the
-   * preview never blocks Confirm ship.
+   * preview never blocks Confirm ship. Its facts are already the leading "will"
+   * rows of the ship Commit, Push and Pull request processes by the time the
+   * snapshot is built; the state keeps them only for the header's Refresh
+   * control and its `as of` time.
    */
   shipPreview?: ShipPreview;
   /**

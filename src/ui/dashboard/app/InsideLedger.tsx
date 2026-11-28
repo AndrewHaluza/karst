@@ -248,7 +248,7 @@ const ProcessRow = memo(
   (a, b) => a.stageKey === b.stageKey && a.attemptKey === b.attemptKey && a.consoleStage === b.consoleStage && a.open === b.open && sameIgnoringLive(a.p, b.p),
 );
 
-/** Which process kinds render OPEN on the FIRST render: the session's own timeline is the approval screenshot's starting state. */
+/** Which process kinds render OPEN on the FIRST render: the session's own timeline is the approval screenshot's starting state. A process the host marks `openByDefault` (the ship preview rows) opens with it. */
 const DEFAULT_OPEN_KINDS: ReadonlySet<string> = new Set(['session']);
 
 export function Ledger({ stageKey, processes, consoleStage, attemptKey }: { readonly stageKey: string; readonly processes: readonly InsideProcessView[]; readonly consoleStage: string | null; readonly attemptKey?: string }) {
@@ -260,7 +260,7 @@ export function Ledger({ stageKey, processes, consoleStage, attemptKey }: { read
         // The user's own toggle wins once touched; else the default-open kinds. A RUNNING process opens itself: its body is the
         // only place the work becomes visible (gate rows land one at a time as each finishes).
         const hasBody = hasEvidenceBody(p.evidence) || !!(p.footer && p.footer.length);
-        const open = memory.explicit(key) ?? (hasBody && (DEFAULT_OPEN_KINDS.has(p.kind) || p.status === 'run'));
+        const open = memory.explicit(key) ?? (hasBody && (p.openByDefault === true || DEFAULT_OPEN_KINDS.has(p.kind) || p.status === 'run'));
         return <ProcessRow key={key} p={p} stageKey={stageKey} consoleStage={consoleStage} open={open} attemptKey={attemptKey} />;
       })}
     </div>

@@ -1372,138 +1372,53 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span> "Auto-fix off"
             <span.autofix-default> "· default"
           <svg.k-icon aria-hidden="true">
-      <span.inside-meta> "<dur> <dur>"
-        <span.clock-start> "<clock> ·"
-    <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
-      <div.sp-head>
-        <span#ship-preview-title.sp-title> "Ship preview"
-        <span.sp-meta> "as of 09:41 AM"
-        <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
-      <section.sp-repo data-region="ship-preview-repo">
-        <div.sp-repo-head>
-          <span.sp-repo-name> "web"
-          <span.sp-badge.sp-badge--danger>
-            <svg.k-icon aria-hidden="true">
-            <span> "blocked"
-        <div.sp-grid>
-          <div.sp-row.sp-row--danger>
-            <span.sp-label>
-              <svg.k-icon aria-hidden="true">
-              <span> "Blocked"
-            <span.sp-value> "ship refuses .env, id_rsa — commit them deliberately or ignore them"
-          <div.sp-row>
-            <span.sp-label> "PR title"
-            <span.sp-value> "feat(web): land the change"
+      <span.inside-tail>
+        <span.inside-meta> "<dur> <dur>"
+          <span.clock-start> "<clock> ·"
+        <span.ship-preview-refresh>
+          <span.ship-preview-meta> "as of 09:41 AM"
+          <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
     <div.ledger>
-      <details.op.pass data-proc-id="ship:commit">
+      <details.op.pending data-proc-id="ship:commit">
         <summary>
-          <span.glyph.pass aria-label="passed" role="img">
+          <span.glyph.pending aria-label="pending" role="img">
           <span.op-name title="Commit">
             <span.op-name-text aria-label="Commit" role="group"> "Commit"
-          <span.op-detail.pass>
+          <span.op-detail.pending>
           <span.op-tail>
           <span.op-time>
           <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
-          <div.commit-grid>
-            <div.commit-repo>
-              <div.commit-repo-head>
-                <span.commit-repo-name> "web"
-                <span.commit-repo-summary> "2 created · 1 before"
-                <span.commit-origin.ship> "created by ship"
-                <span.commit-time>
-                <span.commit-dur>
-              <div.commit-list>
-                <div.commit-item>
-                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:1" href="#" title="Open this commit on the host"> "a1b2c30"
-                  <span.commit-message> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
-                <div.commit-item>
-                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:100" href="#" title="Open this commit on the host"> "d4e5f60"
-                  <span.commit-message> "chore(web): tidy up"
-            <div.commit-repo>
-              <div.commit-repo-head>
-                <span.commit-repo-name> "api"
-                <span.commit-repo-summary> "2 created · 1 before"
-                <span.commit-origin.ship> "created by ship"
-                <span.commit-time>
-                <span.commit-dur>
-              <div.commit-list>
-                <div.commit-item>
-                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:2" href="#" title="Open this commit on the host"> "a1b2c31"
-                  <span.commit-message> "feat(api): land the change"
-                <div.commit-item>
-                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:101" href="#" title="Open this commit on the host"> "d4e5f61"
-                  <span.commit-message> "chore(api): tidy up"
-      <details.op.pass data-proc-id="ship:push">
-        <summary>
-          <span.glyph.pass aria-label="passed" role="img">
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.fail.glyph aria-label="failed" role="img">
+            <span.ev-key aria-label="web" role="group"> "web"
+            <span.ev-detail> "ship refuses .env, id_rsa — commit them deliberately or ignore them"
+            <span.ev-tail>
+            <span.ev-state.fail>
+              <span.ev-time>
+              <span.ev-dur>
+      <div.op>
+        <div.op-static data-proc-id="ship:push">
+          <span.glyph.pending aria-label="pending" role="img">
           <span.op-name title="Push">
             <span.op-name-text aria-label="Push" role="group"> "Push"
-          <span.op-detail.pass>
+          <span.op-detail.pending>
           <span.op-tail>
           <span.op-time>
           <span.duration>
-          <span.chev aria-hidden="true">
-        <div.op-body>
-          <div.evidence-row>
-            <span.ev-glyph>
-              <span.glyph.pass aria-label="passed" role="img">
-            <span.ev-key aria-label="web" role="group"> "web"
-            <span.ev-detail> "pushed"
-            <span.ev-tail>
-            <span.ev-state.pass>
-              <span.ev-time>
-              <span.ev-dur>
-          <div.evidence-row>
-            <span.ev-glyph>
-              <span.glyph.pass aria-label="passed" role="img">
-            <span.ev-key aria-label="api" role="group"> "api"
-            <span.ev-detail> "pushed"
-            <span.ev-tail>
-            <span.ev-state.pass>
-              <span.ev-time>
-              <span.ev-dur>
-      <details.op.pass data-proc-id="ship:pr">
-        <summary>
-          <span.glyph.pass aria-label="passed" role="img">
+          <span>
+      <div.op>
+        <div.op-static data-proc-id="ship:pr">
+          <span.glyph.pending aria-label="pending" role="img">
           <span.op-name title="Pull request">
             <span.op-name-text aria-label="Pull request" role="group"> "Pull request"
-          <span.op-detail.pass>
+          <span.op-detail.pending>
           <span.op-tail>
           <span.op-time>
           <span.duration>
-          <span.chev aria-hidden="true">
-        <div.op-body>
-          <div.pr-branches>
-            <div>
-              <div.pr-branch>
-                <span.pr-repo> "web"
-                <div.pr-path>
-                  <span.pr-object>
-                    <span.pr-link> "#120"
-                    <span.draft.pr-status> "draft"
-                  <span.pr-arrow aria-hidden="true"> "→"
-                  <span.done.pr-step> "description generated"
-                  <span.pr-arrow aria-hidden="true"> "→"
-                  <span.done.pr-step> "PR opened"
-                <span.pr-time>
-                <span.pr-dur>
-              <div.pr-branch-note> "PR #120 was created in this ship run."
-            <div>
-              <div.pr-branch>
-                <span.pr-repo> "api"
-                <div.pr-path>
-                  <span.pr-object>
-                    <span.pr-link> "#121"
-                    <span.open.pr-status> "open"
-                  <span.pr-arrow aria-hidden="true"> "→"
-                  <span.done.pr-step> "description generated"
-                  <span.pr-arrow aria-hidden="true"> "→"
-                  <span.done.pr-step> "PR opened"
-                <span.pr-time>
-                <span.pr-dur>
-              <div.pr-branch-note> "PR #121 was created in this ship run."
+          <span>
       <details.op.wait.waiting-source data-proc-id="ship:merge">
         <summary>
           <span.glyph.wait aria-label="waiting" role="img">
@@ -1548,29 +1463,12 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span> "Auto-fix off"
             <span.autofix-default> "· default"
           <svg.k-icon aria-hidden="true">
-      <span.inside-meta> "<dur> <dur>"
-        <span.clock-start> "<clock> ·"
-    <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
-      <div.sp-head>
-        <span#ship-preview-title.sp-title> "Ship preview"
-        <span.sp-meta> "reading…"
-        <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
-      <div.sp-repo aria-hidden="true" data-region="ship-preview-repo">
-        <div.sp-repo-head>
-          <span.sp-skel.sp-skel-name>
-        <div.sp-grid>
-          <div.sp-row.sp-skel-row>
-            <span.sp-label>
-            <span.sp-value>
-              <span.sp-skel>
-          <div.sp-row.sp-skel-row>
-            <span.sp-label>
-            <span.sp-value>
-              <span.sp-skel>
-          <div.sp-row.sp-skel-row>
-            <span.sp-label>
-            <span.sp-value>
-              <span.sp-skel>
+      <span.inside-tail>
+        <span.inside-meta> "<dur> <dur>"
+          <span.clock-start> "<clock> ·"
+        <span.ship-preview-refresh>
+          <span.ship-preview-meta> "reading…"
+          <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
     <div.ledger>
       <details.op.pass data-proc-id="ship:commit">
         <summary>
@@ -1725,101 +1623,72 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
           <span> "Auto-fix off"
             <span.autofix-default> "· default"
           <svg.k-icon aria-hidden="true">
-      <span.inside-meta> "<dur> <dur>"
-        <span.clock-start> "<clock> ·"
-    <section.ship-preview aria-labelledby="ship-preview-title" data-region="ship-preview">
-      <div.sp-head>
-        <span#ship-preview-title.sp-title> "Ship preview"
-        <span.sp-meta> "as of 09:41 AM"
-        <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
-      <section.sp-repo data-region="ship-preview-repo">
-        <div.sp-repo-head>
-          <span.sp-repo-name> "web"
-          <span.sp-badge.sp-badge--ok>
-            <svg.k-icon aria-hidden="true">
-            <span> "will commit"
-        <div.sp-grid>
-          <div.sp-row>
-            <span.sp-label> "PR title"
-            <span.sp-value> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
-          <div.sp-row>
-            <span.sp-label> "Commit"
-            <span.sp-value> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
-          <div.sp-row>
-            <span.sp-label> "Files"
-            <span.sp-value>
-              <details.sp-files>
-                <summary> "2 files"
-                <ul.sp-file-list>
-                  <li.sp-file> "src/app.ts"
-                  <li.sp-file> "src/app.test.ts"
-      <section.sp-repo data-region="ship-preview-repo">
-        <div.sp-repo-head>
-          <span.sp-repo-name> "api"
-          <span.sp-badge.sp-badge--ok>
-            <svg.k-icon aria-hidden="true">
-            <span> "will commit"
-        <div.sp-grid>
-          <div.sp-row>
-            <span.sp-label> "PR title"
-            <span.sp-value> "feat(api): land the change"
-          <div.sp-row>
-            <span.sp-label> "Commit"
-            <span.sp-value> "feat(api): land the change"
-          <div.sp-row>
-            <span.sp-label> "Files"
-            <span.sp-value>
-              <details.sp-files>
-                <summary> "1 file"
-                <ul.sp-file-list>
-                  <li.sp-file> "src/handler.ts"
+      <span.inside-tail>
+        <span.inside-meta> "<dur> <dur>"
+          <span.clock-start> "<clock> ·"
+        <span.ship-preview-refresh>
+          <span.ship-preview-meta> "as of 09:41 AM"
+          <button.k-btn.k-btn--ghost.k-btn--sm aria-busy="false" data-act="refresh-ship-preview" title="Re-read the worktrees now" type="button"> "Refresh"
     <div.ledger>
-      <details.op.pass data-proc-id="ship:commit">
+      <details.op.pending data-proc-id="ship:commit">
         <summary>
-          <span.glyph.pass aria-label="passed" role="img">
+          <span.glyph.pending aria-label="pending" role="img">
           <span.op-name title="Commit">
             <span.op-name-text aria-label="Commit" role="group"> "Commit"
-          <span.op-detail.pass>
+          <span.op-detail.pending>
           <span.op-tail>
           <span.op-time>
           <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
-          <div.commit-grid>
-            <div.commit-repo>
-              <div.commit-repo-head>
-                <span.commit-repo-name> "web"
-                <span.commit-repo-summary> "2 created · 1 before"
-                <span.commit-origin.ship> "created by ship"
-                <span.commit-time>
-                <span.commit-dur>
-              <div.commit-list>
-                <div.commit-item>
-                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:1" href="#" title="Open this commit on the host"> "a1b2c30"
-                  <span.commit-message> "Unescaped & untrusted <script>alert('xss')</script> title "quoted""
-                <div.commit-item>
-                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:100" href="#" title="Open this commit on the host"> "d4e5f60"
-                  <span.commit-message> "chore(web): tidy up"
-            <div.commit-repo>
-              <div.commit-repo-head>
-                <span.commit-repo-name> "api"
-                <span.commit-repo-summary> "2 created · 1 before"
-                <span.commit-origin.ship> "created by ship"
-                <span.commit-time>
-                <span.commit-dur>
-              <div.commit-list>
-                <div.commit-item>
-                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:2" href="#" title="Open this commit on the host"> "a1b2c31"
-                  <span.commit-message> "feat(api): land the change"
-                <div.commit-item>
-                  <a.commit-link.obj-link data-act="inside-action" data-action-id="fixture:open-commit:101" href="#" title="Open this commit on the host"> "d4e5f61"
-                  <span.commit-message> "chore(api): tidy up"
-      <details.op.pass data-proc-id="ship:push">
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pending aria-label="pending" role="img">
+            <span.ev-key aria-label="web" role="group"> "web"
+            <span.ev-detail> "will commit — Unescaped & untrusted <script>alert('xss')</script> title "quoted""
+            <span.ev-tail>
+            <span.ev-state.pending>
+              <span.ev-time>
+              <span.ev-dur>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pending aria-label="pending" role="img">
+            <span.ev-key aria-label="web" role="group"> "web"
+            <span.ev-detail> "Files (2)"
+              <details.ev-output>
+                <summary> "Show"
+                <pre> "src/app.ts src/app.test.ts"
+            <span.ev-tail>
+            <span.ev-state.pending>
+              <span.ev-time>
+              <span.ev-dur>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pending aria-label="pending" role="img">
+            <span.ev-key aria-label="api" role="group"> "api"
+            <span.ev-detail> "will commit — feat(api): land the change"
+            <span.ev-tail>
+            <span.ev-state.pending>
+              <span.ev-time>
+              <span.ev-dur>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pending aria-label="pending" role="img">
+            <span.ev-key aria-label="api" role="group"> "api"
+            <span.ev-detail> "Files (1)"
+              <details.ev-output>
+                <summary> "Show"
+                <pre> "src/handler.ts"
+            <span.ev-tail>
+            <span.ev-state.pending>
+              <span.ev-time>
+              <span.ev-dur>
+      <details.op.pending data-proc-id="ship:push">
         <summary>
-          <span.glyph.pass aria-label="passed" role="img">
+          <span.glyph.pending aria-label="pending" role="img">
           <span.op-name title="Push">
             <span.op-name-text aria-label="Push" role="group"> "Push"
-          <span.op-detail.pass>
+          <span.op-detail.pending>
           <span.op-tail>
           <span.op-time>
           <span.duration>
@@ -1827,62 +1696,51 @@ exports[`dashboard region parity (DOM contract) > inside #inside · ship preview
         <div.op-body>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.pass aria-label="passed" role="img">
+              <span.glyph.pending aria-label="pending" role="img">
             <span.ev-key aria-label="web" role="group"> "web"
-            <span.ev-detail> "pushed"
+            <span.ev-detail> "will push the branch"
             <span.ev-tail>
-            <span.ev-state.pass>
+            <span.ev-state.pending>
               <span.ev-time>
               <span.ev-dur>
           <div.evidence-row>
             <span.ev-glyph>
-              <span.glyph.pass aria-label="passed" role="img">
+              <span.glyph.pending aria-label="pending" role="img">
             <span.ev-key aria-label="api" role="group"> "api"
-            <span.ev-detail> "pushed"
+            <span.ev-detail> "will push the branch"
             <span.ev-tail>
-            <span.ev-state.pass>
+            <span.ev-state.pending>
               <span.ev-time>
               <span.ev-dur>
-      <details.op.pass data-proc-id="ship:pr">
+      <details.op.pending data-proc-id="ship:pr">
         <summary>
-          <span.glyph.pass aria-label="passed" role="img">
+          <span.glyph.pending aria-label="pending" role="img">
           <span.op-name title="Pull request">
             <span.op-name-text aria-label="Pull request" role="group"> "Pull request"
-          <span.op-detail.pass>
+          <span.op-detail.pending>
           <span.op-tail>
           <span.op-time>
           <span.duration>
           <span.chev aria-hidden="true">
         <div.op-body>
-          <div.pr-branches>
-            <div>
-              <div.pr-branch>
-                <span.pr-repo> "web"
-                <div.pr-path>
-                  <span.pr-object>
-                    <span.pr-link> "#120"
-                    <span.draft.pr-status> "draft"
-                  <span.pr-arrow aria-hidden="true"> "→"
-                  <span.done.pr-step> "description generated"
-                  <span.pr-arrow aria-hidden="true"> "→"
-                  <span.done.pr-step> "PR opened"
-                <span.pr-time>
-                <span.pr-dur>
-              <div.pr-branch-note> "PR #120 was created in this ship run."
-            <div>
-              <div.pr-branch>
-                <span.pr-repo> "api"
-                <div.pr-path>
-                  <span.pr-object>
-                    <span.pr-link> "#121"
-                    <span.open.pr-status> "open"
-                  <span.pr-arrow aria-hidden="true"> "→"
-                  <span.done.pr-step> "description generated"
-                  <span.pr-arrow aria-hidden="true"> "→"
-                  <span.done.pr-step> "PR opened"
-                <span.pr-time>
-                <span.pr-dur>
-              <div.pr-branch-note> "PR #121 was created in this ship run."
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pending aria-label="pending" role="img">
+            <span.ev-key aria-label="web" role="group"> "web"
+            <span.ev-detail> "will open — Unescaped & untrusted <script>alert('xss')</script> title "quoted""
+            <span.ev-tail>
+            <span.ev-state.pending>
+              <span.ev-time>
+              <span.ev-dur>
+          <div.evidence-row>
+            <span.ev-glyph>
+              <span.glyph.pending aria-label="pending" role="img">
+            <span.ev-key aria-label="api" role="group"> "api"
+            <span.ev-detail> "will open — feat(api): land the change"
+            <span.ev-tail>
+            <span.ev-state.pending>
+              <span.ev-time>
+              <span.ev-dur>
       <details.op.wait.waiting-source data-proc-id="ship:merge">
         <summary>
           <span.glyph.wait aria-label="waiting" role="img">
