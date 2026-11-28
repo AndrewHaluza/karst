@@ -7,6 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import { graphDagView } from './graphDag.js';
 import { graphInsideProcess, type GraphInsideInput, type GraphNodeRunView } from './graph.js';
+import { nodeRunStatus } from './graphLedger.js';
+import { FAULT_NODE_STATUSES } from '../../approaches/graph/coordinator/completion.js';
 
 function node(over: Partial<GraphNodeRunView> & Pick<GraphNodeRunView, 'nodeRunId' | 'nodeId'>): GraphNodeRunView {
   return {
@@ -232,5 +234,38 @@ describe('graph ledger', () => {
       nodeRuns: [node({ nodeRunId: 9, nodeId: 'w', status: 'running', outcome: null, startedAt: '2026-10-05T17:32:00.000Z' })],
     }).nodes!.find((n) => n.nodeId === 'w')!;
     expect(row.age).toBe('running 18m');
+  });
+
+  describe('nodeRunStatus', () => {
+    // The 15 stored values of `approach_node_runs.status` (migrations.ts, v37
+    // CHECK): every one has a reading, so none falls to the pending default by
+    // accident.
+    const cases: ReadonlyArray<[string, string]> = [
+      ['ready', 'pending'],
+      ['waiting-resource', 'pending'],
+      ['launching', 'run'],
+      ['running', 'run'],
+      ['completing', 'run'],
+      ['integrating', 'run'],
+      ['completed', 'pass'],
+      ['blocked', 'wait'],
+      ['failed-to-launch', 'wait'],
+      ['launch-unknown', 'wait'],
+      ['termination-unknown', 'wait'],
+      ['stale', 'wait'],
+      ['output-artifact-missing', 'wait'],
+      ['artifact-unsafe', 'wait'],
+      ['cancelled', 'skip'],
+    ];
+
+    it.each(cases)('maps %s to %s', (status, expected) => {
+      expect(nodeRunStatus(status)).toBe(expected);
+    });
+
+    it('reads every fault as a wait on recovery', () => {
+      for (const status of FAULT_NODE_STATUSES) {
+        expect(nodeRunStatus(status), status).toBe('wait');
+      }
+    });
   });
 });
