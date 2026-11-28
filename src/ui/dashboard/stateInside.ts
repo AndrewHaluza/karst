@@ -29,6 +29,11 @@ import {
   type ServiceStatusView,
 } from '../../model/inside/gates.js';
 import type { AttemptKey, GateAttemptView } from '../../model/inside/rounds.js';
+import { shipRoundLedger, shipRoundWindows, type ShipPushEvidence, type ShipRoundEvidenceFacts, type ShipRoundLedger } from '../../model/inside/shipRounds.js';
+import type { AutofixAttempt, AutofixRound } from '../../model/inside/autofix.js';
+import type { ShipSpentPark } from '../../model/inside/shipRounds.js';
+import type { DeliverRun } from '../../store/deliverRuns.js';
+import type { ShipEvidence, ShipRepoStepEvidence } from '../../store/shipRuns.js';
 import type { CurrentAttempt } from '../../model/inside/currentAttempt.js';
 import type { AutofixRowView } from '../../model/inside/autofix.js';
 import type { DeliverRowInput } from '../../model/inside/shipDeliver.js';
@@ -107,8 +112,17 @@ export interface InsideViewsInput {
   graphInsideProcessOnce: InsideProcessView | null;
   uatSwitch: AttemptSwitch;
   reviewSwitch: AttemptSwitch;
+  shipSwitch?: AttemptSwitch;
   uatRoundSwitcher: RoundSwitcherArg;
   reviewRoundSwitcher: RoundSwitcherArg;
+  shipRoundSwitcher?: RoundSwitcherArg;
+  /** The Ship round facts the time-window join reads (T1410). */
+  shipRounds?: {
+    attempts: readonly AutofixAttempt[];
+    liveRound: AutofixRound | null;
+    spent: ShipSpentPark | null;
+    deliverRuns: readonly DeliverRun[];
+  };
   uatCurrent: CurrentAttempt;
   reviewCurrent: CurrentAttempt;
   shipEvidence: ShipProcessesInput['evidence'];
@@ -141,6 +155,88 @@ export interface InsideViewsInput {
  */
 function consoleFor(key: GateStage, cellOf: (key: StageKey) => StepperCell): boolean {
   return !!cellOf(key).artifactPath || displayStatus(cellOf(key)) === 'running';
+}
+
+/**
+ * A recorded ship step's state, as the round evidence reads it. The mapping is
+ * the one `ship.ts`'s `stepStatus` uses for the same rows.
+ */
+function shipStepStatus(step: ShipRepoStepEvidence): 'pass' | 'fail' | 'run' | 'note' {
+  switch (step.status) {
+    case 'passed': return 'pass';
+    case 'failed': return 'fail';
+    case 'running': return 'run';
+    case 'note': return 'note';
+  }
+}
+
+/** One auto-deliver run's state as a push row reads it: only a literal pass is green. */
+function deliverRunStatus(run: DeliverRun): 'pass' | 'fail' | 'run' | 'note' {
+  if (run.state === 'passed') return 'pass';
+  if (run.state === 'failed') return 'fail';
+  if (run.state === 'running') return 'run';
+  return 'note';
+}
+
+/**
+ * Every push a Ship round window can hold: the ship run's per-repo push steps,
+ * then every recorded auto-deliver run. The window filter happens in
+ * `shipRoundLedger`; this only states the recorded starts and outcomes.
+ */
+function shipPushes(
+  evidence: ShipEvidence,
+  deliverRuns: readonly DeliverRun[],
+  repoNameFor: (repo: string) => string | undefined,
+): ShipPushEvidence[] {
+  const steps = Object.keys(evidence.repos).flatMap((repo): ShipPushEvidence[] => {
+    const step = evidence.repos[repo]?.steps.push;
+    if (!step?.startedAt) return [];
+    return [{
+      at: step.startedAt,
+      label: repoNameFor(repo) ?? repo,
+      ...(step.detail ? { detail: step.detail } : {}),
+      status: shipStepStatus(step),
+    }];
+  });
+  const runs = deliverRuns.flatMap((run): ShipPushEvidence[] => {
+    if (!run.startedAt) return [];
+    const sha = run.headSha ? ` · ${run.headSha.slice(0, 7)}` : '';
+    return [{ at: run.startedAt, label: 'Push', detail: `gate run ${run.state}${sha}`, status: deliverRunStatus(run) }];
+  });
+  return [...steps, ...runs];
+}
+
+/**
+ * The selected historical Ship round's own rows, or null on the default
+ * (latest) path — which must keep the ledger exactly as it renders today.
+ */
+function historicalShipLedger(
+  input: InsideViewsInput,
+  now: string,
+): ShipRoundLedger | null {
+  const key = input.shipSwitch?.selectedKey ?? null;
+  const round = input.shipSwitch?.view?.attempts.find((a) => a.key === key);
+  const facts = input.shipRounds;
+  if (key === null || round === undefined || facts === undefined) return null;
+  const window = shipRoundWindows({ attempts: facts.attempts, now }).find((w) => w.key === key);
+  // The key IS `ship:<note time>`; a key no note holds is a stale selection.
+  const attempt = facts.attempts.find((a) => (`ship:${a.at}` as AttemptKey) === key);
+  if (window === undefined || attempt === undefined) return null;
+  const live = round.status === 'run';
+  // The newest finished CI round states the check state a record holds: open
+  // and failing, or open and still running. A cleared question states none.
+  const currentCi = input.ciOpen === true
+    ? { label: 'CI', status: input.ciWaiting === true ? ('run' as const) : ('fail' as const) }
+    : null;
+  const evidence: ShipRoundEvidenceFacts = {
+    round,
+    attempt,
+    ...(live && input.autofix ? { steps: input.autofix.steps } : {}),
+    pushes: shipPushes(input.shipEvidence, facts.deliverRuns, input.repoNameFor),
+    followedByCi: facts.attempts.some((a) => a.at > attempt.at && a.kind === 'ci'),
+    currentCi,
+  };
+  return shipRoundLedger(window, evidence);
 }
 
 /**
@@ -178,8 +274,11 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     graphInsideProcessOnce,
     uatSwitch,
     reviewSwitch,
+    shipSwitch,
     uatRoundSwitcher,
     reviewRoundSwitcher,
+    shipRoundSwitcher,
+    shipRounds,
     uatCurrent,
     reviewCurrent,
     shipEvidence,
@@ -201,9 +300,11 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     stageCurrent,
   } = input;
 
+  // T1410: a historical Ship tab selects one round; the default (latest) path
+  // is `null` and leaves every process reading exactly as it does today.
+  const shipLedger = historicalShipLedger(input, now);
   const insideViews: Record<InsideStageKey, InsideStageView> = {
-    scope: stageView(
-      'scope',
+    scope: stageView(      'scope',
       cellOf('scope'),
       scopeProcesses(cellOf('scope'), selectedRepos, worktrees, now, processRuns, tokensFor('prefill'), tokensForRuns),
       now,
@@ -325,8 +426,15 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         deliver: deliver ?? null,
         ciOpen: ciOpen === true,
         ciWaiting: ciWaiting === true,
+        // T1410: the round tabs are the rounds; a historical selection narrows
+        // Auto-fix, Push and Merge to that round's own rows. Commit and Pull
+        // request stay in both cases.
+        rounds: shipSwitch?.view?.attempts ?? [],
+        ...(shipLedger ? { roundLedger: shipLedger } : {}),
       }),
       now,
+      undefined,
+      shipRoundSwitcher,
     ), ciNow),
     done: doneStageView(
       cellOf('done'),

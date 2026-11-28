@@ -926,8 +926,13 @@ describe('select-gate-attempt', () => {
       .toEqual({ type: 'select-gate-attempt', stage: 'uat', key: 'round-2' });
   });
 
+  it('accepts the Ship stage, whose auto-fix rounds carry tabs too (T1410)', () => {
+    expect(parseWebviewMessage({ type: 'select-gate-attempt', stage: 'ship', key: 'ship:2026-11-09T09:01:00.000Z' }))
+      .toEqual({ type: 'select-gate-attempt', stage: 'ship', key: 'ship:2026-11-09T09:01:00.000Z' });
+  });
+
   it('drops a select-gate-attempt message naming a stage that resolves no gates', () => {
-    for (const stage of ['ship', 'impl', 'merge', '', 'UAT']) {
+    for (const stage of ['impl', 'merge', '', 'UAT']) {
       expect(parseWebviewMessage({ type: 'select-gate-attempt', stage, key: 'round-2' }))
         .toBeNull();
     }

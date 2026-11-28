@@ -154,6 +154,7 @@ const INSIDE_TIER_CASES: ReadonlySet<string> = new Set([
   'ship-autofix-header',
   'ship-deliver-auto-failed',
   'ship-auto-budget-spent',
+  'ship-rounds-spent',
   'done-long-text',
 ]);
 const insideTierVariants = (): Variant[] =>

@@ -10,7 +10,7 @@
  */
 import { Fragment, useCallback, useRef, type KeyboardEvent } from 'react';
 import type { GateAttemptView } from '../../../model/inside/rounds.js';
-import type { GateStage } from '../../../store/ticketGates.js';
+import type { AttemptStage } from '../messages.js';
 import { useDashboardSend } from './DashboardAppContext.js';
 import { withKeys } from './insideText.js';
 
@@ -36,7 +36,7 @@ export function AttemptTabs({
       const next = attempts?.[e.key === 'ArrowRight' ? index + 1 : index - 1];
       if (!next) return;
       e.preventDefault();
-      send.selectGateAttempt(stageKey as GateStage, next.key);
+      send.selectGateAttempt(stageKey as AttemptStage, next.key);
       // Focus follows selection at once (the roving-tabindex pattern); the next snapshot carries the real aria-selected.
       tabs.current[attempts!.indexOf(next)]?.focus();
     },
@@ -59,6 +59,9 @@ export function AttemptTabs({
       </span>
       {withKeys(attempts, (a) => a.key).map(([key, a], i) => {
         const isSelected = a.key === selected;
+        // The kind tag names why the tab is a different loop (`R2 · CI`); it
+        // stays in the accessible name too, so the kind is never visual-only.
+        const name = a.tag ? `${a.label} · ${a.tag}` : a.label;
         return (
           // The id is STAGE-scoped: the ordinal alone would collide the moment a second stage's tablist is rendered beside this one.
           <Fragment key={key}>
@@ -73,8 +76,8 @@ export function AttemptTabs({
               className="attempt-tab"
               aria-label={
                 isSelected
-                  ? `${a.label} ${a.tail}, ${a.statusLabel}`
-                  : `${a.label}, ${a.statusLabel}`
+                  ? `${name} ${a.tail}, ${a.statusLabel}`
+                  : `${name}, ${a.statusLabel}`
               }
               role="tab"
               id={`attempt-tab-${stageKey}-${i}`}
@@ -86,13 +89,18 @@ export function AttemptTabs({
               data-index={i}
               data-keys={keys}
               onClick={() =>
-                send.selectGateAttempt(stageKey as GateStage, a.key)
+                send.selectGateAttempt(stageKey as AttemptStage, a.key)
               }
               onKeyDown={(e) => onKeyDown(e, i)}
             >
               {/* Icon-only glyph (UI-R28b) is the non-colour carrier (UI-R28); the status word lives in the accessible name. */}
               <span className={`glyph ${a.status}`} aria-hidden="true" />
               <span className="attempt-tab-label">{a.label}</span>
+              {a.tag ? (
+                <span className="attempt-tag" aria-hidden="true">
+                  · {a.tag}
+                </span>
+              ) : null}
               {isSelected ? (
                 <span className="attempt-tab-tail">{a.tail}</span>
               ) : null}

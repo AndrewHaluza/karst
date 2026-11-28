@@ -197,39 +197,70 @@ function ciRow(facts: ShipRoundEvidenceFacts): EvidenceRow | undefined {
 }
 
 /**
+ * One selected round's rows, split by the Ship process that renders them: the
+ * Auto-fix rows (the arm row, or the live round's steps), the push rows, and
+ * the CI result. The three lists keep the round's time order when read as one.
+ */
+export interface ShipRoundLedger {
+  /** The selected round, for the process status and the caption tail. */
+  readonly round: GateAttemptView;
+  readonly autofix: readonly EvidenceRow[];
+  readonly push: readonly EvidenceRow[];
+  readonly ci: readonly EvidenceRow[];
+}
+
+/** The Auto-fix rows of the round: the live round's provable steps, else one `ran` row. */
+function autofixRows(facts: ShipRoundEvidenceFacts): EvidenceRow[] {
+  const { round, attempt } = facts;
+  if (round.status === 'run') {
+    // The live round has no arm row of its own: its provable steps are the record.
+    return (facts.steps ?? []).map((step) => ({ label: step.label, detail: step.detail, status: step.status }));
+  }
+  const tag = round.tag ?? tagWord(attempt.kind);
+  return [
+    {
+      label: `round ${attempt.n}`,
+      detail: `${tag} round ${attempt.n} of ${attempt.max} ran`,
+      status: 'note',
+      time: formatTime(attempt.at),
+    },
+  ];
+}
+
+/** The push rows whose recorded start falls in the round's window, oldest first. */
+function pushRows(window: ShipRoundWindow, facts: ShipRoundEvidenceFacts): EvidenceRow[] {
+  return (facts.pushes ?? [])
+    .filter((p) => p.at >= window.from && p.at < window.to)
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+    .map((push) => ({
+      label: push.label,
+      ...(push.detail ? { detail: push.detail } : {}),
+      status: push.status,
+      time: formatTime(push.at),
+    }));
+}
+
+/** The CI row the round's own records hold; `[]` when no record holds one. */
+function ciRows(facts: ShipRoundEvidenceFacts): EvidenceRow[] {
+  const ci = ciRow(facts);
+  return ci ? [ci] : [];
+}
+
+/**
+ * One selected round's rows, split by process. A round with no push record
+ * shows no push row; a record that holds no result shows none.
+ */
+export function shipRoundLedger(window: ShipRoundWindow, facts: ShipRoundEvidenceFacts): ShipRoundLedger {
+  return { round: facts.round, autofix: autofixRows(facts), push: pushRows(window, facts), ci: ciRows(facts) };
+}
+
+/**
  * One selected round's rows, in time order: the arm row (or the live round's
  * steps), the pushes whose start falls in the round's window, then the CI
  * result. A round with no push record shows no push row; a record that holds
  * no result shows none.
  */
 export function shipRoundEvidence(window: ShipRoundWindow, facts: ShipRoundEvidenceFacts): EvidenceRow[] {
-  const { round, attempt } = facts;
-  const live = round.status === 'run';
-  const tag = round.tag ?? tagWord(attempt.kind);
-  const rows: EvidenceRow[] = [];
-  if (live) {
-    // The live round has no arm row of its own: its provable steps are the record.
-    for (const step of facts.steps ?? []) rows.push({ label: step.label, detail: step.detail, status: step.status });
-  } else {
-    rows.push({
-      label: `round ${attempt.n}`,
-      detail: `${tag} round ${attempt.n} of ${attempt.max} ran`,
-      status: 'note',
-      time: formatTime(attempt.at),
-    });
-  }
-  const pushes = (facts.pushes ?? [])
-    .filter((p) => p.at >= window.from && p.at < window.to)
-    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
-  for (const push of pushes) {
-    rows.push({
-      label: push.label,
-      ...(push.detail ? { detail: push.detail } : {}),
-      status: push.status,
-      time: formatTime(push.at),
-    });
-  }
-  const ci = ciRow(facts);
-  if (ci) rows.push(ci);
-  return rows;
+  const ledger = shipRoundLedger(window, facts);
+  return [...ledger.autofix, ...ledger.push, ...ledger.ci];
 }

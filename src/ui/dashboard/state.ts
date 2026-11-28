@@ -181,7 +181,7 @@ export function buildDashboardState(
    * stage. Appended LAST so every existing positional caller keeps its
    * argument positions.
    */
-  attemptSelection?: Partial<Record<'uat' | 'review', string>>,
+  attemptSelection?: Partial<Record<'uat' | 'review' | 'ship', string>>,
   /**
    * The manifest's resolved default base branch for a worktree's repoPath
    * (§ per-repo base branch — live change). Injected (the state builder never
@@ -378,6 +378,7 @@ export function buildDashboardState(
     findingsBlockingSeverity,
     displayBlocking,
     autofix: autofixReading.row,
+    shipRoundFacts: autofixReading.rounds,
     deliver: deliverRowInput(undelivered, withDeliverWait(deliverAuto, liveGates?.ship) ?? undefined),
     ciOpen: autofixReading.ciOpen,
     ciWaiting: autofixReading.ciWaiting,

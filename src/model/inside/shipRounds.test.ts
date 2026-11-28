@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AutofixAttempt, AutofixRound } from './autofix.js';
-import { listShipRounds, shipRoundEvidence, shipRoundWindows, type ShipRoundEvidenceFacts } from './shipRounds.js';
+import { listShipRounds, shipRoundEvidence, shipRoundLedger, shipRoundWindows, type ShipRoundEvidenceFacts } from './shipRounds.js';
 
 const NOW = '2026-11-09T12:00:00.000Z';
 /** A time on 2026-11-09 at `hh:mm`. */
@@ -138,5 +138,22 @@ describe('shipRoundEvidence', () => {
       ['CI', 'pending'],
     ]);
     expect(rows[2]!.detail).toBe('waits for the push');
+  });
+
+  it('splits the same rows by the process that renders them', () => {
+    const ledger = shipRoundLedger(windows[0]!, facts({
+      pushes: [{ at: t('09:05'), label: 'web', detail: 'pushed', status: 'pass' }],
+      followedByCi: true,
+    }));
+    expect(ledger.round).toBe(rounds[0]);
+    expect(ledger.autofix.map((r) => r.label)).toEqual(['round 1']);
+    expect(ledger.push.map((r) => r.label)).toEqual(['web']);
+    expect(ledger.ci).toEqual([{ label: 'CI', detail: 'CI still failed', status: 'fail' }]);
+    expect([...ledger.autofix, ...ledger.push, ...ledger.ci]).toEqual(
+      shipRoundEvidence(windows[0]!, facts({
+        pushes: [{ at: t('09:05'), label: 'web', detail: 'pushed', status: 'pass' }],
+        followedByCi: true,
+      })),
+    );
   });
 });
