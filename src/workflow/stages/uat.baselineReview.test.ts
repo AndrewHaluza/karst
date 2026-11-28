@@ -83,7 +83,8 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
     expect(res).toEqual({
       kind: 'blocked',
       blocker: 'baseline-review',
-      reason: '1 visual baseline(s) changed — review in the UAT report',
+      reason:
+        '1 visual baseline(s) changed — review in the UAT report (pre-check skipped: pre-check disabled)',
     });
     expect(getTicket(store, id).stageCurrent).toBe('uat');
     expect(stageBlock(store, id, 'uat')?.kind).toBe('baseline-review');
@@ -250,14 +251,25 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
           sha256: entry.newSha256,
           reason,
         })),
+        sent: input.entries.length,
+        failedBatches: 0,
+        batches: 1,
       });
     const approvingOnly = (path: string, reason = 'clearly the intended settings change'): PrecheckSeam =>
       async (input) => ({
         approved: input.entries
           .filter((entry) => entry.path === path)
           .map((entry) => ({ repo: entry.repo, path: entry.path, sha256: entry.newSha256, reason })),
+        sent: input.entries.length,
+        failedBatches: 0,
+        batches: 1,
       });
-    const approvingNothing = (): PrecheckSeam => async () => ({ approved: [] });
+    const approvingNothing = (): PrecheckSeam => async (input) => ({
+      approved: [],
+      sent: input.entries.length,
+      failedBatches: 0,
+      batches: 1,
+    });
 
     const runWith = (d: UatDeps, m = withPrecheck()) =>
       runUat(store, { ticketId: id, cwd: '/wt/web', artifactDir, manifest: m }, d);
@@ -310,15 +322,19 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
         kind: 'blocked',
         blocker: 'baseline-review',
         reason:
-          '1 visual baseline(s) changed — review in the UAT report (1 approved by the pre-check)',
+          '1 visual baseline(s) changed — review in the UAT report (pre-check: 1 of 2 approved)',
       });
       expect(report()).toContain('# baseline pre-check');
       expect(report()).toContain(`${ENTRY.repo}:${ENTRY.path} — pre-check: clearly the intended settings change`);
       expect(report()).toContain('1 approved by the pre-check, 1 left for you');
       expect(report()).toContain(`# baseline review\nmodified ${other.repo}:${other.path}`);
+      // The log note carries the same reason, so the user sees WHY.
+      expect(report()).toContain(
+        '! 1 visual baseline(s) changed — review in the UAT report (pre-check: 1 of 2 approved)',
+      );
     });
 
-    it('a throwing pre-check approves nothing and blocks exactly as today', async () => {
+    it('a throwing pre-check reports the failure and blocks exactly as today', async () => {
       const debug = vi.fn();
       const res = await runUat(
         store,
@@ -333,7 +349,7 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
       expect(res).toEqual({
         kind: 'blocked',
         blocker: 'baseline-review',
-        reason: '1 visual baseline(s) changed — review in the UAT report',
+        reason: '1 visual baseline(s) changed — review in the UAT report (pre-check failed: model exploded)',
       });
       expect(
         store.db.prepare('SELECT COUNT(*) AS n FROM baseline_decisions WHERE ticket_id = ?').get(id),
@@ -368,7 +384,9 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
       expect(res).toEqual({
         kind: 'blocked',
         blocker: 'baseline-review',
-        reason: '1 visual baseline(s) changed — review in the UAT report',
+        reason:
+          '1 visual baseline(s) changed — review in the UAT report ' +
+          '(pre-check skipped: model claude-sonnet-5 cannot read images (catalog tags))',
       });
       const lines = debug.mock.calls.map(([line]) => String(line));
       expect(
@@ -392,7 +410,8 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
       expect(res).toEqual({
         kind: 'blocked',
         blocker: 'baseline-review',
-        reason: '1 visual baseline(s) changed — review in the UAT report',
+        reason:
+          '1 visual baseline(s) changed — review in the UAT report (pre-check skipped: pre-check disabled)',
       });
     });
 
@@ -434,10 +453,19 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
         fingerprint: async () => 'fp-1',
         tester: { assignment: tester.assignment, adapter: tester.adapter },
       });
-      expect(await runWith(d)).toMatchObject({ kind: 'blocked', blocker: 'baseline-review' });
+      expect(await runWith(d)).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason: '1 visual baseline(s) changed — review in the UAT report (pre-check: 0 of 1 approved)',
+      });
       expect(precheck).toHaveBeenCalledTimes(1);
       // Same tree in the same attempt: the gate list is skipped, and so is the pre-check.
-      expect(await runWith(d)).toMatchObject({ kind: 'blocked', blocker: 'baseline-review' });
+      // A pass that already saw this tree adds no suffix.
+      expect(await runWith(d)).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason: '1 visual baseline(s) changed — review in the UAT report',
+      });
       expect(precheck).toHaveBeenCalledTimes(1);
     });
 
@@ -474,7 +502,11 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
         },
         deps({ detectBaselines: async () => [ENTRY], precheckBaselines: precheck }),
       );
-      expect(res).toMatchObject({ kind: 'blocked', blocker: 'baseline-review' });
+      expect(res).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason: '1 visual baseline(s) changed — review in the UAT report',
+      });
       expect(precheck).not.toHaveBeenCalled();
     });
 
@@ -487,25 +519,42 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
       expect(precheck).not.toHaveBeenCalled();
     });
 
-    it('passes the branch src/ui paths to the pre-check, and an unreadable diff is an empty list', async () => {
+    it('sends every changed file (tracked first, then untracked) and excludes the baseline globs', async () => {
       const seen: string[][] = [];
       const precheck = seam(async (input) => {
-        seen.push([...input.uiPaths]);
-        return { approved: [] };
+        seen.push([...input.changedPaths]);
+        return { approved: [], sent: 0, failedBatches: 0, batches: 0 };
       });
-      const git = vi.fn(async (args: readonly string[]) =>
-        args[0] === 'diff'
-          ? { exitCode: 0, stdout: 'src/ui/settings/app/main.tsx\nsrc/ui/dashboard/app/main.tsx\n', stderr: '' }
-          : { exitCode: 1, stdout: '', stderr: 'no' },
-      ) as unknown as UatDeps['git'];
+      const calls: string[][] = [];
+      const git = vi.fn(async (args: readonly string[]) => {
+        calls.push([...args]);
+        if (args[0] === 'diff') {
+          return { exitCode: 0, stdout: 'app/views/settings.tsx\napp/views/shared.tsx\n', stderr: '' };
+        }
+        if (args[0] === 'ls-files') {
+          return { exitCode: 0, stdout: 'app/views/home.tsx\napp/views/shared.tsx\n', stderr: '' };
+        }
+        return { exitCode: 1, stdout: '', stderr: 'no' };
+      }) as unknown as UatDeps['git'];
       await runWith(
         deps({ detectBaselines: async () => [ENTRY], precheckBaselines: precheck, git }),
       );
-      expect(seen[0]).toEqual(['src/ui/settings/app/main.tsx', 'src/ui/dashboard/app/main.tsx']);
-      expect(git).toHaveBeenCalledWith(
-        ['diff', '--name-only', ENTRY.mergeBase, 'HEAD', '--', 'src/ui'],
-        ENTRY.cwd,
-      );
+      // The working tree, never HEAD; the baseline images are left out by pathspec.
+      expect(seen[0]).toEqual([
+        'app/views/settings.tsx',
+        'app/views/shared.tsx',
+        'app/views/home.tsx',
+      ]);
+      const exclude = ':(glob,exclude)tests/visual/__baselines__/**';
+      expect(calls[0]).toEqual(['diff', '--name-only', ENTRY.mergeBase, '--', '.', exclude]);
+      expect(calls[1]).toEqual([
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+        '--',
+        '.',
+        exclude,
+      ]);
 
       seen.length = 0;
       await runWith(
@@ -518,6 +567,99 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
         }),
       );
       expect(seen[0]).toEqual([]);
+    });
+
+    it('reports the count and the failed batches when only some batches fail', async () => {
+      const other: BaselineEntry = { ...ENTRY, path: 'tests/visual/__baselines__/dashboard.png', newSha256: 'sha-2' };
+      const third: BaselineEntry = { ...ENTRY, path: 'tests/visual/__baselines__/editor.png', newSha256: 'sha-3' };
+      const res = await runWith(
+        deps({
+          detectBaselines: async () => [ENTRY, other, third],
+          precheckBaselines: seam(async (input) => ({
+            approved: input.entries
+              .filter((entry) => entry.path === ENTRY.path)
+              .map((entry) => ({ repo: entry.repo, path: entry.path, sha256: entry.newSha256, reason: 'intended' })),
+            sent: input.entries.length,
+            failedBatches: 1,
+            batches: 3,
+            firstFailureReason: 'core timed out',
+          })),
+        }),
+      );
+      expect(res).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason:
+          '2 visual baseline(s) changed — review in the UAT report ' +
+          '(pre-check: 1 of 3 approved, 1 batch(es) failed)',
+      });
+    });
+
+    it('reports the first failure when every batch failed', async () => {
+      const res = await runWith(
+        deps({
+          detectBaselines: async () => [ENTRY],
+          precheckBaselines: seam(async () => ({
+            approved: [],
+            sent: 80,
+            failedBatches: 2,
+            batches: 2,
+            firstFailureReason: 'core crashed',
+          })),
+        }),
+      );
+      expect(res).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason:
+          '1 visual baseline(s) changed — review in the UAT report (pre-check failed: core crashed)',
+      });
+    });
+
+    it('reports an interrupted pre-check and still records the finished batches approvals', async () => {
+      const controller = new AbortController();
+      const other: BaselineEntry = { ...ENTRY, path: 'tests/visual/__baselines__/dashboard.png', newSha256: 'sha-2' };
+      const res = await runUat(
+        store,
+        {
+          ticketId: id,
+          cwd: '/wt/web',
+          artifactDir,
+          manifest: withPrecheck(),
+          signal: controller.signal,
+        },
+        deps({
+          detectBaselines: async () => [ENTRY, other],
+          precheckBaselines: seam(async (input) => {
+            controller.abort();
+            return {
+              approved: [
+                {
+                  repo: input.entries[0]!.repo,
+                  path: input.entries[0]!.path,
+                  sha256: input.entries[0]!.newSha256,
+                  reason: 'intended',
+                },
+              ],
+              sent: 80,
+              failedBatches: 0,
+              batches: 1,
+            };
+          }),
+        }),
+      );
+      expect(res).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason:
+          '1 visual baseline(s) changed — review in the UAT report ' +
+          '(pre-check interrupted: 1 of 80 approved)',
+      });
+      expect(
+        store.db
+          .prepare('SELECT decision, decided_by FROM baseline_decisions WHERE ticket_id = ?')
+          .all(id),
+      ).toEqual([{ decision: 'approved', decided_by: 'precheck' }]);
     });
   });
 });
