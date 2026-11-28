@@ -3,7 +3,14 @@
  * status readings. Pure; moved out of `graph.ts` unchanged.
  */
 
-import type { GraphNodeListRow, InsideStatus, TypedInsideAction } from './types.js';
+import {
+  formatDuration,
+  type GraphNodeCard,
+  type GraphNodeCardFact,
+  type GraphNodeListRow,
+  type InsideStatus,
+  type TypedInsideAction,
+} from './types.js';
 import type {
   GraphArtifactView,
   GraphExecutionView,
@@ -17,6 +24,8 @@ import type {
 import { durationBetween, relativeAge, runAge } from './age.js';
 import { NODE_OVERRIDE_EDITABLE_STATUSES } from '../../store/graph/nodeRuns.js';
 import { LIVE_PLANNER_STATUSES } from '../../store/graph/plannerRuns.js';
+import { formatTokens } from '../tokenFormat.js';
+import { formatPrStamp } from '../prPanelView.js';
 import { sanitizeGraphText } from './graphText.js';
 
 /**
@@ -253,6 +262,72 @@ function plannerAge(
     now,
     { live: (LIVE_PLANNER_STATUSES as readonly string[]).includes(planner.status) },
   );
+}
+
+/** The cap on the row's and the card's artifact list (`+N more` beyond it). */
+export const MAX_ARTIFACT_ROWS = 8;
+
+/**
+ * A node run's details card (UI-R31 — the host words it, the webview presents
+ * it). The facts are ordered exactly as the card shows them: Role, Core, Model,
+ * Ran, Tokens, Visit, Output, Task, Outcome, Reason. A fact whose value is
+ * empty is left out, and every title and value is sanitized and bounded
+ * (`sanitizeGraphText`).
+ *
+ * Built where the run's artifact list is known (`graphInsideProcess`), never in
+ * `nodeListView`: the artifacts are nested onto the ledger entry after the row
+ * exists.
+ */
+export function nodeCardView(
+  node: GraphNodeRunView,
+  topologyNode: { id: string; label?: string; task?: string } | undefined,
+  execution: GraphExecutionView,
+  artifactIds: readonly string[],
+): GraphNodeCard {
+  const facts: GraphNodeCardFact[] = [];
+  const add = (label: string, value: string | null | undefined): void => {
+    const clean = sanitizeGraphText(value ?? '');
+    if (clean) facts.push({ label, value: clean });
+  };
+
+  add('Role', node.profile);
+  add('Core', node.provider);
+  add(
+    'Model',
+    [node.model, node.effort].filter((part): part is string => !!part && part !== '').join(' · '),
+  );
+
+  const started = formatPrStamp(node.startedAt);
+  if (started) {
+    const ended = node.endedAt ? formatPrStamp(node.endedAt) : '';
+    if (ended) {
+      const duration = formatDuration(node.startedAt, node.endedAt);
+      add('Ran', `${started} → ${ended}${duration ? ` (${duration})` : ''}`);
+    } else {
+      add('Ran', `since ${started}`);
+    }
+  }
+
+  if (node.tokens) {
+    add(
+      'Tokens',
+      `${formatTokens(node.tokens.total)} (${formatTokens(node.tokens.cacheRead)} cache read · ${formatTokens(node.tokens.output)} out)`,
+    );
+  }
+
+  const relaunched = node.launchAttempt > 0 ? ` · relaunched ${node.launchAttempt}×` : '';
+  add('Visit', `visit ${node.visitNumber}/${execution.maxNodeRuns}${relaunched}`);
+
+  const shownArtifacts = artifactIds.slice(0, MAX_ARTIFACT_ROWS);
+  const moreArtifacts = artifactIds.length - shownArtifacts.length;
+  add('Output', [...shownArtifacts, ...(moreArtifacts > 0 ? [`+${moreArtifacts} more`] : [])].join(' · '));
+
+  add('Task', topologyNode?.task);
+  add('Outcome', node.outcome);
+  add('Reason', node.reason);
+
+  const title = sanitizeGraphText(topologyNode?.label ?? '');
+  return { ...(title ? { title } : {}), facts };
 }
 
 export function nodeListView(

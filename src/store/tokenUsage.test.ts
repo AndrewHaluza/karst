@@ -8,6 +8,7 @@ import {
   summarizeRecordedTokenUsageForProcess,
   summarizeRecordedTokenUsageForRuns,
   summarizeRecordedTokenUsageForGraphRun,
+  summarizeRecordedTokenUsageByNodeRun,
   summarizeRecordedTokenUsageByRole,
   listRecentlyUsedModels,
   onTokenUsageRecorded,
@@ -1000,6 +1001,122 @@ describe('round-scoped reads (the Inside pill)', () => {
       estimatedCalls: 1,
       estimatedTotal: 60,
     });
+  });
+});
+
+describe('summarizeRecordedTokenUsageByNodeRun (node details card)', () => {
+  const T = '2026-07-15T00:00:00.000Z';
+
+  function graphRun(id: number): void {
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (?, 1, 'impl', ?, 'graph', 'running', ?)`,
+      )
+      .run(id, id, T);
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, ?, 1, 'graph: []', 'fp', 'active', ?)`,
+      )
+      .run(id, id, T);
+  }
+
+  function nodeRun(id: number, graphRunId: number, nodeId = 'n'): void {
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (?, ?, ?, ?, 'agent', 1, 'completed')`,
+      )
+      .run(id, graphRunId, graphRunId, `${nodeId}-${id}`);
+  }
+
+  function plannerRun(id: number, graphRunId: number): void {
+    store.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (id, graph_run_id, planner_run_number, kind, status)
+         VALUES (?, ?, 1, 'bootstrap', 'submitted')`,
+      )
+      .run(id, graphRunId);
+  }
+
+  function rec(o: {
+    node?: number;
+    planner?: number;
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    estimated?: boolean;
+  }): void {
+    recordTokenUsage(store, {
+      projectId: 1,
+      ticketId: 1,
+      approachNodeRunId: o.node ?? null,
+      approachPlannerRunId: o.planner ?? null,
+      callSite: o.node !== undefined ? 'graph-node' : 'graph-planner',
+      provider: 'codex',
+      outcome: 'ok',
+      recordedAt: T,
+      usage: {
+        inputTokens: o.input ?? 10,
+        outputTokens: o.output ?? 5,
+        reasoningTokens: 0,
+        cacheReadTokens: o.cacheRead ?? 0,
+        cacheWriteTokens: o.cacheWrite ?? 0,
+        totalTokens: (o.input ?? 10) + (o.output ?? 5) + (o.cacheRead ?? 0) + (o.cacheWrite ?? 0),
+        model: 'sol',
+        estimated: o.estimated ?? false,
+      },
+    });
+  }
+
+  it('sums each node run of the graph run, ignoring planner rows and other graph runs', () => {
+    ticket(1, 'K-1', 'One');
+    graphRun(1);
+    plannerRun(1, 1);
+    nodeRun(1, 1);
+    nodeRun(2, 1);
+    graphRun(2);
+    nodeRun(3, 2);
+
+    rec({ node: 1, input: 100, output: 20, cacheRead: 30, cacheWrite: 5 });
+    rec({ node: 1, input: 1, output: 2 });
+    rec({ node: 2, input: 7, output: 3 });
+    rec({ planner: 1, input: 900, output: 100 });
+    rec({ node: 3, input: 500, output: 500 });
+
+    expect(summarizeRecordedTokenUsageByNodeRun(store, 1, 1)).toEqual(
+      new Map([
+        [1, { input: 101, output: 22, cacheRead: 30, cacheWrite: 5, total: 158 }],
+        [2, { input: 7, output: 3, cacheRead: 0, cacheWrite: 0, total: 10 }],
+      ]),
+    );
+  });
+
+  it('keeps estimated rows out of the measured sums', () => {
+    ticket(1, 'K-1', 'One');
+    graphRun(1);
+    nodeRun(1, 1);
+    rec({ node: 1, input: 10, output: 5 });
+    rec({ node: 1, input: 400, output: 100, estimated: true });
+
+    expect(summarizeRecordedTokenUsageByNodeRun(store, 1, 1).get(1)).toEqual({
+      input: 10,
+      output: 5,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 15,
+    });
+  });
+
+  it('is an empty map when the graph run recorded no node spend', () => {
+    ticket(1, 'K-1', 'One');
+    graphRun(1);
+    plannerRun(1, 1);
+    rec({ planner: 1 });
+
+    expect(summarizeRecordedTokenUsageByNodeRun(store, 1, 1).size).toBe(0);
   });
 });
 

@@ -737,6 +737,68 @@ export function summarizeRecordedTokenUsageForGraphRun(
   return scopedUsage(row);
 }
 
+/**
+ * Recorded spend of ONE node run of a graph run, as the node details card
+ * states it.
+ *
+ * `/node-card/tokens`: input, output, cache read and cache write are the sums
+ * of the node run's measured rows — estimated rows stay out of them exactly as
+ * they stay out of the graph-run total (`summarizeRecordedTokenUsageForGraphRun`).
+ */
+export interface RecordedNodeRunUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+}
+
+/**
+ * Recorded spend of EVERY node run of one graph run, in ONE grouped query —
+ * the node details card's per-node `Tokens` fact. A node run with no measured
+ * rows is absent from the map (the card leaves the fact out; zero is not a
+ * measurement). Planner runs and rows of another graph run are ignored.
+ */
+export function summarizeRecordedTokenUsageByNodeRun(
+  store: Store,
+  ticketId: number,
+  graphRunId: number,
+): ReadonlyMap<number, RecordedNodeRunUsage> {
+  const rows = store.db
+    .prepare(
+      `SELECT approach_node_run_id AS node_run_id,
+              COALESCE(SUM(CASE WHEN estimated = 0 THEN input_tokens ELSE 0 END), 0) AS input,
+              COALESCE(SUM(CASE WHEN estimated = 0 THEN output_tokens ELSE 0 END), 0) AS output,
+              COALESCE(SUM(CASE WHEN estimated = 0 THEN cache_read_tokens ELSE 0 END), 0) AS cache_read,
+              COALESCE(SUM(CASE WHEN estimated = 0 THEN cache_write_tokens ELSE 0 END), 0) AS cache_write,
+              COALESCE(SUM(CASE WHEN estimated = 0 THEN total_tokens ELSE 0 END), 0) AS total
+         FROM token_usage
+        WHERE ticket_id = ?
+          AND approach_node_run_id IN (SELECT id FROM approach_node_runs WHERE graph_run_id = ?)
+        GROUP BY approach_node_run_id`,
+    )
+    .all(ticketId, graphRunId) as {
+    node_run_id: number | null;
+    input: number | null;
+    output: number | null;
+    cache_read: number | null;
+    cache_write: number | null;
+    total: number | null;
+  }[];
+  const byNodeRun = new Map<number, RecordedNodeRunUsage>();
+  for (const row of rows) {
+    if (row.node_run_id === null) continue;
+    byNodeRun.set(row.node_run_id, {
+      input: row.input ?? 0,
+      output: row.output ?? 0,
+      cacheRead: row.cache_read ?? 0,
+      cacheWrite: row.cache_write ?? 0,
+      total: row.total ?? 0,
+    });
+  }
+  return byNodeRun;
+}
+
 /** Measured spend of one ticket, grouped by the inside role that spent it. */
 export interface RecordedRoleUsage {
   /** `implementation` | `quality` | `ship` — the receipt's role breakdown. */

@@ -8,7 +8,12 @@ import { sanitizeGraphText } from './graphText.js';
 import type { GraphDagChip, GraphDagView, GraphNodeListRow } from './types.js';
 
 export interface GraphTopology {
-  nodes: readonly { id: string }[];
+  /**
+   * One node of the compiled plan. `label` is the node's authored title and
+   * `task` the id of its instructions artifact — both optional, both kept by
+   * the topology parse for the node details card.
+   */
+  nodes: readonly { id: string; label?: string; task?: string }[];
   edges: readonly { from: string; to: string }[];
 }
 
@@ -84,7 +89,13 @@ function chipFor(label: string, latest: GraphNodeListRow | undefined): GraphDagC
   if (!latest) return { id: label, label, displayStatus: 'pending', state: 'pending' };
   const state =
     latest.entry === 'deferred' ? 'deferred' : sanitizeGraphText(latest.age ?? latest.status);
-  return { id: label, label, displayStatus: latest.displayStatus, state };
+  return {
+    id: label,
+    label,
+    displayStatus: latest.displayStatus,
+    state,
+    ...(latest.card ? { card: latest.card } : {}),
+  };
 }
 
 export function graphDagView(

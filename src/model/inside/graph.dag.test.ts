@@ -54,6 +54,23 @@ describe('graphDagView', () => {
     expect(d.columns[0]![0]!.state).toBe('running 10m');
   });
 
+  it('carries the latest row\'s card on a node chip, and none on the planner chip', () => {
+    const card = { title: 'Design', facts: [{ label: 'Role', value: 'default' }] };
+    const d = graphDagView(topo(['a', 'b', 'c'], []), [
+      entry({ entry: 'planner', nodeId: 'planner 1', status: 'submitted', displayStatus: 'pass' }),
+      entry({ nodeId: 'a', status: 'running', displayStatus: 'run', age: 'running 2m' }),
+      entry({ nodeId: 'a', card }),
+      entry({ entry: 'deferred', nodeId: 'b', status: 'deferred', displayStatus: 'wait' }),
+    ]);
+    const chips = d.columns.flat();
+    expect(chips.find((c) => c.label === 'plan')!.card).toBeUndefined();
+    expect(chips.find((c) => c.id === 'a')!.card).toEqual(card);
+    // The deferred row is the latest for `b` and carries no card.
+    expect(chips.find((c) => c.id === 'b')!.card).toBeUndefined();
+    // A topology node with no run has no card either.
+    expect(chips.find((c) => c.id === 'c')!.card).toBeUndefined();
+  });
+
   it('is cycle safe: back-edges are ignored and every node is placed once', () => {
     const d = graphDagView(topo(['a', 'b', 'c'], [['a', 'b'], ['b', 'c'], ['c', 'a'], ['b', 'b']]), []);
     expect(ids(d)).toEqual([['a'], ['b'], ['c']]);

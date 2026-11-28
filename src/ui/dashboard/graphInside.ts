@@ -19,6 +19,8 @@ import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { GraphBlockRecovery, GraphInsideInput } from '../../model/inside/graph.js';
 import type { GraphTopology } from '../../model/inside/graphDag.js';
+import { GRAPH_TEXT_MAX } from '../../model/inside/graphText.js';
+import { summarizeRecordedTokenUsageByNodeRun } from '../../store/tokenUsage.js';
 import type { SupervisedAgentSession } from '../../approaches/graph/transport/agentTransport.js';
 import { NODE_OVERRIDE_KINDS, nodeRunGraphRunId, nodeRunsForGraphRunDisplay } from '../../store/graph/nodeRuns.js';
 import {
@@ -99,7 +101,9 @@ const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
 /** Ids + edges of the compiled plan, read leniently: anything malformed is
  *  dropped, and an unreadable document yields no topology (the DAG view then
- *  simply does not render). Sizes are capped BEFORE mapping. */
+ *  simply does not render). Sizes are capped BEFORE mapping. A node's `label`
+ *  and `instructionsArtifact` (kept as `task`) ride along for the node details
+ *  card; a malformed one is dropped without dropping its node. */
 function parseTopology(canonicalGraph: string): GraphTopology | undefined {
   let doc: unknown;
   try {
@@ -110,7 +114,17 @@ function parseTopology(canonicalGraph: string): GraphTopology | undefined {
   if (!isRecord(doc) || !Array.isArray(doc.nodes)) return undefined;
   const nodes = (doc.nodes as unknown[])
     .slice(0, TOPOLOGY_MAX_NODES)
-    .flatMap((n) => (isRecord(n) && isId(n.id) ? [{ id: n.id }] : []));
+    .flatMap((n) =>
+      isRecord(n) && isId(n.id)
+        ? [
+            {
+              id: n.id,
+              ...(typeof n.label === 'string' ? { label: n.label.slice(0, GRAPH_TEXT_MAX) } : {}),
+              ...(isId(n.instructionsArtifact) ? { task: n.instructionsArtifact } : {}),
+            },
+          ]
+        : [],
+    );
   const edges = (Array.isArray(doc.edges) ? (doc.edges as unknown[]) : [])
     .slice(0, TOPOLOGY_MAX_EDGES)
     .flatMap((e) => (isRecord(e) && isId(e.from) && isId(e.to) ? [{ from: e.from, to: e.to }] : []));
@@ -297,6 +311,9 @@ export function buildGraphInsideInput(
     });
 
   const depsWarning = deps.depsWarningOf?.(run.id);
+  // One grouped query per build (`/node-card/tokens`): the per-node spend the
+  // details card states, never a query per node.
+  const tokensByNodeRun = summarizeRecordedTokenUsageByNodeRun(deps.store, ticketId, run.id);
   return {
     enabled: true,
     graphRun: {
@@ -324,23 +341,27 @@ export function buildGraphInsideInput(
       endedAt: p.ended_at,
       graphSnapshotId: p.graph_snapshot_id,
     })),
-    nodeRuns: nodeRuns.map((n) => ({
-      nodeRunId: n.id,
-      nodeId: n.node_id,
-      nodeKind: n.node_kind,
-      revisionId: n.revision_id,
-      visitNumber: n.visit_number,
-      status: n.status,
-      outcome: n.outcome,
-      reason: n.reason,
-      provider: n.provider,
-      model: n.model,
-      effort: n.effort,
-      profile: n.profile,
-      launchAttempt: n.launch_attempt,
-      startedAt: n.started_at,
-      endedAt: n.ended_at,
-    })),
+    nodeRuns: nodeRuns.map((n) => {
+      const tokens = tokensByNodeRun.get(n.id);
+      return {
+        nodeRunId: n.id,
+        nodeId: n.node_id,
+        nodeKind: n.node_kind,
+        revisionId: n.revision_id,
+        visitNumber: n.visit_number,
+        status: n.status,
+        outcome: n.outcome,
+        reason: n.reason,
+        provider: n.provider,
+        model: n.model,
+        effort: n.effort,
+        profile: n.profile,
+        launchAttempt: n.launch_attempt,
+        startedAt: n.started_at,
+        endedAt: n.ended_at,
+        ...(tokens ? { tokens } : {}),
+      };
+    }),
     overrides,
     deferrals: deferrals.map((d) => ({
       nodeId: d.node_id,

@@ -9,6 +9,7 @@ import { graphDagView } from './graphDag.js';
 import { graphInsideProcess, type GraphInsideInput, type GraphNodeRunView } from './graph.js';
 import { nodeRunStatus } from './graphLedger.js';
 import { FAULT_NODE_STATUSES } from '../../approaches/graph/coordinator/completion.js';
+import { formatPrStamp } from '../prPanelView.js';
 
 function node(over: Partial<GraphNodeRunView> & Pick<GraphNodeRunView, 'nodeRunId' | 'nodeId'>): GraphNodeRunView {
   return {
@@ -226,6 +227,107 @@ describe('graph ledger', () => {
       const nodes = ledger({ plannerRuns: planner(), revision: rev }).nodes!;
       const chip = graphDagView({ nodes: [{ id: 'design' }], edges: [] }, nodes).columns[0]![0]!;
       expect(chip).toMatchObject({ displayStatus: 'pass', label: 'plan', state: 'planner 1 · rev 1 · ran 9m' });
+    });
+  });
+
+  describe('node details card', () => {
+    const TOPOLOGY = {
+      nodes: [{ id: 'design', label: 'Design the parser', task: 'design-task' }],
+      edges: [],
+    };
+
+    function designCard(over: Partial<GraphInsideInput>) {
+      const nodes = ledger({ topology: TOPOLOGY, plannerRuns: [], deferrals: [], ...over }).nodes!;
+      return nodes.find((n) => n.nodeId === 'design')!.card!;
+    }
+
+    it('states the facts in the fixed order with exact strings', () => {
+      const start = '2026-10-05T17:12:00.000Z';
+      const end = '2026-10-05T17:20:00.000Z';
+      const card = designCard({
+        nodeRuns: [
+          node({
+            nodeRunId: 1,
+            nodeId: 'design',
+            startedAt: start,
+            endedAt: end,
+            provider: 'codex',
+            model: 'sol',
+            effort: 'high',
+            profile: 'default',
+            launchAttempt: 1,
+            outcome: 'complete',
+            reason: 'compiled the plan',
+            tokens: { input: 1_000, output: 2_000, cacheRead: 3_000, cacheWrite: 0, total: 6_000 },
+          }),
+        ],
+      });
+      expect(card.title).toBe('Design the parser');
+      expect(card.facts).toEqual([
+        { label: 'Role', value: 'default' },
+        { label: 'Core', value: 'codex' },
+        { label: 'Model', value: 'sol · high' },
+        { label: 'Ran', value: `${formatPrStamp(start)} → ${formatPrStamp(end)} (8m 0s)` },
+        { label: 'Tokens', value: '6k (3k cache read · 2k out)' },
+        { label: 'Visit', value: 'visit 1/40 · relaunched 1×' },
+        { label: 'Output', value: 'design-task' },
+        { label: 'Task', value: 'design-task' },
+        { label: 'Outcome', value: 'complete' },
+        { label: 'Reason', value: 'compiled the plan' },
+      ]);
+    });
+
+    it('reads a run without an end as "since <start>"', () => {
+      const start = '2026-10-05T17:12:00.000Z';
+      const card = designCard({
+        nodeRuns: [node({ nodeRunId: 1, nodeId: 'design', status: 'running', outcome: null, startedAt: start })],
+      });
+      expect(card.facts.find((f) => f.label === 'Ran')!.value).toBe(`since ${formatPrStamp(start)}`);
+    });
+
+    it('leaves the Ran fact out when the run carries no usable start', () => {
+      const card = designCard({ nodeRuns: [node({ nodeRunId: 1, nodeId: 'design' })] });
+      expect(card.facts.some((f) => f.label === 'Ran')).toBe(false);
+    });
+
+    it('leaves the Tokens fact out when the run recorded no measured spend', () => {
+      const card = designCard({
+        nodeRuns: [node({ nodeRunId: 1, nodeId: 'design', startedAt: '2026-10-05T17:12:00.000Z' })],
+      });
+      expect(card.facts.some((f) => f.label === 'Tokens')).toBe(false);
+    });
+
+    it('caps the Output facts at the row cap and appends the remainder', () => {
+      const many = Array.from({ length: 11 }, (_, i) => ({
+        artifactId: `a-${i}`,
+        mediaType: 'text/plain',
+        byteSize: 1,
+        createdAt: '2026-10-05T17:19:00.000Z',
+        producerNodeRunId: 1,
+      }));
+      const card = designCard({ artifacts: many, nodeRuns: [node({ nodeRunId: 1, nodeId: 'design' })] });
+      const output = card.facts.find((f) => f.label === 'Output')!.value;
+      expect(output).toBe('a-0 · a-1 · a-2 · a-3 · a-4 · a-5 · a-6 · a-7 · +3 more');
+    });
+
+    it('sanitizes the title', () => {
+      const card = designCard({
+        topology: {
+          nodes: [{ id: 'design', label: 'Design\u001b[31m\n<x> javascript:alert(1)' }],
+          edges: [],
+        },
+        nodeRuns: [node({ nodeRunId: 1, nodeId: 'design' })],
+      });
+      // eslint-disable-next-line no-control-regex
+      expect(card.title).not.toMatch(/[\u0000-\u001f\u001b]/);
+      expect(card.title).not.toMatch(/javascript:/i);
+      expect(card.title).toContain('Design');
+    });
+
+    it('gives the planner entry no card', () => {
+      const nodes = ledger({ topology: TOPOLOGY }).nodes!;
+      expect(nodes.find((n) => n.entry === 'planner')!.card).toBeUndefined();
+      expect(nodes.find((n) => n.entry === 'deferred')!.card).toBeUndefined();
     });
   });
 

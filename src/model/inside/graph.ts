@@ -47,10 +47,12 @@ import { graphDagView, type GraphTopology } from './graphDag.js';
 import { sanitizeGraphText, GRAPH_TEXT_MAX } from './graphText.js';
 import {
   AMBIGUOUS_NODE_STATUSES,
+  MAX_ARTIFACT_ROWS,
   NODE_OVERRIDE_EDITABLE,
   deferredListView,
   formatBytes,
   hasLiveSession,
+  nodeCardView,
   nodeListView,
   nodeRowAction,
   nodeRunStatus,
@@ -64,7 +66,6 @@ export { sanitizeGraphText, GRAPH_TEXT_MAX, AMBIGUOUS_NODE_STATUSES, NODE_OVERRI
 import { durationBetween, relativeAge, runAge } from './age.js';
 
 const MAX_DIAGNOSTIC_ROWS = 8;
-const MAX_ARTIFACT_ROWS = 8;
 const MAX_DEFERRAL_ROWS = 8;
 const MAX_DIAGNOSTIC_LOG_ROWS = 8;
 
@@ -130,6 +131,18 @@ export interface GraphNodeRunView {
   launchAttempt: number;
   startedAt?: string | null;
   endedAt?: string | null;
+  /**
+   * The run's measured spend, summed per node run by the host
+   * (`summarizeRecordedTokenUsageByNodeRun`). Absent when the run recorded no
+   * measured call — the details card then leaves its `Tokens` fact out.
+   */
+  tokens?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    total: number;
+  };
 }
 
 /** One existing per-node override (Slice 4 Task 6), READ-ONLY here. The
@@ -544,7 +557,7 @@ export function graphInsideProcess(
     if (e.nodeRunId !== undefined) byNodeRun.set(e.nodeRunId, e);
     if (e.plannerRunNumber !== undefined) byPlannerNumber.set(e.plannerRunNumber, e);
   }
-  const nested = new Map<LedgerEntry, string[]>();
+  const nested = new Map<LedgerEntry, { id: string; text: string }[]>();
   for (const artifact of input.artifacts) {
     const owner =
       (artifact.producerNodeRunId !== undefined
@@ -559,15 +572,39 @@ export function graphInsideProcess(
     }
     nested.set(owner, [
       ...(nested.get(owner) ?? []),
-      `${sanitizeGraphText(artifact.artifactId)} · ${formatBytes(artifact.byteSize)}`,
+      {
+        id: sanitizeGraphText(artifact.artifactId),
+        text: `${sanitizeGraphText(artifact.artifactId)} · ${formatBytes(artifact.byteSize)}`,
+      },
     ]);
   }
+  // The details card is built HERE, not in `nodeListView`: the run's artifacts
+  // are known only after they are nested onto the ledger entry.
+  const nodeRunById = new Map(input.nodeRuns.map((run) => [run.nodeRunId, run]));
+  const topologyById = new Map((input.topology?.nodes ?? []).map((n) => [sanitizeGraphText(n.id), n]));
   const ledgerRows = nodes.map((e) => {
-    const list = nested.get(e);
-    if (!list) return e.row;
+    const list = nested.get(e) ?? [];
     const shown = list.slice(0, MAX_ARTIFACT_ROWS);
     const more = list.length - shown.length;
-    return { ...e.row, artifacts: more > 0 ? [...shown, `+${more} more`] : shown };
+    const row: GraphNodeListRow =
+      list.length > 0
+        ? {
+            ...e.row,
+            artifacts: more > 0 ? [...shown.map((a) => a.text), `+${more} more`] : shown.map((a) => a.text),
+          }
+        : e.row;
+    const run = e.nodeRunId !== undefined ? nodeRunById.get(e.nodeRunId) : undefined;
+    if (!run) return row;
+    const topologyNode = topologyById.get(run.nodeId);
+    return {
+      ...row,
+      card: nodeCardView(
+        run,
+        topologyNode,
+        input.execution,
+        list.map((a) => a.id),
+      ),
+    };
   });
   const artifacts = bounded(flatArtifacts, MAX_ARTIFACT_ROWS);
   for (const artifact of artifacts.shown) {
