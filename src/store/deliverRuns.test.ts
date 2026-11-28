@@ -3,7 +3,7 @@ import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import {
   currentDeliverRun, getDeliverRun, dismissDeliverFailures, finishDeliverRun, listDeliverFailures, listDeliverResults,
-  openDeliverRun, recordDeliverGate, setDeliverProgress, stopStaleDeliverRuns, takeOverDeliverRun,
+  listDeliverRuns, openDeliverRun, recordDeliverGate, setDeliverProgress, stopStaleDeliverRuns, takeOverDeliverRun,
 } from './deliverRuns.js';
 
 let store: Store;
@@ -127,5 +127,24 @@ describe('deliver runs', () => {
     openDeliverRun(store, { ticketId, headSha: 'b'.repeat(40), gates: ['unit'], pid: 7, now: 'T2' });
     expect(getDeliverRun(store, first)).toMatchObject({ id: first, kind: 'after-take-over', headSha: 'a'.repeat(40), gates: ['lint'], state: 'stopped' });
     expect(getDeliverRun(store, 9999)).toBeNull();
+  });
+
+  // T1410: the Ship round evidence joins a round window to the pushes it holds.
+  it('lists every run oldest first, with the same columns as a single read', () => {
+    const first = openDeliverRun(store, { ticketId, headSha: 'a'.repeat(40), gates: ['lint'], pid: 7, now: 'T1', kind: 'after-take-over' });
+    recordDeliverGate(store, first, { gateName: 'lint', repo: 'r', exitCode: 0, summary: null, startedAt: 'S1', endedAt: 'E1' });
+    const second = openDeliverRun(store, { ticketId, headSha: 'b'.repeat(40), gates: ['unit', 'docs'], pid: 7, now: 'T2' });
+    expect(listDeliverRuns(store, ticketId)).toEqual([
+      expect.objectContaining({ id: first, headSha: 'a'.repeat(40), kind: 'after-take-over', gates: ['lint'], finished: 1, startedAt: 'T1', state: 'stopped' }),
+      expect.objectContaining({ id: second, headSha: 'b'.repeat(40), kind: 'auto', gates: ['unit', 'docs'], finished: 0, startedAt: 'T2', state: 'running' }),
+    ]);
+    expect(listDeliverRuns(store, ticketId)[0]).toEqual(getDeliverRun(store, first));
+  });
+
+  it('lists no runs for another ticket or an unknown ticket', () => {
+    open();
+    const other = createTicket(store, { key: 'T-2', title: 'other' }).id;
+    expect(listDeliverRuns(store, other)).toEqual([]);
+    expect(listDeliverRuns(store, 9999)).toEqual([]);
   });
 });

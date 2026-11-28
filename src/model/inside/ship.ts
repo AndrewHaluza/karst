@@ -949,7 +949,8 @@ export function autofixProcess(autofix: AutofixRowView | null | undefined): Insi
   const attempts = autofix.attempts.map((a): EvidenceRow => ({
     label: a.label,
     detail: a.detail,
-    status: a.result === 'fails' ? 'fail' : 'pass',
+    // A finished round only RAN: the host holds no pass for it (T1365/T1410).
+    status: a.result === 'fails' ? 'fail' : 'note',
     time: formatTime(a.at),
   }));
   const steps = autofix.steps.map((st): EvidenceRow => ({
