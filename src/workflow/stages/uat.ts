@@ -9,6 +9,7 @@ import { noChangeClaimFor } from '../noChangeClaim.js';
 import { runnableSubset, unitsOf, unitsOfRepos } from '../../manifest/runnable.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
+import { bundledModelCatalog, type ModelCatalog } from '../../agent/modelCatalog.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { GateRunInput, GateSkipReason } from '../../store/gateRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
@@ -66,7 +67,7 @@ import { latestBaselineDecisions } from '../../store/baselineDecisions.js';
 import { unapprovedBaselines } from '../gates/baselineReview.js';
 import { detectTicketBaselines, fingerprintTicket } from '../gates/baselineReviewTicket.js';
 import { precheckBaselines } from '../gates/baselinePrecheck.js';
-import { runUatBaselinePrecheck } from './uatBaselinePrecheck.js';
+import { runUatBaselinePrecheck, type UatBaselinePrecheckOutcome } from './uatBaselinePrecheck.js';
 import { hasUatGatePass, recordUatGatePass } from '../../store/uatGatePasses.js';
 import { stageAttempt } from '../../store/stages.js';
 import {
@@ -271,6 +272,11 @@ export interface UatDeps {
   detectBaselines?: typeof detectTicketBaselines;
   /** Seam over the model pre-check of changed baselines (@arch:BASELINE-PRECHECK). */
   precheckBaselines?: typeof precheckBaselines;
+  /**
+   * The loaded model catalog, threaded to the pre-check's image-capability
+   * check only. Absent → the gate falls back to the bundled catalog.
+   */
+  catalog?: () => ModelCatalog;
   /** Seam over the working-tree fingerprint the gate-skip is keyed on. */
   fingerprint?: typeof fingerprintTicket;
 }
@@ -369,6 +375,28 @@ export function resolveTargetGates(
       : `[gate] uat resolve: zero gates resolved for names ${keys.join(', ')}`,
   );
   return unavailable ?? { kind: 'gates', gates: [], skipped: [] };
+}
+
+/**
+ * The block reason's pre-check suffix (@arch:BASELINE-PRECHECK). The user has
+ * to see whether the pre-check ran, was skipped and WHY, failed, or was
+ * stopped by them: the silent skips of the old `debug`-only line hid that the
+ * pre-check never ran on a big review. `Y` is always `sent` — the targets a
+ * model call actually received.
+ */
+function precheckSuffix(outcome: UatBaselinePrecheckOutcome, interrupted: boolean): string {
+  if (outcome.skippedReason !== undefined) return `(pre-check skipped: ${outcome.skippedReason})`;
+  const approved = outcome.approved.length;
+  if (interrupted) return `(pre-check interrupted: ${approved} of ${outcome.sent} approved)`;
+  if (outcome.failedBatches > 0) {
+    // Every batch that opened a run failed: nothing was approved and the
+    // leftovers are exactly what the user saw before the pre-check existed.
+    if (outcome.failedBatches >= outcome.batches) {
+      return `(pre-check failed: ${outcome.firstFailureReason ?? 'unknown error'})`;
+    }
+    return `(pre-check: ${approved} of ${outcome.sent} approved, ${outcome.failedBatches} batch(es) failed)`;
+  }
+  return `(pre-check: ${approved} of ${outcome.sent} approved)`;
 }
 
 export async function runUat(
@@ -897,6 +925,8 @@ export async function runUat(
     }
     let pending = unapprovedBaselines(changed, latestBaselineDecisions(store, opts.ticketId));
     let precheckApproved = 0;
+    // The suffix the block reason carries, when this pass attempted a pre-check.
+    let precheckNote: string | undefined;
     // The model pre-check (@arch:BASELINE-PRECHECK) runs only on the FIRST pass
     // of this review, after the gates passed and with the knob on. A `skipGates`
     // run is the user's own approval re-entering UAT for the SAME tree: the gate
@@ -907,6 +937,7 @@ export async function runUat(
     const precheckPass = pending.length > 0 && rerun === undefined && !skipGates;
     // The gate's own skip lines never run with the knob off, so state that skip here.
     if (precheckPass && !precheckOn) {
+      precheckNote = '(pre-check skipped: pre-check disabled)';
       opts.debug?.(`[gate] uat baseline pre-check ticket ${opts.ticketId}: skipped — pre-check disabled`);
     }
     if (precheckPass && precheckOn) {
@@ -917,7 +948,10 @@ export async function runUat(
         decisions: latestBaselineDecisions(store, opts.ticketId),
         ticket: getTicket(store, opts.ticketId),
         ...(tester === undefined ? {} : { tester }),
+        // The bundled fallback lives here: uat.ts is an accepted agent seam, the gate is not.
+        catalog: deps.catalog ?? bundledModelCatalog,
         git,
+        baselineGlobs: opts.manifest?.uat?.baselineReview?.paths ?? [],
         ...(opts.debug === undefined ? {} : { debug: opts.debug }),
         ...(opts.onTesterOutput === undefined ? {} : { onLiveOutput: opts.onTesterOutput }),
         stageRunId: evidence.runId,
@@ -926,6 +960,7 @@ export async function runUat(
         ...(deps.precheckBaselines === undefined ? {} : { precheck: deps.precheckBaselines }),
       });
       precheckApproved = precheck.approved.length;
+      precheckNote = precheckSuffix(precheck, opts.signal?.aborted === true);
       if (precheck.section !== undefined) sections.push(precheck.section);
       // Recompute from the store, so an entry whose working-tree sha moved
       // between detection and the decision is still pending (the approval lapses).
@@ -939,11 +974,8 @@ export async function runUat(
         `${pending.length > 0 ? 'blocked (baseline-review)' : 'proceed'}`,
     );
     if (pending.length > 0) {
-      const reason =
-        precheckApproved > 0
-          ? `${pending.length} visual baseline(s) changed — review in the UAT report ` +
-            `(${precheckApproved} approved by the pre-check)`
-          : `${pending.length} visual baseline(s) changed — review in the UAT report`;
+      const base = `${pending.length} visual baseline(s) changed — review in the UAT report`;
+      const reason = precheckNote === undefined ? base : `${base} ${precheckNote}`;
       sections.push(
         `# baseline review\n${pending.map((e) => `${e.status} ${e.repo}:${e.path}`).join('\n')}`,
       );

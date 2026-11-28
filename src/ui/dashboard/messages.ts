@@ -415,7 +415,16 @@ export type WebviewMessage =
    * id: the panel closure already owns it, and the host validates the scope
    * against the ticket's own runnable repositories before writing.
    */
-  | { type: 'env-overrides-save'; scope: string; text: string };
+  | { type: 'env-overrides-save'; scope: string; text: string }
+  /**
+   * Open the planning session that produced this ticket — the header's `P<n>`
+   * link (T1400, `@ui:UI-R09c`). Carries the session id ONLY: the host resolves
+   * it through its own planning ops (the same seam the sidebar uses), so the
+   * webview cannot aim a terminal/surface at anything it cannot see.
+   */
+  | { type: 'plan-open'; sessionId: number }
+  /** Open that same planning session's artifacts folder (the card's Artifacts button). */
+  | { type: 'plan-artifacts'; sessionId: number };
 
 /**
  * The synchronous, terminal outcome of one inside action dispatch (UI-R13).

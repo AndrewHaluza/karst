@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fireEvent } from '@testing-library/react';
 import type { HostMessage } from '../messages.js';
-import { shipPreviewFixture, shipPreviewStateFor, type ShipPreviewFixtureKind } from '../renderFixtures.js';
+import { shipPreviewStateFor, type ShipPreviewFixtureKind } from '../renderFixtures.js';
 import type { DashboardState } from '../state.js';
 import { installRuntimeDoubles, settled } from './fixtures/prsPanelKit.js';
 import { all, cleanupInside, must, mountInside, q, text } from './fixtures/insideKit.js';
@@ -10,191 +10,54 @@ import { all, cleanupInside, must, mountInside, q, text } from './fixtures/insid
 installRuntimeDoubles();
 afterEach(cleanupInside);
 
-const section = () => must('[data-region="ship-preview"]');
 const mount = (kind: ShipPreviewFixtureKind) => mountInside(shipPreviewStateFor(kind));
 const refresh = () => must<HTMLButtonElement>('[data-act="refresh-ship-preview"]');
+const meta = () => must('.ship-preview-meta');
 
-describe('Ship preview — when it shows', () => {
-  it('is absent unless the ship slot waits for Confirm or Retry, and only in the Ship view', () => {
+describe('Ship preview — the header control', () => {
+  it('sits in the Ship header only while the slot waits for Confirm or Retry', () => {
     for (const ship of [{ kind: 'none' }, { kind: 'shipping' }, { kind: 'waiting-merge', repos: 1 }]) {
       mountInside({ ...shipPreviewStateFor('ready'), ship } as DashboardState);
-      expect(q('[data-region="ship-preview"]'), JSON.stringify(ship)).toBeNull();
+      expect(q('[data-act="refresh-ship-preview"]'), JSON.stringify(ship)).toBeNull();
       cleanupInside();
     }
     mountInside({ ...shipPreviewStateFor('ready'), ship: { kind: 'retry', reason: 'gh failed' } } as DashboardState);
-    expect(q('[data-region="ship-preview"]')).not.toBeNull();
+    expect(q('[data-act="refresh-ship-preview"]')).not.toBeNull();
     cleanupInside();
     const waiting = shipPreviewStateFor('ready');
     mountInside(waiting, { persisted: { sel: 'impl', shipWait: `${waiting.ticketId}:confirm` } });
     expect(text(must('#inside-title'))).toBe('Inside Implementation');
+    expect(q('[data-act="refresh-ship-preview"]')).toBeNull();
+  });
+
+  it('sits in the stage header, above the ledger, and the separate preview block is gone (D142, UI-R40)', () => {
+    mount('ready');
+    const head = must('#inside .inside-head');
+    expect(head.querySelector('[data-act="refresh-ship-preview"]')).not.toBeNull();
+    expect(text(meta())).toMatch(/^as of /);
+    expect(q('section.ship-preview')).toBeNull();
     expect(q('[data-region="ship-preview"]')).toBeNull();
-  });
-
-  it('sits above the process ledger (UI-R40 reading order) and is labelled by its title', () => {
-    mount('ready');
     const ship = must('#inside section.inside');
-    expect(section().getAttribute('aria-labelledby')).toBe('ship-preview-title');
-    expect(text(must('#ship-preview-title'))).toBe('Ship preview');
     const kids = [...ship.children];
-    expect(kids.indexOf(section())).toBeLessThan(kids.findIndex((c) => c.classList.contains('ledger') || c.classList.contains('blurb')));
-  });
-});
-
-describe('Ship preview — what it states', () => {
-  it('ready: one card per repository with its PR title, commit subject, files and a will-commit badge', () => {
-    mount('ready');
-    const repos = all('[data-region="ship-preview-repo"]');
-    expect(repos).toHaveLength(2);
-    const first = repos[0]!;
-    expect(first.tagName).toBe('SECTION');
-    expect(first.querySelector('.sp-badge--ok')).not.toBeNull();
-    expect(text(first.querySelector('.sp-badge span'))).toBe('will commit');
-    const labels = all('.sp-row .sp-label', first).map((l) => l.textContent);
-    expect(labels).toEqual(expect.arrayContaining(['PR title', 'Commit', 'Files']));
-    expect(first.textContent).toContain('src/app.ts');
-    expect(first.querySelector('details.sp-files summary')!.textContent).toMatch(/^\d+ files?$/);
-    expect(section().querySelector('.sp-meta')!.textContent).toMatch(/^as of /);
+    expect(kids.indexOf(head)).toBeLessThan(kids.findIndex((c) => c.classList.contains('ledger') || c.classList.contains('blurb')));
   });
 
-  it('excluded: names the excluded files, the pathspec note and the committed-match warning', () => {
-    mount('excluded-warning');
-    expect(section().textContent).toContain('(ship.exclude)');
-    expect(section().textContent).toContain('dist/bundle.js');
-    expect(text(must('.sp-row--warn .sp-value'))).toMatch(/^ship\.exclude matches committed changes: .* — these DO ship$/);
-  });
-
-  it('blocked: shows the refused paths as danger text with an icon, and never lists them as something it will commit', () => {
-    mount('blocked');
-    expect(section().querySelector('.sp-badge--danger')).not.toBeNull();
-    const danger = must('.sp-row--danger');
-    expect(danger.querySelector('.sp-label svg.k-icon')).not.toBeNull();
-    expect(text(danger.querySelector('.sp-value'))).toMatch(/^ship refuses .*\.env.* — commit them deliberately or ignore them$/);
-    expect(all('.sp-label').map((l) => l.textContent)).not.toContain('Commits');
-    expect(all('.sp-label').map((l) => l.textContent)).not.toContain('Files');
-  });
-
-  it('nothing to commit with changes from base: badge says agent committed, no status row, no commit row, and shows branch commits', () => {
-    mount('nothing-to-commit');
-    expect(text(must('.sp-badge span'))).toBe('agent committed');
-    expect(must('.sp-badge svg.k-icon')).not.toBeNull();
-    const labels = all('.sp-row .sp-label').map((l) => l.textContent);
-    expect(labels).not.toContain('Status');
-    expect(labels).not.toContain('Commit');
-    expect(labels).toContain('Commits');
-    expect(section().textContent).not.toContain('nothing to commit — agent committed its work');
-    expect(section().textContent).toContain('feat(web): agent did this work');
-    expect(section().textContent).toContain('a1b2c3d');
-  });
-
-  it('nothing to commit with capped commits shows and N more', () => {
-    const base = shipPreviewStateFor('nothing-to-commit');
-    const repo = base.shipPreview!.repos[0]!;
-    mountInside({
-      ...base,
-      shipPreview: {
-        ...base.shipPreview!,
-        repos: [
-          {
-            ...repo,
-            branchCommits: Array.from({ length: 20 }, (_, i) => ({
-              sha: `sha${i}`,
-              subject: `commit ${i}`,
-            })),
-            branchCommitsMore: 5,
-          },
-        ],
-      },
-    } as unknown as Parameters<typeof mountInside>[0]);
-    expect(must('.sp-commit.sp-more').textContent).toBe('and 5 more');
-  });
-
-  it('will-commit with branchCommits shows Commit, Commits and Files rows', () => {
-    const base = shipPreviewStateFor('ready');
-    const repo = base.shipPreview!.repos[0]!;
-    mountInside({
-      ...base,
-      shipPreview: {
-        ...base.shipPreview!,
-        repos: [
-          {
-            ...repo,
-            branchCommits: [{ sha: 'c123456', subject: 'feat: prior agent commit' }],
-          },
-        ],
-      },
-    } as unknown as Parameters<typeof mountInside>[0]);
-    const labels = all('.sp-row .sp-label').map((l) => l.textContent);
-    expect(labels).toContain('Commit');
-    expect(labels).toContain('Commits');
-    expect(labels).toContain('Files');
-  });
-
-  it('every repository unchanged: warns that ship will fail (arch:SHIP-UNCHANGED)', () => {
-    mount('all-nothing');
-    const warn = must('.sp-note--warn');
-    expect(warn.textContent).toBe('ship will fail — no repo has changes');
-    expect(warn.querySelector('svg.k-icon')).not.toBeNull();
-    expect(section().textContent).toContain('no changes from base');
-    expect(all('.sp-badge span').map((b) => b.textContent)).toEqual(['nothing to commit', 'nothing to commit']);
-    const labels = all('.sp-row .sp-label').map((l) => l.textContent);
-    expect(labels).not.toContain('Commit');
-  });
-
-  it('read failure: names the error and never claims a verdict', () => {
-    mount('error');
-    expect(section().textContent).toContain('git status exited 128');
-    expect(section().textContent).not.toContain('no changes from base');
-    expect(text(must('.sp-badge span'))).toBe('not read');
-    expect(q('.sp-note--warn')).toBeNull();
-    expect(all('[data-region="ship-preview-repo"]')).toHaveLength(1);
-  });
-
-  it('re-ship: a live PR is committed INTO, never reported as skipped (FIX-46)', () => {
-    mount('re-ship');
-    expect(section().textContent).toContain('PR #42 open — this commit is pushed onto it');
-    expect(section().textContent).not.toContain('skipped');
-  });
-
-  it('skipped repositories say why: an open PR, or already merged', () => {
-    const preview = shipPreviewFixture('ready')!;
-    const base = shipPreviewStateFor('ready');
-    mountInside({ ...base, shipPreview: { ...preview, repos: [{ ...preview.repos[0]!, status: 'already-shipped', prNumber: 7 }, { ...preview.repos[1]!, status: 'already-merged', prNumber: null }] } } as DashboardState);
-    const rows = all('.sp-row .sp-value').map((v) => v.textContent);
-    expect(rows).toContain('PR #7 open — skipped');
-    expect(rows).toContain('merged in #? — nothing to ship');
-    expect(all('.sp-badge span').map((b) => b.textContent)).toEqual(['PR open — skipped', 'merged — nothing to ship']);
-  });
-
-  it('no repositories: says so', () => {
-    const preview = shipPreviewFixture('ready')!;
-    mountInside({ ...shipPreviewStateFor('ready'), shipPreview: { ...preview, repos: [] } } as DashboardState);
-    expect(text(must('.sp-note'))).toBe('No repositories on this ticket.');
-    expect(q('.sp-note--warn')).toBeNull();
-  });
-
-  it('loading: keeps the geometry with an aria-hidden skeleton and "reading…"', () => {
+  it('says reading… until the first read lands', () => {
     mount('loading');
-    expect(text(must('.sp-meta'))).toBe('reading…');
-    expect(must('.sp-skel')).not.toBeNull();
-    expect(must('[data-region="ship-preview-repo"]').getAttribute('aria-hidden')).toBe('true');
-    expect(all('.sp-skel-row')).toHaveLength(3);
+    expect(text(meta())).toBe('reading…');
+    expect(refresh()).not.toBeNull();
+    expect(q('section.ship-preview')).toBeNull();
   });
 
-  it('caps the visible file list at 50 and names the remainder (UI-R44)', () => {
-    const preview = shipPreviewFixture('ready')!;
-    const files = Array.from({ length: 60 }, (_, i) => `src/file-${i}.ts`);
-    mountInside({ ...shipPreviewStateFor('ready'), shipPreview: { ...preview, repos: [{ ...preview.repos[0]!, commitFiles: files }] } } as DashboardState);
-    expect(all('.sp-file')).toHaveLength(51);
-    expect(text(must('.sp-more'))).toBe('and 10 more');
-    expect(text(must('details.sp-files summary'))).toBe('60 files');
-  });
-
-  it('renders hostile prose as text (UI-R32)', () => {
-    const preview = shipPreviewFixture('ready')!;
-    const hostile = '<script>alert(1)</script>';
-    mountInside({ ...shipPreviewStateFor('ready'), shipPreview: { ...preview, repos: [{ ...preview.repos[0]!, prTitle: hostile, commitFiles: [hostile] }] } } as DashboardState);
-    expect(document.querySelectorAll('#inside script').length).toBe(0);
-    expect(section().textContent).toContain(hostile);
+  it('renders the preview facts as the leading will rows of the three processes', () => {
+    mount('ready');
+    const commit = must('details[data-proc-id="ship:commit"]');
+    expect(commit.hasAttribute('open')).toBe(true);
+    expect(text(commit)).toContain('will commit —');
+    expect(text(commit)).toContain('src/app.ts');
+    expect(text(must('details[data-proc-id="ship:push"]'))).toContain('will push the branch');
+    expect(text(must('details[data-proc-id="ship:pr"]'))).toContain('will open —');
+    expect(q('section.ship-preview')).toBeNull();
   });
 });
 
@@ -236,6 +99,7 @@ describe('Ship preview — Refresh', () => {
     fireEvent.click(refresh());
     h.emit({ type: 'state', state: shipPreviewStateFor('ready'), settlesActions: false } as HostMessage);
     expect(refresh().disabled).toBe(true);
-    expect(all('[data-region="ship-preview-repo"]')).toHaveLength(2);
+    expect(text(meta())).toMatch(/^as of /);
+    expect(all('details[data-proc-id="ship:commit"]').length).toBe(1);
   });
 });

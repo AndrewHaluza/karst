@@ -87,6 +87,12 @@
   margin-inline:var(--k-border-w);padding:0;color:var(--p-muted2);line-height:18px}
 #inside .inside-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
   line-height:18px;white-space:nowrap}
+/* The ship preview's header tail (`arch:SHIP-PREVIEW`): the clock and the Refresh share the last grid track, so the
+   preview adds no block of its own. */
+#inside .inside-tail{display:flex;align-items:center;gap:var(--p-s2);min-width:0}
+#inside .ship-preview-refresh{display:flex;align-items:center;gap:var(--p-s2);min-width:0}
+#inside .ship-preview-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px;
+  white-space:nowrap}
 /* The current stage header's actions: the host-picked main button (secondary) and the ghost 'Actions' button that
    opens the rest. Only the host's availability verdict renders them; the menu is a composed popover exactly like the
    ticket-controls menu, from the same tokens. Groups carry a title; each item carries a one-line description. */

@@ -40,4 +40,26 @@ describe('runSandboxReconcile', () => {
     await expect(runSandboxReconcile({ ...base, logError: (m) => errors.push(m), sweepStrays: async () => { throw new Error('x'); } })).resolves.toBeUndefined();
     expect(errors).toHaveLength(1);
   });
+
+  it('drops the session of an ssh workspace missing on its own listed remote', async () => {
+    const clearSession = vi.fn();
+    const t = { id: 7, sessionId: 's7', sessionProvider: 'claude', placementBackend: 'ssh' as const, placementRemote: 'devbox' };
+    const r = await runSandboxReconcile({
+      inventory: async () => ({ sandboxes: [], errors: [] }), live: () => [t], owns: () => true,
+      clearSession, info: vi.fn(), logError: vi.fn(),
+    });
+    expect(r?.missing).toEqual([7]);
+    expect(clearSession).toHaveBeenCalledWith(7);
+  });
+
+  it('keeps the session when the ticket\'s ssh remote could not be listed (unknown is never absent)', async () => {
+    const clearSession = vi.fn();
+    const t = { id: 7, sessionId: 's7', sessionProvider: 'claude', placementBackend: 'ssh' as const, placementRemote: 'devbox' };
+    const r = await runSandboxReconcile({
+      inventory: async () => ({ sandboxes: [], errors: ['ssh devbox: connection refused'] }), live: () => [t], owns: () => true,
+      clearSession, info: vi.fn(), logError: vi.fn(),
+    });
+    expect(r?.missing).toEqual([]);
+    expect(clearSession).not.toHaveBeenCalled();
+  });
 });

@@ -9,6 +9,12 @@ import type { JsonSchemaDocument } from '../../agent/adapter.js';
 /** Bound on each intent field re-entering the prompt (untrusted ticket prose). */
 const MAX_INTENT_CHARS = 6_000;
 
+/**
+ * Above this many changed paths the prompt names the first ones only plus
+ * `… and N more`: the list is context for the images, not the review itself.
+ */
+export const PRECHECK_CHANGED_PATHS_MAX = 200;
+
 /** One entry actually sent to the model, with the two image paths it must read. */
 export interface BaselinePrecheckTarget {
   repo: string;
@@ -32,7 +38,8 @@ export interface BaselinePrecheckTicket {
 
 export interface BaselinePrecheckPromptInput {
   ticket: BaselinePrecheckTicket;
-  uiPaths: readonly string[];
+  /** Every file the branch changed, baseline images already left out. */
+  changedPaths: readonly string[];
   targets: readonly BaselinePrecheckTarget[];
 }
 
@@ -69,11 +76,21 @@ function boundedIntent(text: string): string {
   return `${trimmed.slice(0, MAX_INTENT_CHARS)}\n[truncated at ${MAX_INTENT_CHARS} characters]`;
 }
 
-/** The one prompt the pre-check sends: intent, changed UI paths, and every image pair. */
+/** The one prompt the pre-check sends: intent, the branch's changed files, and every image pair. */
 export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput): string {
   const description = boundedIntent(input.ticket.description);
   const brief = boundedIntent(input.ticket.brief);
-  const uiPaths = input.uiPaths.length === 0 ? ['(none reported)'] : input.uiPaths.map((path) => `- ${path}`);
+  const changedLines =
+    input.changedPaths.length === 0
+      ? ['(none reported)']
+      : [
+          ...input.changedPaths
+            .slice(0, PRECHECK_CHANGED_PATHS_MAX)
+            .map((path) => `- ${path}`),
+          ...(input.changedPaths.length > PRECHECK_CHANGED_PATHS_MAX
+            ? [`… and ${input.changedPaths.length - PRECHECK_CHANGED_PATHS_MAX} more`]
+            : []),
+        ];
   return [
     `You are the baseline pre-check for Karst's UAT stage. A ticket changed screenshot baselines; a human normally reviews each one. Decide which entries are CLEARLY the intended UI change and free of visible defects. Everything you do not approve waits for the human, exactly as today.`,
     ``,
@@ -81,10 +98,10 @@ export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput):
     ...(description === '' ? [] : [`Description:`, description]),
     ...(brief === '' ? [] : [`Design brief:`, brief]),
     ``,
-    `Changed src/ui paths on the ticket's branch:`,
-    ...uiPaths,
+    `Files changed on the ticket's branch (baseline images left out):`,
+    ...changedLines,
     ``,
-    `Baseline entries — inspect EACH image with the Read tool (the old image is the base-commit version, the new image is the ticket's working tree):`,
+    `Baseline entries — open EACH image file below and look at it (the old image is the base-commit version, the new image is the ticket's working tree):`,
     ...input.targets.map((target) =>
       target.oldImagePath === null
         ? `- ${target.label}: new ${target.newImagePath} (added file — no old image)`
@@ -95,7 +112,7 @@ export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput):
     `- Answer "approve" ONLY when BOTH hold: (a) the visible change is explained by the ticket's stated UI change, and (b) the new image shows no visible defect: clipped or overlapping text, missing content, a broken or shifted layout that is not part of the intent, wrong theme colours, or an empty or error page.`,
     `- Answer "human" in EVERY other case: a change you cannot tie to the intent, an unchanged-looking pair, a visible defect, an image you cannot read, or any doubt.`,
     `- For a modified entry compare old and new; for an added entry judge the new image alone.`,
-    `- Approve only what you can see. Never guess.`,
+    `- Approve only what you can see. Never guess. If you cannot see the pixels of an image, answer "human" for that entry.`,
     ``,
     `Output ONLY a JSON object with one entry for every path above, using the path exactly as written:`,
     `{"entries":[{"path":"<path>","verdict":"approve"|"human","reason":"<one line>"}]}`,
@@ -104,18 +121,63 @@ export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput):
 
 type JsonRead = { ok: true; value: unknown } | { ok: false };
 
-function readJsonDocument(raw: string): JsonRead {
-  const candidates = [raw.trim()];
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
-  if (fenced?.[1] !== undefined) candidates.push(fenced[1].trim());
-  for (const candidate of candidates) {
-    try {
-      return { ok: true, value: JSON.parse(candidate) };
-    } catch {
-      // Not this candidate.
+/**
+ * Balanced `{…}` objects in `raw`, in order, ignoring braces inside strings.
+ * A core without structured output answers in prose (or a fence), so the answer
+ * object has to be found rather than assumed to be the whole message.
+ */
+function jsonObjectCandidates(raw: string): string[] {
+  const out: string[] = [];
+  for (let start = raw.indexOf('{'); start !== -1; start = raw.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < raw.length; i += 1) {
+      const char = raw[i]!;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === '{') depth += 1;
+      else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          out.push(raw.slice(start, i + 1));
+          break;
+        }
+      }
     }
   }
-  return { ok: false };
+  return out;
+}
+
+function parseShaped(candidate: string): JsonRead {
+  let value: unknown;
+  try {
+    value = JSON.parse(candidate);
+  } catch {
+    return { ok: false }; // Not JSON: the caller tries the next candidate.
+  }
+  return isRecord(value) && Array.isArray(value.entries) ? { ok: true, value } : { ok: false };
+}
+
+/**
+ * The answer object (`entries`) in `raw`. A whole-text JSON answer is read as
+ * is; otherwise the LAST shaped object wins, so an earlier draft (or a fenced
+ * draft) that the model corrected later can never approve an entry.
+ */
+function readJsonDocument(raw: string): JsonRead {
+  const whole = parseShaped(raw.trim());
+  if (whole.ok) return whole;
+  let last: JsonRead = { ok: false };
+  for (const candidate of jsonObjectCandidates(raw)) {
+    const read = parseShaped(candidate);
+    if (read.ok) last = read;
+  }
+  return last;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -133,10 +195,10 @@ export function parseBaselinePrecheckAnswer(
   allowedLabels: readonly string[],
   finalMessage?: string,
 ): Map<string, string> | null {
-  let read = readJsonDocument(raw);
-  if (!read.ok && finalMessage !== undefined && finalMessage !== raw) {
-    read = readJsonDocument(finalMessage);
-  }
+  // The core's final message is the model's last word, so it wins over the
+  // raw stream, which can still hold an earlier draft answer.
+  const fromFinal = finalMessage === undefined ? { ok: false as const } : readJsonDocument(finalMessage);
+  const read = fromFinal.ok ? fromFinal : readJsonDocument(raw);
   if (!read.ok) return null;
   if (!isRecord(read.value) || !Array.isArray(read.value.entries)) return null;
   const counts = new Map<string, number>();

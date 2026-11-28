@@ -536,6 +536,12 @@
   "src/doctor/gitHealthCheck.ts#checkGitHealth": [
     "arch:CLI-16"
   ],
+  "src/doctor/sandboxChecks.ts#checkStaleRemoteWorkspaces": [
+    "arch:CLI-26"
+  ],
+  "src/doctor/sandboxOrphanCheck.ts#checkForgottenRemoteWorkspaces": [
+    "arch:CLI-26"
+  ],
   "src/doctor/storageCheck.ts#checkStorage": [
     "arch:CLI-16"
   ],
@@ -1385,6 +1391,9 @@
   "src/ui/dashboard/storedArtifacts.ts#buildStoredArtifacts": [
     "arch:APP-11"
   ],
+  "src/ui/doctor/doctorFlow.ts#createDoctorFlow": [
+    "arch:CLI-26"
+  ],
   "src/ui/resources/panel.ts": [
     "arch:SERVERS-PANEL"
   ],
@@ -1481,6 +1490,9 @@
     "arch:AC-66"
   ],
   "src/workflow/gates/baselinePrecheck.ts": [
+    "arch:BASELINE-PRECHECK"
+  ],
+  "src/workflow/gates/baselinePrecheck.ts#modelCanReadImages": [
     "arch:BASELINE-PRECHECK"
   ],
   "src/workflow/gates/baselinePrecheckPrompt.ts": [

@@ -221,7 +221,12 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(78);
+    sender.planOpen(28, 'r_plan');
+    expect(posted.at(-1)).toEqual({ type: 'plan-open', sessionId: 28, requestId: 'r_plan' });
+    sender.planArtifacts(28);
+    expect(posted.at(-1)).toEqual({ type: 'plan-artifacts', sessionId: 28 });
+
+    expect(posted).toHaveLength(80);
   });
 
   it('rejects a wrong argument type at compile time', () => {
@@ -230,6 +235,8 @@ describe('dashboard webviewSend', () => {
     sender.stopServer('7');
     // @ts-expect-error stage is the closed GateStage set, not any string.
     sender.rerunGate('nope');
+    // @ts-expect-error the planning session id is a number, never a ref string.
+    sender.planOpen('P28');
   });
 });
 

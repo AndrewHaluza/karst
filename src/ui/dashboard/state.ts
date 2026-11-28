@@ -29,7 +29,7 @@ import { isKarstCheckout } from '../../commands/launchWorktree.js';
 import type { DashboardAgentContext, DashboardPriorityView, DashboardState, PathContext } from './stateTypes.js';
 import { buildAgentState, emptyCapabilityIdentity, buildSandbox, resolveSessionCore } from './stateAgent.js';
 import { buildDashboardRows } from './stateRows.js';
-import { readRelations, readRounds, originLabel } from './stateRelations.js';
+import { readRelations, readRounds, originView } from './stateRelations.js';
 import { buildAttach, buildArtifacts, readEvidence } from './stateEvidence.js';
 import { withDeliverWait } from '../../model/inside/deliver.js';
 import { deliverRowInput, readActionStates, shipActionViews } from './stateActions.js';
@@ -401,7 +401,7 @@ export function buildDashboardState(
   return {
     ticketId: ticket.id,
     idLabel: formatId('ticket', ticket.id),
-    origin: originLabel(store, ticket.id),
+    origin: originView(store, ticket.id),
     key: ticket.key,
     title: ticket.title,
     parent,

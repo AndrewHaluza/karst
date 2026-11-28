@@ -16,9 +16,9 @@ import type { Store } from '../store/db.js';
 import type { LogError } from '../logging/logger.js';
 import { getCpuCoreCount } from './cpuCores.js';
 import type { SbxProcess } from '../agent/sbx/sbxProcess.js';
-import { sampleContainers, type ContainerStat } from './containerSampler.js';
+import { sampleContainers, type ContainerStat, type RemoteWorkspaceSample } from './containerSampler.js';
 import { applyContainers, vmProcessCost } from './containerRows.js';
-import type { VmOverhead } from './resourceInventory.js';
+import type { AttributedRow, VmOverhead } from './resourceInventory.js';
 import type { RunningServerRow } from '../store/runningServers.js';
 
 /**
@@ -77,6 +77,12 @@ export interface ResourceMonitorDeps {
   /** Docker seam for the container sampler; with `projectRoot`, enables it. */
   docker?: SbxProcess;
   projectRoot?: () => string | undefined;
+  /**
+   * The remote-workspace sampler (D824, edit 7): ssh only, trust first. It runs
+   * only while the panel is open (its rows have no host cost, so nothing else
+   * reads them), single-flight, and never inside a tick.
+   */
+  remoteWorkspaces?: () => Promise<RemoteWorkspaceSample>;
 }
 
 const noop = (): void => {};
@@ -113,6 +119,10 @@ export class ResourceMonitor {
   private containersDegraded = false;
   private containersOkMs = 0;
   private sampling = false;
+  private readonly remoteWorkspaces: (() => Promise<RemoteWorkspaceSample>) | undefined;
+  /** The last good rows of each remote; a failed listing keeps that remote's previous rows. */
+  private remoteRows: ReadonlyMap<string, readonly AttributedRow[]> = new Map();
+  private remoteSampling = false;
   private readonly registry = new Map<number, KnownPid>();
   private readonly listeners = new Set<(reading: ResourceReading) => void>();
 
@@ -129,6 +139,7 @@ export class ResourceMonitor {
     this.cpuCoreCount = deps.cpuCoreCount ?? getCpuCoreCount();
     this.docker = deps.docker;
     this.projectRoot = deps.projectRoot ?? (() => undefined);
+    this.remoteWorkspaces = deps.remoteWorkspaces;
   }
 
   /**
@@ -160,6 +171,7 @@ export class ResourceMonitor {
   setPanelVisible(visible: boolean): void {
     if (!this.supported) return;
     if (visible) {
+      void this.refreshRemoteWorkspaces();
       if (this.fastTimer === undefined) {
         this.fastTimer = setInterval(() => {
           void this.tick(false);
@@ -314,6 +326,8 @@ export class ResourceMonitor {
       // Slow lane only: `docker stats` takes ~2 s, so it never rides the fast tick,
       // and it is never awaited here — a slow daemon must not hold a tick.
       if (confirmCwd) void this.refreshContainers();
+      // The remote listing is an ssh round trip: slow lane only, and only while the panel shows it.
+      if (confirmCwd && this.fastTimer !== undefined) void this.refreshRemoteWorkspaces();
     } catch (err) {
       this.logError('resource monitor tick failed', err);
     } finally {
@@ -325,7 +339,7 @@ export class ResourceMonitor {
   private compose(): void {
     if (this.baseInventory === null) return;
     const root = this.projectRoot();
-    const inventory =
+    const withContainers =
       root === undefined
         ? this.baseInventory
         : applyContainers({
@@ -335,6 +349,9 @@ export class ResourceMonitor {
             projectRoot: root,
             vm: this.vm,
           });
+    // Remote rows have `cost: null`: appended after the totals, so they never count as host cost.
+    const remote = [...this.remoteRows.values()].flat();
+    const inventory = remote.length === 0 ? withContainers : { ...withContainers, attributed: [...withContainers.attributed, ...remote] };
     const ticketIds = [
       ...new Set(
         [...this.servers.map((s) => s.ticketId), ...inventory.attributed.map((r) => r.ticketId)].filter(
@@ -350,6 +367,24 @@ export class ResourceMonitor {
       worktreeRoots: this.worktreeRoots(),
       dirs: this.dirs,
     });
+  }
+
+  /** Single-flight remote-workspace sample. A failed remote keeps its previous rows. Never throws. */
+  async refreshRemoteWorkspaces(): Promise<void> {
+    if (this.disposed || this.remoteSampling || this.remoteWorkspaces === undefined) return;
+    this.remoteSampling = true;
+    try {
+      const sample = await this.remoteWorkspaces();
+      const kept = [...this.remoteRows].filter(([remote]) => sample.failed.has(remote));
+      this.remoteRows = new Map([...kept, ...sample.rows]);
+      if (sample.failed.size > 0) this.debug(`[resources] remote listing failed (${[...sample.failed].join(', ')}) — keeping the previous rows`);
+      this.compose();
+      this.notify();
+    } catch (err) {
+      this.logError('resource monitor remote workspace sample failed', err);
+    } finally {
+      this.remoteSampling = false;
+    }
   }
 
   /** Single-flight, bounded container sample. A failure keeps the previous reading. Never throws. */

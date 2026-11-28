@@ -10,6 +10,7 @@ import type {
   InsideStageKey,
   InsideStageView,
   InsideDot,
+  InsideProcessView,
   TokenUsageView,
   TypedInsideAction,
 } from '../../model/inside/types.js';
@@ -24,6 +25,7 @@ import { MAIN_LINE } from '../../workflow/graph.js';
 import type { ServerView } from '../../store/dashboard.js';
 import type { PrPanelRow } from '../../model/prPanelView.js';
 import type { ShipPreview, ShipPreviewRepo } from '../../workflow/shipPreview.js';
+import { withShipPreviewRows } from '../../model/inside/shipPreviewRows.js';
 
 /**
  * The checked-in render fixture matrix for the dashboard webview's render
@@ -702,15 +704,37 @@ export function shipPreviewFixture(kind: ShipPreviewFixtureKind): ShipPreview | 
 /**
  * `renderStateFor('ship')` with the header slot at `confirm` and the preview
  * overlaid (D142). `loading` omits `shipPreview`, exactly as the first snapshot
- * before the async read lands does.
+ * before the async read lands does. The preview's facts are the "will" rows of
+ * the Commit, Push and Pull request processes — the same merge the host applies
+ * (`withShipPreviewRows`), so the baselines show what the host ships.
+ *
+ * A confirm/retry slot has NOT run, so those three processes carry no recorded
+ * evidence here: the matrix view's passed commit grid and PR paths belong to a
+ * shipped run, not to the wait for Confirm. Keeping them would also measure the
+ * grid's own controls inside a body the preview just opened.
  */
 export function shipPreviewStateFor(kind: ShipPreviewFixtureKind): DashboardState {
   const base = renderStateFor('ship');
   const preview = shipPreviewFixture(kind);
+  const ship = base.insideViews.ship;
+  const waiting: InsideProcessView[] = ship.processes.map((p) => {
+    if (p.id === 'commit') return { ...p, status: 'pending', evidence: { kind: 'commits', rows: [], total: 0 } };
+    if (p.id === 'push') return { ...p, status: 'pending', evidence: { kind: 'rows', rows: [] } };
+    if (p.id === 'pr') return { ...p, status: 'pending', evidence: { kind: 'prs', rows: [], open: 0, merged: 0 } };
+    return p;
+  });
   return {
     ...base,
     ship: { kind: 'confirm' },
-    ...(preview ? { shipPreview: preview } : {}),
+    ...(preview
+      ? {
+          shipPreview: preview,
+          insideViews: {
+            ...base.insideViews,
+            ship: { ...ship, processes: withShipPreviewRows(waiting, preview, (repo) => repo) },
+          },
+        }
+      : {}),
   };
 }
 
@@ -1276,7 +1300,19 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
     ...neutral,
     ticketId: POPULATED_TICKET_ID,
     idLabel: `T${POPULATED_TICKET_ID}`,
-    origin: 'from D88 (P17)',
+    origin: {
+      draftRef: 'D88',
+      session: {
+        id: 17,
+        ref: 'P17',
+        title: 'Per-repo base branch override',
+        status: 'filed',
+        core: 'claude',
+        model: 'claude-opus-5-5',
+        drafts: { accepted: 3, pending: 1, discarded: 0 },
+        createdAt: '2026-08-10T14:02:00.000Z',
+      },
+    },
     key: POPULATED_KEY,
     title: POPULATED_TITLE,
     stepper,

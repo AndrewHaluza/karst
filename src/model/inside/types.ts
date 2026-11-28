@@ -653,6 +653,13 @@ export type ProcessEvidenceView =
       total?: number;
       repos?: readonly CommitRepoView[];
       overflow?: EvidenceRow;
+      /**
+       * How many leading `rows` the webview draws BEFORE the recorded commit
+       * grid. The ship preview prepends its "will" rows to a process that may
+       * also carry the previous run's grid (`arch:SHIP-PREVIEW`); absent → the
+       * grid owns the body, as it always has.
+       */
+      leadRows?: number;
     }
   | {
       kind: 'prs';
@@ -661,6 +668,8 @@ export type ProcessEvidenceView =
       merged: number;
       branches?: readonly PrBranchView[];
       overflow?: EvidenceRow;
+      /** How many leading `rows` the webview draws BEFORE the recorded PR paths (see `commits.leadRows`). */
+      leadRows?: number;
     }
   | {
       kind: 'receipt';
@@ -845,6 +854,15 @@ export interface InsideProcessView {
    * availability (UI-R31). Absent → no console entry.
    */
   console?: boolean;
+  /**
+   * The rows this process carries are the preview of what the run WILL do
+   * (the ship `confirm`/`retry` slot, `arch:SHIP-PREVIEW`): the reader must
+   * see them before pressing Confirm, so the ledger opens the process on its
+   * first render. Structural, not prose — the webview never parses a row to
+   * decide this. Absent → the default-open kinds and the running status rule
+   * alone decide.
+   */
+  openByDefault?: true;
   /**
    * The repository scope control for a findings body: every repository the
    * process's findings name (computed from the UNFILTERED batch, so the

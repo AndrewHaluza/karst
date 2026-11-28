@@ -176,9 +176,17 @@ const FOCUS_CAP = 12;
  * (which hide at the tight tier), so the page gains no action; the sweep counts the
  * controls in the DOM, and these are present at every width (`display:none` above
  * 399 px and `.hidden` without a provider URL).
+ *
+ * Updated a twenty-first time by the planning session link (T1400): `dashboard`
+ * 52 → 54 — `#planLink` (the row-1 `P28` link; the page had no way to reach a
+ * planning session before, so it is a net-new control) and `#menuPlanOpen` ("Open
+ * planning session P28"), its tight ⋯ twin. The twin is the SAME verb as the link
+ * (which `display:none`s at 399 px), so the page gains one action, not two; the
+ * sweep counts both because both are in the DOM (the menu item is `.hidden` without
+ * a planning origin).
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
-  dashboard: 52, // fourteenth note: #closeTicket / #reopenTicket; nineteenth: #archiveTicket; twentieth: the tight ⋯ twins
+  dashboard: 54, // fourteenth note: #closeTicket / #reopenTicket; nineteenth: #archiveTicket; twentieth: the tight ⋯ twins; twenty-first: #planLink + #menuPlanOpen
   usage: 37, // sixteenth note: page header, tabs, sort headers, ticket links and the state actions
   resources: 19, // thirteenth note: the Servers / Resources tab buttons
   serverLogs: 14, // seventeenth note: Follow, Wrap and Copy

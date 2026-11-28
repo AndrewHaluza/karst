@@ -58,6 +58,20 @@ describe('Dashboard App (Phase 1 Shell)', () => {
     expect(document.querySelector('#priorityChip')?.textContent).toBe('HIGH');
   });
 
+  it('mounts a snapshot persisted before T1400 (origin as a legacy string) without throwing', () => {
+    // Before T1400 `origin` was the row-2 display string. A restored tab hands it over on the first render, before
+    // the host pushes the structured view: the header reads that as "no card" instead of rendering a `P` link.
+    const legacy = { ...populatedStateFor('impl'), origin: 'from D88 (P17)' } as unknown as DashboardState;
+    const bridge = {
+      send: createSender({ postMessage: () => {} }),
+      getState: () => ({ state: legacy }),
+      setState: vi.fn(),
+      subscribe: () => () => {},
+    };
+    expect(() => render(<App bridge={bridge} />)).not.toThrow();
+    expect(document.querySelector('#planLink')).toBeNull();
+  });
+
   it('renders the RuntimeStrip when dashboard state has a sandbox view', () => {    const bridge = {
       send: createSender({ postMessage: () => {} }),
       getState: () => ({

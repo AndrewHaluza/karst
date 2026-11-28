@@ -153,6 +153,9 @@ same three actions in React.)
 **Recorded exception (T1302, 2026-11-22):** the Token usage page rewrite stays in
 its vanilla view for the ticket; see `@ui:USAGE-MIGRATION-EXCEPTION`.
 
+**Recorded exception (T1407, 2026-11-28):** the doctor page's `Remove` action for a
+stale remote workspace stays in its vanilla view; see `@ui:DOCTOR-ACTION-EXCEPTION`.
+
 **The dashboard is React (migrated 2026-10-25, `ui:DASHBOARD-MIGRATION`):**
 `src/ui/dashboard/app/**` draws every region and overlay, and its header's
 Close/Reopen buttons and the banner's park actions are React controls like the
@@ -339,3 +342,15 @@ The work stays within the vanilla view's existing seams (`UsageState` and the
 migrates under `@ui:REACT-VIEWS`: the React view carries the same states and the
 same host-built text, not a second implementation of the rules.
 END_DOC_BLOCK: [@ui:USAGE-MIGRATION-EXCEPTION]
+
+## [@ui:DOCTOR-ACTION-EXCEPTION] Doctor Remove-action exception (T1407)
+
+**One recorded exception** (T1407, 2026-11-28): spec edit 12 of the ticket brief
+asks for a `Remove` fix action on the doctor's stale remote workspace WARN. The
+doctor page is the vanilla string page of `src/doctor/renderHtml.ts`. The action
+uses the page's existing seams: a `tier:'action'` fix renders one `.doc-action`
+button, and the page posts `{ type: 'action', id }` with the check id only.
+`src/ui/doctor/doctorFlow.ts` reads the action from its own last report, asks in
+a host modal (UI-R33), and runs the guarded removal. The page adds no framework.
+The exception expires when the doctor view migrates under `@ui:REACT-VIEWS`.
+END_DOC_BLOCK: [@ui:DOCTOR-ACTION-EXCEPTION]

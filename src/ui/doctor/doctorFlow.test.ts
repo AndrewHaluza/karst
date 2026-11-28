@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDoctorFlow, createDoctorPanelController, type DoctorFlow, type DoctorFlowDeps, type DoctorPanelLifecycle } from './doctorFlow.js';
+import { createDoctorFlow, createDoctorPanelController, type DoctorFlow, type DoctorFlowDeps, type DoctorPanelLifecycle, type DoctorPanelMessage } from './doctorFlow.js';
 import type { DoctorCheck, DoctorReport } from '../../doctor/types.js';
 
 const empty = (): DoctorReport => ({
@@ -49,7 +49,8 @@ interface RunCall {
 
 function harness() {
   const renders: string[] = [];
-  const posts: Array<{ type: 'fix-cancelled' } | { type: 'copy-done' }> = [];
+  const posts: DoctorPanelMessage[] = [];
+  const removals: number[] = [];
   const copies: string[] = [];
   const confirms: ConfirmCall[] = [];
   const runs: RunCall[] = [];
@@ -87,6 +88,9 @@ function harness() {
     copy: (text) => {
       copies.push(text);
     },
+    removeSandbox: async (ticketId) => {
+      removals.push(ticketId);
+    },
     nonce: () => 'n',
     now: () => new Date(2026, 0, 1, 14, 2),
   };
@@ -98,6 +102,7 @@ function harness() {
     copies,
     confirms,
     runs,
+    removals,
     setReports: (...reports: DoctorReport[]) => {
       queue = [...reports];
     },
@@ -323,6 +328,117 @@ describe('copy (DR-2)', () => {
     await flow.handleMessage({ type: 'copy', text: 42 });
     expect(h.copies).toHaveLength(0);
     expect(h.posts).toHaveLength(0);
+  });
+});
+
+const stale = (over: Partial<DoctorCheck> = {}): DoctorCheck => ({
+  id: 'state.sandbox-stale.devbox.karst-ab12cd34-7-claude',
+  area: 'state',
+  status: 'warn',
+  title: 'Stale remote workspace',
+  detail: 'ssh devbox: karst-ab12cd34-7-claude stopped 15 days, 1.5 GB',
+  fix: { tier: 'action', summary: 'stale remote workspace', label: 'Remove', action: { kind: 'remove-sandbox', ticketId: 7 }, nextStep: 'open the dashboard' },
+  ...over,
+});
+
+const staleReport = (check: DoctorCheck = stale()): DoctorReport => ({ ...empty(), checks: [check], summary: { ok: 0, warn: 1, fail: 0, skipped: 0 } });
+
+describe('a Remove fix action (edit 12)', () => {
+  const STALE_ID = 'state.sandbox-stale.devbox.karst-ab12cd34-7-claude';
+
+  it('asks in a host modal, runs the guarded removal of the ticket, then checks again', async () => {
+    const h = harness();
+    h.setReports(staleReport(), empty());
+    const flow = createDoctorFlow(h.deps);
+    await flow.start();
+    await flow.handleMessage({ type: 'action', id: STALE_ID });
+    expect(h.confirms).toEqual([{ title: 'Remove the stale remote workspace?', items: ['ssh devbox: karst-ab12cd34-7-claude stopped 15 days, 1.5 GB'], actionLabel: 'Remove' }]);
+    expect(h.removals).toEqual([7]);
+    expect(h.runs).toEqual([{ fix: false }, { fix: false }]);
+    expect(h.lastRender()).toContain('No checks ran');
+  });
+
+  it('removes nothing and hands the button back when the user cancels', async () => {
+    const h = harness();
+    h.setReports(staleReport());
+    h.setAnswer(false);
+    const flow = createDoctorFlow(h.deps);
+    await flow.start();
+    await flow.handleMessage({ type: 'action', id: STALE_ID });
+    expect(h.removals).toEqual([]);
+    expect(h.runs).toHaveLength(1);
+    expect(h.posts).toEqual([{ type: 'action-cancelled' }]);
+  });
+
+  it('a failed modal counts as a cancel', async () => {
+    const h = harness();
+    h.setReports(staleReport());
+    const flow = createDoctorFlow({ ...h.deps, confirm: async () => { throw new Error('no modal'); } });
+    await flow.start();
+    await flow.handleMessage({ type: 'action', id: STALE_ID });
+    expect(h.removals).toEqual([]);
+    expect(h.posts).toEqual([{ type: 'action-cancelled' }]);
+  });
+
+  it('acts only on a check of the last report: a crafted id, an ok check or a non-action fix removes nothing (UI-R33)', async () => {
+    for (const report of [staleReport(stale({ status: 'ok' })), staleReport(stale({ fix: { tier: 'report', summary: 's', nextStep: 'n' } })), oneAuto()]) {
+      const h = harness();
+      h.setReports(report);
+      const flow = createDoctorFlow(h.deps);
+      await flow.start();
+      await flow.handleMessage({ type: 'action', id: STALE_ID });
+      await flow.handleMessage({ type: 'action', id: 'state.server-leaked.4123' });
+      await flow.handleMessage({ type: 'action', id: 42 });
+      expect(h.confirms).toEqual([]);
+      expect(h.removals).toEqual([]);
+      expect(h.posts).toEqual([{ type: 'action-cancelled' }, { type: 'action-cancelled' }, { type: 'action-cancelled' }]);
+    }
+  });
+
+  it('removes nothing before a first report and without a removal seam', async () => {
+    const h = harness();
+    const early = createDoctorFlow(h.deps);
+    await early.handleMessage({ type: 'action', id: STALE_ID });
+    const { removeSandbox: _unused, ...noSeam } = h.deps;
+    h.setReports(staleReport());
+    const flow = createDoctorFlow(noSeam);
+    await flow.start();
+    await flow.handleMessage({ type: 'action', id: STALE_ID });
+    expect(h.confirms).toEqual([]);
+    expect(h.removals).toEqual([]);
+    expect(h.posts).toEqual([{ type: 'action-cancelled' }, { type: 'action-cancelled' }]);
+  });
+
+  it('a removal that throws shows the error page', async () => {
+    const h = harness();
+    h.setReports(staleReport());
+    const flow = createDoctorFlow({ ...h.deps, removeSandbox: async () => { throw new Error('ssh devbox: transport failed'); } });
+    await flow.start();
+    await flow.handleMessage({ type: 'action', id: STALE_ID });
+    expect(h.lastRender()).toContain('ssh devbox: transport failed');
+  });
+
+  it('runs nothing when the panel closes while the modal is open', async () => {
+    const h = harness();
+    h.setReports(staleReport());
+    let disposed = false;
+    const flow = createDoctorFlow({ ...h.deps, isDisposed: () => disposed, confirm: async () => { disposed = true; return true; } });
+    await flow.start();
+    await flow.handleMessage({ type: 'action', id: STALE_ID });
+    expect(h.removals).toEqual([]);
+  });
+
+  it('ignores a second action while the first waits on its modal', async () => {
+    const h = harness();
+    h.setReports(staleReport());
+    const flow = createDoctorFlow(h.deps);
+    await flow.start();
+    h.holdNextConfirm();
+    const first = flow.handleMessage({ type: 'action', id: STALE_ID });
+    await flow.handleMessage({ type: 'action', id: STALE_ID });
+    expect(h.confirms).toHaveLength(1);
+    h.releaseConfirm(false);
+    await first;
   });
 });
 

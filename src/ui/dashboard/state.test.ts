@@ -8,7 +8,7 @@ import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
 import { createPlanningSession } from '../../store/planningSessions.js';
-import { insertProposal, markProposalAccepted } from '../../store/planningProposals.js';
+import { insertProposal, markProposalAccepted, discardProposal } from '../../store/planningProposals.js';
 import { addRelation } from '../../store/ticketRelations.js';
 import { upsertProject } from '../../store/projects.js';
 import { openProcessRun } from '../../store/processRuns.js';
@@ -256,13 +256,43 @@ describe('buildDashboardState', () => {
     expect(state.origin).toBeNull();
   });
 
-  it('words the origin of a ticket filed from a draft as "from D<n> (P<n>)"', () => {
+  it('builds the structured origin of a ticket filed from a draft, with the session facts and draft counts', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 'Plan the header', core: 'claude', model: 'm1' });
+    const draft = insertProposal(store, session.id, { title: 'D', description: 'd', summary: 's', repos: [] });
+    insertProposal(store, session.id, { title: 'pending one', description: 'd', summary: 's', repos: [] });
+    insertProposal(store, session.id, { title: 'pending two', description: 'd', summary: 's', repos: [] });
+    const t = createTicket(store, { key: 'PROJ-2', title: 'from draft', projectId });
+    markProposalAccepted(store, draft, t.id);
+    const second = insertProposal(store, session.id, { title: 'accepted too', description: 'd', summary: 's', repos: [] });
+    markProposalAccepted(store, second, createTicket(store, { key: 'PROJ-3', title: 'another', projectId }).id);
+    const discarded = insertProposal(store, session.id, { title: 'discarded one', description: 'd', summary: 's', repos: [] });
+    discardProposal(store, discarded);
+
+    expect(buildDashboardState(store, t.id).origin).toEqual({
+      draftRef: `D${draft}`,
+      session: {
+        id: session.id,
+        ref: `P${session.id}`,
+        title: 'Plan the header',
+        status: 'filed',
+        core: 'claude',
+        model: 'm1',
+        drafts: { accepted: 2, pending: 2, discarded: 1 },
+        createdAt: session.createdAt,
+      },
+    });
+  });
+
+  it('degrades to no origin when the planning session was deleted', () => {
     const projectId = upsertProject(store, { slug: 'p' }).id;
     const session = createPlanningSession(store, { projectId, title: 'Plan', core: 'claude', model: null });
     const draft = insertProposal(store, session.id, { title: 'D', description: 'd', summary: 's', repos: [] });
-    const t = createTicket(store, { key: 'PROJ-2', title: 'from draft', projectId });
+    const t = createTicket(store, { key: 'PROJ-4', title: 'from draft', projectId });
     markProposalAccepted(store, draft, t.id);
-    expect(buildDashboardState(store, t.id).origin).toBe(`from D${draft} (P${session.id})`);
+    expect(buildDashboardState(store, t.id).origin).not.toBeNull();
+    store.db.prepare('DELETE FROM planning_sessions WHERE id = ?').run(session.id);
+    expect(buildDashboardState(store, t.id).origin).toBeNull();
   });
 
   it('degrades to null when the linked parent was hard-deleted', () => {

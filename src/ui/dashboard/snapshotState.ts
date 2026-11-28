@@ -19,6 +19,7 @@ import type { DashboardSelections } from './selections.js';
 import type { SupplementalLoaders } from './supplementalLoaders.js';
 import { ticketLaunchFields } from '../../approaches/graph/profileResolver.js';
 import { agentContextFor, assignmentFor, repoNameFor, serviceNamesFor } from './resolvers.js';
+import { withShipPreviewRows } from '../../model/inside/shipPreviewRows.js';
 
 /** Everything the snapshot is built from, as the manager was constructed with it. */
 export interface SnapshotInputs {
@@ -157,11 +158,31 @@ export function buildSnapshotState(
   // no empty card to render. The cache itself is kept, so re-entering the
   // slot shows the last read until the fresh one lands.
   const shipPreview = i.loaders.shipPreviewFor(ticketId);
+  const inShipSlot = built.ship.kind === 'confirm' || built.ship.kind === 'retry';
   const state = {
     ...withBaselines(built, i.loaders.baselinesFor(ticketId)),
     ...(stored ? { storedArtifacts: stored } : {}),
-    ...(shipPreview && (built.ship.kind === 'confirm' || built.ship.kind === 'retry')
-      ? { shipPreview }
+    // The preview is not a block of its own: its facts become the leading
+    // "will" rows of the Commit, Push and Pull request processes, so the
+    // reader sees each step once (UI-R31; `arch:SHIP-PREVIEW`).
+    ...(shipPreview && inShipSlot
+      ? {
+          shipPreview,
+          insideViews: {
+            ...built.insideViews,
+            ship: {
+              ...built.insideViews.ship,
+              processes: withShipPreviewRows(
+                built.insideViews.ship.processes,
+                shipPreview,
+                (repo) => {
+                  const manifest = i.manifest?.();
+                  return manifest ? repoNameFor(manifest, repo) : undefined;
+                },
+              ),
+            },
+          },
+        }
       : {}),
   };
   return state;

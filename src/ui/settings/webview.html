@@ -194,7 +194,7 @@
   /* Read-only host facts live in the sidebar footer, not here — the footer is
      the one surface that renders them (see renderProjectFooter). */
 
-  /* SET-1 / @ui:RD-VIEWS: the content region is the container every settings
+  /* SET-1 / @ui:RD-VIEWS2: the content region is the container every settings
      form tier measures. The nav's media query stays window-scoped (page chrome),
      but a field row collapses with the REGION, not the window. */
   .content{
@@ -1220,7 +1220,7 @@
      430/360/300 narrow-webview tiers. EM units, not px — the UI-R04 literal
      budget explicitly exempts em as relative typography (conformance.test.ts),
      so these queries stay within the zero-literal budget. */
-  /* SET-1 / Q12 (@ui:RD-TIERS, @ui:RD-VIEWS): below a 700 px CONTENT region every
+  /* SET-1 / Q12 (@ui:RD-TIERS, @ui:RD-VIEWS2): below a 700 px CONTENT region every
      form label goes above its control. This is a container query on purpose —
      the settings content region is narrow inside a wide window whenever the
      sidebar takes space, and a window query cannot see that. 699px is the one

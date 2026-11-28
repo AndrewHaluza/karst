@@ -39,4 +39,19 @@ describe('makePressureWatch', () => {
     await w.tick();
     expect(stop).toHaveBeenCalledWith(boxes[1]);
   });
+
+  it('a remote workspace never counts toward HOST pressure, whatever its size', async () => {
+    const remote: SandboxFootprint = { name: 'devbox', ticketId: 9, footprintBytes: 64 * GB, remote: 'devbox' };
+    const { w, warn, stop } = watch(0.5 * GB, [remote, boxes[0]!], true);
+    expect(await w.tick()).toBe(true);
+    expect(warn.mock.calls[0]![1]).toBe(boxes[0]);
+    expect(stop).toHaveBeenCalledWith(boxes[0]);
+  });
+
+  it('is quiet when only remote workspaces run', async () => {
+    const remote: SandboxFootprint = { name: 'devbox', ticketId: 9, footprintBytes: 64 * GB, remote: 'devbox' };
+    const { w, warn } = watch(0.5 * GB, [remote]);
+    expect(await w.tick()).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
 });

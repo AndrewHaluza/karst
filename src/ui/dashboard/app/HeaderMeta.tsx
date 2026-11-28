@@ -37,7 +37,7 @@ function BlockerChip({ blocker }: { readonly blocker: Blocker }) {
 /** Text parts joined by " · ", with each blocker chip an element between merged text runs (one text node per run). */
 function relationNodes(meta: MetaSlice): { readonly nodes: ReactNode[]; readonly count: number } {
   const parts: string[] = [];
-  if (meta.origin) parts.push(meta.origin);
+  // No `origin` here: the planning session is the `P<n>` link in row 1 (T1400), not row-2 text.
   if (meta.subtaskParent) parts.push(`Sub-task of ${meta.subtaskParent.ref}`);
   if (meta.parent) parts.push(`Follow-up of ${meta.parent.ref}`);
   const nodes: ReactNode[] = [];

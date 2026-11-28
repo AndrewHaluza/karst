@@ -52,7 +52,14 @@ describe('buildTicketDetails', () => {
   it('builds the Karst group from the state and only when it has rows', () => {
     const v = buildTicketDetails(
       state({
-        origin: 'from D88 (P17)', subtaskParent: { key: 'K-1', ref: 'T1 · K-1', title: null }, priority: { level: 'high', text: 'high', source: 'provider' },
+        origin: {
+          draftRef: 'D88',
+          session: {
+            id: 17, ref: 'P17', title: 'Plan', status: 'filed', core: 'claude', model: null,
+            drafts: { accepted: 1, pending: 0, discarded: 0 }, createdAt: '2026-08-10T14:02:00.000Z',
+          },
+        },
+        subtaskParent: { key: 'K-1', ref: 'T1 · K-1', title: null }, priority: { level: 'high', text: 'high', source: 'provider' },
         approach: { id: 'tdd', phases: ['red', 'green'], reported: [] },
         worktrees: [{ serviceName: 'api', repoDisplay: '/x/api' }, { serviceName: undefined, repoDisplay: 'web' }],
       }),
@@ -68,6 +75,11 @@ describe('buildTicketDetails', () => {
       ],
     });
     expect(buildTicketDetails(state()).groups).toEqual([]);
+  });
+
+  it('keeps the From row of a panel restored from a pre-T1400 snapshot, where origin is still the display string', () => {
+    const v = buildTicketDetails(state({ origin: 'from D88 (P17)' as unknown as DashboardState['origin'] }));
+    expect(v.groups[0]!.rows).toEqual([{ label: 'From', value: 'from D88 (P17)' }]);
   });
 
   it('splits the planning brief and labels the source', () => {

@@ -9,11 +9,15 @@ import type { AdapterSurfaces } from '../../agent/surfaces.js';
 import { SUPPORTED, unsupported } from '../../agent/surfaces.js';
 import type { GitBytesRunner } from '../../integrations/git.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import type { BaselineEntry } from './baselineReview.js';
 import {
   eligibleBaselineEntries,
+  modelCanReadImages,
   precheckBaselines,
   MAX_PRECHECK_ENTRIES,
+  PRECHECK_BATCH_SIZE,
   type BaselinePrecheckInput,
 } from './baselinePrecheck.js';
 
@@ -147,8 +151,9 @@ describe('precheckBaselines', () => {
     entries: [entry({ path: PNG })],
     decisions: decisions({}),
     ticket: { title: 'Move the save button', description: 'The button moves.', brief: '' },
-    uiPaths: ['src/ui/settings/app/Save.tsx'],
+    changedPaths: ['src/ui/settings/app/Save.tsx'],
     tester: { assignment: ASSIGNMENT, adapter: answer('{"entries":[]}').adapter },
+    catalog: bundledModelCatalog,
     ...over,
   });
 
@@ -162,9 +167,14 @@ describe('precheckBaselines', () => {
     ['disabled', { enabled: false }, 'pre-check disabled'],
     ['no tester', { tester: undefined }, 'no UAT tester'],
     [
-      'a non-claude core',
-      { tester: { assignment: { ...ASSIGNMENT, provider: 'codex' as const }, adapter: answer('{}').adapter } },
-      'tester core is not claude',
+      'a model whose catalog tags say text-only',
+      {
+        tester: {
+          assignment: { ...ASSIGNMENT, provider: 'antigravity' as const, model: 'gpt-oss-120b-medium' },
+          adapter: answer('{}').adapter,
+        },
+      },
+      'model gpt-oss-120b-medium cannot read images (catalog tags)',
     ],
     ['zero eligible entries', { entries: [entry({ path: 'a.json' })] }, 'no eligible entries'],
   ] as const)('skips on %s without opening a process run', async (_label, over, reason) => {
@@ -174,19 +184,292 @@ describe('precheckBaselines', () => {
       input({ ...(over as Partial<BaselinePrecheckInput>), debug: (m) => debug.push(m) }),
       deps().deps,
     );
-    expect(res).toEqual({ approved: [], skippedReason: reason });
+    expect(res).toEqual({ approved: [], sent: 0, failedBatches: 0, batches: 0, skippedReason: reason });
     expect(calls).toEqual([]);
     expect(listProcessRuns(store, ticketId)).toEqual([]);
     expect(debug.some((line) => line.includes(reason))).toBe(true);
   });
 
-  it('skips above the entry cap without opening a process run', async () => {
+  it('runs on an antigravity Tester whose model carries no catalog tags', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(
+      input({
+        tester: {
+          assignment: { ...ASSIGNMENT, provider: 'antigravity', model: 'gemini-4-hydrogen-medium' },
+          adapter,
+        },
+      }),
+      deps().deps,
+    );
+    expect(calls).toHaveLength(1);
+    expect(res.skippedReason).toBeUndefined();
+    expect(listProcessRuns(store, ticketId).at(-1)!).toMatchObject({
+      provider: 'antigravity',
+      model: 'gemini-4-hydrogen-medium',
+    });
+  });
+
+  it('runs on a codex Tester whose model is tagged vision', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(
+      input({
+        tester: { assignment: { ...ASSIGNMENT, provider: 'codex', model: 'gpt-5.5' }, adapter },
+      }),
+      deps().deps,
+    );
+    expect(calls).toHaveLength(1);
+    expect(res.skippedReason).toBeUndefined();
+    expect(listProcessRuns(store, ticketId).at(-1)!).toMatchObject({ provider: 'codex', model: 'gpt-5.5' });
+  });
+
+  it('still runs on a claude Tester as before', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(input({ tester: { assignment: ASSIGNMENT, adapter } }), deps().deps);
+    expect(calls).toHaveLength(1);
+    expect(res.skippedReason).toBeUndefined();
+    expect(listProcessRuns(store, ticketId)).toHaveLength(1);
+  });
+
+  it('skips when the injected catalog tags the Tester model text-only, opening no process run', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const debug: string[] = [];
+    const catalog = {
+      claude: [{ id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude' as const], tags: ['text-only' as const] }],
+      codex: [],
+      antigravity: [],
+      opencode: [],
+      opencode2: [],
+    };
+    const res = await precheckBaselines(
+      input({
+        tester: { assignment: ASSIGNMENT, adapter },
+        catalog: () => catalog,
+        debug: (m) => debug.push(m),
+      }),
+      deps().deps,
+    );
+    expect(res).toEqual({
+      approved: [],
+      sent: 0,
+      failedBatches: 0,
+      batches: 0,
+      skippedReason: 'model claude-sonnet-5 cannot read images (catalog tags)',
+    });
+    expect(calls).toEqual([]);
+    expect(listProcessRuns(store, ticketId)).toEqual([]);
+    expect(debug.some((line) => line.includes('cannot read images (catalog tags)'))).toBe(true);
+  });
+
+  it('runs when the catalog seam throws — an unreadable catalog is unknown, not a skip', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(
+      input({
+        tester: { assignment: ASSIGNMENT, adapter },
+        catalog: () => {
+          throw new Error('catalog not loaded');
+        },
+      }),
+      deps().deps,
+    );
+    expect(calls).toHaveLength(1);
+    expect(res.skippedReason).toBeUndefined();
+  });
+
+  it('skips above the 200-entry cap without opening a process run', async () => {
     const entries = Array.from({ length: MAX_PRECHECK_ENTRIES + 1 }, (_, i) => entry({ path: `p${i}.png` }));
     const { adapter, calls } = answer('{"entries":[]}');
     const res = await precheckBaselines(input({ entries, tester: { assignment: ASSIGNMENT, adapter } }), deps().deps);
-    expect(res).toEqual({ approved: [], skippedReason: 'more than 80 eligible entries' });
+    expect(res).toEqual({
+      approved: [],
+      sent: 0,
+      failedBatches: 0,
+      batches: 0,
+      skippedReason: 'more than 200 eligible entries',
+    });
     expect(calls).toEqual([]);
     expect(listProcessRuns(store, ticketId)).toEqual([]);
+  });
+
+  const addedEntries = (count: number): BaselineEntry[] =>
+    Array.from({ length: count }, (_, i) => entry({ path: `p${i}.png`, status: 'added' }));
+
+  /** The entry labels a batch prompt actually listed, in prompt order. */
+  const promptLabels = (prompt: string): string[] =>
+    prompt
+      .split('\n')
+      .filter((line) => line.startsWith('- web:'))
+      .map((line) => line.slice(2).split(': ')[0]!);
+
+  /** Answer every entry a batch listed with an approve. */
+  const approveAll = (opts: RunHeadlessOpts): HeadlessResult => ({
+    sessionId: '',
+    verdict: null,
+    raw: JSON.stringify({
+      entries: promptLabels(opts.prompt).map((path) => ({ path, verdict: 'approve', reason: 'intended' })),
+    }),
+  });
+
+  it('splits 165 entries into 5 serial calls of 40/40/40/40/5, each with its own run and folder', async () => {
+    const { adapter, calls } = fakeAdapter(async (opts) => approveAll(opts));
+    const d = deps();
+    const res = await precheckBaselines(
+      input({ entries: addedEntries(165), tester: { assignment: ASSIGNMENT, adapter } }),
+      d.deps,
+    );
+    expect(calls.map((call) => promptLabels(call.prompt).length)).toEqual([40, 40, 40, 40, 5]);
+    const runs = listProcessRuns(store, ticketId);
+    expect(runs).toHaveLength(5);
+    expect(runs.map((run) => run.promptTelemetry?.precheckEntries)).toEqual([40, 40, 40, 40, 5]);
+    expect(runs.map((run) => run.promptTelemetry?.precheckBatch)).toEqual(['1/5', '2/5', '3/5', '4/5', '5/5']);
+    expect(res.approved).toHaveLength(165);
+    expect(res.sent).toBe(165);
+    expect(res.failedBatches).toBe(0);
+    expect(res.batches).toBe(5);
+    expect(res.skippedReason).toBeUndefined();
+    // Every batch's old-image folder is removed.
+    expect(d.removed).toEqual([
+      '/wt/web/.karst/baseline-precheck/1',
+      '/wt/web/.karst/baseline-precheck/2',
+      '/wt/web/.karst/baseline-precheck/3',
+      '/wt/web/.karst/baseline-precheck/4',
+      '/wt/web/.karst/baseline-precheck/5',
+    ]);
+  });
+
+  it('approves nothing from a batch with an unreadable answer, and the batches after it still run', async () => {
+    let call = 0;
+    const { adapter, calls } = fakeAdapter(async (opts) => {
+      call += 1;
+      if (call === 2) return { sessionId: '', verdict: null, raw: 'all look intended to me' };
+      return approveAll(opts);
+    });
+    const d = deps();
+    const res = await precheckBaselines(
+      input({ entries: addedEntries(165), tester: { assignment: ASSIGNMENT, adapter } }),
+      d.deps,
+    );
+    expect(calls).toHaveLength(5);
+    const secondBatch = promptLabels(calls[1]!.prompt).map((label) => label.slice('web:'.length));
+    expect(res.approved.filter((approval) => secondBatch.includes(approval.path))).toEqual([]);
+    expect(res.approved).toHaveLength(125);
+    expect(res.sent).toBe(165);
+    expect(res.failedBatches).toBe(1);
+    expect(res.firstFailureReason).toBe('unreadable answer');
+    expect(listProcessRuns(store, ticketId).map((run) => run.resultKind)).toEqual([
+      'approved',
+      'unreadable-output',
+      'approved',
+      'approved',
+      'approved',
+    ]);
+  });
+
+  it('stops the remaining batches on abort, interrupts the aborted run, and keeps the finished approvals', async () => {
+    const controller = new AbortController();
+    let call = 0;
+    const { adapter, calls } = fakeAdapter(async (opts) => {
+      call += 1;
+      if (call === 2) {
+        controller.abort();
+        throw new Error('terminated');
+      }
+      return approveAll(opts);
+    });
+    const d = deps();
+    const res = await precheckBaselines(
+      input({
+        entries: addedEntries(165),
+        tester: { assignment: ASSIGNMENT, adapter },
+        signal: controller.signal,
+      }),
+      d.deps,
+    );
+    // Batches 3-5 never start.
+    expect(calls).toHaveLength(2);
+    expect(listProcessRuns(store, ticketId).map((run) => run.status)).toEqual(['passed', 'interrupted']);
+    // Batch 1's approvals survive; the aborted batch sent its targets but approved none.
+    expect(res.approved).toHaveLength(40);
+    expect(res.sent).toBe(80);
+    expect(res.batches).toBe(2);
+    expect(res.skippedReason).toBeUndefined();
+    expect(d.removed).toEqual([
+      '/wt/web/.karst/baseline-precheck/1',
+      '/wt/web/.karst/baseline-precheck/2',
+    ]);
+  });
+
+  it('counts every failed batch and reports the first reason', async () => {
+    let call = 0;
+    const { adapter } = fakeAdapter(async () => {
+      call += 1;
+      throw new Error(call === 1 ? 'core crashed' : `crash ${call}`);
+    });
+    const res = await precheckBaselines(
+      input({ entries: addedEntries(100), tester: { assignment: ASSIGNMENT, adapter } }),
+      deps().deps,
+    );
+    expect(res.approved).toEqual([]);
+    expect(res.failedBatches).toBe(3);
+    expect(res.sent).toBe(100);
+    expect(res.batches).toBe(3);
+    expect(res.firstFailureReason).toBe('core crashed');
+  });
+
+  it('keeps the approvals of the other batches when one of three fails', async () => {
+    let call = 0;
+    const { adapter } = fakeAdapter(async (opts) => {
+      call += 1;
+      if (call === 2) throw new Error('core timed out');
+      return approveAll(opts);
+    });
+    const res = await precheckBaselines(
+      input({ entries: addedEntries(100), tester: { assignment: ASSIGNMENT, adapter } }),
+      deps().deps,
+    );
+    expect(res.failedBatches).toBe(1);
+    // `sent` includes batch 2's targets: its call was started.
+    expect(res.sent).toBe(100);
+    expect(res.approved).toHaveLength(60);
+    expect(res.firstFailureReason).toBe('core timed out');
+  });
+
+  it('sends nothing from a batch whose old images are all unreadable, and is not skipped when another batch sent', async () => {
+    const entries = [
+      ...Array.from({ length: 40 }, (_, i) => entry({ path: `m${i}.png` })),
+      entry({ path: ADDED_PNG, status: 'added' }),
+    ];
+    const { adapter, calls } = fakeAdapter(async (opts) => approveAll(opts));
+    const d = deps();
+    const res = await precheckBaselines(
+      input({ entries, tester: { assignment: ASSIGNMENT, adapter } }),
+      d.deps,
+    );
+    expect(calls).toHaveLength(1);
+    expect(promptLabels(calls[0]!.prompt)).toEqual([`web:${ADDED_PNG}`]);
+    expect(listProcessRuns(store, ticketId).map((run) => run.resultKind)).toEqual([
+      'no-eligible-entries',
+      'approved',
+    ]);
+    expect(res.approved).toHaveLength(1);
+    expect(res.sent).toBe(1);
+    expect(res.failedBatches).toBe(0);
+    expect(res.batches).toBe(2);
+    expect(res.skippedReason).toBeUndefined();
+    expect(d.removed).toEqual([
+      '/wt/web/.karst/baseline-precheck/1',
+      '/wt/web/.karst/baseline-precheck/2',
+    ]);
+  });
+
+  it('skips with no eligible entries only when no batch sent any target', async () => {
+    const entries = Array.from({ length: 40 }, (_, i) => entry({ path: `m${i}.png` }));
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(
+      input({ entries, tester: { assignment: ASSIGNMENT, adapter } }),
+      deps().deps,
+    );
+    expect(calls).toEqual([]);
+    expect(res).toEqual({ approved: [], sent: 0, failedBatches: 0, batches: 0, skippedReason: 'no eligible entries' });
   });
 
   it('never sends a deleted, non-PNG or earlier-rejected entry', async () => {
@@ -245,6 +528,9 @@ describe('precheckBaselines', () => {
       approved: [
         { repo: 'web', path: PNG, sha256: `sha-${PNG}`, reason: 'the save button moved, no defect' },
       ],
+      sent: 2,
+      failedBatches: 0,
+      batches: 1,
     });
     // Binary-safe old bytes land where the prompt says they are.
     const oldPath = `/wt/web/.karst/baseline-precheck/1/old/${PNG}`;
@@ -267,7 +553,7 @@ describe('precheckBaselines', () => {
       model: 'claude-sonnet-5',
       status: 'passed',
     });
-    expect(run.promptTelemetry).toMatchObject({ precheckEntries: 2 });
+    expect(run.promptTelemetry).toMatchObject({ precheckEntries: 2, precheckBatch: '1/1' });
     expect(calls[0]!.tracking?.processRunId).toBe(run.id);
     expect(calls[0]!.tracking?.callSite).toBe('uat-tester');
     expect(live).toEqual(['examining the pairs']);
@@ -307,6 +593,9 @@ describe('precheckBaselines', () => {
       d.deps,
     );
     expect(res.approved).toEqual([]);
+    expect(res.failedBatches).toBe(1);
+    expect(res.sent).toBe(1);
+    expect(res.firstFailureReason).toBe('unreadable answer');
     expect(debug.some((line) => line.toLowerCase().includes('unreadable'))).toBe(true);
     expect(d.removed).toContain('/wt/web/.karst/baseline-precheck/1');
     expect(listProcessRuns(store, ticketId).at(-1)!).toMatchObject({ status: 'passed', resultKind: 'unreadable-output' });
@@ -323,6 +612,9 @@ describe('precheckBaselines', () => {
       d.deps,
     );
     expect(res.approved).toEqual([]);
+    expect(res.sent).toBe(1);
+    expect(res.failedBatches).toBe(1);
+    expect(res.firstFailureReason).toBe('core crashed');
     expect(d.removed).toContain('/wt/web/.karst/baseline-precheck/1');
     expect(debug.some((line) => line.includes('core crashed'))).toBe(true);
     expect(listProcessRuns(store, ticketId).at(-1)!).toMatchObject({
@@ -340,7 +632,13 @@ describe('precheckBaselines', () => {
       input({ tester: { assignment: ASSIGNMENT, adapter } }),
       d.deps,
     );
-    expect(res).toEqual({ approved: [] });
+    expect(res).toEqual({
+      approved: [],
+      sent: 1,
+      failedBatches: 1,
+      batches: 1,
+      firstFailureReason: 'out of quota',
+    });
     expect(d.removed).toContain('/wt/web/.karst/baseline-precheck/1');
     expect(listProcessRuns(store, ticketId).at(-1)!).toMatchObject({ status: 'failed' });
   });
@@ -352,5 +650,69 @@ describe('precheckBaselines', () => {
     const d = deps();
     await precheckBaselines(input({ tester: { assignment: ASSIGNMENT, adapter: bare } }), d.deps);
     expect(calls[0]!.outputSchema).toBeUndefined();
+  });
+});
+
+describe('modelCanReadImages', () => {
+  const catalog: ModelCatalog = {
+    claude: [
+      { id: 'untagged', label: 'Untagged', providers: ['claude'] },
+      { id: 'empty-tags', label: 'Empty tags', providers: ['claude'], tags: [] },
+      { id: 'eyes', label: 'Eyes', providers: ['claude'], tags: ['vision'] },
+      { id: 'both-senses', label: 'Both senses', providers: ['claude'], tags: ['multimodal'] },
+      { id: 'words-only', label: 'Words only', providers: ['claude'], tags: ['text-only'] },
+      { id: 'ears', label: 'Ears', providers: ['claude'], tags: ['audio'] },
+    ],
+    codex: [{ id: 'codex-untagged', label: 'Codex untagged', providers: ['codex'] }],
+    antigravity: [{ id: 'antigravity-only', label: 'Antigravity only', providers: ['antigravity'], tags: ['vision'] }],
+    opencode: [],
+    opencode2: [],
+  };
+
+  it('runs when no model is resolved (the core default)', () => {
+    expect(modelCanReadImages('claude', null, catalog)).toBe(true);
+    expect(modelCanReadImages('claude', undefined, catalog)).toBe(true);
+    expect(modelCanReadImages('claude', '', catalog)).toBe(true);
+  });
+
+  it('runs when the id is not in this provider section', () => {
+    expect(modelCanReadImages('claude', 'no-such-model', catalog)).toBe(true);
+    expect(modelCanReadImages('opencode2', 'anything', catalog)).toBe(true);
+  });
+
+  it('runs when the model has no tags or an empty tag list', () => {
+    expect(modelCanReadImages('claude', 'untagged', catalog)).toBe(true);
+    expect(modelCanReadImages('claude', 'empty-tags', catalog)).toBe(true);
+  });
+
+  it('runs when the tags include vision or multimodal', () => {
+    expect(modelCanReadImages('claude', 'eyes', catalog)).toBe(true);
+    expect(modelCanReadImages('claude', 'both-senses', catalog)).toBe(true);
+  });
+
+  it('skips when the known tags include neither vision nor multimodal', () => {
+    expect(modelCanReadImages('claude', 'words-only', catalog)).toBe(false);
+    expect(modelCanReadImages('claude', 'ears', catalog)).toBe(false);
+  });
+
+  it('is keyed by provider: an id that exists only under another core is unknown', () => {
+    expect(modelCanReadImages('antigravity', 'antigravity-only', catalog)).toBe(true);
+    expect(modelCanReadImages('claude', 'antigravity-only', catalog)).toBe(true);
+    // The same id under a provider that lost the entry stays unknown.
+    expect(modelCanReadImages('codex', 'codex-untagged', catalog)).toBe(true);
+    expect(modelCanReadImages('antigravity', 'codex-untagged', catalog)).toBe(true);
+  });
+
+  it('reads the bundled catalog without mutating it', () => {
+    const bundled = bundledModelCatalog();
+    const before = JSON.stringify(bundled);
+    expect(modelCanReadImages('antigravity', 'gpt-oss-120b-medium', bundled)).toBe(false);
+    expect(modelCanReadImages('antigravity', 'gemini-4-hydrogen-medium', bundled)).toBe(true);
+    expect(modelCanReadImages('claude', 'claude-opus-5-5', bundled)).toBe(true);
+    expect(JSON.stringify(bundled)).toBe(before);
+  });
+
+  it('runs when the provider section is absent from the catalog', () => {
+    expect(modelCanReadImages('antigravity', 'anything', {} as ModelCatalog)).toBe(true);
   });
 });

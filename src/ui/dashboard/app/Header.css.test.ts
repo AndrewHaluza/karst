@@ -109,4 +109,14 @@ describe('Header.css — guards moved with the rules', () => {
     // row rises. The rule must be scoped to the open menu, so the row at rest stays below the attention ring.
     expect(CSS).toContain('.dhead:has(.menuPopover.open){z-index:var(--k-z-sticky-open)}');
   });
+
+  it('styles the planning link and its card, raises the row for an open card, and hides the link at the tight tier (T1400)', () => {
+    expect(CSS).toContain('.dhead:has(.hoverCard.open){z-index:var(--k-z-sticky-open)}');
+    expect(CSS).toMatch(/\.planLink\{[^}]*min-height:var\(--k-hit-min\)/);
+    expect(CSS).toMatch(/\.planLink\{[^}]*text-decoration:underline dotted/);
+    expect(CSS).toMatch(/\.hoverCard\{[^}]*white-space:normal/);
+    expect(CSS).toMatch(/\.planCardTable td\{[^}]*overflow-wrap:anywhere/);
+    const tight = CSS.match(/@container ticket-head \(max-width: 399px\)\{[^\n]*\}/)?.[0] ?? '';
+    expect(tight).toContain('.planLink{display:none}');
+  });
 });

@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fireEvent } from '@testing-library/react';
 import type { HostMessage } from '../messages.js';
-import { $, has, headerState, installHeaderDoubles, mountHeader } from './fixtures/headerKit.js';
+import { $, has, headerState, installHeaderDoubles, mountHeader, originView } from './fixtures/headerKit.js';
 
 installHeaderDoubles();
 
@@ -53,6 +53,28 @@ describe('TicketMenu — tight-tier items', () => {  it('offers Open in provider
   it('hides Open in provider while the ticket has no board url', () => {
     mountHeader(headerState({ ticketUrl: null }));
     expect(has('#menuBoardLink', 'hidden')).toBe(true);
+  });
+
+  it('offers Open planning session P17 as the tightOnly twin of the row-1 link and posts once (T1400)', () => {
+    const h = mountHeader(headerState({ origin: originView() }));
+    const item = $('#menuPlanOpen');
+    expect(item.closest('#menuPopover')).toBeTruthy();
+    expect(item.classList.contains('menuButton')).toBe(true);
+    expect(item.classList.contains('tightOnly')).toBe(true);
+    expect(item.getAttribute('role')).toBe('menuitem');
+    expect(item.getAttribute('data-session-id')).toBe('17');
+    expect(item.textContent).toContain('Open planning session P17');
+    expect(item.hasAttribute('hidden')).toBe(false);
+    fireEvent.click(item);
+    fireEvent.click(item);
+    expect(h.send.planOpen).toHaveBeenCalledTimes(1);
+    expect(h.send.planOpen).toHaveBeenCalledWith(17, 'req-1');
+    expect(has('#menuPlanOpen', 'is-pending')).toBe(true);
+  });
+
+  it('hides Open planning session while the ticket was not filed from a draft', () => {
+    mountHeader(headerState({ origin: null }));
+    expect(has('#menuPlanOpen', 'hidden')).toBe(true);
   });
 
   it('offers Ticket details, which opens the drawer and posts nothing', () => {

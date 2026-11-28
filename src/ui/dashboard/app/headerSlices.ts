@@ -6,7 +6,7 @@ import type { DashboardSnapshot } from './dashboardStore.js';
 import type { DashboardLayout } from '../../../model/dashboardLayout.js';
 import { asPriorityLevel } from '../../../model/priority.js';
 import type { DashboardState } from '../state.js';
-import type { DashboardPriorityView } from '../stateTypes.js';
+import type { DashboardPriorityView, DashboardOriginView } from '../stateTypes.js';
 import { ticketStatus, type StatusTone } from './ticketHead.js';
 
 export interface IdentitySlice {
@@ -15,6 +15,8 @@ export interface IdentitySlice {
   readonly title: string;
   readonly provider: string;
   readonly priority: DashboardPriorityView | null;
+  /** The planning session this ticket was filed from; null for a hand-made ticket (T1400). */
+  readonly origin: DashboardOriginView | null;
   readonly ticketUrl: string | null;
   readonly statusWord: string;
   readonly statusTone: StatusTone;
@@ -25,7 +27,6 @@ type Blocker = DashboardState['blockers'][number];
 type Capability = { readonly provider: string; readonly model: string | null } | null | undefined;
 
 export interface MetaSlice {
-  readonly origin: string | null;
   readonly subtaskParent: Relation;
   readonly parent: Relation;
   readonly blockers: readonly Blocker[];
@@ -83,10 +84,20 @@ const priorityView = (p: DashboardPriorityView | string | null | undefined): Das
   return { ...p, text: p.text.trim() };
 };
 
+/**
+ * The origin view, tolerating the PRE-T1400 shape. `vscode.setState` is the upgrade contract across builds, so a
+ * restored panel hands the header the old display string (`"from D88 (P17)"`) on its first render; read that as "no
+ * card" instead of throwing before the host pushes a fresh structured snapshot.
+ */
+const originViewOrNull = (o: DashboardOriginView | string | null | undefined): DashboardOriginView | null => {
+  if (!o || typeof o === 'string') return null;
+  return o;
+};
+
 export const selectIdentity = (snapshot: DashboardSnapshot): IdentitySlice | null => {
   const s = snapshot.state;
   return s
-    ? { idLabel: s.idLabel, key: s.key || '', title: s.title || '(untitled)', provider: s.provider ?? '', priority: priorityView(s.priority), ticketUrl: s.ticketUrl || null, ...statusFields(s) }
+    ? { idLabel: s.idLabel, key: s.key || '', title: s.title || '(untitled)', provider: s.provider ?? '', priority: priorityView(s.priority), origin: originViewOrNull(s.origin), ticketUrl: s.ticketUrl || null, ...statusFields(s) }
     : null;
 };
 
@@ -95,7 +106,6 @@ export const selectMeta = (snapshot: DashboardSnapshot): MetaSlice | null => {
   if (!s) return null;
   const ids = s.capabilityIdentity ?? ({} as NonNullable<DashboardState['capabilityIdentity']>);
   return {
-    origin: s.origin || null,
     subtaskParent: s.subtaskParent ? { ref: s.subtaskParent.ref } : null,
     parent: s.parent ? { ref: s.parent.ref } : null,
     blockers: s.blockers || [],
@@ -136,5 +146,11 @@ export const selectAgent = (snapshot: DashboardSnapshot): AgentSlice | null => {
 export const selectLayout = (snapshot: DashboardSnapshot): DashboardLayout => snapshot.layout;
 export const selectBind = (snapshot: DashboardSnapshot): boolean => snapshot.bind;
 export const selectGates = (snapshot: DashboardSnapshot): DashboardSnapshot['gateOptions'] => snapshot.gateOptions;
+/**
+ * The per-core model lists alone, for a header surface that only needs model LABELS (the planning card's
+ * `core · model` line): subscribing to the whole `MetaSlice` would re-render it on every blocker change.
+ */
+export const selectModelsByCore = (snapshot: DashboardSnapshot): MetaSlice['modelsByCore'] =>
+  (snapshot.state?.agentSwitch?.modelsByCore ?? {}) as MetaSlice['modelsByCore'];
 /** The stored current stage, for the gate tabs' initial tab; null before the first state. */
 export const selectStageCurrent = (snapshot: DashboardSnapshot): string | null => snapshot.state?.stageCurrent ?? null;

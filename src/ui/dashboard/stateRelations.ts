@@ -1,4 +1,5 @@
-import { getProposalForTicket, listPendingProposalsDependingOn } from '../../store/planningProposals.js';
+import { getProposalForTicket, listPendingProposalsDependingOn, listSessionProposals } from '../../store/planningProposals.js';
+import { getPlanningSession } from '../../store/planningSessions.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listFixDeliveriesByRound } from '../../store/fixDeliveries.js';
 import type { RoundWithDelivery } from '../../model/inside/recovery.js';
@@ -17,7 +18,7 @@ import { listCurrentPrsByTicket } from '../../store/prs.js';
 import { buildAgentState } from './stateAgent.js';
 import { blockFaultTitle } from './app/railText.js';
 import type { AgentProvider } from '../../manifest/types.js';
-import type { DashboardAgentContext, DashboardSubtaskRow } from './stateTypes.js';
+import type { DashboardAgentContext, DashboardOriginView, DashboardSubtaskRow } from './stateTypes.js';
 
 /** What the per-child agent identity needs: the same inputs the header's resolver gets. */
 export interface SubtaskAgentInputs {
@@ -173,9 +174,27 @@ export function readRounds(store: Store, ticketId: number): RoundWithDelivery[] 
   });
 }
 
-/** `from D88 (P17)` for a ticket filed from a planning draft; null otherwise. */
-export function originLabel(store: Store, ticketId: number): string | null {
+/** The planning session a ticket was filed from (`from D88` + the session's facts); null otherwise. */
+export function originView(store: Store, ticketId: number): DashboardOriginView | null {
   const draft = getProposalForTicket(store, ticketId);
   if (!draft) return null;
-  return `from ${formatId('draft', draft.id)} (${formatId('plan', draft.sessionId)})`;
+  const session = getPlanningSession(store, draft.sessionId);
+  // A deleted session takes its proposals with it (cascade), so this is only
+  // reachable from a row that outlived its session row.
+  if (!session) return null;
+  const drafts = { accepted: 0, pending: 0, discarded: 0 };
+  for (const p of listSessionProposals(store, session.id)) drafts[p.status] += 1;
+  return {
+    draftRef: formatId('draft', draft.id),
+    session: {
+      id: session.id,
+      ref: formatId('plan', session.id),
+      title: session.title,
+      status: session.status,
+      core: session.core,
+      model: session.model,
+      drafts,
+      createdAt: session.createdAt,
+    },
+  };
 }

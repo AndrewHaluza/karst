@@ -111,6 +111,10 @@ function fixBlock(check: DoctorCheck): string {
   if (fix.tier === 'consented') {
     return `<div class="doc-fix">${head}<div class="doc-cmd-row"><pre class="k-code">${escapeHtml(fix.command)}</pre><button type="button" class="k-btn k-btn--secondary k-btn--sm doc-copy" data-copy="${escapeHtml(fix.command)}">Copy</button></div></div>`;
   }
+  if (fix.tier === 'action') {
+    // The button carries only the check id: the host reads the action from its own report and asks first (UI-R33).
+    return `<div class="doc-fix">${head}<button type="button" class="k-btn k-btn--secondary k-btn--sm doc-action" data-check="${escapeHtml(check.id)}" data-label="${escapeHtml(fix.label)}">${escapeHtml(fix.label)}</button></div>`;
+  }
   if (fix.tier === 'report') {
     // Prose: a next step is read, never pasted, so it is not a <code> block (DR-2).
     return `<div class="doc-fix">${head}<p class="doc-fix-step">${escapeHtml(fix.nextStep)}</p></div>`;
@@ -195,6 +199,7 @@ const rerun = document.getElementById('rerun');
 const status = document.getElementById('fix-status');
 const copyStatus = document.getElementById('copy-status');
 let lastCopy = null;
+let lastAction = null;
 if (rerun) {
   rerun.addEventListener('click', () => {
     rerun.disabled = true;
@@ -227,6 +232,15 @@ window.addEventListener('message', (e) => {
     }
     if (status) status.textContent = '';
   }
+  if (e.data && e.data.type === 'action-cancelled') {
+    // A cancelled or refused action hands every action button back.
+    for (const button of document.querySelectorAll('.doc-action')) {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+    }
+    if (lastAction) lastAction.focus();
+    lastAction = null;
+  }
   if (e.data && e.data.type === 'copy-done') {
     const copied = lastCopy;
     lastCopy = null;
@@ -251,6 +265,14 @@ for (const button of document.querySelectorAll('.doc-copy')) {
   button.addEventListener('click', () => {
     lastCopy = button;
     v.postMessage({ type: 'copy', text: button.dataset.copy || '' });
+  });
+}
+for (const button of document.querySelectorAll('.doc-action')) {
+  button.addEventListener('click', () => {
+    lastAction = button;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    v.postMessage({ type: 'action', id: button.dataset.check || '' });
   });
 }`;
 
