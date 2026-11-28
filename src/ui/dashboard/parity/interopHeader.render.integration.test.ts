@@ -117,8 +117,34 @@ describe('React header / vanilla page interop — actions', () => {
     expect(v.posted.length).toBe(before);
   });
 
-  it('the planning card opens on focus, yields to the ⋯ menu, and its tight twin posts plan-open (T1400)', async () => {
-    const v = await open();
+  it('the Models card opens on focus, yields to the ⋯ menu, and closes on Escape with focus on the button (T1413)', async () => {
+    const base = populatedStateFor('impl');
+    const v = await open({
+      ...base,
+      capabilityIdentity: {
+        ...base.capabilityIdentity,
+        implementation: { provider: 'claude', model: 'claude-opus-5-5' },
+        review: { provider: 'claude', model: 'claude-sonnet-5-5' },
+      },
+    } as DashboardState);
+    v.query<HTMLElement>('#modelsBtn')!.focus();
+    await drainReactWork(v);
+    expect(v.query('#modelsCard')).not.toBeNull();
+    expect(v.query('#modelsBtn')!.getAttribute('aria-describedby')).toBe('modelsCard');
+    await escape(v);
+    expect(v.query('#modelsCard')).toBeNull();
+    expect(v.query('#modelsBtn')!.hasAttribute('aria-describedby')).toBe(false);
+    expect(v.document.activeElement).toBe(v.query('#modelsBtn'));
+    v.query<HTMLElement>('#modelsBtn')!.blur();
+    v.query<HTMLElement>('#modelsBtn')!.focus();
+    await drainReactWork(v);
+    expect(v.query('#modelsCard')).not.toBeNull();
+    await click(v, '#moreBtn');
+    expect(v.query('#modelsCard')).toBeNull();
+    expect(isOpen(v, '#menuPopover')).toBe(true);
+  });
+
+  it('the planning card opens on focus, yields to the ⋯ menu, and its tight twin posts plan-open (T1400)', async () => {    const v = await open();
     v.query<HTMLElement>('#planLink')!.focus();
     await drainReactWork(v);
     expect(v.query('#planCard')).not.toBeNull();

@@ -83,57 +83,28 @@ describe('HeaderMeta — Waits on and Unblocks', () => {
   });
 });
 
-describe('HeaderMeta — capability chips', () => {
+describe('HeaderMeta — relations only (T1413)', () => {
   const catalog = { claude: [{ id: 'm1', label: 'Model One' }, { id: 'm2', label: 'Model Two' }] };
 
-  it('omits roles that match implementation', () => {
-    mountHeader(headerState({ capabilityIdentity: caps({ uatTester: { provider: 'claude', model: 'm1' } }) }));
+  it('stays hidden when a differing capability is the only fact; the Models button carries it in row 1', () => {
+    mountHeader(headerState({ agentSwitch: { ...headerState().agentSwitch, modelsByCore: catalog }, capabilityIdentity: caps({ uatTester: { provider: 'claude', model: 'm2' }, review: { provider: 'claude', model: 'm2' } }) }));
     expect(row().hidden).toBe(true);
-    expect($('#capabilityLabels').childElementCount).toBe(0);
+    expect(document.querySelector('#capabilityLabels')).toBeNull();
+    expect(document.querySelector('.headerActions #modelsBtn')).not.toBeNull();
   });
 
-  it('groups roles that share a differing identity into one chip with the catalog label', () => {
-    mountHeader(
-      headerState({
-        agentSwitch: { ...headerState().agentSwitch, modelsByCore: catalog },
-        capabilityIdentity: caps({ uatTester: { provider: 'claude', model: 'm2' }, review: { provider: 'claude', model: 'm2' } }),
-      }),
-    );
-    expect(row().hidden).toBe(false);
-    const chips = document.querySelectorAll('#capabilityLabels .capChip');
-    expect(chips).toHaveLength(1);
-    expect(chips[0]!.getAttribute('title')).toBe('UAT · Review: claude/m2');
-    expect(chips[0]!.querySelector('.capModel')!.textContent).toBe('Model Two');
-    expect(chips[0]!.querySelector('.agenticon')).toBeTruthy();
-  });
-
-  it('falls back to the model id when the catalog has no label', () => {
-    mountHeader(headerState({ capabilityIdentity: caps({ review: { provider: 'opencode', model: 'x/y' } }) }));
-    expect($('.capModel').textContent).toBe('x/y');
-  });
-});
-
-describe('HeaderMeta — graph role chips (T1266)', () => {
-  it('shows expert, worker and fast for a graph ticket, grouped by identity, even when they match implementation', () => {
+  it('draws no row-2 chip for a graph ticket, and still shows its Models button in row 1', () => {
     mountHeader(
       headerState({
         capabilityIdentity: caps({
-          graphExpert: { provider: 'claude', model: 'claude-opus-5' },
+          graphExpert: { provider: 'claude', model: 'm2' },
           graphWorker: { provider: 'claude', model: 'm1' },
           graphFast: { provider: 'claude', model: 'm1' },
         }),
       }),
     );
-    expect(row().hidden).toBe(false);
-    const chips = [...document.querySelectorAll('#capabilityLabels .capChip')];
-    expect(chips.map((c) => c.getAttribute('title'))).toEqual([
-      'Expert: claude/claude-opus-5',
-      'Worker · Fast: claude/m1',
-    ]);
-  });
-
-  it('shows no graph chip for a classic ticket', () => {
-    mountHeader(headerState({ capabilityIdentity: caps({ graphExpert: null, graphWorker: null, graphFast: null }) }));
-    expect(document.querySelectorAll('#capabilityLabels .capChip')).toHaveLength(0);
+    expect(row().hidden).toBe(true);
+    expect(document.querySelectorAll('#headerMeta .capChip')).toHaveLength(0);
+    expect(document.querySelector('.headerActions #modelsBtn')).not.toBeNull();
   });
 });

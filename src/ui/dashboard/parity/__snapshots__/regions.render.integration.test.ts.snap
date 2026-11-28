@@ -273,6 +273,102 @@ exports[`dashboard region parity (DOM contract) > envView #envView · editor ope
         <span.msg role="status">"
 `;
 
+exports[`dashboard region parity (DOM contract) > header .dhead · Models button for a differing role (T1413) > header · Models button for a differing role (T1413) 1`] = `
+"<div.dhead data-region="ticket-head">
+  <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group">
+    <span#providerMark.provicon aria-hidden="true">
+    <span#idBadge.k-id> "T942017"
+    <span#statusChip.info.k-chip.ticketStatus hidden>
+    <button#keyBtn.ticketKey aria-label="Copy ticket key FEAT-142" data-act="copy-ticket-key" data-copy data-tip="Copy ticket key FEAT-142" type="button"> "FEAT-142"
+    <a#boardLink.k-iconbtn aria-label="Open ticket in provider" data-act="open-ticket-link" hidden href="#" title="Open ticket in provider">
+      <svg.k-icon aria-hidden="true">
+    <button#ticketDataBtn.k-iconbtn aria-label="Ticket details" data-act="preview-ticket-data" title="Ticket details" type="button">
+      <svg.k-icon aria-hidden="true">
+    <button#planLink.k-link.planLink aria-expanded="false" data-act="plan-open" data-session-id="17" type="button"> "P17"
+  <h1#title.ticketTitle aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" title="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker"> "Add per-repo base branch override to the worktree picker"
+  <div.headerActions>
+    <span#toast.toast aria-live="polite">
+    <span#shipWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
+      <span> "Waiting to merge"
+    <span#subtaskWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
+      <span#subtaskWaitText> "Waiting on sub-tasks"
+    <span#pauseWait.hidden.shipWait role="status">
+      <span.attentionMark aria-hidden="true">
+        <svg.k-icon aria-hidden="true">
+      <span> "Execution paused"
+      <button.k-btn.k-btn--secondary.k-btn--sm data-act="unpause-execution" type="button"> "Resume"
+    <button#modelsBtn.k-iconbtn.modelsBtn aria-expanded="false" aria-label="Models: Review Claude Code Sonnet 5.5" type="button">
+      <span.modelsIcon>
+        <span.agenticon aria-hidden="true">
+          <svg>
+    <div.menuWrap>
+      <button#moreBtn.k-iconbtn aria-expanded="false" aria-haspopup="menu" aria-label="Ticket controls" title="Ticket controls" type="button">
+        <svg.k-icon aria-hidden="true">
+      <div#menuPopover.hidden.menuPopover.popover aria-label="Ticket controls" role="menu">
+        <div.menuHeading> "Ticket"
+        <button.menuButton data-act="edit-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Edit ticket"
+        <button#menuBoardLink.hidden.menuButton.tightOnly data-act="open-ticket-link" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Open in provider"
+        <button#menuTicketData.menuButton.tightOnly data-act="preview-ticket-data" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Ticket details"
+        <button#menuPlanOpen.menuButton.tightOnly data-act="plan-open" data-session-id="17" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Open planning session P17"
+        <button#pauseItem.menuButton data-act="pause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Pause execution"
+        <button#resumeItem.hidden.menuButton data-act="unpause-execution" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Resume execution"
+        <button#followUpItem.hidden.menuButton data-act="create-follow-up-ticket" role="menuitem" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Create follow-up"
+        <button#detachSubtask.hidden.menuButton data-act="detach-subtask" role="menuitem" title="Detach this sub-task from its parent and rebase it onto the root base" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Detach from parent"
+        <button#closeTicket.danger.menuButton data-act="close-ticket" role="menuitem" title="Mark closed: the work was done outside Karst. Nothing is verified" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Close"
+        <button#reopenTicket.hidden.menuButton data-act="reopen-ticket" role="menuitem" title="Bring this closed ticket back to implementation" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Reopen"
+        <div.menuDivider>
+        <button#archiveTicket.danger.menuButton data-act="archive-ticket" role="menuitem" title="Archive ticket, hiding it from the active list" type="button">
+          <svg.k-icon aria-hidden="true">
+          <span> "Archive"
+        <div.menuDivider>
+        <div.menuHeading> "Quick setting"
+        <div.settingRow>
+          <div.settingCopy>
+            <div.settingTitle> "Link dashboard ↔ terminal"
+            <div.settingHelp> "Global · focusing either view brings the paired view forward."
+          <label#linkViewsLabel.k-switch aria-checked="false" aria-label="Link dashboard and terminal" role="switch">
+            <input#linkViews tabindex="-1" type="checkbox">
+            <span.k-switch-track>
+        <div.settingRow>
+          <div.settingCopy>
+            <div#layoutSettingTitle.settingTitle> "Layout"
+            <div.settingHelp> "Global · applies to every dashboard tab."
+          <div.k-segmented aria-labelledby="layoutSettingTitle" role="radiogroup">
+            <button.k-btn.k-btn--secondary.k-btn--sm aria-checked="true" data-act="set-layout" data-layout-option="centered" role="radio" tabindex="0" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Centered"
+            <button.k-btn.k-btn--ghost.k-btn--sm aria-checked="false" data-act="set-layout" data-layout-option="full" role="radio" tabindex="-1" type="button">
+              <svg.k-icon aria-hidden="true">
+              <span> "Full width"
+        <div.menuDivider>
+        <div.menuHeading> "Gates for this ticket"
+        <div#menuGates.menuGates>"
+`;
+
 exports[`dashboard region parity (DOM contract) > header .dhead · closed ticket that can reopen > header · closed ticket that can reopen 1`] = `
 "<div.dhead data-region="ticket-head">
   <div.ticketIdentity aria-label="T942017 · FEAT-142 · Add per-repo base branch override to the worktree picker" role="group">
@@ -1102,10 +1198,9 @@ exports[`dashboard region parity (DOM contract) > header .dhead · sub-task that
         <div#menuGates.menuGates>"
 `;
 
-exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · all roles match implementation (hidden) > headerMeta · all roles match implementation (hidden) 1`] = `
+exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · all roles match implementation (relations only) > headerMeta · all roles match implementation (relations only) 1`] = `
 "<div#headerMeta.headerMeta>
-  <span#parentRef.ticketParent> "Sub-task of T942001 · FEAT-100"
-  <span#capabilityLabels.capabilityLabels>"
+  <span#parentRef.ticketParent> "Sub-task of T942001 · FEAT-100""
 `;
 
 exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · follow-up, blocked-by and sub-task relations > headerMeta · follow-up, blocked-by and sub-task relations 1`] = `
@@ -1120,19 +1215,7 @@ exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · foll
         <span.k-ticket-ref-word aria-hidden="true" data-full="Implementation" data-short="impl">
       <span.is-gone.k-ticket-ref aria-label="external, missing">
         <span.k-ticket-ref-id> "external"
-        <span.k-ticket-ref-word aria-hidden="true" data-full="Missing" data-short="Missing">
-  <span#capabilityLabels.capabilityLabels>"
-`;
-
-exports[`dashboard region parity (DOM contract) > headerMeta #headerMeta · review differs (chip) > headerMeta · review differs (chip) 1`] = `
-"<div#headerMeta.headerMeta>
-  <span#parentRef.ticketParent> "Sub-task of T942001 · FEAT-100"
-  <span#capabilityLabels.capabilityLabels>
-    <span.capChip title="Review: claude/claude-sonnet-5-5">
-      <span> "Review"
-      <span.agenticon aria-hidden="true">
-        <svg>
-      <span.capModel> "Sonnet 5.5""
+        <span.k-ticket-ref-word aria-hidden="true" data-full="Missing" data-short="Missing">"
 `;
 
 exports[`dashboard region parity (DOM contract) > inside #inside · empty ticket > inside · empty ticket 1`] = `

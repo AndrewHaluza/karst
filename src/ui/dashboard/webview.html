@@ -150,8 +150,9 @@
 <!-- Header: app/Header.tsx renders the ticket identity, title, Detach / Close / Reopen, the agent popover, the ship and
      wait chips and the "..." menu into this root. -->
 <div class="dhead" data-region="ticket-head"></div>
-<!-- Second header row (DASHBOARD-HEADER-SHOW-ONLY-ROLE): the parent relation leads, then one chip per model that
-     differs from implementation. app/HeaderMeta.tsx draws it and toggles this root's `hidden`. -->
+<!-- Second header row (DASHBOARD-HEADER-SHOW-ONLY-ROLE): the parent relations, then the "Waits on" and "Unblocks"
+     chip groups — relations only. The customized-model chips moved behind the row-1 Models button (T1413); the full
+     labels are in that button's hover/focus card. app/HeaderMeta.tsx draws this row and toggles its `hidden`. -->
 <div id="headerMeta" class="headerMeta" hidden></div>
 
 <!-- The runtime strip (data-region="runtime"): app/RuntimeStrip.tsx draws the agent and sandbox dropdowns, the sandbox

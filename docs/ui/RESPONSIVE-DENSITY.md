@@ -230,6 +230,7 @@ Columns: audited element → ladder → target at each tier. Grid templates use 
 | header | identity chips | id, status, priority, key | id + state pill; priority = the sidebar chip (`URG`/`HIGH`/`LOW`, none for normal, `P2` neutral) | same | same: the chip never drops | same; key one line, ellipsis, full key in `data-tip` |
 | header | core identity | core | full | short model | name | icon |
 | header | planning link | `#planLink` | `P28` after ▤ in row 1; hover/focus = planning card (session facts, Artifacts), click opens the session | same | same | hidden; ⋯ "Open planning session P28", no card |
+| header | Models button | `#modelsBtn` | one core icon per capability group (max 3, more → 2 + `+N`); hover/focus = models card with full labels | same | same (one of "primary + 2 icons") | one icon; the card still opens on hover/focus with every group |
 | header | `.headerActions` | action row | all | 3 + ⋯ | primary + 2 icons | primary + ⋯ |
 | stage rail | `.stepper` | measured steps | labels | labels | current label (`IMPL`) | marker + `IMPL` |
 | `#inside` | `.session-head` (`:1013`) | core, numbers, time | `20px minmax(78px,110px) minmax(0,1fr) auto` | same | `20px minmax(0,1fr) auto` (core name into row 2) | `20px minmax(0,1fr)` + row 2: core icon, tok, time |

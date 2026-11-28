@@ -593,7 +593,9 @@ const emptyPanels = (s: DashboardState): DashboardState => ({
  * T1396 (@ui:UI-R57): the ticket header at the four container tiers (@ui:RD-TIERS). Four states: a graph ticket with a
  * planner's HIGH and a long key, a provider label that names no level (`P2`, the neutral chip), a closed ticket (the
  * status chip says Closed and there is no Done chip), and the scrolled sticky row with the tier's own width. T1400 adds
- * `header-planning-card`: the `P28` link's hover card open at wide, mid and narrow, and the ⋯ twin at tight.
+ * `header-planning-card`: the `P28` link's hover card open at wide, mid and narrow, and the ⋯ twin at tight. T1413 adds
+ * `header-models-card` (the Models button's card open on focus at every tier), `header-relations` (row 2 keeps only the
+ * relations) and `header-needs-you-urgent` (the urgent ticket that needs you, no Models button, row 2 hidden).
  *
  * Screenshot-only (`skipLayout`), like the other header-changing dashboard states (`graph-header`, `layout-*`,
  * `ticket-menu-*`): the page is the running dashboard, whose header CSS every existing dashboard layout route already
@@ -662,12 +664,58 @@ const headerVariants = (): Variant[] => {
       },
     },
   });
+  /** T1413: a graph ticket's Models button (Expert; Worker · Fast) and the card its focus opens. */
+  const modelsCard = (s: DashboardState): DashboardState => ({
+    ...graphHigh(s),
+    capabilityIdentity: {
+      ...graphHigh(s).capabilityIdentity,
+      implementation: { provider: 'claude', model: 'claude-sonnet-5', effort: null },
+    },
+    agentSwitch: {
+      ...s.agentSwitch,
+      modelsByCore: {
+        ...s.agentSwitch.modelsByCore,
+        claude: [
+          { id: 'claude-opus-5', label: 'Opus 5', providers: ['claude'], tags: ['multimodal'], efforts: ['high'] },
+          { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'], tags: ['multimodal'], efforts: ['low'] },
+        ],
+      },
+    },
+  });
+  /** T1413: row 2 keeping only the relations — a sub-task with "Waits on" and "Unblocks", no capability groups. */
+  const relations = (s: DashboardState): DashboardState => ({
+    ...s,
+    key: 'FIX-SIDEBAR-ROWS',
+    provider: 'jira',
+    ticketUrl: 'https://example.test/browse/P2-1290',
+    priority: { level: null, text: 'P2', source: null },
+    subtaskParent: { key: 'T1288', ref: 'T1288', title: null },
+    blockers: [ticketRefView({ ticketId: 1287, idLabel: 'T1287' })],
+    unblocks: [ticketRefView({ ticketId: 1295, idLabel: 'T1295' })],
+  });
+  /** T1413: the urgent ticket that needs you, with no Models button and no relation row (row 2 hides). */
+  const needsYouUrgent = (s: DashboardState): DashboardState => ({
+    ...s,
+    key: 'ADD-REMOTE-PREFLIGHT',
+    provider: 'clickup',
+    ticketUrl: 'https://example.test/t/1388',
+    priority: { level: 'urgent', text: 'urgent', source: 'you' },
+    agentState: 'waiting',
+    subtaskParent: null,
+  });
   const tier = (id: string, corpus: () => ViewCorpus, name: string, width: number): Variant =>
     variant('dashboard', `header-${id}-${name}`, corpus, { width, skipLayout: true });
   return [
     ...HEADER_TIERS.map(([name, width]) => tier('graph-high', headerCorpus(graphHigh), name, width)),
     ...HEADER_TIERS.map(([name, width]) => tier('provider-label', headerCorpus(providerLabel), name, width)),
     ...HEADER_TIERS.map(([name, width]) => tier('closed', headerCorpus(closed), name, width)),
+    // T1413: the Models card open on keyboard focus (0 ms) at every tier; the button stays, one icon at tight.
+    ...HEADER_TIERS.map(([name, width]) =>
+      variant('dashboard', `header-models-card-${name}`, headerCorpus(modelsCard), { width, skipLayout: true, focus: '#modelsBtn' }),
+    ),
+    // T1413: row 2 with relations only, and the urgent needs-you ticket whose row 2 hides.
+    ...HEADER_TIERS.map(([name, width]) => tier('relations', headerCorpus(relations), name, width)),
+    ...HEADER_TIERS.map(([name, width]) => tier('needs-you-urgent', headerCorpus(needsYouUrgent), name, width)),
     // T1400: the `P28` link's hover card. Focus opens it at once (0 ms), so the shot records the open card at wide,
     // mid and narrow; at tight the link is hidden and ⋯ carries "Open planning session P28" (no card).
     ...HEADER_TIERS.filter(([name]) => name !== 'tight').map(([name, width]) =>
