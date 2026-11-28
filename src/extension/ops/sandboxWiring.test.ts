@@ -198,6 +198,17 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     expect(pickTicket.mock.calls[0]![0]).toHaveLength(1);
   });
 
+  it('palette command target: a ticket whose only sandbox has an invalid core is not offered', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId }).id;
+    const bad = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' }).replace(/claude$/, 'null');
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${bad} null running\n` } });
+    const pickTicket = vi.fn(async () => a);
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), pickTicket });
+    await expect(w.commandTarget(undefined, 'remove')).resolves.toBeUndefined();
+    expect(pickTicket).not.toHaveBeenCalled();
+  });
+
   it('a lookup that fails logs and falls back to the session provider instead of throwing', async () => {
     setSessionId(store, id, 's1', 'claude');
     store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
