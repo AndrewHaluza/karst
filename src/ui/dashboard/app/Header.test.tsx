@@ -150,6 +150,15 @@ describe('Header — Detach, Close and Reopen', () => {
     expect(document.getElementById('confirmShip')).toBeNull();
   });
 
+  it('puts the Models button in the action row before ⋯, and only when a role differs from implementation (T1413)', () => {
+    mountHeader(headerState({ capabilityIdentity: { implementation: { provider: 'claude', model: 'm1' }, uatTester: null, review: { provider: 'claude', model: 'm2' } } }));
+    const actions = [...$('.headerActions').children].map((el) => el.id || el.className);
+    expect(actions.indexOf('modelsBtn')).toBeGreaterThanOrEqual(0);
+    expect(actions.indexOf('modelsBtn')).toBeLessThan(actions.indexOf('menuWrap'));
+    mountHeader(headerState());
+    expect(document.querySelector('#modelsBtn')).toBeNull();
+  });
+
   it('follows the host flags without ever rewriting className', () => {
     const h = mountHeader(headerState());
     for (const id of ['#detachSubtask', '#closeTicket', '#reopenTicket']) expect(has(id, 'hidden')).toBe(true);

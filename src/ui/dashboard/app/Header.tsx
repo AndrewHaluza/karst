@@ -9,6 +9,7 @@
 import { memo, useCallback, useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { HeaderMeta } from './HeaderMeta.js';
+import { ModelsButton } from './ModelsButton.js';
 import { RegionPortal } from './RegionPortal.js';
 import { ShipControls } from './ShipControls.js';
 import { TicketIdentity, TicketTitle } from './TicketIdentity.js';
@@ -72,6 +73,7 @@ export const Header = memo(function Header() {
         <TicketTitle />
         <div className="headerActions">
           <ShipControls />
+          <ModelsButton />
           <TicketMenu open={open === 'menu'} onToggle={toggleMenu} onCloseMenu={close} />
         </div>
       </RegionPortal>

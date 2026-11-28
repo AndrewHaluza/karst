@@ -164,8 +164,8 @@ const HEADER: Case[] = [
     const s = populated();
     return { ...s, agentState: 'running', agentSwitch: { ...s.agentSwitch, cores: [{ id: 'claude', label: 'Claude Code' }], modelsByCore: catalog as never } };
   }],
-  ['headerMeta', '#headerMeta', 'all roles match implementation (hidden)', () => ({ ...populated(), capabilityIdentity: caps(OPUS) })],
-  ['headerMeta', '#headerMeta', 'review differs (chip)', () => ({ ...populated(), agentSwitch: { ...populated().agentSwitch, modelsByCore: catalog as never }, capabilityIdentity: caps(SONNET) })],
+  ['header', '.dhead', 'Models button for a differing role (T1413)', () => ({ ...populated(), agentSwitch: { ...populated().agentSwitch, modelsByCore: catalog as never }, capabilityIdentity: caps(SONNET) })],
+  ['headerMeta', '#headerMeta', 'all roles match implementation (relations only)', () => ({ ...populated(), capabilityIdentity: caps(OPUS) })],
   ['headerMeta', '#headerMeta', 'follow-up, blocked-by and sub-task relations', () => ({
     ...populated(), capabilityIdentity: caps(OPUS), parent: { key: 'FEAT-99', ref: 'T9 · FEAT-99', title: 'Earlier' },
     blockers: [

@@ -41,10 +41,11 @@ html{scroll-padding-top:var(--k-headbar-h,0px)}
 .ticketParent{color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono);line-height:1.1}
 .headerMeta{container-type:inline-size;display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-6) * -1 + var(--k-space-3)) 0 var(--k-space-6)}
 .headerMeta[hidden]{display:none}
-.capabilityLabels{display:contents}
-.capChip{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;max-width:calc(var(--k-space-8) * 9);padding:0 var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);background:var(--k-surface);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap}
-.capChip .capModel{min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--k-font-mono)}
 .headerActions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);flex:0 1 auto;min-width:min-content;margin-left:auto}
+/* The Models button (T1413): the row-2 chips live here as one icon button per group, at every tier. */
+.modelsBtn{flex:none;gap:var(--k-space-1)}
+.modelsBtn .modelsIcon{display:inline-flex;line-height:0}
+.modelsMore{font-size:var(--k-text-2xs);color:var(--k-text-dim);line-height:1}
 .menuWrap{position:relative}
 .menuWrap{flex:none}
 /* The header + controls-menu icons are sized EXPLICITLY. An inline k-icon
@@ -74,6 +75,13 @@ html{scroll-padding-top:var(--k-headbar-h,0px)}
 .planCardTable td{padding:var(--k-space-1) 0;color:var(--k-text);vertical-align:top;white-space:normal;overflow-wrap:anywhere}
 .planCardActions{margin-top:var(--k-space-3);padding-top:var(--k-space-3);border-top:var(--k-border-w) solid var(--k-border)}
 .planCardHint{margin-top:var(--k-space-2);color:var(--k-text-faint);font-size:var(--k-text-2xs)}
+/* The Models card (T1413): read-only facts like the planning card, full labels that wrap (`@ui:UI-R44`), no
+   ellipsis. It reuses `.hoverCard` for the shell, width, viewport clamp and raised header row. */
+.modelsCardTitle{font-size:var(--k-text-base);font-weight:var(--k-weight-semibold)}
+.modelsCardRow{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);margin-top:var(--k-space-3);font-size:var(--k-text-xs);color:var(--k-text)}
+.modelsCardRoles{color:var(--k-text-dim);font-weight:var(--k-weight-medium)}
+.modelsCardModel{min-width:0;font-family:var(--k-font-mono);overflow-wrap:anywhere}
+.modelsCardOther{margin-top:var(--k-space-3);padding-top:var(--k-space-3);border-top:var(--k-border-w) solid var(--k-border);color:var(--k-text-faint);font-size:var(--k-text-2xs);overflow-wrap:anywhere}
 .agentForm{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--k-space-3);padding:var(--k-space-4)}
 /* The label column is max-content, never a fixed step: "Agent core" is wider
    than any spacing token, and a 20px column let the right-aligned label spill
@@ -183,3 +191,6 @@ html{scroll-padding-top:var(--k-headbar-h,0px)}
    a compact word, so it no longer needs the room the old text pill did). The title always shows on one line with an
    ellipsis (it shrinks first, the id keeps its own ellipsis box). */
 @container ticket-head (max-width: 399px){ .ticketKey{max-width:calc(var(--k-space-8) * 3)} .dhead h1.ticketTitle{margin:0 var(--k-space-2)} .dhead{gap:var(--k-space-2)} .ticketIdentity{flex:0 1 auto;min-width:0} #providerMark,#boardLink,#ticketDataBtn{display:none} .planLink{display:none} .menuButton.tightOnly{display:flex} .menuButton.tightOnly.hidden{display:none} }
+/* T1413: the Models button stays at the tight tier as ONE icon (it is one of the two icons at narrow); the extra core
+   marks and the `+N` drop, and the full list is still in its aria-label and the card it opens. */
+@container ticket-head (max-width: 399px){ .modelsBtn .modelsIcon:nth-child(n+2),.modelsBtn .modelsMore{display:none} }

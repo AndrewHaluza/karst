@@ -29,7 +29,7 @@ describe('Header.css — guards moved with the rules', () => {
   });
 
   it('left no header rule behind in the page, except the .menuButton the Inside stage menu shares', () => {
-    for (const rule of ['.dhead{', '.popover{', '.agentButton{', '.capChip{', '.gateRow{', '.shipWait{', '.toast{']) {
+    for (const rule of ['.dhead{', '.popover{', '.agentButton{', '.gateRow{', '.shipWait{', '.toast{']) {
       expect(PAGE, rule).not.toContain(rule);
     }
     expect(PAGE).toContain('.menuButton{width:100%');
@@ -118,5 +118,16 @@ describe('Header.css — guards moved with the rules', () => {
     expect(CSS).toMatch(/\.planCardTable td\{[^}]*overflow-wrap:anywhere/);
     const tight = CSS.match(/@container ticket-head \(max-width: 399px\)\{[^\n]*\}/)?.[0] ?? '';
     expect(tight).toContain('.planLink{display:none}');
+  });
+
+  it('keeps the Models button at every tier, one icon at tight, and wraps the card labels without an ellipsis (T1413)', () => {
+    expect(CSS).toContain('.modelsBtn{flex:none');
+    expect(CSS).not.toContain('.capChip');
+    expect(CSS).not.toContain('.capabilityLabels');
+    expect(CSS).toMatch(/\.modelsCardModel\{[^}]*overflow-wrap:anywhere/);
+    expect(CSS).not.toMatch(/\.modelsCardModel\{[^}]*text-overflow:ellipsis/);
+    expect(CSS).toMatch(/\.modelsCardOther\{[^}]*overflow-wrap:anywhere/);
+    const tight = CSS.match(/@container ticket-head \(max-width: 399px\)\{[^\n]*\}/g) ?? [];
+    expect(tight.some((line) => line.includes('.modelsBtn .modelsIcon:nth-child(n+2),.modelsBtn .modelsMore{display:none}'))).toBe(true);
   });
 });
