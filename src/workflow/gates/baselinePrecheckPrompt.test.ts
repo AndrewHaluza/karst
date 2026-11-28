@@ -121,6 +121,34 @@ describe('parseBaselinePrecheckAnswer', () => {
     expect(parsed?.get('web:a.png')).toBe('ok');
   });
 
+  it('reads the last shaped answer in raw, never an earlier approve draft', () => {
+    const raw = [
+      'Draft: {"entries":[{"path":"web:a.png","verdict":"approve","reason":"looks ok"}]}',
+      'On a second look the text is clipped.',
+      '{"entries":[{"path":"web:a.png","verdict":"human","reason":"clipped text"}]}',
+    ].join('\n');
+    expect(parseBaselinePrecheckAnswer(raw, labels)?.get('web:a.png')).toBeUndefined();
+  });
+
+  it('reads the last fenced answer, never an earlier fenced approve draft', () => {
+    const raw = [
+      '```json',
+      '{"entries":[{"path":"web:a.png","verdict":"approve","reason":"looks ok"}]}',
+      '```',
+      'Correction:',
+      '```json',
+      '{"entries":[{"path":"web:a.png","verdict":"human","reason":"clipped text"}]}',
+      '```',
+    ].join('\n');
+    expect(parseBaselinePrecheckAnswer(raw, labels)?.get('web:a.png')).toBeUndefined();
+  });
+
+  it('prefers the core final message over an approve draft in the raw stream', () => {
+    const raw = '{"entries":[{"path":"web:a.png","verdict":"approve","reason":"looks ok"}]}';
+    const final = '{"entries":[{"path":"web:a.png","verdict":"human","reason":"clipped text"}]}';
+    expect(parseBaselinePrecheckAnswer(raw, labels, final)?.get('web:a.png')).toBeUndefined();
+  });
+
   it('is unreadable for prose and a wrong shape', () => {
     expect(parseBaselinePrecheckAnswer('looks fine to me', labels)).toBeNull();
     expect(parseBaselinePrecheckAnswer('{"findings":[]}', labels)).toBeNull();

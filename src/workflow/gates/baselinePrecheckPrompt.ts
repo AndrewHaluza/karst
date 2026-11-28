@@ -137,27 +137,30 @@ function jsonObjectCandidates(raw: string): string[] {
   return out;
 }
 
-function readJsonDocument(raw: string): JsonRead {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
-  const candidates = [
-    raw.trim(),
-    ...(fenced?.[1] === undefined ? [] : [fenced[1].trim()]),
-    ...jsonObjectCandidates(raw),
-  ];
-  // A shaped answer (`entries`) wins over any unrelated object in the same
-  // text; otherwise the first parseable value is returned for the shape check.
-  let firstParsed: JsonRead = { ok: false };
-  for (const candidate of candidates) {
-    let value: unknown;
-    try {
-      value = JSON.parse(candidate);
-    } catch {
-      continue; // Not this candidate.
-    }
-    if (isRecord(value) && Array.isArray(value.entries)) return { ok: true, value };
-    if (!firstParsed.ok) firstParsed = { ok: true, value };
+function parseShaped(candidate: string): JsonRead {
+  let value: unknown;
+  try {
+    value = JSON.parse(candidate);
+  } catch {
+    return { ok: false }; // Not JSON: the caller tries the next candidate.
   }
-  return firstParsed;
+  return isRecord(value) && Array.isArray(value.entries) ? { ok: true, value } : { ok: false };
+}
+
+/**
+ * The answer object (`entries`) in `raw`. A whole-text JSON answer is read as
+ * is; otherwise the LAST shaped object wins, so an earlier draft (or a fenced
+ * draft) that the model corrected later can never approve an entry.
+ */
+function readJsonDocument(raw: string): JsonRead {
+  const whole = parseShaped(raw.trim());
+  if (whole.ok) return whole;
+  let last: JsonRead = { ok: false };
+  for (const candidate of jsonObjectCandidates(raw)) {
+    const read = parseShaped(candidate);
+    if (read.ok) last = read;
+  }
+  return last;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -175,10 +178,10 @@ export function parseBaselinePrecheckAnswer(
   allowedLabels: readonly string[],
   finalMessage?: string,
 ): Map<string, string> | null {
-  let read = readJsonDocument(raw);
-  if (!read.ok && finalMessage !== undefined && finalMessage !== raw) {
-    read = readJsonDocument(finalMessage);
-  }
+  // The core's final message is the model's last word, so it wins over the
+  // raw stream, which can still hold an earlier draft answer.
+  const fromFinal = finalMessage === undefined ? { ok: false as const } : readJsonDocument(finalMessage);
+  const read = fromFinal.ok ? fromFinal : readJsonDocument(raw);
   if (!read.ok) return null;
   if (!isRecord(read.value) || !Array.isArray(read.value.entries)) return null;
   const counts = new Map<string, number>();
