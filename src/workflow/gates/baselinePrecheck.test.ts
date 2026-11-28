@@ -9,9 +9,12 @@ import type { AdapterSurfaces } from '../../agent/surfaces.js';
 import { SUPPORTED, unsupported } from '../../agent/surfaces.js';
 import type { GitBytesRunner } from '../../integrations/git.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
+import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import type { BaselineEntry } from './baselineReview.js';
 import {
   eligibleBaselineEntries,
+  modelCanReadImages,
   precheckBaselines,
   MAX_PRECHECK_ENTRIES,
   type BaselinePrecheckInput,
@@ -162,9 +165,14 @@ describe('precheckBaselines', () => {
     ['disabled', { enabled: false }, 'pre-check disabled'],
     ['no tester', { tester: undefined }, 'no UAT tester'],
     [
-      'a non-claude core',
-      { tester: { assignment: { ...ASSIGNMENT, provider: 'codex' as const }, adapter: answer('{}').adapter } },
-      'tester core is not claude',
+      'a model whose catalog tags say text-only',
+      {
+        tester: {
+          assignment: { ...ASSIGNMENT, provider: 'antigravity' as const, model: 'gpt-oss-120b-medium' },
+          adapter: answer('{}').adapter,
+        },
+      },
+      'model gpt-oss-120b-medium cannot read images (catalog tags)',
     ],
     ['zero eligible entries', { entries: [entry({ path: 'a.json' })] }, 'no eligible entries'],
   ] as const)('skips on %s without opening a process run', async (_label, over, reason) => {
@@ -178,6 +186,88 @@ describe('precheckBaselines', () => {
     expect(calls).toEqual([]);
     expect(listProcessRuns(store, ticketId)).toEqual([]);
     expect(debug.some((line) => line.includes(reason))).toBe(true);
+  });
+
+  it('runs on an antigravity Tester whose model carries no catalog tags', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(
+      input({
+        tester: {
+          assignment: { ...ASSIGNMENT, provider: 'antigravity', model: 'gemini-4-hydrogen-medium' },
+          adapter,
+        },
+      }),
+      deps().deps,
+    );
+    expect(calls).toHaveLength(1);
+    expect(res.skippedReason).toBeUndefined();
+    expect(listProcessRuns(store, ticketId).at(-1)!).toMatchObject({
+      provider: 'antigravity',
+      model: 'gemini-4-hydrogen-medium',
+    });
+  });
+
+  it('runs on a codex Tester whose model is tagged vision', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(
+      input({
+        tester: { assignment: { ...ASSIGNMENT, provider: 'codex', model: 'gpt-5.5' }, adapter },
+      }),
+      deps().deps,
+    );
+    expect(calls).toHaveLength(1);
+    expect(res.skippedReason).toBeUndefined();
+    expect(listProcessRuns(store, ticketId).at(-1)!).toMatchObject({ provider: 'codex', model: 'gpt-5.5' });
+  });
+
+  it('still runs on a claude Tester as before', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(input({ tester: { assignment: ASSIGNMENT, adapter } }), deps().deps);
+    expect(calls).toHaveLength(1);
+    expect(res.skippedReason).toBeUndefined();
+    expect(listProcessRuns(store, ticketId)).toHaveLength(1);
+  });
+
+  it('skips when the injected catalog tags the Tester model text-only, opening no process run', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const debug: string[] = [];
+    const catalog = {
+      claude: [{ id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude' as const], tags: ['text-only' as const] }],
+      codex: [],
+      antigravity: [],
+      opencode: [],
+      opencode2: [],
+    };
+    const res = await precheckBaselines(
+      input({
+        tester: { assignment: ASSIGNMENT, adapter },
+        catalog: () => catalog,
+        debug: (m) => debug.push(m),
+      }),
+      deps().deps,
+    );
+    expect(res).toEqual({
+      approved: [],
+      skippedReason: 'model claude-sonnet-5 cannot read images (catalog tags)',
+    });
+    expect(calls).toEqual([]);
+    expect(listProcessRuns(store, ticketId)).toEqual([]);
+    expect(debug.some((line) => line.includes('cannot read images (catalog tags)'))).toBe(true);
+  });
+
+  it('runs when the catalog seam throws — an unreadable catalog is unknown, not a skip', async () => {
+    const { adapter, calls } = answer('{"entries":[]}');
+    const res = await precheckBaselines(
+      input({
+        tester: { assignment: ASSIGNMENT, adapter },
+        catalog: () => {
+          throw new Error('catalog not loaded');
+        },
+      }),
+      deps().deps,
+    );
+    expect(calls).toHaveLength(1);
+    expect(res.skippedReason).toBeUndefined();
   });
 
   it('skips above the entry cap without opening a process run', async () => {
@@ -352,5 +442,69 @@ describe('precheckBaselines', () => {
     const d = deps();
     await precheckBaselines(input({ tester: { assignment: ASSIGNMENT, adapter: bare } }), d.deps);
     expect(calls[0]!.outputSchema).toBeUndefined();
+  });
+});
+
+describe('modelCanReadImages', () => {
+  const catalog: ModelCatalog = {
+    claude: [
+      { id: 'untagged', label: 'Untagged', providers: ['claude'] },
+      { id: 'empty-tags', label: 'Empty tags', providers: ['claude'], tags: [] },
+      { id: 'eyes', label: 'Eyes', providers: ['claude'], tags: ['vision'] },
+      { id: 'both-senses', label: 'Both senses', providers: ['claude'], tags: ['multimodal'] },
+      { id: 'words-only', label: 'Words only', providers: ['claude'], tags: ['text-only'] },
+      { id: 'ears', label: 'Ears', providers: ['claude'], tags: ['audio'] },
+    ],
+    codex: [{ id: 'codex-untagged', label: 'Codex untagged', providers: ['codex'] }],
+    antigravity: [{ id: 'antigravity-only', label: 'Antigravity only', providers: ['antigravity'], tags: ['vision'] }],
+    opencode: [],
+    opencode2: [],
+  };
+
+  it('runs when no model is resolved (the core default)', () => {
+    expect(modelCanReadImages('claude', null, catalog)).toBe(true);
+    expect(modelCanReadImages('claude', undefined, catalog)).toBe(true);
+    expect(modelCanReadImages('claude', '', catalog)).toBe(true);
+  });
+
+  it('runs when the id is not in this provider section', () => {
+    expect(modelCanReadImages('claude', 'no-such-model', catalog)).toBe(true);
+    expect(modelCanReadImages('opencode2', 'anything', catalog)).toBe(true);
+  });
+
+  it('runs when the model has no tags or an empty tag list', () => {
+    expect(modelCanReadImages('claude', 'untagged', catalog)).toBe(true);
+    expect(modelCanReadImages('claude', 'empty-tags', catalog)).toBe(true);
+  });
+
+  it('runs when the tags include vision or multimodal', () => {
+    expect(modelCanReadImages('claude', 'eyes', catalog)).toBe(true);
+    expect(modelCanReadImages('claude', 'both-senses', catalog)).toBe(true);
+  });
+
+  it('skips when the known tags include neither vision nor multimodal', () => {
+    expect(modelCanReadImages('claude', 'words-only', catalog)).toBe(false);
+    expect(modelCanReadImages('claude', 'ears', catalog)).toBe(false);
+  });
+
+  it('is keyed by provider: an id that exists only under another core is unknown', () => {
+    expect(modelCanReadImages('antigravity', 'antigravity-only', catalog)).toBe(true);
+    expect(modelCanReadImages('claude', 'antigravity-only', catalog)).toBe(true);
+    // The same id under a provider that lost the entry stays unknown.
+    expect(modelCanReadImages('codex', 'codex-untagged', catalog)).toBe(true);
+    expect(modelCanReadImages('antigravity', 'codex-untagged', catalog)).toBe(true);
+  });
+
+  it('reads the bundled catalog without mutating it', () => {
+    const bundled = bundledModelCatalog();
+    const before = JSON.stringify(bundled);
+    expect(modelCanReadImages('antigravity', 'gpt-oss-120b-medium', bundled)).toBe(false);
+    expect(modelCanReadImages('antigravity', 'gemini-4-hydrogen-medium', bundled)).toBe(true);
+    expect(modelCanReadImages('claude', 'claude-opus-5-5', bundled)).toBe(true);
+    expect(JSON.stringify(bundled)).toBe(before);
+  });
+
+  it('runs when the provider section is absent from the catalog', () => {
+    expect(modelCanReadImages('antigravity', 'anything', {} as ModelCatalog)).toBe(true);
   });
 });

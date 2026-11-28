@@ -84,7 +84,7 @@ export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput):
     `Changed src/ui paths on the ticket's branch:`,
     ...uiPaths,
     ``,
-    `Baseline entries — inspect EACH image with the Read tool (the old image is the base-commit version, the new image is the ticket's working tree):`,
+    `Baseline entries — open EACH image file below and look at it (the old image is the base-commit version, the new image is the ticket's working tree):`,
     ...input.targets.map((target) =>
       target.oldImagePath === null
         ? `- ${target.label}: new ${target.newImagePath} (added file — no old image)`
@@ -95,7 +95,7 @@ export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput):
     `- Answer "approve" ONLY when BOTH hold: (a) the visible change is explained by the ticket's stated UI change, and (b) the new image shows no visible defect: clipped or overlapping text, missing content, a broken or shifted layout that is not part of the intent, wrong theme colours, or an empty or error page.`,
     `- Answer "human" in EVERY other case: a change you cannot tie to the intent, an unchanged-looking pair, a visible defect, an image you cannot read, or any doubt.`,
     `- For a modified entry compare old and new; for an added entry judge the new image alone.`,
-    `- Approve only what you can see. Never guess.`,
+    `- Approve only what you can see. Never guess. If you cannot see the pixels of an image, answer "human" for that entry.`,
     ``,
     `Output ONLY a JSON object with one entry for every path above, using the path exactly as written:`,
     `{"entries":[{"path":"<path>","verdict":"approve"|"human","reason":"<one line>"}]}`,
@@ -104,18 +104,60 @@ export function buildBaselinePrecheckPrompt(input: BaselinePrecheckPromptInput):
 
 type JsonRead = { ok: true; value: unknown } | { ok: false };
 
-function readJsonDocument(raw: string): JsonRead {
-  const candidates = [raw.trim()];
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
-  if (fenced?.[1] !== undefined) candidates.push(fenced[1].trim());
-  for (const candidate of candidates) {
-    try {
-      return { ok: true, value: JSON.parse(candidate) };
-    } catch {
-      // Not this candidate.
+/**
+ * Balanced `{…}` objects in `raw`, in order, ignoring braces inside strings.
+ * A core without structured output answers in prose (or a fence), so the answer
+ * object has to be found rather than assumed to be the whole message.
+ */
+function jsonObjectCandidates(raw: string): string[] {
+  const out: string[] = [];
+  for (let start = raw.indexOf('{'); start !== -1; start = raw.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < raw.length; i += 1) {
+      const char = raw[i]!;
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === '{') depth += 1;
+      else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          out.push(raw.slice(start, i + 1));
+          break;
+        }
+      }
     }
   }
-  return { ok: false };
+  return out;
+}
+
+function readJsonDocument(raw: string): JsonRead {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
+  const candidates = [
+    raw.trim(),
+    ...(fenced?.[1] === undefined ? [] : [fenced[1].trim()]),
+    ...jsonObjectCandidates(raw),
+  ];
+  // A shaped answer (`entries`) wins over any unrelated object in the same
+  // text; otherwise the first parseable value is returned for the shape check.
+  let firstParsed: JsonRead = { ok: false };
+  for (const candidate of candidates) {
+    let value: unknown;
+    try {
+      value = JSON.parse(candidate);
+    } catch {
+      continue; // Not this candidate.
+    }
+    if (isRecord(value) && Array.isArray(value.entries)) return { ok: true, value };
+    if (!firstParsed.ok) firstParsed = { ok: true, value };
+  }
+  return firstParsed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

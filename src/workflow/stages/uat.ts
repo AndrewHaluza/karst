@@ -9,6 +9,7 @@ import { noChangeClaimFor } from '../noChangeClaim.js';
 import { runnableSubset, unitsOf, unitsOfRepos } from '../../manifest/runnable.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
+import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { GateRunInput, GateSkipReason } from '../../store/gateRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
@@ -271,6 +272,11 @@ export interface UatDeps {
   detectBaselines?: typeof detectTicketBaselines;
   /** Seam over the model pre-check of changed baselines (@arch:BASELINE-PRECHECK). */
   precheckBaselines?: typeof precheckBaselines;
+  /**
+   * The loaded model catalog, threaded to the pre-check's image-capability
+   * check only. Absent → the gate falls back to the bundled catalog.
+   */
+  catalog?: () => ModelCatalog;
   /** Seam over the working-tree fingerprint the gate-skip is keyed on. */
   fingerprint?: typeof fingerprintTicket;
 }
@@ -917,6 +923,7 @@ export async function runUat(
         decisions: latestBaselineDecisions(store, opts.ticketId),
         ticket: getTicket(store, opts.ticketId),
         ...(tester === undefined ? {} : { tester }),
+        ...(deps.catalog === undefined ? {} : { catalog: deps.catalog }),
         git,
         ...(opts.debug === undefined ? {} : { debug: opts.debug }),
         ...(opts.onTesterOutput === undefined ? {} : { onLiveOutput: opts.onTesterOutput }),

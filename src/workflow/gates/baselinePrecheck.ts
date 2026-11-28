@@ -18,14 +18,19 @@
  * role), opens its OWN process run — so the prompt metrics and the token usage
  * of the pre-check are visible in the process history — and talks to git and
  * the filesystem through injected seams so it is unit-testable without a repo.
- * The pure prompt/schema/parser half lives in `baselinePrecheckPrompt.ts`.
+ * The Tester's core and model come from Settings; the only capability gate is
+ * the catalog-tag check in `modelCanReadImages` (a model tagged `text-only`
+ * skips, an untagged or unknown model runs). The pure prompt/schema/parser half
+ * lives in `baselinePrecheckPrompt.ts`.
  */
 
 import { mkdir, rm, writeFile as writeFileToDisk } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
+import { bundledModelCatalog, type ModelCatalog } from '../../agent/modelCatalog.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
+import type { AgentProvider } from '../../manifest/types.js';
 import {
   GIT_TERMINATION_GRACE_MS,
   GIT_TIMEOUT_MS,
@@ -115,6 +120,12 @@ export interface BaselinePrecheckInput {
   uiPaths: readonly string[];
   /** The Tester's assignment and adapter; the pre-check runs as that process. */
   tester?: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
+  /**
+   * The loaded model catalog (`catalog: () => modelCatalog` in the host), read
+   * only to decide whether the Tester's model can read images. Absent → the
+   * bundled catalog.
+   */
+  catalog?: () => ModelCatalog;
   debug?: (message: string) => void;
   onLiveOutput?: (chunk: HeadlessOutputChunk) => void;
   timeoutMs?: number;
@@ -157,6 +168,30 @@ export function eligibleBaselineEntries(
 }
 
 /**
+ * Whether the Tester's model can read images, from the catalog's capability
+ * tags only. The catalog is keyed by provider (the same id exists under more
+ * than one core), so an id that is not found under THIS provider is unknown.
+ *
+ * Fail open by design: an unknown provider section, an unknown id, a model with
+ * no tags (a CLI-discovered or custom model) and an empty tag list all read as
+ * "may read images" — the prompt rule ("cannot see the pixels → human") and the
+ * approve-only parser protect that case. Only a KNOWN tag list without `vision`
+ * or `multimodal` (for example `text-only`) says the model cannot see them.
+ */
+export function modelCanReadImages(
+  provider: AgentProvider,
+  modelId: string | null | undefined,
+  catalog: ModelCatalog,
+): boolean {
+  if (modelId === null || modelId === undefined || modelId === '') return true;
+  const model = (catalog[provider] ?? []).find((option) => option.id === modelId);
+  if (model === undefined) return true;
+  const tags = model.tags;
+  if (tags === undefined || tags.length === 0) return true;
+  return tags.includes('vision') || tags.includes('multimodal');
+}
+
+/**
  * Run the pre-check. Never throws and never parks: a skipped pre-check says
  * why, and a failed one approves nothing so the stage blocks exactly as today.
  */
@@ -173,7 +208,18 @@ export async function precheckBaselines(
   if (!input.enabled) return skipped('pre-check disabled');
   const tester = input.tester;
   if (tester === undefined) return skipped('no UAT tester');
-  if (tester.assignment.provider !== 'claude') return skipped('tester core is not claude');
+  const catalog = input.catalog ?? bundledModelCatalog;
+  // An unreadable catalog is an UNKNOWN capability, and unknown runs: the gate
+  // never throws to its caller, exactly like every other failure here.
+  let canReadImages: boolean;
+  try {
+    canReadImages = modelCanReadImages(tester.assignment.provider, tester.assignment.model, catalog());
+  } catch {
+    canReadImages = true;
+  }
+  if (!canReadImages) {
+    return skipped(`model ${tester.assignment.model ?? '?'} cannot read images (catalog tags)`);
+  }
   const eligible = eligibleBaselineEntries(input.entries, input.decisions);
   if (eligible.length === 0) return skipped('no eligible entries');
   if (eligible.length > MAX_PRECHECK_ENTRIES) {
