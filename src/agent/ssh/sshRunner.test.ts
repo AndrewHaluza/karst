@@ -474,13 +474,14 @@ describe('transcripts and mirrors (D556 edit 5)', () => {
     expect(script).toContain(`${WS}/bridge/7/claude-projects/${encodeClaudeProjectDir(REPO)}`);
   });
 
-  it('codex writes the rollout list instead of a link', async () => {
+  it('codex writes the remote repo path for the live rollout listing, instead of a link', async () => {
     const ssh = fakeSshProcess();
     const out = await runner(ssh, { core: 'codex', sandboxName: `${PREFIX}-7-codex` }).linkTranscripts!({ bridgeDir: BRIDGE, hostWorktreePath: WT });
     expect(out).toEqual({ ok: true });
     const script = scriptOf(ssh.calls[0]!.args);
-    expect(script).toContain(`/srv/karst/${PREFIX}-7-codex/bridge/7/codex-rollouts.txt`);
-    expect(script).toContain(`grep -qF -- '/srv/karst/${PREFIX}-7-codex/repo'`);
+    expect(script).toContain(`t='/srv/karst/${PREFIX}-7-codex/bridge/7/codex-cwd.txt'`);
+    expect(script).toContain(`printf '%s\\n' '/srv/karst/${PREFIX}-7-codex/repo' > "$t.tmp"`);
+    expect(script).toContain('mv -f "$t.tmp" "$t"');
     expect(script).not.toContain('ln -s');
   });
 

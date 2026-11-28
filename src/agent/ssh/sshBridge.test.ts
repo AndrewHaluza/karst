@@ -211,6 +211,30 @@ describe('startSshBridgeForwarder', () => {
     expect(script).toContain('tail -c +9 -F');
   });
 
+  it('a failed host append keeps the offset before the line and the reconnect re-reads it', async () => {
+    const gate = deferred();
+    const logged: string[] = [];
+    const eventsFile = join(hostBridgeDir, 'events.ndjson');
+    // A directory at the host path: every append fails with EISDIR.
+    mkdirSync(eventsFile);
+    const ssh = new FakeSsh((stream, index) => {
+      if (index === 1 || index === 2) stream.push('KARST_TAIL_OFFSET=0\n{"a":1}\n{"b":2}\n');
+    });
+    await recordRemoteTrust(trustDir, NAME, REMOTE);
+    await start(ssh, { debug: (m: string) => logged.push(m), sleep: () => gate.promise });
+    await waitFor(() => ssh.streams[0]?.killed === 1, 'the stall kill');
+    expect(logged.join('\n')).toMatch(/forwarder events\.ndjson: append failed/);
+    const state = JSON.parse(await readFile(join(stateDir, `${String(TICKET)}.ssh-forward.json`), 'utf8')) as { offsets: Record<string, number> };
+    expect(state.offsets['events.ndjson']).toBe(0);
+    await rm(eventsFile, { recursive: true });
+    ssh.streams[0]!.close();
+    gate.resolve();
+    await waitFor(() => ssh.spawns.length === 2, 'the reconnect');
+    expect(ssh.spawns[1]!.at(-1)!).toContain('tail -c +1 -F');
+    await waitFor(async () => (await hostLines()).length === 2, 'the re-read lines');
+    expect(await hostLines()).toEqual(['{"a":1}', '{"b":2}']);
+  });
+
   it('a remote truncation restarts from 0', async () => {
     const gate = deferred();
     const ssh = new FakeSsh((stream, index) => {

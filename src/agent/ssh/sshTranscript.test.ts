@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { encodeClaudeProjectDir } from '../claudeTranscriptWatch.js';
 import {
   CLAUDE_PROJECTS_DIRNAME,
-  CODEX_ROLLOUTS_FILE,
+  CODEX_CWD_FILE,
   codexRolloutDiscoveryScript,
   codexRolloutExpr,
+  codexRolloutListScript,
   claudeTranscriptLinkScript,
   isClaudeTranscriptRel,
   isCodexRolloutRel,
@@ -67,12 +68,23 @@ describe('remote scripts', () => {
     expect(script).toContain('ln -s "$t" "$d"');
   });
 
-  it('codex writes the rollout list of this repo, never a link', () => {
+  it('codex writes the remote repo path at launch, never a link and never a fixed rollout list', () => {
     const script = codexRolloutDiscoveryScript(RUN_DIR, REPO);
-    expect(script).toContain(`t='${RUN_DIR}/${CODEX_ROLLOUTS_FILE}'`);
-    expect(script).toContain(`grep -qF -- '${REPO}' "$f"`);
-    expect(script).toContain('find . -maxdepth 4');
+    expect(script).toContain(`t='${RUN_DIR}/${CODEX_CWD_FILE}'`);
+    expect(script).toContain(`printf '%s\\n' '${REPO}' > "$t.tmp"`);
+    expect(script).toContain('mv -f "$t.tmp" "$t"');
+    expect(script).not.toContain('find ');
     expect(script).not.toContain('ln -s');
+  });
+
+  it('the codex listing finds the rollouts of this repo at each discovery, by their first line', () => {
+    const script = codexRolloutListScript(`${RUN_DIR}/${CODEX_CWD_FILE}`);
+    expect(script).toContain(`c='${RUN_DIR}/${CODEX_CWD_FILE}'`);
+    expect(script).toContain('r=$(head -n 1 -- "$c")');
+    expect(script).toContain('[ -n "$r" ] || exit 0');
+    expect(script).toContain('d="$HOME/.codex/sessions"');
+    expect(script).toContain(`find . -maxdepth 4 -type f -name 'rollout-*.jsonl'`);
+    expect(script).toContain('head -n 1 -- "$f" 2>/dev/null | grep -qF -- "$r"');
   });
 
   it('the listing scripts stay inside the named dir and print relative names', () => {

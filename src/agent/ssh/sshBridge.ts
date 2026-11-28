@@ -10,7 +10,7 @@ import { sshArgv, type SshProcess } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
 import {
   CLAUDE_PROJECTS_DIRNAME,
-  CODEX_ROLLOUTS_FILE,
+  CODEX_CWD_FILE,
   CODEX_SESSIONS_DIRNAME,
   codexRolloutExpr,
   codexRolloutListScript,
@@ -37,8 +37,8 @@ import {
  *
  * The forwarder runs one stream per path: the events file (line split) and,
  * since D556 edit 5, every discovered transcript file (byte exact): claude's
- * linked `claude-projects/**` and the codex rollouts named in
- * `<runDir>/codex-rollouts.txt`. Each file keeps its own offset in the same
+ * linked `claude-projects/**` and the codex rollouts whose `session_meta`
+ * names the repo path in `<runDir>/codex-cwd.txt`. Each file keeps its own offset in the same
  * state file, so a reload resumes all of them.
  */
 
@@ -82,8 +82,8 @@ interface TreeSpec {
 
 /**
  * The transcript trees the forwarder mirrors (D556 edit 5): claude's
- * `claude-projects/**` (the linked project dir) and codex's rollout list
- * (`codex-rollouts.txt` -> `<hostBridge>/codex-sessions/`). Both are append-only
+ * `claude-projects/**` (the linked project dir) and codex's rollouts, listed
+ * live at each discovery (`codex-cwd.txt` -> `<hostBridge>/codex-sessions/`). Both are append-only
  * `.jsonl`, so each file keeps its own byte offset.
  */
 export function transcriptTrees(runDir: string): readonly TreeSpec[] {
@@ -99,7 +99,7 @@ export function transcriptTrees(runDir: string): readonly TreeSpec[] {
     },
     {
       name: CODEX_SESSIONS_DIRNAME,
-      listScript: codexRolloutListScript(`${dir}/${CODEX_ROLLOUTS_FILE}`),
+      listScript: codexRolloutListScript(`${dir}/${CODEX_CWD_FILE}`),
       valid: isCodexRolloutRel,
       remoteExpr: codexRolloutExpr,
       // The remote path is the offset key; the host copy is FLAT, so the codex
@@ -456,6 +456,9 @@ class ActiveForwarder {
       let markerSeen = false;
       let base = storedOffset;
       let hostHandle: FileHandle | undefined;
+      // A failed host append stalls the connection: the offset stays before the
+      // line, and the next connection re-reads it (a lost marker never comes back).
+      let stalled = false;
 
       const done = (): void => {
         if (settled) return;
@@ -501,17 +504,20 @@ class ActiveForwarder {
         return open(`${this.opts.hostBridgeDir}/${spec.hostRel}`, HOST_EVENTS_FLAGS, HOST_SCRIPT_MODE);
       };
 
-      const append = async (line: Buffer): Promise<void> => {
+      /** Resolves false when the line is not on the host and must be read again. */
+      const append = async (line: Buffer): Promise<boolean> => {
         if (line.length > MAX_LINE) {
           this.dbg(`forwarder ${spec.key}: dropped an oversized line (${String(line.length)} bytes)`);
-          return;
+          return true;
         }
         try {
           hostHandle ??= await openHost();
-          if (hostHandle === undefined) return;
+          if (hostHandle === undefined) return false;
           await hostHandle.write(`${line.toString('utf8')}\n`);
+          return true;
         } catch (err) {
           this.dbg(`forwarder ${spec.key}: append failed: ${err instanceof Error ? err.message : String(err)}`);
+          return false;
         }
       };
 
@@ -547,6 +553,7 @@ class ActiveForwarder {
       };
 
       const consumeLines = async (chunk: Buffer): Promise<void> => {
+        if (stalled) return;
         received += chunk.length;
         carry = Buffer.concat([carry, chunk]);
         if (!markerSeen && !consumeMarker()) return;
@@ -562,8 +569,14 @@ class ActiveForwarder {
         }
         for (let nl = carry.indexOf(NEWLINE); nl !== -1; nl = carry.indexOf(NEWLINE)) {
           const line = carry.subarray(0, nl);
+          if (line.length > 0 && !(await append(line))) {
+            // The carry still starts at this line, so the persisted offset is its first byte.
+            stalled = true;
+            await persist(base + received - carry.length);
+            try { child?.kill(); } catch { /* already gone */ }
+            return;
+          }
           carry = carry.subarray(nl + 1);
-          if (line.length > 0) await append(line);
         }
         if (carry.length > MAX_LINE) {
           this.dbg(`forwarder ${spec.key}: dropped an oversized unterminated line (${String(carry.length)} bytes)`);

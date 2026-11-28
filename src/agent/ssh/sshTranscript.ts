@@ -12,10 +12,11 @@ import { sshQuote } from './sshQuote.js';
  *
  * **codex** has no per-cwd directory (`$CODEX_HOME/sessions/YYYY/MM/DD/
  * rollout-<time>-<sessionId>.jsonl`), so a link is not possible. The launch
- * LISTS the rollouts that mention this remote repo and writes the list into the
- * remote run dir; the forwarder follows each one as a second stream into the
- * host bridge's `codex-sessions/` dir, and `codexRolloutWatchLoop` reads that
- * copy for an ssh placement.
+ * writes the remote repo path into the run dir. At each discovery, the forwarder
+ * lists the rollouts whose first line (`session_meta`) names that path, so a
+ * rollout that codex creates AFTER the launch is found too. The forwarder
+ * follows each one as a second stream into the host bridge's `codex-sessions/`
+ * dir, and `codexRolloutWatchLoop` reads that copy for an ssh placement.
  *
  * The remote chooses every file name, so the host validates each path part
  * before it touches the fs: one part is `[A-Za-z0-9._-]{1,200}`, never `.` or
@@ -24,8 +25,8 @@ import { sshQuote } from './sshQuote.js';
 
 export const CLAUDE_PROJECTS_DIRNAME = 'claude-projects';
 export const CODEX_SESSIONS_DIRNAME = 'codex-sessions';
-/** The remote list `codexRolloutDiscoveryScript` writes into the run dir. */
-export const CODEX_ROLLOUTS_FILE = 'codex-rollouts.txt';
+/** The remote repo path `codexRolloutDiscoveryScript` writes into the run dir. */
+export const CODEX_CWD_FILE = 'codex-cwd.txt';
 
 /** One path part a remote transcript name may use. */
 export const TRANSCRIPT_PART_RE = /^[A-Za-z0-9._-]{1,200}$/;
@@ -73,23 +74,17 @@ export function claudeTranscriptLinkScript(runDir: string, remoteCwd: string): s
 }
 
 /**
- * Write the rollouts that mention this remote repo (their `session_meta` cwd)
- * into `<runDir>/codex-rollouts.txt`, relative to `$HOME/.codex/sessions`, one
- * per line. An empty file when the remote has no codex sessions.
+ * Write the remote repo path into `<runDir>/codex-cwd.txt` (temp + `mv`).
+ * The rollout does not exist yet: codex creates it after the launch, so
+ * `codexRolloutListScript` finds it at each discovery.
  */
 export function codexRolloutDiscoveryScript(runDir: string, remoteCwd: string): string {
   return [
     '# karst-ssh-codex-rollouts',
     'set -e',
-    'd="$HOME/.codex/sessions"',
-    `t=${sshQuote(`${runDir}/${CODEX_ROLLOUTS_FILE}`)}`,
+    `t=${sshQuote(`${runDir}/${CODEX_CWD_FILE}`)}`,
     `mkdir -p ${sshQuote(runDir)}`,
-    'if [ ! -d "$d" ]; then : > "$t"; exit 0; fi',
-    'cd "$d" || exit 1',
-    ': > "$t.tmp"',
-    `find . -maxdepth 4 -type f -name 'rollout-*.jsonl' 2>/dev/null | while IFS= read -r f; do`,
-    `  if grep -qF -- ${sshQuote(remoteCwd)} "$f" 2>/dev/null; then printf '%s\\n' "\${f#./}" >> "$t.tmp"; fi`,
-    'done',
+    `printf '%s\\n' ${sshQuote(remoteCwd)} > "$t.tmp"`,
     'mv -f "$t.tmp" "$t"',
   ].join('\n');
 }
@@ -105,9 +100,25 @@ export function transcriptListScript(remoteDir: string, maxDepth = 2): string {
   ].join('\n');
 }
 
-/** Print the rollout list the launch wrote, one relative path per line. */
-export function codexRolloutListScript(listFile: string): string {
-  return ['# karst-ssh-codex-list', `f=${sshQuote(listFile)}`, '[ -f "$f" ] || exit 0', 'cat -- "$f"'].join('\n');
+/**
+ * Print the rollouts (relative to `$HOME/.codex/sessions`, one per line) whose
+ * first line names the repo path that the launch wrote into `cwdFile`. It runs
+ * at every discovery, so a rollout created after the launch is listed too.
+ */
+export function codexRolloutListScript(cwdFile: string): string {
+  return [
+    '# karst-ssh-codex-list',
+    `c=${sshQuote(cwdFile)}`,
+    '[ -f "$c" ] || exit 0',
+    'r=$(head -n 1 -- "$c")',
+    '[ -n "$r" ] || exit 0',
+    'd="$HOME/.codex/sessions"',
+    '[ -d "$d" ] || exit 0',
+    'cd "$d" || exit 1',
+    `find . -maxdepth 4 -type f -name 'rollout-*.jsonl' 2>/dev/null | while IFS= read -r f; do`,
+    `  if head -n 1 -- "$f" 2>/dev/null | grep -qF -- "$r"; then printf '%s\\n' "\${f#./}"; fi`,
+    'done',
+  ].join('\n');
 }
 
 /** The shell EXPRESSION of one remote codex rollout (HOME is expanded by the remote shell). */
