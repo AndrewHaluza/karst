@@ -239,6 +239,23 @@ describe('Inside — the round switcher', () => {
     expect(tabs()[1]!.dataset.index).toBe('1');
   });
 
+  it('shows the round kind after the label, muted, and in the accessible name (T1410)', () => {
+    const tagged = [
+      { ...attempts[0], tag: 'conflict' },
+      { ...attempts[1], tag: 'CI' },
+      attempts[2],
+    ];
+    mountInside(insideState({ stageCurrent: 'ship', views: { ship: view('ship', { attempts: tagged, selectedAttempt: 'r2' }) } }));
+    const tags = all('.attempt-tag');
+    expect(tags.map((el) => text(el))).toEqual(['· conflict', '· CI']);
+    expect(tags[1]!.closest('[role="tab"]')).toBe(tabs()[1]);
+    expect(tabs().map((t) => t.getAttribute('aria-label'))).toEqual([
+      'R1 · conflict, failed',
+      'R2 · CI of 3, passed',
+      'R3, running',
+    ]);
+  });
+
   it('labels tabs R<n>, shows the tail only on the selected tab, and keeps the status word in the accessible name', () => {
     mountInside(state());
     expect(tabs().map((t) => text(t))).toEqual(['R1', 'R2of 3', 'R3']);

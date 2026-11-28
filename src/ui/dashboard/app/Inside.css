@@ -147,6 +147,9 @@
 #inside .attempt-tabs-label{color:var(--p-muted2);font-size:var(--p-xs);margin-right:var(--p-s1)}
 #inside .attempt-conn{flex:0 0 var(--p-s3);height:1px;background:var(--p-border)}
 #inside .attempt-tab-tail{color:var(--p-muted);font-weight:normal}
+/* The round kind after the label (`R2 · CI`), muted like the caption: the
+   Ship stage mixes conflict and CI rounds in one sequence (T1410). */
+#inside .attempt-tag{color:var(--p-muted);font-weight:normal}
 /* The selected round's plain caption, muted, at the end of the tab row
    (D871): why the round opened and, once settled, how long it took. It is a
    fact, not a warning, so it never takes the attention band; the row already

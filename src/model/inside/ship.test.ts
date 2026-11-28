@@ -134,6 +134,17 @@ describe('shipProcesses', () => {
     expect(views.map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
   });
 
+  it('puts a historical round’s Auto-fix arm row above its push row, in time order (T1410)', () => {
+    const roundLedger = {
+      round: { key: 'ship:a', label: 'R1', status: 'note', tag: 'CI' },
+      autofix: [{ label: 'round 1', status: 'note', time: '09:00' }],
+      push: [{ label: 'web', detail: 'pushed', status: 'pass', time: '09:05' }],
+      ci: [{ label: 'CI', detail: 'CI still failed', status: 'fail' }],
+    } as unknown as NonNullable<ShipProcessesInput['roundLedger']>;
+    const views = shipProcesses(shipInput({ roundLedger }));
+    expect(views.map((p) => p.id)).toEqual(['commit', 'pr', 'autofix', 'push', 'merge']);
+  });
+
   it('states when each recorded ship step started', () => {
     const views = shipProcesses(
       shipInput({
@@ -1717,29 +1728,50 @@ describe('Auto-fix is its own process row (T1070)', () => {
     expect(shipProcesses(shipInput({ prs: [openPr] })).map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
   });
 
-  it('lists attempt rows (pass, note time only) and then the provable steps, with Last round on the running step', () => {
+  it('lists round rows (no result for a round that only ran) and then the provable steps, with Last round on the running step', () => {
     const row = byId(shipInput({
       prs: [openPr],
       autofix: {
         ...running,
-        attempts: [{ label: 'attempt 1', detail: 'CI attempt 1 of 3 ran', result: 'ran', at: '2026-01-01T09:10:00.000Z' }],
+        attempts: [{ label: 'round 1', detail: 'CI round 1 of 3 ran', result: 'ran', at: '2026-01-01T09:10:00.000Z' }],
         steps: [
           { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
-          { label: 'agent fix', detail: 'attempt 2', status: 'run', stopAfter: true },
+          { label: 'agent fix', detail: 'round 2', status: 'run', stopAfter: true },
         ],
       },
     }), 'autofix')!;
     const rows = rowsOf(row);
-    expect(rows.map((r) => [r.label, r.status])).toEqual([['attempt 1', 'pass'], ['fetch CI log', 'pass'], ['agent fix', 'run']]);
+    expect(rows.map((r) => [r.label, r.status])).toEqual([['round 1', 'note'], ['fetch CI log', 'pass'], ['agent fix', 'run']]);
     expect(rows[0]!.time).toBeTruthy();
     expect(rows[0]!.duration).toBeUndefined();
     expect(rows[1]!.autofixStop).toBeUndefined();
     expect(rows[2]!.autofixStop).toEqual({ requested: false });
   });
 
-  it('reads wait (the needs-you amber) for a spent budget, with one fail row per attempt', () => {
-    const attempt = (n: number) => ({ label: `attempt ${n}`, detail: 'CI lint still fails', result: 'fails', at: '2026-01-01T09:10:00.000Z' }) as const;
-    const spent = { state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 attempts', attempts: [attempt(1), attempt(2), attempt(3)], steps: [], stopAfterRequested: false } as const;
+  // T1365/T1410: a finished round only RAN. A check mark read as "passed", and
+  // the round's rows must read in time order, not as earlier rows below later ones.
+  it('shows no pass mark for a finished round and puts its rows in time order', () => {
+    const row = byId(shipInput({
+      prs: [openPr],
+      autofix: {
+        ...running,
+        attempts: [
+          { label: 'round 1', detail: 'CI round 1 of 3 ran', result: 'ran', at: '2026-01-01T09:10:00.000Z' },
+          { label: 'round 2', detail: 'CI round 2 of 3 ran', result: 'ran', at: '2026-01-01T09:20:00.000Z' },
+        ],
+        steps: [{ label: 'agent fix', detail: 'round 3', status: 'run', stopAfter: true }],
+      },
+    }), 'autofix')!;
+    const rows = rowsOf(row);
+    expect(rows.filter((r) => r.label.startsWith('round ')).map((r) => r.status)).toEqual(['note', 'note']);
+    expect(rows.every((r) => r.status !== 'pass' || r.label === 'fetch CI log')).toBe(true);
+    const times = rows.filter((r) => r.time !== undefined).map((r) => r.time!);
+    expect([...times].sort()).toEqual(times);
+  });
+
+  it('reads wait (the needs-you amber) for a spent budget, with one fail row per round', () => {
+    const attempt = (n: number) => ({ label: `round ${n}`, detail: 'CI lint still fails', result: 'fails', at: '2026-01-01T09:10:00.000Z' }) as const;
+    const spent = { state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 rounds', attempts: [attempt(1), attempt(2), attempt(3)], steps: [], stopAfterRequested: false } as const;
     const row = byId(shipInput({ prs: [openPr], autofix: spent }), 'autofix')!;
     expect(row.status).toBe('wait');
     expect(rowsOf(row).map((r) => r.status)).toEqual(['fail', 'fail', 'fail']);

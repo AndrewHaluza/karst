@@ -7,7 +7,7 @@ import type { WebviewMessage } from './messages.js';
 type Msg<K extends WebviewMessage['type']> = Extract<WebviewMessage, { type: K }>;
 
 import {
-  isAgentProcessId, isFiniteNumber, isStageKey, isGateStage, isConsoleStage, storedPath, storedSha,
+  isAgentProcessId, isFiniteNumber, isStageKey, isGateStage, isAttemptStage, isConsoleStage, storedPath, storedSha,
   MAX_GATE_NAME_CHARS, MAX_ENV_TEXT_CHARS, MAX_ACTION_ID_CHARS, MAX_ARTIFACT_ID_CHARS, MAX_BASELINE_INDICES, MAX_SERVER_LOG_COPY_CHARS,
   BASELINE_BLOCK_ID, MAX_BASELINE_REASON_CHARS, MAX_FIX_PARK_NOTE_CHARS, MAX_STALL_LABEL_CHARS, MAX_STALL_TEXT_CHARS, MAX_MODEL_ID_CHARS, MAX_GATE_ATTEMPT_KEY_CHARS, MAX_REPO_PATH_CHARS, MAX_TICKET_MARKDOWN_CHARS,
 } from './messageValidate.js';
@@ -359,7 +359,7 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // actual attempt history before rendering anything.
     case 'select-gate-attempt': {
       const key = typeof m.key === 'string' ? m.key : '';
-      return isGateStage(m.stage) && key.length > 0 && key.length <= MAX_GATE_ATTEMPT_KEY_CHARS
+      return isAttemptStage(m.stage) && key.length > 0 && key.length <= MAX_GATE_ATTEMPT_KEY_CHARS
         ? { type: 'select-gate-attempt', stage: m.stage, key }
         : null;
     }

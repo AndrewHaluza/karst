@@ -12,6 +12,8 @@ import {
 import { summarizeMergeCheck } from '../mergeCheckView.js';
 import type { StepperCell } from '../stepper.js';
 import type { AutofixRowView } from './autofix.js';
+import type { GateAttemptView } from './rounds.js';
+import type { ShipRoundLedger } from './shipRounds.js';
 import { deliverPushRows, deliverPushSummary, type DeliverRowInput } from './shipDeliver.js';
 import { boundedEvidenceRows } from './bounds.js';
 import { bounded } from './bounds.js';
@@ -99,6 +101,18 @@ export interface ShipProcessesInput {
   findingsBlockingSeverity?: Severity | 'none';
   /** Auto-fix reading (T1004, own row since T1070). Absent or null → no Auto-fix row. */
   autofix?: AutofixRowView | null;
+  /**
+   * The Ship round tabs (T1410). With two or more rounds the Auto-fix row list
+   * leaves the budget and the finished rounds to the tab row: the tabs are the
+   * rounds, and the caption carries the budget.
+   */
+  rounds?: readonly GateAttemptView[];
+  /**
+   * The selected historical round's rows, split by process (T1410). Present only
+   * when the reader chose an older tab: Auto-fix, Push and Merge then show that
+   * round's own rows; Commit and Pull request stay as they are.
+   */
+  roundLedger?: ShipRoundLedger | null;
   /** Deliver reading (T1072, T1403): the Push row's later push onto the open PR. Absent or null → no deliver rows. */
   deliver?: DeliverRowInput | null;
   /** An open PR still waits on CI: the Merge row names it among its blockers. */
@@ -943,15 +957,21 @@ function openBlockers(conflicted: number, ciOpen: boolean): string[] {
  * The Auto-fix process (T1070): its own row between Pull request and Merge. Attempt rows come first, then the provable
  * steps of the running attempt. The host keeps no round run, so the row has no identity, no Σ pill and no duration, and
  * attempt rows carry the time of their Autopilot note only. Exported for the dashboard's hand-written cases.
+ *
+ * With `tabs` (T1410) the round tabs carry the finished rounds and their budget, so the row keeps only the live round's
+ * provable steps and states the row's own fact without repeating the budget.
  */
-export function autofixProcess(autofix: AutofixRowView | null | undefined): InsideProcessView | undefined {
+export function autofixProcess(autofix: AutofixRowView | null | undefined, tabs = false): InsideProcessView | undefined {
   if (!autofix) return undefined;
-  const attempts = autofix.attempts.map((a): EvidenceRow => ({
-    label: a.label,
-    detail: a.detail,
-    status: a.result === 'fails' ? 'fail' : 'pass',
-    time: formatTime(a.at),
-  }));
+  const attempts = tabs
+    ? []
+    : autofix.attempts.map((a): EvidenceRow => ({
+        label: a.label,
+        detail: a.detail,
+        // A finished round only RAN: the host holds no pass for it (T1365/T1410).
+        status: a.result === 'fails' ? 'fail' : 'note',
+        time: formatTime(a.at),
+      }));
   const steps = autofix.steps.map((st): EvidenceRow => ({
     label: st.label,
     detail: st.detail,
@@ -963,10 +983,59 @@ export function autofixProcess(autofix: AutofixRowView | null | undefined): Insi
     kind: 'autofix',
     label: 'Auto-fix',
     status: autofix.state === 'running' || autofix.state === 'pending' ? 'run' : autofix.state === 'history' ? 'note' : 'wait',
-    detail: autofix.message,
+    detail: tabs ? withoutBudget(autofix.message) : autofix.message,
     // The AI mark: the agent does the work. There is no recorded identity, so no `execution`.
     aiMark: true,
     evidence: { kind: 'rows', rows: [...attempts, ...steps] },
+  };
+}
+
+/** Remove the round budget from the Auto-fix row's prose: the tab row's caption tail states it (T1410). */
+function withoutBudget(message: string): string {
+  return message.replace(/ · (?:round )?\d+ of \d+(?: rounds)?$/, '');
+}
+
+/**
+ * The Auto-fix process of one historical round (T1410): that round's arm row or
+ * live steps. The caption tail of the tab row carries the budget and why it opened.
+ */
+function roundAutofixProcess(ledger: ShipRoundLedger): InsideProcessView {
+  return {
+    id: 'autofix',
+    kind: 'autofix',
+    label: 'Auto-fix',
+    status: ledger.round.status === 'run' ? 'run' : 'note',
+    detail: ledger.round.caption ?? '',
+    aiMark: true,
+    evidence: { kind: 'rows', rows: [...ledger.autofix] },
+  };
+}
+
+/** The Push row of one historical round: only the pushes whose start falls in its window. */
+function roundPushProcess(ledger: ShipRoundLedger): InsideProcessView {
+  const rows = [...ledger.push];
+  const pushed = rows.filter((r) => r.status === 'pass').length;
+  return {
+    id: 'push',
+    kind: 'push',
+    label: 'Push',
+    status: rows.length > 0 ? aggregateStatus(rows) : 'note',
+    detail: rows.length > 0 ? `${pushed}/${rows.length} pushed` : 'no push recorded in this round',
+    evidence: { kind: 'rows', rows },
+  };
+}
+
+/** The Merge row of one historical round: the CI result its own records hold, or none. */
+function roundMergeProcess(ledger: ShipRoundLedger): InsideProcessView {
+  const rows = [...ledger.ci];
+  const ci = rows[0];
+  return {
+    id: 'merge',
+    kind: 'merge',
+    label: 'Merge',
+    status: ci?.status ?? 'note',
+    detail: ci?.detail ?? ci?.label ?? 'no CI result recorded for this round',
+    evidence: { kind: 'rows', rows },
   };
 }
 
@@ -977,11 +1046,27 @@ export function autofixProcess(autofix: AutofixRowView | null | undefined): Insi
  * NOT part of the registered roster: unlike every id in `INSIDE_PROCESSES`,
  * which always renders (even as an empty/pending row), `ship-findings` is
  * entirely absent whenever nothing blocks, which is the common case. The
- * Deliver push is part of the Push row (T1403), never a row of its own.
+ * Deliver push is part of the Push row (T1403), never a row of its own. A
+ * historical round (T1410) reads in time order instead: commit, pr, autofix,
+ * push, merge.
  */
 export function shipProcesses(input: ShipProcessesInput): InsideProcessView[] {
   const warning = shipFindingsWarning(input);
-  const autofix = autofixProcess(input.autofix);
+  const ledger = input.roundLedger ?? null;
+  const tabs = (input.rounds?.length ?? 0) >= 2;
+  if (ledger) {
+    // A historical round reads in time order: its arm row comes before the
+    // push in its window, then the CI result (T1410).
+    return [
+      ...(warning ? [warning] : []),
+      commitProcess(input),
+      prProcess(input),
+      roundAutofixProcess(ledger),
+      roundPushProcess(ledger),
+      roundMergeProcess(ledger),
+    ];
+  }
+  const autofix = autofixProcess(input.autofix, tabs);
   return [
     ...(warning ? [warning] : []),
     commitProcess(input),

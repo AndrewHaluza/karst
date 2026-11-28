@@ -14,6 +14,12 @@ import type { Finding } from '../../store/reviewFindings.js';
 import type { UatFinding } from '../../store/uatFindings.js';
 import type { RecoveryRound } from '../../store/recoveryRoundsRead.js';
 import type { RoundWithDelivery } from '../../model/inside/recovery.js';
+import type { AutofixRowView } from '../../model/inside/autofix.js';
+import type { DeliverRowInput } from '../../model/inside/shipDeliver.js';
+import type { ShipPrView } from '../../model/inside/types.js';
+import type { ShipEvidence } from '../../store/shipRuns.js';
+import type { MergeCheckRow } from '../../store/mergeChecks.js';
+import type { ShipRoundFacts } from './stateAutofix.js';
 import { buildGateSwitches } from './stateGates.js';
 import { buildInsideViews } from './stateInside.js';
 
@@ -42,7 +48,17 @@ export interface CaseFacts {
   findings?: readonly Finding[];
   uatFindings?: readonly UatFinding[];
   services?: readonly ServiceStatusView[];
-  attemptSelection?: Partial<Record<'uat' | 'review', string>>;
+  attemptSelection?: Partial<Record<'uat' | 'review' | 'ship', string>>;
+  /** The Ship ledger's own facts (T1410): the durable steps, the current PRs and the merge checks. */
+  shipEvidence?: ShipEvidence;
+  prs?: readonly ShipPrView[];
+  mergeChecks?: readonly MergeCheckRow[];
+  autofix?: AutofixRowView | null;
+  deliver?: DeliverRowInput | null;
+  /** The note/live/spent/push facts the Ship round tabs join (T1410). */
+  shipRoundFacts?: ShipRoundFacts;
+  ciOpen?: boolean;
+  ciWaiting?: boolean;
   resolvedGates?: { uat: readonly ResolvedGate[]; review: readonly ResolvedGate[] };
   /** The gates in flight per stage (a gate that waits for a slot, a gate that runs). */
   liveGates?: Partial<Record<'uat' | 'review', Readonly<Record<string, GateLiveState>>>>;
@@ -207,6 +223,7 @@ export function buildCaseViews(facts: CaseFacts): Record<InsideStageKey, InsideS
     cellOf,
     stageRuns: facts.stageRuns ?? [],
     attemptSelection: facts.attemptSelection,
+    ...(facts.shipRoundFacts ? { shipRounds: { ...facts.shipRoundFacts, now: CASE_NOW } } : {}),
   });
   return buildInsideViews({
     cellOf,
@@ -236,15 +253,22 @@ export function buildCaseViews(facts: CaseFacts): Record<InsideStageKey, InsideS
       : null,
     uatSwitch: switches.uatSwitch,
     reviewSwitch: switches.reviewSwitch,
+    shipSwitch: switches.shipSwitch,
     uatRoundSwitcher: switches.uatRoundSwitcher,
     reviewRoundSwitcher: switches.reviewRoundSwitcher,
+    shipRoundSwitcher: switches.shipRoundSwitcher,
+    ...(facts.shipRoundFacts ? { shipRounds: facts.shipRoundFacts } : {}),
     uatCurrent: switches.uatCurrent,
     reviewCurrent: switches.reviewCurrent,
-    shipEvidence: { run: undefined, repos: {} },
-    prs: [],
-    mergeChecks: [],
+    shipEvidence: facts.shipEvidence ?? { run: undefined, repos: {} },
+    prs: facts.prs ?? [],
+    mergeChecks: facts.mergeChecks ?? [],
     shipFindings: [],
     findingsBlockingSeverity: 'none',
+    autofix: facts.autofix,
+    deliver: facts.deliver,
+    ciOpen: facts.ciOpen,
+    ciWaiting: facts.ciWaiting,
     reviewBlockingSeverity: facts.reviewBlockingSeverity ?? 'high',
     stepper,
     recordedTotal: { input: 0, output: 0, total: 0, cacheRead: 0 },

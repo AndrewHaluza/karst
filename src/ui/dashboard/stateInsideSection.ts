@@ -1,4 +1,5 @@
 import type { AutofixRowView } from '../../model/inside/autofix.js';
+import type { ShipRoundFacts } from './stateAutofix.js';
 import type { DeliverRowInput } from '../../model/inside/shipDeliver.js';
 import type { ImplSessionReading } from '../../model/implSessionReading.js';
 import type { Store } from '../../store/db.js';
@@ -45,9 +46,11 @@ export interface InsideSectionInput {
   repoNameFor: (repo: string) => string | undefined;
   graphInside?: GraphInsideInput | null;
   implSession?: ImplSessionReading | null;
-  attemptSelection?: Partial<Record<'uat' | 'review', string>>;
+  attemptSelection?: Partial<Record<'uat' | 'review' | 'ship', string>>;
   findingsBlockingSeverity: Severity | 'none';
   autofix?: AutofixRowView | null;
+  /** The Ship round notes, live round, spent park and deliver runs (T1410). */
+  shipRoundFacts?: ShipRoundFacts;
   deliver?: DeliverRowInput | null;
   /** An open PR's CI is not green (the Merge row's 'waits on CI'). */
   ciOpen?: boolean;
@@ -71,7 +74,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
   const {
     ticket, stepper, currentStage, rounds, worktrees, prs, mergeChecks, now, evidence, cellOf, attach,
     assignmentFor, resolvedGates, liveGates, findingsRepoSelection, repoNameFor, graphInside, attemptSelection, implSession,
-    findingsBlockingSeverity, displayBlocking, autofix, deliver, ciOpen, ciWaiting, ciNow, liveRunUsage,
+    findingsBlockingSeverity, displayBlocking, autofix, deliver, ciOpen, ciWaiting, ciNow, liveRunUsage, shipRoundFacts,
   } = input;
   const { marks, gateRuns, hostRerunRuns, findings, processRuns, uatFindings, shipEvidence, timeline, stageRuns } = evidence;
   const tokensFor = buildTokensFor(store, ticket.id);
@@ -103,8 +106,10 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     reviewCurrent,
     uatSwitch,
     reviewSwitch,
+    shipSwitch,
     uatRoundSwitcher,
     reviewRoundSwitcher,
+    shipRoundSwitcher,
   } =
     buildGateSwitches({
       ticket,
@@ -114,6 +119,7 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
       stageRuns,
       cellOf,
       attemptSelection,
+      ...(shipRoundFacts ? { shipRounds: { ...shipRoundFacts, now } } : {}),
     });
 
   const segmentTokens = readSegmentTokens(store, timeline);
@@ -161,8 +167,11 @@ export function buildInsideSection(store: Store, input: InsideSectionInput) {
     graphInsideProcessOnce,
     uatSwitch,
     reviewSwitch,
+    shipSwitch,
     uatRoundSwitcher,
     reviewRoundSwitcher,
+    shipRoundSwitcher,
+    shipRounds: shipRoundFacts,
     uatCurrent,
     reviewCurrent,
     shipEvidence,

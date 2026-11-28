@@ -117,14 +117,14 @@ describe('readAutofix', () => {
     expect(readAutofix(store, id, CONFIG).row?.stopAfterRequested).toBe(true);
   });
 
-  it('reads the autopilot round notes as attempts, oldest first, and ignores other notes', () => {
+  it('reads the autopilot round notes as rounds, oldest first, and ignores other notes', () => {
     const { store, id } = setup();
     postAutopilotRow(store, id, 'Autopilot: ci round 1/3');
     postAutopilotRow(store, id, 'Unrelated');
     postAutopilotRow(store, id, 'Autopilot: ci round 2/3');
     park(store, id, 'auto-fix stopped: ci 3/3');
     const attempts = readAutofix(store, id, CONFIG).row?.attempts ?? [];
-    expect(attempts.map((a) => a.label)).toEqual(['attempt 1', 'attempt 2']);
+    expect(attempts.map((a) => a.label)).toEqual(['round 1', 'round 2']);
   });
 
   it('reports CI as open only for an open PR with failing or pending checks', () => {
@@ -239,7 +239,7 @@ describe('readAutofix', () => {
     takeAutopilotAttempt(store, id, 'api', 'ci', 'lint', 3);
     postAutopilotRow(store, id, 'Autopilot: ci round 1/3');
     const r = readAutofix(store, id, CONFIG);
-    expect(r.row).toMatchObject({ state: 'running', message: 'CI lint on api #88 · attempt 1 of 3' });
+    expect(r.row).toMatchObject({ state: 'running', message: 'CI lint on api #88 · round 1 of 3' });
   });
 
   it('fills the banner history from the round notes of the parked kind, oldest first', () => {
@@ -275,7 +275,7 @@ describe('readAutofix', () => {
       expect(r.slice).toMatchObject({ roundActive: true, roundRunning: true });
       expect(r.row?.steps).toEqual([
         { label: 'fetch CI log', detail: 'gh · lint', status: 'pass' },
-        { label: 'agent fix', detail: 'attempt 1', status: 'pass' },
+        { label: 'agent fix', detail: 'round 1', status: 'pass' },
         { label: 'gates run again', detail: word, status: 'run', stopAfter: true },
         { label: 're-ship', detail: 'to api #88', status: 'pending' },
       ]);

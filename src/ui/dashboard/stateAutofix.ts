@@ -15,9 +15,13 @@ import {
   type AutofixFacts,
   type AutofixKind,
   type AutofixPendingCi,
+  type AutofixRound,
   type AutofixRowView,
   type AutofixTarget,
 } from '../../model/inside/autofix.js';
+import type { ShipSpentPark } from '../../model/inside/shipRounds.js';
+import { instantMs } from '../../model/inside/types.js';
+import { listDeliverRuns, type DeliverRun } from '../../store/deliverRuns.js';
 import type { AutofixInput } from '../../model/prMergeReadiness.js';
 import { parseChecks } from '../../model/prChecks.js';
 import type { CiWaitingPr } from '../../model/inside/ciNow.js';
@@ -56,6 +60,8 @@ export interface AutopilotSlice {
 export interface AutofixReading {
   readonly slice: AutopilotSlice;
   readonly row: AutofixRowView | null;
+  /** The raw facts the Ship round tabs and their evidence join on (T1410). */
+  readonly rounds: ShipRoundFacts;
   /** An open PR still waits on CI (a failing, pending or unknown rollup): the Merge row says "waits on CI". */
   readonly ciOpen: boolean;
   /** CI is the only open question: every open PR has readable checks and some are pending, none failed (T1140). */
@@ -64,6 +70,19 @@ export interface AutofixReading {
   readonly ciWaitingPrs: readonly CiWaitingPr[];
   /** The same reading, shaped for the PR panel's merge-readiness reasons (`model/prMergeReadiness.ts`). */
   readonly input: AutofixInput;
+}
+
+/**
+ * The facts a Ship round tab reads (T1410): every armed round note, the round
+ * running now, the spent park that failed the rounds it names, and every
+ * recorded push (the auto-deliver runs). The tabs and their time windows are
+ * pure model work (`model/inside/shipRounds.ts`); this is only the store read.
+ */
+export interface ShipRoundFacts {
+  readonly attempts: readonly AutofixAttempt[];
+  readonly liveRound: AutofixRound | null;
+  readonly spent: ShipSpentPark | null;
+  readonly deliverRuns: readonly DeliverRun[];
 }
 
 /** The kind a park reason names; a CI read failure names no kind in its text, so it reads as CI. */
@@ -107,7 +126,8 @@ function readAttempts(store: Store, ticketId: number): AutofixAttempt[] {
     .all(ticketId, `${NOTE_PREFIX} % round %/%`) as Array<{ title: string; at: string }>;
   return rows.flatMap((r) => {
     const m = /^Autopilot: (conflicts|ci) round (\d+)\/(\d+)$/.exec(r.title);
-    return m ? [{ kind: m[1] as AutofixKind, n: Number(m[2]), max: Number(m[3]), at: r.at }] : [];
+    // A note with no readable time cannot be placed in a round window, so it is not a tab.
+    return m && Number.isFinite(instantMs(r.at)) ? [{ kind: m[1] as AutofixKind, n: Number(m[2]), max: Number(m[3]), at: r.at }] : [];
   });
 }
 
@@ -117,6 +137,15 @@ function safeUrl(url: string | null | undefined): string | undefined {
 }
 
 const STOPPED_KIND = /^auto-fix stopped: (conflicts|ci) /;
+/** The `auto-fix stopped: <kind> <used>/<max>` park, whose newest `used` rounds of the kind failed. */
+const STOPPED_BUDGET = /^auto-fix stopped: (conflicts|ci) (\d+)\/(\d+)/;
+
+/** The spent park a reason names, when it is the engine's budget park. A later, unspent budget leaves it as history. */
+function spentPark(reason: string | null): ShipSpentPark | null {
+  if (reason === null) return null;
+  const m = STOPPED_BUDGET.exec(reason);
+  return m ? { kind: m[1] as AutofixKind, used: Number(m[2]) } : null;
+}
 
 /** The kind a spent park names, or null when the reason has another shape. */
 function parkedKind(reason: string): AutofixKind | null {
@@ -248,6 +277,9 @@ export function readAutofix(
       : stopReason;
   const target = kind === null ? null : resolveTarget(store, ticketId, config, kind, nameOf);
   const waiting = waitingCi(store, ticketId, nameOf);
+  const attempts = readAttempts(store, ticketId);
+  // The Ship round windows join the pushes they hold; a run with an unreadable start cannot be placed in one.
+  const deliverRuns = listDeliverRuns(store, ticketId).filter((run) => Number.isFinite(instantMs(run.startedAt)));
   const facts: AutofixFacts = {
     override: ticket.mode,
     projectDefault,
@@ -257,7 +289,7 @@ export function readAutofix(
     stopAfter: ticket.stopAfter,
     ...waiting,
     target,
-    attempts: readAttempts(store, ticketId),
+    attempts,
     ...(kind === null ? {} : { history: readHistory(store, ticketId, kind) }),
     // T1286: an old "placement unknown" park gets its Retry once a placement is recorded (the graph run, the backfill).
     placementReadable: getPlacement(store, ticketId) !== null,
@@ -266,6 +298,7 @@ export function readAutofix(
   return {
     slice: { override: ticket.mode, projectDefault, effective, banner: autofixBanner(facts), roundActive: facts.round !== null, roundRunning: facts.round !== null },
     row: autofixRow(facts),
+    rounds: { attempts, liveRound: facts.round, spent: spentPark(stopReason), deliverRuns },
     ciOpen: ciOpenOf(store, ticketId),
     ciWaiting: ciWaitingPrs.length > 0,
     ciWaitingPrs,

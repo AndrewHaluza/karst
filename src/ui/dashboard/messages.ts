@@ -4,6 +4,13 @@ import type { AgentProvider } from '../../manifest/types.js';
 import type { DashboardLayout } from '../../model/dashboardLayout.js';
 
 /**
+ * The stages that carry a round switcher (T1410): the two gate stages and the
+ * Ship stage, whose auto-fix rounds now share the same tab model.
+ */
+export const ATTEMPT_STAGES = ['uat', 'review', 'ship'] as const;
+export type AttemptStage = (typeof ATTEMPT_STAGES)[number];
+
+/**
  * Webview → host action messages (§14 dashboard tier actions). The webview
  * posts these; the host routes them to daemon actions via `routeAction`.
  */
@@ -319,13 +326,13 @@ export type WebviewMessage =
    */
   | { type: 'agent-log-request'; processId: AgentProcessId }
   /**
-   * Select a round of a gate stage's attempt history to view. Carries the
-   * stage (narrowed to the two that carry rounds) and the attempt key, both
+   * Select a round of a stage's attempt history to view. Carries the stage
+   * (narrowed to the stages that carry rounds) and the attempt key, both
    * re-resolved host-side against the ticket's actual attempt history — same
    * property as `set-disabled-gates`: a crafted or stale message cannot aim
    * the view at anything the host doesn't already know about.
    */
-  | { type: 'select-gate-attempt'; stage: GateStage; key: string }
+  | { type: 'select-gate-attempt'; stage: AttemptStage; key: string }
   /**
    * Scope findings evidence to a single repository. `repo` is a recorded repo
    * value (a path), typed and non-empty, matched the way `change-base-ref`

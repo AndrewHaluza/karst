@@ -1,8 +1,11 @@
 import type { DashboardState } from './state.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
 import { UNREADABLE_RESULT_KIND } from '../../model/unreadableRun.js';
-import { STEP_CI_AGENT, STEP_CONFLICT_AGENT, STEP_FETCH_LOG, STEP_GATES_AGAIN, STEP_RESHIP, STEP_SHIP_WAITS, DETAIL_SHIP_WAITS, type AutofixAttemptRow, type AutofixRowView, type AutofixStepRow } from '../../model/inside/autofix.js';
+import { STEP_CI_AGENT, STEP_CONFLICT_AGENT, STEP_FETCH_LOG, STEP_GATES_AGAIN, STEP_RESHIP, STEP_SHIP_WAITS, DETAIL_SHIP_WAITS, autofixRow, type AutofixAttempt, type AutofixAttemptRow, type AutofixFacts, type AutofixRound, type AutofixRowView, type AutofixStepRow } from '../../model/inside/autofix.js';
 import { autofixProcess } from '../../model/inside/ship.js';
+import type { ShipRoundFacts } from './stateAutofix.js';
+import type { DeliverRun } from '../../store/deliverRuns.js';
+import type { ShipEvidence, ShipRepoStepEvidence } from '../../store/shipRuns.js';
 import type { GraphNodeListRow, InsideProcessView, InsideNowView, InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { StageKey } from '../../model/types.js';
 import { buildStageRail } from '../../model/stageRail.js';
@@ -106,8 +109,8 @@ function autofixShip(
 }
 
 const attempt = (kind: 'ci' | 'conflicts', n: number, max: number, at: string): AutofixAttemptRow => ({
-  label: `${kind === 'ci' ? 'attempt' : 'round'} ${n}`,
-  detail: `${kind === 'ci' ? 'CI' : 'conflict'} ${kind === 'ci' ? 'attempt' : 'round'} ${n} of ${max} ran`,
+  label: `round ${n}`,
+  detail: `${kind === 'ci' ? 'CI' : 'conflict'} round ${n} of ${max} ran`,
   result: 'ran',
   at,
 });
@@ -119,10 +122,10 @@ const RUNNING_CONFLICT: AutofixRowView = {
 };
 const CI_ATTEMPT_1 = attempt('ci', 1, 3, t(40));
 const RUNNING_CI: AutofixRowView = {
-  state: 'running', message: 'CI lint on api #88 · attempt 2 of 3', attempts: [CI_ATTEMPT_1],
+  state: 'running', message: 'CI lint on api #88 · round 2 of 3', attempts: [CI_ATTEMPT_1],
   steps: [
     { label: STEP_FETCH_LOG, detail: 'gh · lint', status: 'pass' },
-    { label: STEP_CI_AGENT, detail: 'attempt 2', status: 'run', stopAfter: true },
+    { label: STEP_CI_AGENT, detail: 'round 2', status: 'run', stopAfter: true },
   ],
   stopAfterRequested: false,
 };
@@ -131,13 +134,60 @@ const gatesAgain = (word: 'UAT' | 'Review', reship: AutofixStepRow): AutofixRowV
   ...RUNNING_CI,
   steps: [
     { label: STEP_FETCH_LOG, detail: 'gh · lint', status: 'pass' },
-    { label: STEP_CI_AGENT, detail: 'attempt 2', status: 'pass' },
+    { label: STEP_CI_AGENT, detail: 'round 2', status: 'pass' },
     { label: STEP_GATES_AGAIN, detail: word, status: 'run', stopAfter: true },
     reship,
   ],
 });
 const RESHIP: AutofixStepRow = { label: STEP_RESHIP, detail: 'to api #88', status: 'pending' };
 const PARKED = { attempts: [] as readonly AutofixAttemptRow[], steps: [] as readonly never[], stopAfterRequested: false };
+
+// -------------------------------------------- Ship rounds (T1410, T1365)
+
+/** One `Autopilot: <kind> round n/m` note at a fixture time. */
+const shipNote = (kind: AutofixAttempt['kind'], n: number, max: number, at: string): AutofixAttempt => ({ kind, n, max, at });
+
+/** A CI round running now, as the engine's resolved reading holds it. */
+const liveCi = (used: number, max: number): AutofixRound => ({ kind: 'ci', repo: CASE_API, pr: 88, check: 'lint', used, max });
+
+/** The Auto-fix row the real reducer builds from the notes, round and park. */
+const shipAutofix = (
+  attempts: readonly AutofixAttempt[],
+  round: AutofixRound | null,
+  reason: string | null = null,
+): AutofixRowView | null =>
+  autofixRow({
+    override: 'inherit', projectDefault: true, effective: true, reason, round,
+    stopAfter: false, unknownCi: [], pendingCi: [], target: null, attempts,
+  } satisfies AutofixFacts);
+
+/** One recorded push step (the durable `ship_repo_steps` row). */
+const casePushStep = (over: Partial<ShipRepoStepEvidence> & Pick<ShipRepoStepEvidence, 'startedAt'>): ShipRepoStepEvidence => ({
+  id: 1, shipRunId: 1, repo: CASE_API, step: 'push', status: 'passed', detail: '1 commit',
+  prNumber: 88, existedBeforeShip: true, processRunId: null, operationIntentId: null,
+  endedAt: t(46), hasIntent: true, number: 88, ...over,
+});
+
+/** A ship evidence shell holding one recorded step for the api repo. */
+const caseShipEvidence = (step: ShipRepoStepEvidence): ShipEvidence => ({
+  run: undefined,
+  repos: { [CASE_API]: { steps: { push: step }, commits: [], intents: {} } },
+});
+
+/** One auto-deliver run (a later push the round window can hold). */
+const caseDeliverRun = (over: Partial<DeliverRun> & Pick<DeliverRun, 'id' | 'startedAt'>): DeliverRun => ({
+  ticketId: 1, headSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678', gates: ['unit'],
+  currentGate: null, finished: 1, state: 'passed', kind: 'auto', endedAt: t(56), ...over,
+});
+
+/** The Ship round facts shared by the T1410 cases. */
+const shipRoundFacts = (
+  attempts: readonly AutofixAttempt[],
+  liveRound: AutofixRound | null,
+  deliverRuns: readonly DeliverRun[] = [],
+  spent: ShipRoundFacts['spent'] = null,
+): ShipRoundFacts => ({ attempts, liveRound, spent, deliverRuns });
+
 
 // ----------------------------------------------------------- gate-stage rows
 
@@ -1296,14 +1346,14 @@ export const INSIDE_CASES: readonly InsideCase[] = [
     id: 'auto-budget-spent',
     allThemes: true,
     state: autofixShip(
-      { ...PARKED, state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 attempts', attempts: [failed(attempt('ci', 1, 3, t(60))), failed(attempt('ci', 2, 3, t(50))), failed(attempt('ci', 3, 3, t(40)))] },
+      { ...PARKED, state: 'spent', message: 'stopped: CI lint on api #88 · 3 of 3 rounds', attempts: [failed(attempt('ci', 1, 3, t(60))), failed(attempt('ci', 2, 3, t(50))), failed(attempt('ci', 3, 3, t(40)))] },
       {
         banner: {
           state: 'spent', title: 'lint', titleHref: 'https://github.com/example/api/actions/runs/1', titleSuffix: 'failed on api #88',
           cause: 'Auto-fix tried 3 of 3 times and the check still fails.',
-          primary: { act: 'autopilot-approve-one', label: '+1 attempt', icon: 'refresh', title: 'Approve 1 more auto-fix attempt', repo: 'api', kind: 'ci' },
+          primary: { act: 'autopilot-approve-one', label: '+1 round', icon: 'refresh', title: 'Approve 1 more auto-fix round', repo: 'api', kind: 'ci' },
           secondary: { act: 'send-ci-failure', label: 'Send back…', icon: 'arrow-left', title: 'Send the CI failure to the agent with a note' },
-          history: ['Attempt 1 · lint · 09:10', 'Attempt 2 · lint · 09:20', 'Attempt 3 · lint · 09:31'],
+          history: ['Round 1 · lint · 09:10', 'Round 2 · lint · 09:20', 'Round 3 · lint · 09:31'],
         },
       },
       { reason: 'auto-fix stopped: ci 3/3' },
@@ -1366,6 +1416,70 @@ export const INSIDE_CASES: readonly InsideCase[] = [
       },
       { reason: 'auto-fix paused: sandbox clone is dirty' },
     ),
+  },
+
+  // ship rounds (T1410, T1365): the Auto-fix tries as one round tab row. Built
+  // through the real reducers, so the tabs, statuses and the time-window join
+  // are the production ones; only the rows are fixed.
+  {
+    stage: 'ship',
+    id: 'rounds-one',
+    // One round: no tabs, so the Auto-fix row list keeps the budget text.
+    state: fromFacts('ship', {
+      cells: { ship: { status: 'passed' } },
+      autofix: shipAutofix([shipNote('conflicts', 1, 2, t(40))], null),
+      shipRoundFacts: shipRoundFacts([shipNote('conflicts', 1, 2, t(40))], null),
+    }),
+  },
+  {
+    stage: 'ship',
+    id: 'rounds-live',
+    // R1 conflict, R2 CI live: one tab row across both kinds.
+    state: fromFacts('ship', {
+      cells: { ship: { status: 'running' } },
+      autofix: shipAutofix([shipNote('conflicts', 1, 2, t(40)), shipNote('ci', 1, 3, t(50))], liveCi(1, 3)),
+      shipRoundFacts: shipRoundFacts([shipNote('conflicts', 1, 2, t(40)), shipNote('ci', 1, 3, t(50))], liveCi(1, 3)),
+      shipEvidence: caseShipEvidence(casePushStep({ startedAt: t(45) })),
+      ciOpen: true,
+    }),
+  },
+  {
+    stage: 'ship',
+    id: 'rounds-spent',
+    // Three CI rounds, the budget spent: all fail, the newest says no fix attempts left.
+    state: fromFacts('ship', {
+      cells: { ship: { status: 'passed' } },
+      autofix: shipAutofix([shipNote('ci', 1, 3, t(40)), shipNote('ci', 2, 3, t(50)), shipNote('ci', 3, 3, t(56))], null, 'auto-fix stopped: ci 3/3'),
+      shipRoundFacts: shipRoundFacts([shipNote('ci', 1, 3, t(40)), shipNote('ci', 2, 3, t(50)), shipNote('ci', 3, 3, t(56))], null, [], { kind: 'ci', used: 3 }),
+      ciOpen: true,
+    }),
+  },
+  {
+    stage: 'ship',
+    id: 'rounds-history',
+    // R1 selected: its own arm row, the push in its window, and the CI result that record holds
+    // (`CI still failed`: a later CI round shows the check was still red).
+    state: fromFacts('ship', {
+      cells: { ship: { status: 'running' } },
+      autofix: shipAutofix([shipNote('ci', 1, 3, t(40)), shipNote('ci', 2, 3, t(50))], liveCi(2, 3)),
+      shipRoundFacts: shipRoundFacts([shipNote('ci', 1, 3, t(40)), shipNote('ci', 2, 3, t(50))], liveCi(2, 3)),
+      shipEvidence: caseShipEvidence(casePushStep({ startedAt: t(45) })),
+      ciOpen: true,
+      attemptSelection: { ship: `ship:${t(40)}` },
+    }),
+  },
+  {
+    stage: 'ship',
+    id: 'rounds-no-push',
+    // A round whose window holds no push record: the Push row states the absence, never an invented push.
+    state: fromFacts('ship', {
+      cells: { ship: { status: 'running' } },
+      autofix: shipAutofix([shipNote('ci', 1, 3, t(40)), shipNote('ci', 2, 3, t(50))], liveCi(2, 3)),
+      shipRoundFacts: shipRoundFacts([shipNote('ci', 1, 3, t(40)), shipNote('ci', 2, 3, t(50))], liveCi(2, 3), [
+        caseDeliverRun({ id: 1, startedAt: t(55) }),
+      ]),
+      attemptSelection: { ship: `ship:${t(40)}` },
+    }),
   },
 
   // done — HAND-WRITTEN receipt (needs merged-PR + saga evidence rows)
