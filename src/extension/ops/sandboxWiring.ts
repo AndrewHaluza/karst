@@ -204,7 +204,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     // Recorded: no listing guess. The runner's tri-state probe later confirms the sandbox exists (arch:AC-39).
     if (getPlacement(w.store, ticketId)) return t;
     try {
-      const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+      const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), ...(w.sshRunner ? { sshRunner: w.sshRunner } : {}) });
       const found = pickTicketSandbox(inv.sandboxes, ticketId, t.core, (m) => w.info(`karst: ${m}`));
       return found ? { ...t, core: found.core } : t;
     } catch (err) {
@@ -237,7 +237,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       w.notify.info('This project has no sandbox backend. Set one in the Settings page.');
       return undefined;
     }
-    const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+    const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), ...(w.sshRunner ? { sshRunner: w.sshRunner } : {}) });
     const live = new Map(liveTickets().map((t) => [t.id, t]));
     const seen = new Set<number>();
     const picks = inv.sandboxes.flatMap((box) => {

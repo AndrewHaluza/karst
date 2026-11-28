@@ -1,5 +1,13 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeSshProcess, type FakeSshAnswer } from '../../agent/ssh/fakeSshProcess.js';
+import { REMOTE_TRUST_FILE, remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
+import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
+import { SSH_STRAYS_FILE } from '../../agent/ssh/sshStrays.js';
+import type { RemoteDef } from '../../manifest/types.js';
+import type { TicketPlacement } from '../../store/placement.js';
 import { fakeSshPlacement, fakeSshRunnerDeps } from './fakeSshRunnerDeps.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
@@ -554,7 +562,9 @@ describe('removeSandboxGuarded with an ssh placement (D826)', () => {
     const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 44 } });
     const { d } = sshDeps(ssh);
     await expect(removeSandboxGuarded(d, target, { skipSync: true })).resolves.toBe(true);
-    expect(ssh.calls).toHaveLength(1);
+    // The inventory now lists the declared remote too (D824); the probe itself runs once and no dispose is needed.
+    expect(ssh.calls.filter((c) => (c.args.at(-1) ?? '').includes('karst-ssh-probe'))).toHaveLength(1);
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('karst-ssh-dispose'))).toBe(false);
   });
   it('the probe verifies the removal: a clone still present after dispose fails, and the bridge dir stays', async () => {
     const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 0 } });
@@ -676,5 +686,58 @@ describe('depsForListedBox (D826)', () => {
     expect(depsForListedBox(base, { runner: 'ssh' })).toBe(base);
     expect(depsForListedBox(base, { runner: 'sbx' }).placementOf?.(7)).toBeNull();
     expect(depsForListedBox(base, { runner: 'docker' }).placementOf?.(7)).toBeNull();
+  });
+});
+
+describe('forgotten remote strays (D824, edit 2)', () => {
+  const INSTALL = '0123456789abcdef0123456789abcdef';
+  const PREFIX = sshProjectPrefix('/p', INSTALL);
+  const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+  const strayName = `${PREFIX}-99-claude`;
+
+  function strayDeps(placement: TicketPlacement | null = null): { d: SandboxLifecycleDeps; ssh: ReturnType<typeof fakeSshProcess> } {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-strays-'));
+    writeFileSync(join(dir, REMOTE_TRUST_FILE), JSON.stringify({ devbox: remoteTrustKey('devbox', REMOTE) }));
+    writeFileSync(join(dir, SSH_STRAYS_FILE), JSON.stringify([
+      { remote: 'devbox', path: `${REMOTE.remoteDir}/${strayName}`, ticketId: 99, forgottenAt: '2026-01-02T03:04:05.000Z' },
+    ]));
+    const ssh = fakeSshProcess({ [REMOTE.remoteDir]: { stdout: `__KARST_DIRS__\n${strayName}\n__KARST_TMUX__\n${strayName}\n` } });
+    const { d } = deps({
+      inv: [], placementOf: () => placement, projectRoot: '/p',
+      sshRunner: fakeSshRunnerDeps(ssh, { remotes: () => ({ devbox: REMOTE }), installId: () => INSTALL, globalStorageDir: dir }),
+    });
+    return { d, ssh };
+  }
+  const disposed = (ssh: ReturnType<typeof fakeSshProcess>): boolean =>
+    ssh.calls.some((c) => {
+      const last = c.args.at(-1) ?? '';
+      return last.includes('karst-ssh-dispose') || last.includes('rm -rf');
+    });
+
+  it('the orphan sweep neither reports nor disposes a stray', async () => {
+    const { d, ssh } = strayDeps();
+    await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
+    expect(d.notify.info).toHaveBeenCalledWith('This project has no orphan sandboxes.');
+    expect(disposed(ssh)).toBe(false);
+  });
+
+  it('the idle sweep never stops a stray', () => {
+    const stray: ProjectSandbox = { runner: 'ssh', name: strayName, remote: 'devbox', ticketId: 99, core: 'claude', state: 'running', stray: true };
+    expect(idleSandboxes({ sandboxes: [stray], errors: [] }, [{ id: 99, updatedAtMs: 0, sessionOpen: false }], () => true, 10_000_000, 1)).toEqual([]);
+  });
+
+  it('the done+merged backfill makes no removal for a stray', async () => {
+    const { d, ssh } = strayDeps();
+    const targetOf = (id: number, core: string) => ({ ticketId: id, ticketLabel: `T-${id}`, core, worktree: undefined });
+    await expect(removeDoneMergedSandboxes(d, new Set([99]), targetOf)).resolves.toBe(0);
+    expect(disposed(ssh)).toBe(false);
+  });
+
+  it('the guarded removal (archive, provider switch) never removes a forgotten workspace', async () => {
+    const { d, ssh } = strayDeps(fakeSshPlacement(99));
+    const t = { ticketId: 99, ticketLabel: 'T-99', core: 'claude', worktree: { path: '/wt', branch: 'feat/x' } };
+    await expect(removeSandboxGuarded(d, t, { skipSync: true })).resolves.toBe(true);
+    expect(disposed(ssh)).toBe(false);
+    expect(d.bridges?.dispose).not.toHaveBeenCalled();
   });
 });

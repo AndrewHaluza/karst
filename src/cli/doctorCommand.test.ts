@@ -262,7 +262,7 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
   it('reports a sandbox of an archived ticket, not of a live one', async () => {
     const list = vi.fn(async () => ({ sandboxes: [box(1), box(2)], errors: [] }));
     const checks = await doctorWith('agentBackend: sbx\n', list);
-    expect(list).toHaveBeenCalledWith(expect.stringMatching(/karst\.yml$/));
+    expect(list).toHaveBeenCalledWith(expect.stringMatching(/karst\.yml$/), expect.objectContaining({ globalStorageDir: expect.any(String) }));
     const orphans = checks.filter((c) => c.id.startsWith('state.sandbox-orphan.'));
     expect(orphans).toEqual([expect.objectContaining({ id: 'state.sandbox-orphan.karst-ab12cd34-2-claude', status: 'warn' })]);
   });

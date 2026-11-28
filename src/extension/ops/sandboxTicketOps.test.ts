@@ -539,6 +539,23 @@ describe('bindings: listing-backed core cache, channel, resume guard (F4/F10/F16
     await expect(b.hasSandbox(8)).resolves.toBe(false);
   });
 
+  it('a forgotten stray never counts as the ticket sandbox: hasSandbox stays false (D824)', async () => {
+    const b = await make({}, async () => [{ ...box, stray: true as const }]);
+    await expect(b.hasSandbox(7)).resolves.toBe(false);
+    expect(b.deps.coreOf(7)).toBeNull();
+  });
+
+  it('an ssh listing item matches the ticket only through its recorded <remote>/<name> (D824)', async () => {
+    const placement = fakeSshPlacement(7);
+    const item = { runner: 'ssh' as const, name: `${sshProjectPrefix('/p', FAKE_INSTALL_ID)}-7-claude`, ticketId: 7, core: 'claude', state: 'running' as const, remote: 'devbox' };
+    const match = await resolveTicketSandbox(deps({ placementOf: () => placement, inventory: async () => [item] }), 7);
+    expect(match.listed).toEqual(item);
+    const wrongRemote = await resolveTicketSandbox(deps({ placementOf: () => placement, inventory: async () => [{ ...item, remote: 'other' }] }), 7);
+    expect(wrongRemote.listed).toBeUndefined();
+    const stray = await resolveTicketSandbox(deps({ placementOf: () => placement, inventory: async () => [{ ...item, stray: true as const }] }), 7);
+    expect(stray.listed).toBeUndefined();
+  });
+
   it('default listing: only a CONFIGURED runner that fails to list makes the answer unknown', async () => {
     const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
     const mk = (backends: Record<string, 'sbx' | 'docker'>) => createTicketSandboxBindings({

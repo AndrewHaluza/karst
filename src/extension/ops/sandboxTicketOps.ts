@@ -18,7 +18,7 @@ import { resolveSbxMemory } from '../../agent/sbx/sbxMemory.js';
 import { availableParallelism, totalmem } from 'node:os';
 import { withGateSlot, type GateSlotDeps } from './gateSlotOps.js';
 import { dockerKillContext } from '../../agent/backendProbe.js';
-import { listProjectSandboxes, type ProjectSandbox } from '../../agent/sandboxInventory.js';
+import { listProjectSandboxes, inventorySshDeps, type ProjectSandbox } from '../../agent/sandboxInventory.js';
 import type { SandboxChannel } from '../../workflow/messageDelivery.js';
 import { assertNoSandboxResumeOnHost } from '../../agent/sandboxResumeGuard.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
@@ -40,7 +40,7 @@ import { ticketToastLabel } from '../ticketToastLabel.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
 import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
-import { blockedSshRunner } from './sshPlacementOps.js';
+import { blockedSshRunner, sshPlacementTarget } from './sshPlacementOps.js';
 import { sshDockerKillContextFor, sshRunnerFor, type SshRunnerDeps } from './sshRunnerFor.js';
 
 /**
@@ -158,7 +158,9 @@ export async function resolveTicketSandbox(deps: TicketSandboxDeps, ticketId: nu
       deps.debug?.(`[sandbox] ticket ${ticketId}: listing failed (${listingError}); using the session provider`);
       return [] as readonly ProjectSandbox[];
     });
-    listed = pickTicketSandbox(all, ticketId, hint, (m) => deps.debug?.(`[sandbox] ${m}`));
+    const sshTarget = sshPlacementTarget(placement);
+    listed = pickTicketSandbox(all, ticketId, hint, (m) => deps.debug?.(`[sandbox] ${m}`),
+      sshTarget === undefined ? undefined : { remote: sshTarget.remote, name: sshTarget.sandboxName });
     deps.remember?.(ticketId, listed?.core ?? null);
   }
   const core = listed?.core ?? hint;
@@ -376,10 +378,14 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     inventory: input.inventory ?? (async (ticketId) => {
       const inv = await listProjectSandboxes({
         projectRoot: input.projectRoot(ticketId), sbx: input.proc ?? NODE_SBX_PROCESS, docker: input.dockerProc ?? NODE_DOCKER_PROCESS,
+        ...inventorySshDeps(input.sshRunner),
       });
       // A configured runner that could not list may be the one holding this ticket's sandbox: not "none" (arch:AC-39).
       const wanted = selectedSandboxBackends(input.backends());
-      const failed = inv.errors.filter((e) => wanted.some((kind) => e.startsWith(`${kind} `)));
+      // An ssh ticket can select a remote no core selects (D827): its own remote's failure counts too.
+      const placementRemote = sshPlacementTarget(input.placementOf?.(ticketId) ?? null)?.remote;
+      const failed = inv.errors.filter((e) =>
+        wanted.some((kind) => e.startsWith(`${kind} `)) || (placementRemote !== undefined && e.startsWith(`ssh ${placementRemote}:`)));
       if (failed.length > 0 && !inv.sandboxes.some((b) => b.ticketId === ticketId)) throw new Error(failed.join('; '));
       return inv.sandboxes;
     }),

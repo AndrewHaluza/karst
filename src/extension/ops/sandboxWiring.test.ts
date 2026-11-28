@@ -407,7 +407,9 @@ describe('makeSandboxWiring idle sweep', () => {
       proc, sessionOpen: () => false, sshRunner: fakeSshRunnerDeps(ssh) });
     await expect(w.idleSweep()).resolves.toBe(1);
     expect(proc.calls.filter((c) => c.args[0] === 'stop').map((c) => c.args[1])).toEqual([n]);
-    expect(ssh.calls.filter((c) => c.args.join(' ').includes('tmux'))).toEqual([]);
+    // The inventory lists the remote's tmux status, but the box is stopped by sbx: no ssh stop/dispose.
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('karst-ssh-stop'))).toBe(false);
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('tmux kill-session'))).toBe(false);
   });
   it('stops a sandbox idle past 120 min with no open session, and logs it', async () => {
     const { w, n, stops, info } = setup(false, 121);

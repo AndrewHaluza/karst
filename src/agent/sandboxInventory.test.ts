@@ -1,7 +1,15 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { RemoteDef } from '../manifest/types.js';
 import { fakeSbxProcess } from './sbx/fakeSbxProcess.js';
 import { sbxName } from './sbx/sbxName.js';
 import { listProjectSandboxes, parseSandboxName } from './sandboxInventory.js';
+import { fakeSshProcess } from './ssh/fakeSshProcess.js';
+import { REMOTE_TRUST_FILE, remoteTrustKey } from './ssh/remoteTrust.js';
+import { sshProjectPrefix } from './ssh/sshNames.js';
+import { SSH_STRAYS_FILE } from './ssh/sshStrays.js';
 
 const ROOT = '/p/karst.yml';
 const own = (id: number, core: string): string => sbxName({ projectRoot: ROOT, ticketId: id, core });
@@ -127,5 +135,120 @@ describe('listProjectSandboxes docker -repo volumes', () => {
     const inv = await run(docker);
     expect(docker.calls.some((c) => c.args[0] === 'volume')).toBe(false);
     expect(inv.errors.some((e) => e.startsWith('docker ps failed'))).toBe(true);
+  });
+});
+
+describe('listProjectSandboxes ssh remotes (D824, edit 1)', () => {
+  const INSTALL = '0123456789abcdef0123456789abcdef';
+  const OTHER_INSTALL = 'ffffffffffffffffffffffffffffffff';
+  const PREFIX = sshProjectPrefix(ROOT, INSTALL);
+  const sshName = (id: number, core: string): string => `${PREFIX}-${String(id)}-${core}`;
+  const DEVBOX: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+  const BROKEN: RemoteDef = { ...DEVBOX, host: 'broken.example.com', remoteDir: '/srv/broken' };
+
+  function trustDir(entries: Record<string, string>): string {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-inv-'));
+    writeFileSync(join(dir, REMOTE_TRUST_FILE), JSON.stringify(entries));
+    return dir;
+  }
+  const trusted = (name: string, def: RemoteDef): Record<string, string> => ({ [name]: remoteTrustKey(name, def) });
+  const remoteList = (names: readonly string[], running: readonly string[] = names): string =>
+    ['__KARST_DIRS__', ...names, '__KARST_TMUX__', ...running].join('\n');
+  const base = { projectRoot: ROOT, sbx: fakeSbxProcess(), docker: fakeSbxProcess() };
+
+  it('lists this install\'s workspace per remote with its tmux status; other installs and projects never match', async () => {
+    const otherInstall = sshProjectPrefix(ROOT, OTHER_INSTALL);
+    const otherProject = sshProjectPrefix('/other/karst.yml', INSTALL);
+    const ssh = fakeSshProcess({ [DEVBOX.remoteDir]: { stdout: remoteList([
+      sshName(7, 'claude'),
+      sshName(8, 'codex'),
+      `${otherInstall}-9-claude`,
+      `${otherProject}-10-claude`,
+      `${PREFIX}-agy`, // not an SSH core
+      'karst-not-a-name',
+    ], [sshName(7, 'claude')]) } });
+    const inv = await listProjectSandboxes({
+      ...base, remotes: { devbox: DEVBOX }, ssh, installId: INSTALL, trustDir: trustDir(trusted('devbox', DEVBOX)),
+    });
+    expect(inv.errors).toEqual([]);
+    expect(inv.sandboxes).toEqual([
+      { runner: 'ssh', name: sshName(7, 'claude'), remote: 'devbox', ticketId: 7, core: 'claude', state: 'running' },
+      { runner: 'ssh', name: sshName(8, 'codex'), remote: 'devbox', ticketId: 8, core: 'codex', state: 'stopped' },
+    ]);
+  });
+
+  it('two remotes: one failure is reported for that remote only and never hides the other or the local backends', async () => {
+    const ssh = fakeSshProcess({
+      [DEVBOX.remoteDir]: { stdout: remoteList([sshName(7, 'claude')]) },
+      [BROKEN.remoteDir]: { code: 255, transport: true, stderr: 'ssh: connect to host broken port 22: Connection refused' },
+    });
+    const local = sbxName({ projectRoot: ROOT, ticketId: 5, core: 'claude' });
+    const inv = await listProjectSandboxes({
+      ...base,
+      sbx: fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${local} claude running\n` } }),
+      remotes: { devbox: DEVBOX, broken: BROKEN }, ssh, installId: INSTALL,
+      trustDir: trustDir({ ...trusted('devbox', DEVBOX), ...trusted('broken', BROKEN) }),
+    });
+    expect(inv.errors).toEqual(['ssh broken: transport failed: ssh: connect to host broken port 22: Connection refused']);
+    expect(inv.sandboxes.map((s) => [s.runner, s.ticketId])).toEqual([['sbx', 5], ['ssh', 7]]);
+  });
+
+  it('an unconfirmed remote gets ZERO ssh calls and a `not confirmed` error', async () => {
+    const ssh = fakeSshProcess();
+    const inv = await listProjectSandboxes({
+      ...base, remotes: { devbox: DEVBOX }, ssh, installId: INSTALL, trustDir: trustDir({}),
+    });
+    expect(ssh.calls).toEqual([]);
+    expect(inv.errors).toEqual(['ssh devbox: ssh remote devbox not confirmed']);
+    expect(inv.sandboxes).toEqual([]);
+  });
+
+  it('a missing install id lists no ssh remote and makes no ssh call', async () => {
+    const ssh = fakeSshProcess();
+    const inv = await listProjectSandboxes({
+      ...base, remotes: { devbox: DEVBOX }, ssh, trustDir: trustDir(trusted('devbox', DEVBOX)),
+    });
+    expect(ssh.calls).toEqual([]);
+    expect(inv.errors).toEqual(['ssh devbox: install id missing']);
+  });
+
+  it('mode docker reuses the docker listing through the ssh seam, filtered by the SSH prefix', async () => {
+    const dockerRemote: RemoteDef = { ...DEVBOX, mode: 'docker' };
+    const ssh = fakeSshProcess({
+      '{{.Names}}': { stdout: `${sshName(7, 'opencode')}\trunning\n` },
+      volume: { stdout: `${sshName(8, 'opencode2')}-repo\n` },
+    });
+    const inv = await listProjectSandboxes({
+      ...base, remotes: { devbox: dockerRemote }, ssh, installId: INSTALL,
+      trustDir: trustDir(trusted('devbox', dockerRemote)),
+    });
+    expect(inv.errors).toEqual([]);
+    expect(inv.sandboxes).toEqual([
+      { runner: 'ssh', name: sshName(7, 'opencode'), remote: 'devbox', ticketId: 7, core: 'opencode', state: 'running' },
+      { runner: 'ssh', name: sshName(8, 'opencode2'), remote: 'devbox', ticketId: 8, core: 'opencode2', state: 'stopped' },
+    ]);
+    // The remote filter uses the ssh prefix (which carries the install id), not the local project prefix.
+    expect(ssh.calls[0]!.args.at(-1)).toContain(`name=${PREFIX}-`);
+  });
+
+  it('a listed dir with an open stray record is marked stray; the others are not', async () => {
+    const dir = trustDir(trusted('devbox', DEVBOX));
+    const forgotten = sshName(7, 'claude');
+    writeFileSync(join(dir, SSH_STRAYS_FILE), JSON.stringify([
+      { remote: 'devbox', path: `${DEVBOX.remoteDir}/${forgotten}`, ticketId: 7, forgottenAt: '2026-01-02T03:04:05.000Z' },
+    ]));
+    const ssh = fakeSshProcess({ [DEVBOX.remoteDir]: { stdout: remoteList([forgotten, sshName(8, 'codex')]) } });
+    const inv = await listProjectSandboxes({ ...base, remotes: { devbox: DEVBOX }, ssh, installId: INSTALL, trustDir: dir });
+    expect(inv.sandboxes).toEqual([
+      { runner: 'ssh', name: forgotten, remote: 'devbox', ticketId: 7, core: 'claude', state: 'running', stray: true },
+      { runner: 'ssh', name: sshName(8, 'codex'), remote: 'devbox', ticketId: 8, core: 'codex', state: 'running' },
+    ]);
+  });
+
+  it('no remotes keeps the local listing byte-identical (no ssh call)', async () => {
+    const ssh = fakeSshProcess();
+    const inv = await listProjectSandboxes({ ...base, ssh });
+    expect(ssh.calls).toEqual([]);
+    expect(inv).toEqual({ sandboxes: [], errors: [] });
   });
 });

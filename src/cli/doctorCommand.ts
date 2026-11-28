@@ -5,7 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Store } from '../store/db.js';
-import type { Manifest } from '../manifest/types.js';
+import type { Manifest, RemoteDef } from '../manifest/types.js';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import { nodeEnvProbe } from '../manifest/nodeEnvProbe.js';
 import { dependencyRegistry, binaryExists, commandSucceeds, readCommandOutput } from '../runtime/deps.js';
@@ -29,6 +29,7 @@ import { probeBackends, probeDockerDisk, probeDockerMemory, probeDockerImageDisk
 import { doneMergedTicketIds } from '../store/doneMerged.js';
 import { checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
 import { listProjectSandboxes, type SandboxInventory } from '../agent/sandboxInventory.js';
+import { readExistingInstallId } from '../agent/ssh/sshNames.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
 import { NODE_DOCKER_PROCESS } from '../agent/docker/dockerProcess.js';
 import { parseDbTimeMs, type FixEffects } from '../doctor/applyFixes.js';
@@ -156,10 +157,27 @@ function fixEffects(store: Store): FixEffects {
 }
 
 /** This project's sandboxes (async, never `spawnSync`); injected by tests. */
-export type ListSandboxes = (projectRoot: string) => Promise<SandboxInventory>;
+export interface ListSandboxesContext {
+  /** The globalStorage dir: `ssh/install-id` (read only) and `ssh-trust.json` live there. */
+  readonly globalStorageDir: string;
+  /** The manifest's `remotes`: every declared remote is listed too (D824). */
+  readonly remotes: Readonly<Record<string, RemoteDef>> | undefined;
+}
+export type ListSandboxes = (projectRoot: string, ctx?: ListSandboxesContext) => Promise<SandboxInventory>;
 
-const listSandboxesNode: ListSandboxes = (projectRoot) =>
-  listProjectSandboxes({ projectRoot, sbx: NODE_SBX_PROCESS, docker: NODE_DOCKER_PROCESS });
+const listSandboxesNode: ListSandboxes = async (projectRoot, ctx) => {
+  const remotes = ctx?.remotes;
+  // Read only: a host step never creates the install id (D826); a missing one lists no ssh remote.
+  const installId = ctx === undefined || remotes === undefined || Object.keys(remotes).length === 0
+    ? undefined
+    : await readExistingInstallId(ctx.globalStorageDir).catch(() => undefined);
+  return listProjectSandboxes({
+    projectRoot, sbx: NODE_SBX_PROCESS, docker: NODE_DOCKER_PROCESS,
+    ...(remotes === undefined ? {} : { remotes }),
+    ...(installId === undefined ? {} : { installId }),
+    ...(ctx === undefined ? {} : { trustDir: ctx.globalStorageDir }),
+  });
+};
 
 /** Orphans: this project's sandboxes whose ticket is not live (arch:AC-32). Only with a sandbox backend. */
 async function sandboxOrphanChecks(store: Store, manifestPath: string | undefined, manifest: Manifest | undefined, list: ListSandboxes): Promise<DoctorCheck[]> {
@@ -318,10 +336,13 @@ export async function runDoctorCommand(
     try { manifest = loadManifestWithDiagnostics(manifestPath).manifest; }
     catch (e) { manifestError = (e as Error).message; }
   }
+  // The ssh listing needs the same globalStorage (install id + trust) and the manifest's remotes; a test lister ignores the context.
+  const listWithSsh: ListSandboxes = (projectRoot) =>
+    listSandboxes(projectRoot, { globalStorageDir: dirname(dbPath), remotes: manifest?.remotes });
   const report = await runDoctor({
     areas: args.areas, fix: args.fix,
     ...(args.only.length > 0 ? { only: args.only } : {}),
-    collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes, probe, gitHealth, storageUsage }),
+    collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes: listWithSsh, probe, gitHealth, storageUsage }),
     effects: fixEffects(store),
   });
   throw new DoctorExit(args.json ? JSON.stringify(report) : renderDoctorText(report), report.exitCode);
