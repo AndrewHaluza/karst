@@ -209,6 +209,8 @@ describe('Inside — the round switcher', () => {
     mountInside(state());
     expect(must('.attempt-tabs').getAttribute('role')).toBe('tablist');
     expect(must('.attempt-tabs').getAttribute('aria-label')).toBe('Rounds');
+    // No caption, no description: the row is only the tabs.
+    expect(must('.attempt-tabs').getAttribute('aria-describedby')).toBeNull();
     expect(tabs().map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false']);
     expect(tabs().map((t) => t.tabIndex)).toEqual([-1, 0, -1]);
     expect(tabs().map((t) => t.id)).toEqual(['attempt-tab-review-0', 'attempt-tab-review-1', 'attempt-tab-review-2']);
@@ -251,15 +253,35 @@ describe('Inside — the round switcher', () => {
     expect(h.send.selectGateAttempt).toHaveBeenCalledTimes(2);
   });
 
-  it('shows the host’s note above the ledger verbatim', () => {
-    mountInside(state({ attemptNote: 'opened by UAT test failure · 48s' }));
-    expect(text(must('.attempt-note'))).toBe('opened by UAT test failure · 48s');
+  it('shows the selected round’s caption as muted text in the tab row, named by the tablist', () => {
+    mountInside(state({ attemptCaption: 'opened by UAT test failure · 48s' }));
+    const caption = must('.attempt-tabs .attempt-caption');
+    expect(text(caption)).toBe('opened by UAT test failure · 48s');
+    // The caption is NOT a tab and not inside one: it describes the whole row.
+    expect(caption.closest('[role="tab"]')).toBeNull();
+    expect(caption.id).toBe('attempt-caption-review');
+    expect(must('.attempt-tabs').getAttribute('aria-describedby')).toBe('attempt-caption-review');
+    // A plain fact takes no attention band (the yellow `.attempt-note`).
+    expect(q('.attempt-note')).toBeNull();
+  });
+
+  it('keeps the attention band for the facts the reader must act on', () => {
+    mountInside(
+      state({ attemptCaption: 'opened by Review blocking findings · 1m 0s', attemptNote: 'no fix attempts left' }),
+    );
+    expect(text(must('.attempt-note'))).toBe('no fix attempts left');
     expect(all('.attempt-note').length).toBe(1);
+    expect(text(must('.attempt-caption'))).toBe('opened by Review blocking findings · 1m 0s');
+    cleanupInside();
+    mountInside(state({ attemptNote: 'round 1 is fixing — this result predates that fix, and this stage re-runs' }));
+    expect(text(must('.attempt-note'))).toBe('round 1 is fixing — this result predates that fix, and this stage re-runs');
+    expect(q('.attempt-caption')).toBeNull();
   });
 
   it('keeps the ledger at one sibling slot after the head whatever the round row and caption render', () => {
-    mountInside(state({ attemptNote: 'opened by UAT test failure · 48s' }));
+    mountInside(state({ attemptCaption: 'opened by UAT test failure · 48s', attemptNote: 'no fix attempts left' }));
     const slot = must('.attempt-slot');
+    expect(slot.querySelector('.attempt-tabs .attempt-caption')).not.toBeNull();
     expect(slot.querySelector('.attempt-note')).not.toBeNull();
     expect(slot.previousElementSibling?.classList.contains('inside-head')).toBe(true);
     expect(slot.querySelectorAll('.attempt-note').length).toBe(1);

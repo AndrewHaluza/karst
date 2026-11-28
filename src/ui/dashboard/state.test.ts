@@ -2499,7 +2499,9 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
       'R3',
     ]);
     expect(uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
-    expect(uat.attemptNote).toBe('opened by UAT test failure · 1m 0s');
+    expect(uat.attemptCaption).toBe('opened by UAT test failure');
+    // Live: the Tester is still running, so the round states no duration.
+    expect(uat.attemptNote).toBeUndefined();
     // The live attempt's own gates/ledger render — same as the pre-switcher read.
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
   });
@@ -2563,8 +2565,10 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
       { uat: requested },
     );
     const uat = state.insideViews.uat;
-    expect(uat.selectedAttempt).toBe(requested);
-    expect(uat.attemptNote).toBe('1m 0s');
+    expect(uat.selectedAttempt).toBe(attemptKey(stageRunIds[0], ''));
+    expect(uat.attemptCaption).toBe('1m 0s');
+    // A settled attempt's caption is a fact, not a warning: no band.
+    expect(uat.attemptNote).toBeUndefined();
     // Round 1's own (failing) batch renders, not the live attempt's.
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('fail');
   });
@@ -2578,7 +2582,7 @@ describe('buildDashboardState — round switcher selection (Option B, T4)', () =
     );
     const uat = state.insideViews.uat;
     expect(uat.selectedAttempt).toBe(attemptKey(stageRunIds[2], ''));
-    expect(uat.attemptNote).toBe('opened by UAT test failure · 1m 0s');
+    expect(uat.attemptCaption).toBe('opened by UAT test failure');
     expect(uat.processes.find((p) => p.id === 'gates')!.status).toBe('pass');
   });
 
@@ -2805,9 +2809,10 @@ describe('inside: a gate result superseded by an in-flight recovery round', () =
     expect(state.insideViews.review.attemptNote).toBeUndefined();
   });
 
-  it('never replaces the historical-selection banner', () => {
-    // A reader who has explicitly selected a past tab is already told so; that
-    // note wins, because it describes what they did.
+  it('keeps a historical selection’s caption in the tab row, apart from the band', () => {
+    // A reader who has explicitly selected a past tab still sees that round's
+    // own caption, and a plain caption never takes the attention band (the
+    // warning/superseded merge is covered in `stateGates.test.ts`).
     const t = createTicket(store, { key: 'SUP-4', title: 'thing' });
 
     // Two recorded review attempts (round 1 fails, opens round 2's fix).
@@ -2859,7 +2864,8 @@ describe('inside: a gate result superseded by an in-flight recovery round', () =
       undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
       { review: older },
     );
-    expect(state.insideViews.review.attemptNote).toBe('30.0s');
+    expect(state.insideViews.review.attemptCaption).toBe('30.0s');
+    expect(state.insideViews.review.attemptNote).toBeUndefined();
   });
 });
 
