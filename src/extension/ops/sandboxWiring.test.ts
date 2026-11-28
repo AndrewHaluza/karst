@@ -1402,6 +1402,24 @@ describe('makeSandboxWiring ssh lifecycle: palette, idle and recovery (D824)', (
     expect(getTicket(store, a).sessionId).toBe('s1');
   });
 
+  it('a placement on a remote that karst.yml no longer declares keeps its session (D824: never listed, so unknown)', async () => {
+    const { projectId, a } = liveSsh();
+    recordPlacement(store, a, { ...fakeSshPlacement(a), sandboxName: `oldbox/${nameOf(a)}` }, 'claude');
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      sshRunner: fakeSshRunnerDeps(fakeSshProcess({ '/srv/karst': dirs(undefined) })),
+    });
+    await w.reconcile();
+    expect(getTicket(store, a).sessionId).toBe('s1');
+  });
+
+  it('an ssh placement with no ssh runner keeps its session (no remote was listed)', async () => {
+    const { projectId, a } = liveSsh();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]) });
+    await w.reconcile();
+    expect(getTicket(store, a).sessionId).toBe('s1');
+  });
+
   it('the stray sweep reports a remote half-made workspace without removing it', async () => {
     const { projectId, a } = liveSsh();
     const prefix = sshProjectPrefix(ROOT, FAKE_INSTALL_ID);

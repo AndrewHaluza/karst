@@ -204,10 +204,12 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
   /** Live tickets for the reconcile: each carries its recorded placement, the only source of host-vs-sandbox (arch:AC-32). */
   const reconcileTickets = () => liveTickets().map((t) => {
     const placement = getPlacement(w.store, t.id);
+    const remote = sshPlacementTarget(placement)?.remote;
     return {
       id: t.id, sessionId: t.sessionId, sessionProvider: t.sessionProvider, placementBackend: placement?.backend ?? null,
-      // A per-remote ssh listing: only the ticket's own remote can prove its workspace gone (D824).
-      placementRemote: sshPlacementTarget(placement)?.remote ?? null,
+      // A per-remote ssh listing: only the ticket's own remote can prove its workspace gone (D824). A remote that
+      // karst.yml no longer declares (or no ssh runner) was never listed: unknown (null), so the session stays.
+      placementRemote: remote !== undefined && w.sshRunner?.remotes()?.[remote] !== undefined ? remote : null,
     };
   });
   /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
