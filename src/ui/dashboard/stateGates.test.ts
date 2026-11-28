@@ -114,8 +114,8 @@ describe('buildGateSwitches: the Ship round tabs (T1410)', () => {
     expect(rowsOf('merge', view)).toEqual([
       expect.objectContaining({ label: 'CI', detail: 'CI still failed', status: 'fail' }),
     ]);
-    // Commit and Pull request stay in both views.
-    expect(view.processes.map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'autofix', 'merge']);
+    // Commit and Pull request stay; the round reads in time order: arm, push, CI.
+    expect(view.processes.map((p) => p.id)).toEqual(['commit', 'pr', 'autofix', 'push', 'merge']);
   });
 });
 

@@ -1046,19 +1046,33 @@ function roundMergeProcess(ledger: ShipRoundLedger): InsideProcessView {
  * NOT part of the registered roster: unlike every id in `INSIDE_PROCESSES`,
  * which always renders (even as an empty/pending row), `ship-findings` is
  * entirely absent whenever nothing blocks, which is the common case. The
- * Deliver push is part of the Push row (T1403), never a row of its own.
+ * Deliver push is part of the Push row (T1403), never a row of its own. A
+ * historical round (T1410) reads in time order instead: commit, pr, autofix,
+ * push, merge.
  */
 export function shipProcesses(input: ShipProcessesInput): InsideProcessView[] {
   const warning = shipFindingsWarning(input);
   const ledger = input.roundLedger ?? null;
   const tabs = (input.rounds?.length ?? 0) >= 2;
-  const autofix = ledger ? roundAutofixProcess(ledger) : autofixProcess(input.autofix, tabs);
+  if (ledger) {
+    // A historical round reads in time order: its arm row comes before the
+    // push in its window, then the CI result (T1410).
+    return [
+      ...(warning ? [warning] : []),
+      commitProcess(input),
+      prProcess(input),
+      roundAutofixProcess(ledger),
+      roundPushProcess(ledger),
+      roundMergeProcess(ledger),
+    ];
+  }
+  const autofix = autofixProcess(input.autofix, tabs);
   return [
     ...(warning ? [warning] : []),
     commitProcess(input),
-    ledger ? roundPushProcess(ledger) : pushProcess(input),
+    pushProcess(input),
     prProcess(input),
     ...(autofix ? [autofix] : []),
-    ledger ? roundMergeProcess(ledger) : mergeProcess(input),
+    mergeProcess(input),
   ];
 }

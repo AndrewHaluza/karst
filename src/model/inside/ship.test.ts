@@ -134,6 +134,17 @@ describe('shipProcesses', () => {
     expect(views.map((p) => p.id)).toEqual(['commit', 'push', 'pr', 'merge']);
   });
 
+  it('puts a historical round’s Auto-fix arm row above its push row, in time order (T1410)', () => {
+    const roundLedger = {
+      round: { key: 'ship:a', label: 'R1', status: 'note', tag: 'CI' },
+      autofix: [{ label: 'round 1', status: 'note', time: '09:00' }],
+      push: [{ label: 'web', detail: 'pushed', status: 'pass', time: '09:05' }],
+      ci: [{ label: 'CI', detail: 'CI still failed', status: 'fail' }],
+    } as unknown as NonNullable<ShipProcessesInput['roundLedger']>;
+    const views = shipProcesses(shipInput({ roundLedger }));
+    expect(views.map((p) => p.id)).toEqual(['commit', 'pr', 'autofix', 'push', 'merge']);
+  });
+
   it('states when each recorded ship step started', () => {
     const views = shipProcesses(
       shipInput({
