@@ -130,9 +130,11 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
       host: deps.host ?? NODE_SBX_PROCESS, remote: def, remoteName: name,
       names: dockerNamesFromContainer(target.sandboxName), projectPrefix, controlDir, core,
       ticketId: ticket.ticketId, hostWorktreePath,
+      trustDir: deps.globalStorageDir,
       // A host step has no preflight (`withRemoteDockerUser` probes the REMOTE ids
       // for the ops that need them): the launch resolved runs as the remote user.
       user,
+      ensureControlDir: deps.ensureControlDir,
       memory: resolveDockerMemoryLimits(ticket.memTotalBytes, ticket.sandboxMemory),
       tunnels,
       ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
@@ -145,6 +147,7 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
     ssh, host: deps.host ?? NODE_SBX_PROCESS, remote: def, remoteName: name,
     sandboxName: target.sandboxName, projectPrefix, controlDir,
     core, ticketId: ticket.ticketId, hostWorktreePath: ticket.hostWorktreePath,
+    trustDir: deps.globalStorageDir,
     // `tmux` is read only by `placeInteractive`; a host step never launches (`stop` kills a tmux session either way).
     tmux: false,
     registry: deps.registry ?? WINDOW_SSH_GATE_REGISTRY,
@@ -185,7 +188,7 @@ export function sshDockerKillContextFor(
 /** The async ops that reach the remote: each first makes sure the control dir is private. */
 const REMOTE_OPS = [
   'sync', 'refresh', 'fetchClone', 'diff', 'shellCommand', 'stop', 'dispose', 'rebuild', 'hasSandbox', 'probeSandbox',
-  'oomReport', 'ensureWritable', 'ensureCloneReady', 'prepareInteractive', 'runGate',
+  'oomReport', 'ensureWritable', 'ensureCloneReady', 'prepareInteractive', 'runGate', 'linkTranscripts',
   // `mode: docker` remote ops (D822): a setup window, a port relay, a service env
   // file and the host-service allow all reach the remote daemon.
   'setupWindow', 'canHostServices', 'stopServices', 'publishPort', 'unpublishPort', 'listPorts', 'allowHostPorts',

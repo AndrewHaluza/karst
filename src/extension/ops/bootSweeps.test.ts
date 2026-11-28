@@ -52,4 +52,31 @@ describe('runBridgeSweep', () => {
     ).resolves.toBeUndefined();
     expect(s.logError).toHaveBeenCalledWith('karst: sandbox bridge sweep failed', err);
   });
+  it('restarts the ssh forwarder of each attached ticket and stops it for each removed one (D556)', async () => {
+    const s = setup();
+    const startSshBridge = vi.fn(async () => 'started' as const);
+    const stopSshBridge = vi.fn(async () => undefined);
+    const sweep = async () => ({ reattached: [s.open], removed: [9] });
+    await runBridgeSweep({ store: s.store, bridges: { sweep }, owned: new Set([s.open]), startSshBridge, stopSshBridge, info: s.info, logError: s.logError });
+    expect(startSshBridge.mock.calls).toEqual([[s.open]]);
+    expect(stopSshBridge.mock.calls).toEqual([[9]]);
+    expect(s.logError).not.toHaveBeenCalled();
+  });
+
+  it('a rejected ssh forwarder start or stop is logged with its ticket, and the loop goes on', async () => {
+    const s = setup();
+    const err = new Error('ssh down');
+    const sweep = async () => ({ reattached: [], removed: [9, 10] });
+    await runBridgeSweep({
+      store: s.store, bridges: { sweep }, owned: new Set([s.open, 12]),
+      startSshBridge: () => Promise.reject(err), stopSshBridge: () => Promise.reject(err),
+      info: s.info, logError: s.logError,
+    });
+    expect(s.logError.mock.calls).toEqual([
+      [`karst: ssh bridge forwarder of ticket ${s.open} failed to start`, err],
+      ['karst: ssh bridge forwarder of ticket 12 failed to start', err],
+      ['karst: ssh bridge forwarder of ticket 9 failed to stop', err],
+      ['karst: ssh bridge forwarder of ticket 10 failed to stop', err],
+    ]);
+  });
 });

@@ -1,3 +1,5 @@
+import { isThenable, type Awaitable } from './fixDeliveryOps.js';
+
 /**
  * The conflict round hand-off (@arch:AP-01), shared by the Autopilot round and the Resolve conflicts click.
  * A live host or sandbox session gets the brief as a stored `conflict` delivery (`fix_deliveries`, @arch:V77) and the
@@ -12,14 +14,14 @@ export interface ConflictDeliveryDeps {
   readonly focus: (ticketId: number) => void;
   readonly open: (ticketId: number, brief: string, repo: string) => void;
   /** Stores the snapshot and arms or types the pointer. False when no session could take it. */
-  readonly deliverLive: (ticketId: number, repo: string, brief: string) => boolean;
+  readonly deliverLive: (ticketId: number, repo: string, brief: string) => Awaitable<boolean>;
   /** Stores the snapshot already read: the launch seed carries the brief. */
   readonly recordSeed: (ticketId: number, repo: string, brief: string) => void;
   readonly key: (ticketId: number) => string;
   readonly debug: (message: string) => void;
 }
 
-export type ConflictDeliver = (ticketId: number, brief: string, repo: string) => void;
+export type ConflictDeliver = (ticketId: number, brief: string, repo: string) => Awaitable<void>;
 
 export function makeConflictDelivery(d: ConflictDeliveryDeps): ConflictDeliver {
   const log = (id: number, what: string): void => d.debug(`[ship] ticket ${d.key(id)}: conflict brief ${what}`);
@@ -39,9 +41,19 @@ export function makeConflictDelivery(d: ConflictDeliveryDeps): ConflictDeliver {
       log(id, 'sent as the seed of a new graph session');
       return;
     }
-    if (d.isLive(id) && d.deliverLive(id, repo, brief)) {
-      d.focus(id);
-      log(id, 'stored; the live session is pointed at it');
+    if (d.isLive(id)) {
+      const delivered = d.deliverLive(id, repo, brief);
+      const settle = (ok: boolean): void => {
+        if (!ok) {
+          seed(id, brief, repo);
+          return;
+        }
+        d.focus(id);
+        log(id, 'stored; the live session is pointed at it');
+      };
+      // A sandboxed brief is mirrored first (D556): seed only when that resolved false.
+      if (isThenable(delivered)) return delivered.then(settle, () => seed(id, brief, repo));
+      settle(delivered);
       return;
     }
     seed(id, brief, repo);

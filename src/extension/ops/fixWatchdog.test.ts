@@ -420,6 +420,25 @@ describe('fixWatchdog', () => {
       expect(getTicket(store, ticketId).agentState).toBe('not-started');
     });
 
+    it('marks needs-you after an ASYNC unsendable pointer resolves (D556)', async () => {
+      pendingFixIntent();
+      const nudge = vi.fn(() => true);
+      runFixWatchdog(deps({ nudge, pointAtFix: () => Promise.resolve('unsendable' as const), now: () => AFTER_DELIVERY }));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(nudge).not.toHaveBeenCalled();
+      expect(getTicket(store, ticketId).agentState).toBe('not-started');
+      expect(getSessionLaunchIntent(store, 'FIX-1')!.redeliveredAt).toBeNull();
+    });
+
+    it('logs a rejected ASYNC pointer with its exact error (D556)', async () => {
+      pendingFixIntent();
+      const log = vi.fn();
+      runFixWatchdog(deps({ log, pointAtFix: () => Promise.reject(new Error('mirror down')), now: () => AFTER_DELIVERY }));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(log).toHaveBeenCalledWith(`karst: ticket ${ticketId}: launch re-delivery failed (mirror down)`);
+    });
+
     it('never points for a non-fix intent', () => {
       implIntent(ticketId);
       const pointAtFix = vi.fn(() => 'sent' as const);

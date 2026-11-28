@@ -28,6 +28,7 @@ import { karstCliRefs } from '../../agent/cliEnv.js';
 import { isKnownProvider, providerConfirmsLaunch } from '../../agent/provider.js';
 import { graphTicketSurface } from '../../approaches/graph/entryPoints.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
+import { isThenable, type Awaitable } from './fixDeliveryOps.js';
 import { formatTicketRef } from '../../model/entityId.js';
 
 export interface FixWatchdogDeps {
@@ -68,9 +69,10 @@ export interface FixWatchdogDeps {
    * Fix launches with a stored brief snapshot (@arch:V77): type the fix POINTER
    * for the row bound to `launchId` instead of re-typing the whole brief.
    * `no-row` = the launch has no snapshot (an untracked round) → the full
-   * re-type below stays the fallback.
+   * re-type below stays the fallback. A sandboxed row first mirrors its brief
+   * to an ssh remote, so this is async-capable (D556).
    */
-  pointAtFix?: (ticketId: number, launchId: string) => 'sent' | 'unsendable' | 'no-row';
+  pointAtFix?: (ticketId: number, launchId: string) => Awaitable<'sent' | 'unsendable' | 'no-row'>;
   /**
    * Re-drive a ticket through the stage driver (`maybeDrive(id, 'stranded-stage')`).
    * Absent = the stranded-stage sweep does not run.
@@ -282,7 +284,16 @@ function runDeliveryGuard(
     decided.add(c.ticketId);
     const list = candidates.filter((x) => x.ticketId === c.ticketId);
     try {
-      deliverForTicket(deps, c.ticketId, list, opts.at, stallCutoff);
+      const pending = deliverForTicket(deps, c.ticketId, list, opts.at, stallCutoff);
+      if (isThenable(pending)) {
+        void pending.catch((err: unknown) => {
+          deps.log(
+            `karst: ticket ${c.ticketId}: launch re-delivery failed (${
+              err instanceof Error ? err.message : String(err)
+            })`,
+          );
+        });
+      }
     } catch (err) {
       // A throwing host seam (e.g. a terminal closed between the liveness check
       // and the send) must never abort the remaining tickets NOR the park
@@ -304,7 +315,7 @@ function deliverForTicket(
   list: readonly DeliveryCandidate[],
   at: string,
   stallCutoff: number,
-): void {
+): Awaitable<void> {
   // The graph coordinator owns a graph ticket's sessions — never nudge one.
   if (deps.isGraphTicket(ticketId)) return;
   // A fix launch past the stall window is the park sweep's to settle THIS tick:
@@ -343,20 +354,26 @@ function deliverForTicket(
     fresh.purpose === 'fix' && deps.pointAtFix !== undefined
       ? deps.pointAtFix(ticketId, fresh.launchId)
       : 'no-row';
-  if (pointed === 'unsendable') {
-    markNotStarted(deps, ticketId);
-    return;
-  }
-  if (pointed === 'no-row' && !deps.nudge(ticketId, redeliveryPrompt(deps.store, ticketId))) {
-    // The nudge did not reach a live session (a race, or the terminal died
-    // between the liveness check and the send).
-    markNotStarted(deps, ticketId);
-    return;
-  }
-  // Stamp EVERY pending intent for the ticket: the one-shot limit is per
-  // session, so the survivor of a two-intent ticket is never nudged again.
-  markTicketLaunchIntentsRedelivered(deps.store, ticketId, at);
-  deps.log(`karst: ticket ${ticketId}: launch brief re-delivered into the live session, still awaiting SessionStart (launch ${fresh.launchId})`);
+  const settle = (result: 'sent' | 'unsendable' | 'no-row'): void => {
+    if (result === 'unsendable') {
+      markNotStarted(deps, ticketId);
+      return;
+    }
+    if (result === 'no-row' && !deps.nudge(ticketId, redeliveryPrompt(deps.store, ticketId))) {
+      // The nudge did not reach a live session (a race, or the terminal died
+      // between the liveness check and the send).
+      markNotStarted(deps, ticketId);
+      return;
+    }
+    // Stamp EVERY pending intent for the ticket: the one-shot limit is per
+    // session, so the survivor of a two-intent ticket is never nudged again.
+    markTicketLaunchIntentsRedelivered(deps.store, ticketId, at);
+    deps.log(`karst: ticket ${ticketId}: launch brief re-delivered into the live session, still awaiting SessionStart (launch ${fresh.launchId})`);
+  };
+  // A sandboxed ssh delivery mirrors its brief first (D556): the escalation
+  // settles only after that mirror resolves, never on a still-pending write.
+  if (isThenable(pointed)) return pointed.then(settle);
+  settle(pointed);
 }
 
 /** The ticket's hook-driven liveness, defaulting to `none` (no hook ever fired). */

@@ -13,9 +13,11 @@ import {
   failPointer,
   hasPendingFixIntent,
   isPushRoute,
+  isThenable,
   sendTypedPointer,
   closeStaleDeliveries,
   deliveryRoundOpen,
+  type Awaitable,
   type FixDeliveryHost,
 } from './fixDeliveryOps.js';
 
@@ -54,7 +56,12 @@ export interface FixDeliverySweepDeps extends FixDeliveryHost {
 }
 
 export interface FixDeliverySweep {
-  sweep(): void;
+  /**
+   * One tick. Sync for a host delivery; a promise when a row's remote mirror is
+   * async (D556), so a caller may await the completed sweep. Existing callers
+   * that only fire the timer may ignore the promise.
+   */
+  sweep(): Awaitable<void>;
 }
 
 export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySweep {
@@ -90,25 +97,31 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
    * the delivery-guard window claim `pointer_failed_at` once and raise Needs you,
    * naming the inbox file. Runs BEFORE `gated` for exactly that reason.
    */
-  function escalateUnsendable(row: FixDelivery): void {
+  function escalateUnsendable(row: FixDelivery): Awaitable<void> {
     const { store } = deps;
     if (deps.unsendableInbox === undefined && deps.hostUnsendable === undefined) return;
     if (row.pointerFailedAt !== null || row.pointedAt !== null || row.readAt !== null) return;
     if (deps.isGraphTicket(row.ticketId)) return;
     if (!roundOpen(row)) return;
     if (ageMs(row.createdAt) < FIX_POINTER_UNSENDABLE_MS) return;
-    const file = deps.unsendableInbox?.(row.ticketId, row.id) ?? null;
-    const hostWhy = file === null ? (deps.hostUnsendable?.(row.ticketId, row.id) ?? null) : null;
-    if (file === null && hostWhy === null) return;
-    if (!claimPointerFailed(store, row.id, deps.now())) return;
-    if (file !== null) {
-      deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: pointer unsendable — brief is in ${file}`);
-      deps.needsYou(row.ticketId, `the fix pointer could not be sent; the brief is in ${file} — paste a pointer to it`);
-      return;
-    }
-    // Host: the brief is in the ticket's fix brief (karst MCP `fix-brief`); `needsYou` flags only a quiet or idle agent.
-    deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: host pointer unsendable — ${hostWhy}`);
-    deps.needsYou(row.ticketId, `the fix pointer could not be sent (${hostWhy}) — open the ticket session and ask the agent to read its fix brief`);
+    const inbox = deps.unsendableInbox?.(row.ticketId, row.id);
+    const settle = (file: string | null): void => {
+      const hostWhy = file === null ? (deps.hostUnsendable?.(row.ticketId, row.id) ?? null) : null;
+      if (file === null && hostWhy === null) return;
+      if (!claimPointerFailed(store, row.id, deps.now())) return;
+      if (file !== null) {
+        deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: pointer unsendable — brief is in ${file}`);
+        deps.needsYou(row.ticketId, `the fix pointer could not be sent; the brief is in ${file} — paste a pointer to it`);
+        return;
+      }
+      // Host: the brief is in the ticket's fix brief (karst MCP `fix-brief`); `needsYou` flags only a quiet or idle agent.
+      deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: host pointer unsendable — ${hostWhy}`);
+      deps.needsYou(row.ticketId, `the fix pointer could not be sent (${hostWhy}) — open the ticket session and ask the agent to read its fix brief`);
+    };
+    // A remote mirror settles the inbox answer asynchronously; no escalation
+    // happens until it resolves, so a refused mirror cannot fake a sendable row (D556).
+    if (isThenable(inbox)) return inbox.then((file) => settle(file ?? null));
+    return settle(inbox ?? null);
   }
 
   /**
@@ -124,7 +137,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     deps.needsYou(row.ticketId, 'the conflict brief reached no live session — open the ticket session and resolve the conflict');
   }
 
-  function apply(row: FixDelivery): void {
+  function apply(row: FixDelivery): Awaitable<void> {
     const { store } = deps;
     const route = deps.routeFor(row.ticketId);
     const push = isPushRoute(route);
@@ -149,7 +162,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     }
     // Rule 0 — the typed route's first send (also after a re-arm or a drop).
     if (!push && row.enqueuedAt === null && row.pointedAt === null) {
-      if (!running) sendFirst(row);
+      if (!running) return sendFirst(row);
       return;
     }
     // A push route that was never armed (the row was written while the core was
@@ -166,7 +179,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
       row.pointedAt === null &&
       ageMs(row.armedAt) >= ARMED_FIX_TIMEOUT_MS
     ) {
-      if (!running) sendFirst(row);
+      if (!running) return sendFirst(row);
       return;
     }
     // Rule 5 — escalate before re-sending again.
@@ -184,30 +197,62 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     ) {
       lastResendAt.set(row.id, Date.parse(deps.now()));
       const sent = sendTypedPointer(deps, row, 'resend');
-      if (sent === 'pointer-null') failPointer(deps, row);
+      const settle = (result: string): void => {
+        if (result === 'pointer-null') failPointer(deps, row);
+      };
+      return isThenable(sent) ? sent.then(settle) : settle(sent);
     }
   }
 
-  function sendFirst(row: FixDelivery): void {
+  function sendFirst(row: FixDelivery): Awaitable<void> {
     // Rule 2 — an unbuildable pointer fails the delivery once.
-    if (sendTypedPointer(deps, row, 'first') === 'pointer-null') failPointer(deps, row);
+    const sent = sendTypedPointer(deps, row, 'first');
+    const settle = (result: string): void => {
+      if (result === 'pointer-null') failPointer(deps, row);
+    };
+    return isThenable(sent) ? sent.then(settle) : settle(sent);
   }
 
   return {
-    sweep(): void {
+    sweep(): Awaitable<void> {
       const projectId = deps.projectId();
+      // Stryker disable next-line ConditionalExpression: equivalent — an unbound project binds NULL and lists no row.
       if (projectId === undefined) return;
-      for (const row of listOpenFixDeliveries(deps.store, projectId)) {
-        try {
-          closeStaleDeliveries(deps, row.ticketId);
-          escalateUnsendable(row);
-          escalateDeadConflict(row);
-          if (gated(row)) apply(row);
-        } catch (err) {
-          // One bad row must never starve the rest; the next tick retries.
-          deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);
+      const rows = [...listOpenFixDeliveries(deps.store, projectId)];
+      const run = (from: number): Awaitable<void> => {
+        for (let i = from; i < rows.length; i++) {
+          const row = rows[i]!;
+          let pending: Awaitable<void>;
+          try {
+            closeStaleDeliveries(deps, row.ticketId);
+            pending = chainSteps([
+              () => escalateUnsendable(row),
+              () => escalateDeadConflict(row),
+              () => (gated(row) ? apply(row) : undefined),
+            ]);
+          } catch (err) {
+            // One bad row must never starve the rest; the next tick retries.
+            deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);
+            continue;
+          }
+          if (isThenable(pending)) {
+            return pending
+              .catch((err: unknown) => {
+                deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);
+              })
+              .then(() => run(i + 1));
+          }
         }
-      }
+      };
+      return run(0);
     },
   };
+}
+
+/** Run steps in order; stop at the first async one and continue after it resolves. */
+function chainSteps(steps: readonly (() => Awaitable<void>)[], from = 0): Awaitable<void> {
+  for (let i = from; i < steps.length; i++) {
+    const result = steps[i]!();
+    if (isThenable(result)) return result.then(() => chainSteps(steps, i + 1));
+  }
 }

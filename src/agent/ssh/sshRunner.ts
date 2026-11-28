@@ -29,12 +29,17 @@ import { disposeTarget } from './sshDisposeGuard.js';
 import { remoteEnv, remoteEnvScript, rewriteEmbeddedHostPaths } from './sshEnv.js';
 import { sweepScript } from './sshGateScript.js';
 import { sshGateKey, WINDOW_SSH_GATE_REGISTRY, type SshGateRegistry } from './sshGateRegistry.js';
+import { mirrorBridgeMirrors } from './sshMirror.js';
+import type { SshControlResult } from './sshControlDir.js';
 import { SANDBOX_NAME_RE } from './sshNames.js';
+import { isRemoteTrusted, readRemoteTrust } from './remoteTrust.js';
+import { uploadBridgeScripts } from './sshBridge.js';
 import { SSH_BIN, sshArgv, type SshProcess, type SshResult } from './sshProcess.js';
 import { killRemoteGate, GATE_KILL_GRACE_SECONDS, sshRunGate, type SshGateContext } from './sshRunGate.js';
 import { remoteSh, sshQuote } from './sshQuote.js';
 import { createSshServices, defaultSshTunnels } from './sshServices.js';
 import type { TunnelRegistry } from './sshTunnels.js';
+import { claudeTranscriptLinkScript, codexRolloutDiscoveryScript } from './sshTranscript.js';
 
 /**
  * The `mode: direct` ssh runner (D555, edit 6). The agent runs PROMPTED on the
@@ -58,11 +63,15 @@ export interface SshRunnerOptions {
   /** `sshProjectPrefix(projectRoot, installId)`: `dispose` refuses a name outside it. */
   readonly projectPrefix: string;
   readonly controlDir: string;
+  /** Test seam: the control-dir check of the upload and the mirror (default `ensureSshControlDir`). */
+  readonly ensureControlDir?: (dir: string) => Promise<SshControlResult>;
   readonly core: SshCore;
   readonly ticketId: number;
   readonly hostWorktreePath: string;
   /** The preflight found tmux: the session survives a dropped connection. */
   readonly tmux: boolean;
+  /** `<globalStorage>`: the dir of `ssh-trust.json`, re-read by the launch upload (D553). */
+  readonly trustDir?: string;
   /** The core binary that the preflight resolved on the remote (`command -v <core>`); default the core name. */
   readonly coreBin?: string;
   readonly registry?: SshGateRegistry;
@@ -217,6 +226,55 @@ export function createSshSessionRunner(opts: SshRunnerOptions): SessionRunner {
   });
   const { releaseAll, ...serviceMembers } = services;
 
+  /** The host bridge dir of the last prepared launch: the mirror source at launch and after each gate (edit 5). */
+  let hostBridgeDir: string | undefined;
+
+  /**
+   * Copy the host bridge dir's `attachments/` and `logs/` copies into the remote
+   * run dir, so the remote agent reads the same attachment and gate-log path its
+   * text names. Best effort: a failure is logged and never blocks a launch or a
+   * gate, and an unconfirmed remote runs no ssh (D553, inside `mirrorBridgeMirrors`).
+   */
+  const mirrorMirrors = async (): Promise<void> => {
+    const host = hostBridgeDir;
+    const trustDir = opts.trustDir;
+    if (host === undefined || trustDir === undefined) return;
+    const out = await mirrorBridgeMirrors(
+      { name: opts.remoteName, def: opts.remote },
+      runDir,
+      host,
+      {
+        trustDir,
+        ssh: opts.ssh,
+        ...(opts.controlDir !== undefined ? { controlDir: opts.controlDir } : {}),
+        ...(opts.ensureControlDir !== undefined ? { ensureControlDir: opts.ensureControlDir } : {}),
+        ...(opts.debug ? { debug: opts.debug } : {}),
+      },
+    ).catch((err: unknown) => ({ ok: false as const, reason: err instanceof Error ? err.message : String(err), mirrored: [], skipped: [] }));
+    if (!out.ok) opts.debug?.(`[ssh ${opts.remoteName}] attachment/log mirror: ${out.reason}`);
+  };
+
+  /**
+   * D556 edit 5: make the remote transcripts readable on the host. claude gets a
+   * project-dir LINK into the run dir; codex has no per-cwd dir, so the launch
+   * writes the rollout list the forwarder follows. Trust is first: an
+   * unconfirmed remote runs no ssh. A failure is only a warning (the session
+   * launches uncounted), like the sbx link.
+   */
+  const linkTranscripts: NonNullable<SessionRunner['linkTranscripts']> = async () => {
+    const trust = opts.trustDir === undefined ? undefined : readRemoteTrust(opts.trustDir, opts.warn);
+    if (trust !== undefined && !isRemoteTrusted(trust, opts.remoteName, opts.remote)) {
+      return { ok: false, reason: `ssh remote ${opts.remoteName} not confirmed` };
+    }
+    const script = opts.core === 'claude'
+      ? claudeTranscriptLinkScript(runDir, paths.repo)
+      : codexRolloutDiscoveryScript(runDir, paths.repo);
+    const out = await run(script);
+    return out.transport !== true && out.code === 0
+      ? { ok: true }
+      : { ok: false, reason: shellQuoteFailure(opts.remoteName, 'transcript link', out) };
+  };
+
   const dispose = async (): Promise<DisposeResult> => {
     const target = disposeTarget(opts.remote.remoteDir, opts.sandboxName, opts.projectPrefix);
     if (!target.ok || target.path !== paths.workspace) {
@@ -247,6 +305,21 @@ export function createSshSessionRunner(opts: SshRunnerOptions): SessionRunner {
       const body = `${remoteEnvScript(env)}\n`;
       const out = await opts.ssh.runWithStdin(argv(prepareScript(paths, runDir)), Buffer.from(body, 'utf8'), { maxStdoutBytes: TEXT_STDOUT_BYTES });
       if (out.code !== 0) throw new Error(shellQuoteFailure(opts.remoteName, 'launch preparation', out));
+      // D556 edit 3: the adapters wrote their scripts into the host bridge dir;
+      // put them in the remote run dir the marker command and hooks name.
+      if (spec.bridgeDir !== undefined) {
+        hostBridgeDir = spec.bridgeDir;
+        const upload = await uploadBridgeScripts({
+          ssh: opts.ssh, remote: opts.remote, remoteName: opts.remoteName, core: opts.core,
+          hostBridgeDir: spec.bridgeDir, runDir, ...(opts.trustDir !== undefined ? { trustDir: opts.trustDir } : {}),
+          ...(opts.controlDir !== undefined ? { controlDir: opts.controlDir } : {}),
+          ...(opts.ensureControlDir !== undefined ? { ensureControlDir: opts.ensureControlDir } : {}),
+          ...(opts.debug ? { debug: opts.debug } : {}),
+        });
+        if (!upload.ok) throw new Error(upload.reason);
+        // D556 edit 5: the attachments and gate logs the text names must exist remotely too.
+        await mirrorMirrors();
+      }
       await sweepOrphans();
     },
     placeInteractive: (spec: InteractiveLaunchSpec): PlacedInteractiveLaunch => {
@@ -270,7 +343,13 @@ export function createSshSessionRunner(opts: SshRunnerOptions): SessionRunner {
       if (!safe.ok) return disposeResult([{ step: 'rebuild guard', status: 'failed', stderr: safe.reason }]);
       return dispose();
     },
-    runGate: sshRunGate(gateCtx),
+    runGate: async (command, args, cwd, gateOpts) => {
+      const out = await sshRunGate(gateCtx)(command, args, cwd, gateOpts);
+      // D556 edit 5: the gate just wrote its log on the host; copy the new set to the remote.
+      await mirrorMirrors();
+      return out;
+    },
+    ...(opts.core === 'claude' || opts.core === 'codex' ? { linkTranscripts } : {}),
     ...serviceMembers,
     probeSandbox: probe,
     hasSandbox: async () => (await probe()).state === 'present',

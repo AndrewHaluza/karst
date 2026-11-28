@@ -3,6 +3,8 @@ import { open, readdir, realpath, stat } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { codexHome } from '../../agent/quota/codex.js';
 import { sessionReaderEnv } from '../../agent/accounts/registry.js';
+import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
+import { CODEX_SESSIONS_DIRNAME } from '../../agent/ssh/sshTranscript.js';
 import type { Store } from '../../store/db.js';
 import { getPlacement } from '../../store/placement.js';
 import { getTicket } from '../../store/tickets.js';
@@ -38,6 +40,8 @@ export interface CodexRolloutWatchLoopDeps {
   readonly listTerminals: () => Iterable<unknown>;
   /** Resolve a terminal to its ticket identity, or `undefined` if unnamed. */
   readonly identifyTerminal: (terminal: unknown) => CodexTerminalNamed | undefined;
+  /** The bridge registry root (`<globalStorage>/bridge`): an ssh ticket reads its forwarded rollouts. */
+  readonly bridgeRoot?: () => string | undefined;
   /**
    * The rollout text of the ticket's Codex session. Called on every READ (a
    * changed file), never for an unchanged one; the once-per-error rule is the
@@ -121,16 +125,23 @@ async function readRolloutTail(file: string, realRoot: string): Promise<string> 
  * rollout, `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<session-id>.jsonl`:
  * a usage-limited turn is an `event_msg` `task_complete` whose `error` carries
  * `codex_error_info: 'usage_limit_exceeded'`. The sweep reads the tail of the
- * ticket session's rollout — host placements only, because a sandboxed session
- * writes its rollout inside the container — and hands the text to the binding,
- * whose `codexTrailingQuota` decides the last turn event and whose once-key
- * offers a single park. No prose, no other error code, and no newer turn ever
- * parks. Graph node/planner sessions are out of scope: their rollout location
- * is unverified.
+ * ticket session's rollout — a host placement from the host config dir, an ssh
+ * placement (`D556`) from the FORWARDED copy in the ticket bridge dir's
+ * `codex-sessions/` — and hands the text to the binding, whose `codexTrailingQuota`
+ * decides the last turn event and whose once-key offers a single park. `sbx` and
+ * `docker` sessions are not watched: their rollout stays inside the container.
+ * No prose, no other error code, and no newer turn ever parks. Graph
+ * node/planner sessions are out of scope: their rollout location is unverified.
  */
 export function createCodexRolloutWatchLoop(deps: CodexRolloutWatchLoopDeps): CodexRolloutWatchLoop {
   const states = new Map<string, RolloutState>();
   let running = false;
+
+  /** Where an ssh ticket's forwarded rollouts live: `<bridge>/events/<id>/codex-sessions`. */
+  const sshSessionsDir = (ticketId: number): string | undefined => {
+    const root = deps.bridgeRoot?.();
+    return root === undefined ? undefined : join(bridgePaths(root, ticketId).dir, CODEX_SESSIONS_DIRNAME);
+  };
 
   const sweepTicket = async (ticketId: number): Promise<void> => {
     const sessionId = getTicket(deps.store, ticketId).sessionId;
@@ -139,15 +150,22 @@ export function createCodexRolloutWatchLoop(deps: CodexRolloutWatchLoopDeps): Co
       return;
     }
     const placement = getPlacement(deps.store, ticketId);
-    if (placement !== null && placement.backend !== 'host') {
-      deps.debug(`[codex] ticket ${ticketId}: ${placement.backend} placement — the rollout watch reads host sessions only`);
+    const backend = placement?.backend ?? 'host';
+    if (backend !== 'host' && backend !== 'ssh') {
+      deps.debug(`[codex] ticket ${ticketId}: ${backend} placement — the rollout watch reads host and forwarded ssh rollouts only`);
       return;
     }
     if (!SESSION_ID_RE.test(sessionId)) {
       deps.debug(`[codex] ticket ${ticketId}: session id is not a UUID`);
       return;
     }
-    const sessionsRoot = join(codexHome(sessionReaderEnv('codex', sessionId)), 'sessions');
+    const sessionsRoot = backend === 'ssh'
+      ? sshSessionsDir(ticketId)
+      : join(codexHome(sessionReaderEnv('codex', sessionId)), 'sessions');
+    if (sessionsRoot === undefined) {
+      deps.debug(`[codex] ticket ${ticketId}: no bridge root for the forwarded rollout`);
+      return;
+    }
     let realRoot: string;
     try {
       realRoot = await realpath(sessionsRoot);

@@ -459,4 +459,58 @@ describe('createCodexRolloutWatchLoop', () => {
     await Promise.all([first, second]);
     expect(d.onRollout).toHaveBeenCalledTimes(1);
   });
+
+  describe('ssh placement (D556 edit 5)', () => {
+    let bridgeRoot: string;
+    /** The forwarded flat rollout the D556 forwarder writes. */
+    const forwarded = (id: number, text: string): string => {
+      const dir = join(bridgeRoot, 'events', String(id), 'codex-sessions');
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, `rollout-2026-08-08T09-00-00-${SESSION}.jsonl`);
+      writeFileSync(path, text);
+      return path;
+    };
+
+    beforeEach(() => {
+      bridgeRoot = join(dir, 'bridge');
+    });
+
+    it('reads the forwarded rollout of an ssh ticket from <bridge>/codex-sessions', async () => {
+      const id = ticket(SESSION, 'ssh');
+      forwarded(id, `${startedLine()}\n${errorLine()}\n`);
+      const onRollout = vi.fn();
+      await loopFor({
+        identifyTerminal: () => ({ ticketId: id, identity: { provider: 'codex' } }),
+        onRollout,
+        bridgeRoot: () => bridgeRoot,
+      }).run();
+      expect(onRollout).toHaveBeenCalledTimes(1);
+      expect(onRollout.mock.calls[0]![0]).toBe(id);
+      expect(onRollout.mock.calls[0]![1]).toBe(SESSION);
+      expect(onRollout.mock.calls[0]![2]).toContain('usage_limit_exceeded');
+    });
+
+    it('still returns early for sbx and docker, even when a forwarded copy exists', async () => {
+      for (const backend of ['sbx', 'docker']) {
+        const id = ticket(SESSION, backend);
+        forwarded(id, `${startedLine()}\n${errorLine()}\n`);
+        const onRollout = vi.fn();
+        await loopFor({
+          identifyTerminal: () => ({ ticketId: id, identity: { provider: 'codex' } }),
+          onRollout,
+          bridgeRoot: () => bridgeRoot,
+        }).run();
+        expect(onRollout, backend).not.toHaveBeenCalled();
+      }
+    });
+
+    it('logs a missing bridge root instead of reading the host home', async () => {
+      const id = ticket(SESSION, 'ssh');
+      rollout('2026', '08', '08', SESSION, `${errorLine()}\n`); // a host rollout that must NOT be read
+      const d = deps({ identifyTerminal: () => ({ ticketId: id, identity: { provider: 'codex' } }) });
+      await loopFor(d).run();
+      expect(d.onRollout).not.toHaveBeenCalled();
+      expect(d.debug).toHaveBeenCalledWith(`[codex] ticket ${id}: no bridge root for the forwarded rollout`);
+    });
+  });
 });

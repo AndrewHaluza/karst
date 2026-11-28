@@ -446,5 +446,37 @@ describe('fixDeliveryWiring', () => {
       w.deliver(ticketId, null);
       expect(nudge).not.toHaveBeenCalled();
     });
+
+    it('mirrors the brief before the pointer; the nudge waits for the mirror', async () => {
+      let release!: (r: { ok: true }) => void;
+      const mirror = vi.fn(() => new Promise<{ ok: true }>((resolve) => { release = resolve; }));
+      const { w } = sandboxed({ mirror });
+      const pending = w.deliver(ticketId, null);
+      expect(mirror).toHaveBeenCalledTimes(1);
+      expect(nudge).not.toHaveBeenCalled();
+      release({ ok: true });
+      await pending;
+      expect(nudge).toHaveBeenCalledTimes(1);
+    });
+
+    it('mirrors the attachment/log copies too; a refused dirs mirror blocks the pointer', async () => {
+      let release!: (r: { ok: true } | { ok: false; reason: string }) => void;
+      const mirrorDirs = vi.fn(() => new Promise<{ ok: true } | { ok: false; reason: string }>((resolve) => { release = resolve; }));
+      const { w } = sandboxed({ mirror: () => ({ ok: true as const }), mirrorDirs });
+      const pending = w.deliver(ticketId, null);
+      expect(mirrorDirs).toHaveBeenCalledTimes(1);
+      expect(nudge).not.toHaveBeenCalled();
+      release({ ok: false, reason: 'ssh remote devbox not confirmed' });
+      await pending;
+      expect(nudge).not.toHaveBeenCalled();
+    });
+
+    it('a resolved dirs mirror lets the pointer through', async () => {
+      const mirrorDirs = vi.fn(async () => ({ ok: true as const }));
+      const { w } = sandboxed({ mirror: async () => ({ ok: true }), mirrorDirs });
+      await w.deliver(ticketId, null);
+      expect(mirrorDirs).toHaveBeenCalledTimes(1);
+      expect(nudge).toHaveBeenCalledTimes(1);
+    });
   });
 });

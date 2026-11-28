@@ -53,6 +53,8 @@ export interface ResolveBackendInput {
   readonly remoteTrusted: (name: string) => boolean;
   /** The manifest's `remotes`: an `ssh:<name>` backend is looked up here (D555). */
   readonly remotes?: Readonly<Record<string, RemoteDef>>;
+  /** `<globalStorage>`: the dir of `ssh-trust.json`, handed to a launch's bridge upload (D553/D556). */
+  readonly trustDir?: string;
   /** The per-install id (`ssh/install-id`) that salts the remote sandbox name (D555). Absent fails closed. */
   readonly installId?: string;
   /** Test seam for `resolveSsh` (the ssh process, preflight, clone and trust steps). */
@@ -123,8 +125,8 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
       // The declared baseline host ports: `mode: docker` refuses them (D823),
       // `mode: direct` ignores them (it has no proxy).
       ...(input.docker?.hostPorts !== undefined ? { hostPorts: input.docker.hostPorts } : {}),
-      ...(input.ssh !== undefined || input.extendBackendStep !== undefined
-        ? { deps: { ...(input.ssh ?? {}), ...(input.extendBackendStep !== undefined ? { extendDeadline: input.extendBackendStep } : {}) } }
+      ...(input.ssh !== undefined || input.extendBackendStep !== undefined || input.trustDir !== undefined
+        ? { deps: { ...(input.ssh ?? {}), ...(input.trustDir !== undefined ? { trustDir: input.trustDir } : {}), ...(input.extendBackendStep !== undefined ? { extendDeadline: input.extendBackendStep } : {}) } }
         : {}),
     });
     if (!out.ok) return onHost(out.reason);

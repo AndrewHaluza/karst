@@ -145,11 +145,11 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
     return listRecoveryRounds(store, id)[0]!.id;
   }
 
-  it('a live-session nudge opens and attaches exactly one Fix process run BEFORE the prompt is delivered', () => {
+  it('a live-session nudge opens and attaches exactly one Fix process run BEFORE the prompt is delivered', async () => {
     const r = roundId();
     let delivered: string | undefined;
     const sequence: string[] = [];
-    const outcome = resumeFixExecution(store, {
+    const outcome = await resumeFixExecution(store, {
       ticketId: id,
       roundId: r,
       identity: { provider: 'claude', model: 'opus' },
@@ -182,9 +182,9 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
     expect(round.status).toBe('fixing');
   });
 
-  it('a FALSE nudge delivery is interrupted exactly like a thrown one — never a second session', () => {
+  it('a FALSE nudge delivery is interrupted exactly like a thrown one — never a second session', async () => {
     const r = roundId();
-    expect(() =>
+    await expect(
       resumeFixExecution(store, {
         ticketId: id,
         roundId: r,
@@ -196,7 +196,7 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
           throw new Error('must not open a second session');
         },
       }),
-    ).toThrow(/live Fix brief was not delivered/);
+    ).rejects.toThrow(/live Fix brief was not delivered/);
 
     expect(listProcessRuns(store, id)[0]!.status).toBe('interrupted');
     const round = listRecoveryRounds(store, id)[0]!;
@@ -204,9 +204,28 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
     expect(round.endedAt).toBe(T1);
   });
 
-  it('a delivery failure interrupts both the execution and the round', () => {
+  it('an ASYNC deliverFix resolving false interrupts and never reports nudged (D556)', async () => {
     const r = roundId();
-    expect(() =>
+    await expect(
+      resumeFixExecution(store, {
+        ticketId: id,
+        roundId: r,
+        identity: { provider: 'claude', model: 'opus' },
+        startedAt: T1,
+        isLive: () => true,
+        deliverFix: () => Promise.resolve(false),
+        open: () => {
+          throw new Error('must not open a second session');
+        },
+      }),
+    ).rejects.toThrow(/live Fix brief was not delivered/);
+    expect(listProcessRuns(store, id)[0]!.status).toBe('interrupted');
+    expect(listRecoveryRounds(store, id)[0]!.status).toBe('interrupted');
+  });
+
+  it('a delivery failure interrupts both the execution and the round', async () => {
+    const r = roundId();
+    await expect(
       resumeFixExecution(store, {
         ticketId: id,
         roundId: r,
@@ -218,7 +237,7 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
         },
         open: () => {},
       }),
-    ).toThrow(/terminal vanished/);
+    ).rejects.toThrow(/terminal vanished/);
 
     expect(listProcessRuns(store, id)[0]!.status).toBe('interrupted');
     const round = listRecoveryRounds(store, id)[0]!;
@@ -226,10 +245,10 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
     expect(round.endedAt).toBe(T1);
   });
 
-  it('a closed session launches without opening the process run — the intent owns it until SessionStart', () => {
+  it('a closed session launches without opening the process run — the intent owns it until SessionStart', async () => {
     const r = roundId();
     let opened = 0;
-    const outcome = resumeFixExecution(store, {
+    const outcome = await resumeFixExecution(store, {
       ticketId: id,
       roundId: r,
       identity: { provider: 'claude', model: 'opus' },
@@ -249,10 +268,10 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
     expect(listRecoveryRounds(store, id)[0]!.status).toBe('pending');
   });
 
-  it('a pre-round ticket resumes untracked, exactly as before', () => {
+  it('a pre-round ticket resumes untracked, exactly as before', async () => {
     transition(store, id, 'uat', { kind: 'failed', reason: 'boom' }); // -> fix, no round
     const nudges: string[] = [];
-    const outcome = resumeFixExecution(store, {
+    const outcome = await resumeFixExecution(store, {
       ticketId: id,
       roundId: null,
       identity: null,

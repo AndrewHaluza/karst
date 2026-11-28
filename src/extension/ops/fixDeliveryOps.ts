@@ -33,6 +33,18 @@ import { getSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
  * `fixDeliverySweep.ts`.
  */
 
+/**
+ * A value or a promise of it: the delivery chain is sync on the host and async
+ * only when a remote mirror is involved (D556). `await` is always safe, and the
+ * sync path keeps its existing synchronous behaviour (and tests).
+ */
+export type Awaitable<T> = T | Promise<T>;
+
+/** Whether `value` is a promise, so the sync path never suspends at a fake await. */
+export function isThenable<T>(value: Awaitable<T>): value is Promise<T> {
+  return typeof (value as { then?: unknown } | null)?.then === 'function';
+}
+
 /** How a typed pointer attempt ended. */
 export type TypedSendResult =
   /** Handed to the terminal's FIFO; `hooks` report the typed/dropped outcome. */
@@ -64,21 +76,28 @@ export interface FixDeliveryHost {
    * mid-turn: only `idle` takes the typed pointer at arm.
    */
   isIdle: (ticketId: number) => boolean;
-  /** Type the fix pointer for a delivery into the ticket's live terminal. */
-  sendPointer: (ticketId: number, deliveryId: number, hooks: NudgeHooks) => TypedSendResult;
+  /**
+   * Type the fix pointer for a delivery into the ticket's live terminal. A
+   * sandboxed row first writes (and mirrors) the brief, so this is async-capable.
+   * `briefWritten` skips that second write when the caller already made it.
+   */
+  sendPointer: (ticketId: number, deliveryId: number, hooks: NudgeHooks, opts?: { readonly briefWritten?: boolean }) => Awaitable<TypedSendResult>;
   /** Surface the ticket as needing a human; idempotent. */
   needsYou: (ticketId: number, reason: string) => void;
   /**
    * Sandboxed ticket: write the brief to `inbox/fix-<id>.md` now, whether or not
-   * any session is known (@arch:AC-38). False = the write was refused (the sweep retries); true when written or not sandboxed.
+   * any session is known (@arch:AC-38), and mirror it to an ssh remote (D556).
+   * `false` = the HOST write was refused (the sweep retries, the row stays);
+   * `'mirror-refused'` = the host file exists but the remote copy failed, so the
+   * delivery itself fails (no nudge, escalation). True when written or not sandboxed.
    */
-  writeBrief?: (ticketId: number, deliveryId: number) => boolean;
+  writeBrief?: (ticketId: number, deliveryId: number) => Awaitable<boolean | 'mirror-refused'>;
   /**
    * The inbox file (relative, e.g. `inbox/fix-7.md`) a human can point a sandboxed
    * agent at, when the typed pointer cannot be sent now (no live terminal / agy not
    * idle); null when the ticket is not sandboxed or the pointer is sendable.
    */
-  unsendableInbox?: (ticketId: number, deliveryId: number) => string | null;
+  unsendableInbox?: (ticketId: number, deliveryId: number) => Awaitable<string | null>;
   /**
    * Host ticket: why the pointer cannot reach the agent now (no live session, a launch still pending),
    * or null when it is sendable or the ticket is not on host. Host has no inbox file to name.
@@ -165,7 +184,8 @@ export function sendTypedPointer(
   host: FixDeliveryHost,
   row: FixDelivery,
   kind: 'first' | 'resend',
-): TypedSendResult | 'raced' {
+  opts?: { readonly briefWritten?: boolean },
+): Awaitable<TypedSendResult | 'raced'> {
   if (kind === 'first' && !claimEnqueued(host.store, row.id, host.now())) return 'raced';
   const result = host.sendPointer(row.ticketId, row.id, {
     onTyped: () => {
@@ -175,9 +195,12 @@ export function sendTypedPointer(
     onDropped: () => {
       if (kind === 'first') clearEnqueued(host.store, row.id);
     },
-  });
-  if (result !== 'queued' && kind === 'first') clearEnqueued(host.store, row.id);
-  return result;
+  }, opts);
+  const settle = (sent: TypedSendResult): TypedSendResult | 'raced' => {
+    if (sent !== 'queued' && kind === 'first') clearEnqueued(host.store, row.id);
+    return sent;
+  };
+  return isThenable(result) ? result.then(settle) : settle(result);
 }
 
 /** The pointer cannot be built: fail this delivery once and ask for a human. */
@@ -209,7 +232,7 @@ export interface DeliverLiveFixInput {
  * when nothing could deliver it; the row is then superseded so no sweep ever
  * points at an interrupted round.
  */
-export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput): boolean {
+export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput): Awaitable<boolean> {
   const at = host.now();
   const id = upsertFixDelivery(host.store, {
     ticketId: input.ticketId,
@@ -223,10 +246,30 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
   });
   const row = getFixDelivery(host.store, id);
   if (row === null || row.supersededAt !== null) return false;
-  // A refused write (tampered inbox) leaves the row for the sweep; nothing is typed this round.
-  if (host.writeBrief?.(input.ticketId, id) === false) return true;
-  const route = host.routeFor(input.ticketId);
-  host.debug(`[driver] fix delivery ${formatFixBriefNumber(id)}: stored for ticket ${input.ticketId}, route ${route}`);
+  // A refused write (tampered inbox, a failed remote mirror) leaves the row for
+  // the sweep; nothing is typed and no pointer is sent this round (D556).
+  const written = host.writeBrief?.(input.ticketId, id);
+  if (isThenable(written)) {
+    return written.then((ok) => {
+      if (ok === 'mirror-refused') return false;
+      if (ok === false) return true;
+      return afterBriefWrite(host, row, at);
+    });
+  }
+  if (written === 'mirror-refused') return false;
+  if (written === false) return true;
+  return afterBriefWrite(host, row, at);
+}
+
+/**
+ * The arm/point half of `deliverLiveFix`, run only after the brief write (and
+ * its remote mirror) resolved. Split out so the async write never fires the
+ * nudge before the agent's own copy exists.
+ */
+function afterBriefWrite(host: FixDeliveryHost, row: FixDelivery, at: string): Awaitable<boolean> {
+  const id = row.id;
+  const route = host.routeFor(row.ticketId);
+  host.debug(`[driver] fix delivery ${formatFixBriefNumber(id)}: stored for ticket ${row.ticketId}, route ${route}`);
   if (isPushRoute(route)) {
     claimArmed(host.store, id, at);
     // An IDLE push-route session has no next turn end to fire the hook: type the
@@ -235,32 +278,41 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
     // the row armed for the sweep's 60 s fallback.
     // The upsert above clears `read_at`/`superseded_at`, so the oldest unread row
     // always exists; it is THIS row only when no older unread row is waiting.
-    const pointerRow = nextUnreadDelivery(host.store, input.ticketId)!;
+    const pointerRow = nextUnreadDelivery(host.store, row.ticketId)!;
     if (
-      host.isIdle(input.ticketId) &&
+      host.isIdle(row.ticketId) &&
       !hasPendingFixIntent(host.store, row.launchId) &&
       pointerRow.id === row.id
     ) {
-      const sent = sendTypedPointer(host, row, 'first');
-      if (sent === 'pointer-null') failPointer(host, row);
-      else host.debug(`[driver] fix delivery ${formatFixBriefNumber(id)}: idle push session for ticket ${input.ticketId}, immediate pointer ${sent}`);
+      const sent = sendTypedPointer(host, row, 'first', { briefWritten: true });
+      const settle = (result: TypedSendResult | 'raced'): true => {
+        if (result === 'pointer-null') failPointer(host, row);
+        else {
+          host.debug(`[driver] fix delivery ${formatFixBriefNumber(id)}: idle push session for ticket ${row.ticketId}, immediate pointer ${result}`);
+        }
+        return true;
+      };
+      return isThenable(sent) ? sent.then(settle) : settle(sent);
     }
     return true;
   }
   // Typed route: never type into a running turn — the sweep (rule 0) sends the
   // first pointer on the first non-running tick.
-  if (host.isRunning(input.ticketId)) return true;
-  const sent = sendTypedPointer(host, row, 'first');
-  if (sent === 'pointer-null') {
-    failPointer(host, row);
+  if (host.isRunning(row.ticketId)) return true;
+  const sent = sendTypedPointer(host, row, 'first', { briefWritten: true });
+  const settle = (result: TypedSendResult | 'raced'): boolean => {
+    if (result === 'pointer-null') {
+      failPointer(host, row);
+      return true;
+    }
+    if (result === 'unavailable') {
+      supersedeFixDelivery(host.store, id, host.now());
+      return false;
+    }
+    // 'queued' is delivered; 'held' (agy not idle yet) is retried by the sweep.
     return true;
-  }
-  if (sent === 'unavailable') {
-    supersedeFixDelivery(host.store, id, host.now());
-    return false;
-  }
-  // 'queued' is delivered; 'held' (agy not idle yet) is retried by the sweep.
-  return true;
+  };
+  return isThenable(sent) ? sent.then(settle) : settle(sent);
 }
 
 /**

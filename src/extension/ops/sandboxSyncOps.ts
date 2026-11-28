@@ -62,6 +62,8 @@ export interface BackendSessionInput {
   readonly remotes?: Readonly<Record<string, RemoteDef>>;
   /** The per-install id (`ssh/install-id`) that salts the remote sandbox name (D555). */
   readonly installId?: string;
+  /** `<globalStorage>`: handed to the launch's ssh bridge upload (D553/D556). */
+  readonly trustDir?: string;
   /**
    * Raises the caller's launch bound: a cold remote image build names its own
    * longer bound, so the guard does not discard a healthy first launch.
@@ -113,6 +115,7 @@ export function backendSessionOptions(input: BackendSessionInput): {
       remoteTrusted: input.remoteTrust ?? (() => false),
       ...(input.remotes ? { remotes: input.remotes } : {}),
       ...(input.installId !== undefined ? { installId: input.installId } : {}),
+      trustDir: input.trustDir,
       extendBackendStep: input.extendBackendStep,
       backends: { ...input.backends, [backendCoreKey(input.core)]: backend, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...accountFor(input.core, input.resumeSessionId, input.account),

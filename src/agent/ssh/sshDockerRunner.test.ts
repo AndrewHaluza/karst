@@ -1,4 +1,6 @@
-import { basename, dirname } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import type { RemoteDef } from '../../manifest/types.js';
 import { bridgePaths } from '../bridge/bridgeDir.js';
@@ -6,6 +8,7 @@ import { dockerNames } from '../docker/dockerNames.js';
 import { fakeSbxProcess } from '../sbx/fakeSbxProcess.js';
 import { MARKER_EMIT } from '../hookBridge.js';
 import { fakeSshProcess } from './fakeSshProcess.js';
+import { recordRemoteTrust } from './remoteTrust.js';
 import { fakeTunnels, type FakeTunnels } from './fakeTunnels.js';
 import {
   SSH_DOCKER_HOST_SERVICES_ERROR,
@@ -445,5 +448,26 @@ describe('ssh docker: host services stay off (D823)', () => {
       expect(script).not.toContain('host-gateway');
     }
     expect(t.registry.list('devbox:R:')).toEqual([]);
+  });
+});
+
+describe('createSshDockerSessionRunner: attachments and logs (D556 edit 5)', () => {
+  it('copies the host attachments and logs into the remote run dir the mount exposes', async () => {
+    const trustDir = mkdtempSync(join(tmpdir(), 'karst-ssh-docker-trust-'));
+    await recordRemoteTrust(trustDir, 'devbox', REMOTE);
+    const hostBridge = mkdtempSync(join(tmpdir(), 'karst-ssh-docker-bridge-'));
+    mkdirSync(join(hostBridge, 'attachments'), { recursive: true });
+    mkdirSync(join(hostBridge, 'logs'), { recursive: true });
+    writeFileSync(join(hostBridge, 'attachments', 'a.txt'), 'A');
+    writeFileSync(join(hostBridge, 'logs', 'gate.log'), 'G');
+    const ssh = fakeSshProcess();
+    const runner = makeRunner({ ssh, trustDir, ensureControlDir: async () => ({ ok: true as const }) });
+    await runner.prepareInteractive!(launchSpec({ bridgeDir: hostBridge }));
+    const mirrors = ssh.stdinCalls
+      .map((c) => sshScriptOf(c.args))
+      .filter((script) => script.includes('# karst-ssh-mirror'));
+    expect(mirrors).toHaveLength(2);
+    expect(mirrors.join('\n')).toContain(`/srv/karst/${CONTAINER}/bridge/7/attachments/a.txt`);
+    expect(mirrors.join('\n')).toContain(`/srv/karst/${CONTAINER}/bridge/7/logs/gate.log`);
   });
 });

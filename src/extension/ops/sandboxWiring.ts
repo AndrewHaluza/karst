@@ -3,6 +3,7 @@ import type { SbxGrantReleaser } from './sbxLaunchOauth.js';
 import { findRemoteStrays, findStrays, removeStrays, describeRemoteStrays } from './sandboxStrays.js';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
 import { NODE_SSH_PROCESS } from '../../agent/ssh/sshProcess.js';
+import { stopSshBridgeForwarder } from '../../agent/ssh/sshBridge.js';
 import { readSshStrays } from '../../agent/ssh/sshStrays.js';
 import { cleanupForeignRemoteOp, type ForeignPickItem } from './sandboxForeignOps.js';
 import { createSandboxSessionEnder } from './sandboxSessionEnd.js';
@@ -187,6 +188,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
   const recordedHost = (id: number): boolean => getPlacement(w.store, id)?.backend === 'host';
   /** A verified removal ends the recorded sandbox: the ticket now runs on host until a launch records otherwise. */
   const markRemoved = (id: number): void => {
+    void stopSshBridgeForwarder(id);
     const p = getPlacement(w.store, id);
     if (p && p.backend !== 'host') recordPlacement(w.store, id, { backend: 'host', core: p.core, sandboxName: null, reason: 'sandbox removed' }, getTicket(w.store, id).sessionProvider ?? null);
   };
@@ -292,6 +294,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     }, t, { refresh, allowDirtyClone });
   };
   const stopTicket = async (ticketId: number): Promise<void> => {
+    await stopSshBridgeForwarder(ticketId);
     const { d, t } = await manualDeps(ticketId);
     if (await stopSandboxOp(d, t)) w.notify.info(`Stopped the sandbox of ${t.ticketLabel}.`);
   };
@@ -498,6 +501,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     /** Dashboard Remove: sync, then remove; unsynced commits need an explicit "Remove anyway". */
     remove: async (ticketId: number): Promise<void> => {
       if (recordedHost(ticketId)) return;
+      await stopSshBridgeForwarder(ticketId);
       const { d, t } = await manualDeps(ticketId);
       try { await removeGuarded(d, t); } finally { shellCache.invalidate(ticketId); }
     },

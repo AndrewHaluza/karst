@@ -76,9 +76,9 @@ export interface ResumeFixExecutionOpts {
   /**
    * Deliver the round to the LIVE session: store the brief snapshot and point the
    * agent at it (@arch:V77) — the brief itself is never typed. False = nothing
-   * could deliver it.
+   * could deliver it. Async when the brief is mirrored to an ssh remote (D556).
    */
-  deliverFix: () => boolean;
+  deliverFix: () => boolean | Promise<boolean>;
   open: (replacement?: boolean) => void;
 }
 
@@ -93,10 +93,10 @@ export interface ResumeFixExecutionOpts {
  *    launch intent against the round); the process run opens only when the
  *    matching SessionStart is accepted.
  */
-export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): ResumeFixOutcome {
+export async function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): Promise<ResumeFixOutcome> {
   const { ticketId, roundId, identity, startedAt, isLive, deliverFix, open } = opts;
   if (roundId === null) {
-    if (isLive() && deliverFix()) return 'nudged';
+    if (isLive() && (await deliverFix())) return 'nudged';
     open();
     return 'launched';
   }
@@ -110,7 +110,7 @@ export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): 
       startedAt,
     });
     try {
-      if (!deliverFix()) throw new Error('live Fix brief was not delivered');
+      if (!(await deliverFix())) throw new Error('live Fix brief was not delivered');
     } catch (error) {
       interruptFixExecution(store, roundId, startedAt);
       throw error;
@@ -156,7 +156,7 @@ export async function resumeConfiguredFixExecution(
     && activeIdentity.model === opts.configuredIdentity.model;
 
   if (live && matches) {
-    return resumeFixExecution(store, {
+    return await resumeFixExecution(store, {
       ...opts,
       identity: opts.configuredIdentity,
       isLive: () => true,
@@ -174,10 +174,10 @@ export async function resumeConfiguredFixExecution(
     && nowIdentity.model === opts.configuredIdentity.model
   ) {
     // The session now runs the configured identity: nudge it, never retire it.
-    return resumeFixExecution(store, { ...opts, identity: opts.configuredIdentity, isLive: () => true });
+    return await resumeFixExecution(store, { ...opts, identity: opts.configuredIdentity, isLive: () => true });
   }
   if (liveNow) opts.dispose();
-  return resumeFixExecution(store, {
+  return await resumeFixExecution(store, {
     ...opts,
     identity: opts.configuredIdentity,
     isLive: () => false,

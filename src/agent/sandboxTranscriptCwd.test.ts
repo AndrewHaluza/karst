@@ -23,4 +23,8 @@ describe('sandboxCwdFor', () => {
     expect(sandboxCwdFor(p('ssh', 'devbox/karst-abcd1234-7-claude'), '/p')).toEqual({});
     expect(sandboxCwdFor(p('ssh', 'devbox/karst-abcd1234-7-claude'), '/p', {})).toEqual({});
   });
+  it('uses the container repo for a docker-mode ssh placement', () => {
+    const dockerRemotes = { devbox: { host: 'vm', user: 'karst', mode: 'docker' as const, remoteDir: '/srv/karst' } };
+    expect(sandboxCwdFor(p('ssh', 'devbox/karst-abcd1234-7-opencode'), '/p', dockerRemotes)).toEqual({ sandboxCwd: '/work/repo' });
+  });
 });
