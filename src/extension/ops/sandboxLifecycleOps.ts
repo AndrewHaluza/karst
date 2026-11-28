@@ -445,6 +445,11 @@ async function removeInvalidCoreSandbox(deps: SandboxLifecycleDeps, o: ProjectSa
   if (!removal.ok) throw new Error(disposeFailures(removal));
 }
 
+/** An orphan in a confirm or a warning: an ssh box also names its remote, because one name can exist on two remotes. */
+function orphanLabel(o: ProjectSandbox): string {
+  return o.remote === undefined ? o.name : `${o.name} on ${o.remote}`;
+}
+
 /** `karst.sandbox.cleanupOrphans`: remove this project's orphan sandboxes, only on confirmation. */
 export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds: ReadonlySet<number>): Promise<number> {
   const inv = await inventoryOf(deps);
@@ -454,7 +459,7 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
     return 0;
   }
   const choice = await deps.choose(
-    `Remove ${plural(orphans.length, 'orphan sandbox', 'orphan sandboxes')} of this project? ${orphans.map((o) => o.name).join(', ')}`,
+    `Remove ${plural(orphans.length, 'orphan sandbox', 'orphan sandboxes')} of this project? ${orphans.map(orphanLabel).join(', ')}`,
     [REMOVE_ORPHANS, CANCEL],
   );
   if (choice !== REMOVE_ORPHANS) return 0;
@@ -476,7 +481,7 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
       await deps.bridges?.dispose(o.ticketId);
       removed += 1;
     } catch (err) {
-      deps.notify.warn(`The orphan sandbox ${o.name} was not removed: ${reasonText(err)}`);
+      deps.notify.warn(`The orphan sandbox ${orphanLabel(o)} was not removed: ${reasonText(err)}`);
     }
   }
   deps.notify.info(`Removed ${plural(removed, 'orphan sandbox', 'orphan sandboxes')}.`);

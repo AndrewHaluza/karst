@@ -910,6 +910,8 @@ describe('ssh lifecycle: done, idle, archive, orphans and provider switch (D824,
       inv: [box(7)], projectRoot: '/p', sshRunner: fakeSshRunnerDeps(ssh), choose: vi.fn(async () => REMOVE_ORPHANS),
     });
     await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(1);
+    // The confirm names the remote, so two ssh orphans of one name on two remotes differ.
+    expect(d.choose).toHaveBeenCalledWith(`Remove 1 orphan sandbox of this project? ${orphan} on devbox`, [REMOVE_ORPHANS, CANCEL]);
     expect(disposed(ssh)).toBe(true);
     expect(remoteCmds(ssh).some((s) => s.includes(orphan))).toBe(true);
     expect(proc.calls.filter((c) => c.args[0] === 'rm')).toEqual([]);
@@ -924,7 +926,7 @@ describe('ssh lifecycle: done, idle, archive, orphans and provider switch (D824,
       inv: [box(7)], projectRoot: '/p', sshRunner: fakeSshRunnerDeps(ssh), choose: vi.fn(async () => REMOVE_ORPHANS),
     });
     await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
-    expect(notify.warn).toHaveBeenCalledWith(expect.stringContaining('permission denied'));
+    expect(notify.warn).toHaveBeenCalledWith(expect.stringMatching(/^The orphan sandbox \S+-9-claude on devbox was not removed: .*permission denied/su));
     expect(d.bridges.dispose).not.toHaveBeenCalled();
   });
 
@@ -1324,7 +1326,7 @@ describe('scripted inventories: ssh boxes, strays and listing errors reach every
       const { d, notify } = orphanDeps(ssh);
       await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
       expect(disposes()).toBe(1);
-      expect(notify.warn).toHaveBeenCalledWith(`The orphan sandbox ${N9} was not removed: inventory: still listed after removal`);
+      expect(notify.warn).toHaveBeenCalledWith(`The orphan sandbox ${N9} on devbox was not removed: inventory: still listed after removal`);
     });
 
     it.each([
