@@ -126,6 +126,11 @@ export type SetupWindow =
   | {
       readonly ok: true;
       readonly close: () => Promise<void>;
+      /**
+       * False when the window is a no-op that controls nothing: a `mode: direct`
+       * ssh remote has no egress control (D823). Absent: the runner enforces it.
+       */
+      readonly enforced?: boolean;
       /** docker: the distinct hosts the window proxy refused so far (its `DENY` log); best-effort. Read BEFORE `close`, which recreates the proxy. */
       readonly deniedHosts?: () => Promise<string[]>;
     }

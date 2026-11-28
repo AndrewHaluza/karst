@@ -359,6 +359,8 @@ import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } fr
 import { isRemoteTrusted, readRemoteTrust } from './agent/ssh/remoteTrust.js';
 import { readExistingInstallId, readOrCreateInstallId } from './agent/ssh/sshNames.js';
 import type { SshRunnerDeps } from './extension/ops/sshRunnerFor.js';
+import { NODE_SSH_PROCESS } from './agent/ssh/sshProcess.js';
+import { createTunnelDeps, windowTunnelRegistry } from './agent/ssh/sshTunnels.js';
 import { confirmRemoteTrust, sshRemoteFor } from './extension/ops/sshTrustOps.js';
 import { liveRemoteSession, sshSessionQuotaLine } from './extension/ops/sshPlacementOps.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, wantsSbxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
@@ -1285,9 +1287,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // D826: the ssh runner of every host step. The install id is read once here (never created: a launch creates it).
   let sshInstallId: string | undefined;
   void readExistingInstallId(storageDir, (m) => logger.debug(m)).then((id) => { sshInstallId ??= id; }, (err: unknown) => logger.debug(`[ssh] install id: read failed (${err instanceof Error ? err.message : String(err)})`));
-  const sshRunnerDeps: SshRunnerDeps = { remotes: () => currentManifest()?.remotes, installId: () => sshInstallId, globalStorageDir: storageDir, warn: (m) => logger.warn(m), debug: (m) => logger.debug(m) };
+  // D823: `autopilot` is declared later in `activate`; until then only the owned sessions count (no TDZ read).
+  let autopilotControls: (ticketId: number) => boolean = () => false;
+  // The window tunnel registry (D823), seeded here so the launch resolve and every host step share it; its `ssh -N` children must not outlive a reload.
+  const sshTunnels = windowTunnelRegistry(createTunnelDeps(NODE_SSH_PROCESS, { warn: (m) => logger.warn(m), debug: (m) => logger.debug(m) }));
+  context.subscriptions.push({ dispose: () => { sshTunnels.closeAll().catch((e: unknown) => logger.debug(`[ssh] tunnel close on dispose failed: ${e instanceof Error ? e.message : String(e)}`)); } });
+  const sshRunnerDeps: SshRunnerDeps = { remotes: () => currentManifest()?.remotes, installId: () => sshInstallId, globalStorageDir: storageDir, tunnels: sshTunnels, info: (m) => logger.info(m), warn: (m) => logger.warn(m), debug: (m) => logger.debug(m) };
   const graphDeps = createGraphDepsPreflight({ manifest: currentManifest, domainsOf: (id) => graphDomainsFor(id), gitCommonDirOf: gitCommonDirFromFs });
-  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), sshRunner: sshRunnerDeps }); // AC-32
+  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), sshRunner: sshRunnerDeps, controls: (id) => ownedSessionTickets.has(id) || autopilotControls(id) }); // AC-32, D823: only the controlling window re-opens ssh tunnels
   // The host gate re-run (@arch:AC-45): one dependency set for its three call sites, run through `runGateList`.
   const gateRerunDeps = bindGateRerunDeps({
     liveSinkFor: (id, stage) => gateLive.sinkFor(id, stage, () => dashboard.pushState(id)),
@@ -2154,6 +2161,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     shipRetry: (id) => makeShipRetrySeams({ store: localStore, ticketId: id, ciInput: () => ciInput(id) }),
     retryShip: (id, repos) => makeRetryShip({ runShip: (r) => runShipSaga(id, false, { repos: r }), debug: (m) => logger.debug(m), label: formatId('ticket', id) })(repos),
   });
+  autopilotControls = (id) => autopilot.controlsTicket(id);
   context.subscriptions.push(autopilot);
   freeSlotOnConflictRoundEnd(localStore);
   context.subscriptions.push(...registerAutopilotCommands(vscode, { store: localStore, dropConflictRound: (id) => conflictRounds.disarm(id), projectId: () => currentProject()?.id, debug: (m) => logger.debug(m), stopSession: makeStopSession({ isLive: (id) => sessions.isLive(id), stop: async (id) => { driver.requestStop(id); sessions.disposeSession(id); await sandboxLife.stop(id); }, debug: (m) => logger.debug(m) }) }));

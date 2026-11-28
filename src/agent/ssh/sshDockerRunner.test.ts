@@ -6,6 +6,7 @@ import { dockerNames } from '../docker/dockerNames.js';
 import { fakeSbxProcess } from '../sbx/fakeSbxProcess.js';
 import { MARKER_EMIT } from '../hookBridge.js';
 import { fakeSshProcess } from './fakeSshProcess.js';
+import { fakeTunnels, type FakeTunnels } from './fakeTunnels.js';
 import {
   SSH_DOCKER_HOST_SERVICES_ERROR,
   createSshDockerSessionRunner,
@@ -79,7 +80,7 @@ function makeRunner(over: Partial<SshDockerRunnerOptions> = {}) {
   return createSshDockerSessionRunner({
     ssh: fakeSshProcess(), sshBin: 'ssh', host: fakeSbxProcess(), remote: REMOTE, remoteName: 'devbox',
     controlDir: CONTROL, core: 'opencode', ticketId: 7, names: NAMES, user: { uid: 1000, gid: 1001 },
-    hostWorktreePath: HOST, projectPrefix: PREFIX, newRunId: () => RUN_ID,
+    hostWorktreePath: HOST, projectPrefix: PREFIX, newRunId: () => RUN_ID, tunnels: fakeTunnels().registry,
     ...over,
   });
 }
@@ -365,5 +366,83 @@ describe('createSshDockerSessionRunner: host services and ports', () => {
     const runner = makeRunner({ ssh });
     await expect(runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 })).resolves.toEqual({ ok: true, remotePort: 4100 });
     expect(scriptsOf(ssh).some((script) => script.includes(`${CONTAINER}-port-4100`))).toBe(true);
+  });
+});
+
+describe('ssh docker: host -L tunnel over the remote relay (D823)', () => {
+  const relayUp = (ssh: ReturnType<typeof fakeSshProcess>, port: number) =>
+    scriptsOf(ssh).some((script) => script.includes(`${CONTAINER}-port-${String(port)}`));
+  const flag = (argv: readonly string[], f: string): string => argv[argv.indexOf(f) + 1]!;
+
+  it('opens <container>:L:<hostPort> to the remote 127.0.0.1 relay port after the relay', async () => {
+    const t: FakeTunnels = fakeTunnels();
+    const ssh = fakeSshProcess();
+    const runner = makeRunner({ ssh, tunnels: t.registry });
+    await expect(runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 })).resolves.toEqual({ ok: true, remotePort: 4100 });
+    expect(relayUp(ssh, 4100)).toBe(true);
+    expect(t.registry.forSandbox(CONTAINER).map((h) => h.key)).toEqual([`${CONTAINER}:L:4100`]);
+    expect(flag(t.spawned[0]!.argv, '-L')).toBe('127.0.0.1:4100:127.0.0.1:4100');
+  });
+
+  it('a failed tunnel removes the relay and returns the failure', async () => {
+    const t = fakeTunnels({ connect: false, onSpawn: (c) => queueMicrotask(() => { c.stderr.emit('data', 'bind [127.0.0.1]:4100: Address already in use\n'); c.emit('exit', 255, null); }) });
+    const ssh = fakeSshProcess();
+    const runner = makeRunner({ ssh, tunnels: t.registry });
+    await expect(runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 })).resolves.toMatchObject({ ok: false, portTaken: true });
+    const scripts = scriptsOf(ssh);
+    expect(scripts.at(-1)).toContain(`${CONTAINER}-port-4100`);
+    expect(scripts.at(-1)).toMatch(/rm/);
+    expect(t.registry.forSandbox(CONTAINER)).toEqual([]);
+  });
+
+  it('a failed relay opens no tunnel', async () => {
+    const t = fakeTunnels();
+    const ssh = fakeSshProcess({ 'karst.ports=': { code: 125, stderr: 'boom' } });
+    const out = await makeRunner({ ssh, tunnels: t.registry }).publishPort!({ hostPort: 4100, sandboxPort: 3000 });
+    expect(out.ok).toBe(false);
+    expect(t.spawned).toHaveLength(0);
+  });
+
+  it('unpublish closes the tunnel, then the relay; listPorts keeps only live tunnels', async () => {
+    const t = fakeTunnels();
+    const ssh = fakeSshProcess({ '{{.Label': { stdout: '4100:3000\n4200:3001\n' } });
+    const runner = makeRunner({ ssh, tunnels: t.registry });
+    await runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 });
+    expect(await runner.listPorts!()).toEqual([{ hostPort: 4100, sandboxPort: 3000 }]);
+    await runner.unpublishPort!({ hostPort: 4100, sandboxPort: 3000 });
+    expect(t.spawned[0]!.kills).toBe(1);
+    expect(await runner.listPorts!()).toEqual([]);
+  });
+
+  it('stopServices and dispose close the tunnels', async () => {
+    const t = fakeTunnels();
+    const runner = makeRunner({ tunnels: t.registry });
+    await runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 });
+    await runner.stopServices!();
+    expect(t.registry.forSandbox(CONTAINER)).toEqual([]);
+    await runner.publishPort!({ hostPort: 4101, sandboxPort: 3000 });
+    await runner.dispose!({ hostWorktreePath: HOST, branch: BRANCH });
+    expect(t.registry.forSandbox(CONTAINER)).toEqual([]);
+    expect(t.spawned.every((c) => c.kills === 1)).toBe(true);
+  });
+});
+
+describe('ssh docker: host services stay off (D823)', () => {
+  it('no env value on any argv (ssh, stdin, tunnel) and no hostPorts in any proxy script', async () => {
+    const SECRET = 'svc-secret-value';
+    const t = fakeTunnels();
+    const ssh = fakeSshProcess({ 'State.Running': { stdout: 'true\n' } });
+    const runner = makeRunner({ ssh, tunnels: t.registry });
+    await runner.writeServiceEnv!('web', { DATABASE_URL: SECRET });
+    await runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 });
+    expect(await runner.allowHostPorts!([5432])).toEqual({ ok: false, reason: SSH_DOCKER_HOST_SERVICES_ERROR });
+    await runner.setupWindow!(['registry.npmjs.org']);
+    const argvs = [...ssh.calls, ...ssh.stdinCalls].map((c) => c.args.join(' ')).concat(t.spawned.map((c) => c.argv.join(' ')));
+    for (const a of argvs) expect(a).not.toContain(SECRET);
+    for (const script of scriptsOf(ssh)) {
+      expect(script).not.toContain('ALLOW_HOSTPORTS');
+      expect(script).not.toContain('host-gateway');
+    }
+    expect(t.registry.list('devbox:R:')).toEqual([]);
   });
 });

@@ -6,6 +6,8 @@ import { sshControlDir } from '../../agent/ssh/sshControlDir.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { createSshGateRegistry, sshGateKey } from '../../agent/ssh/sshGateRegistry.js';
 import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
+import { fakeTunnels } from '../../agent/ssh/fakeTunnels.js';
+import { sshSetupWindowInfo } from '../../agent/ssh/sshServices.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { TicketPlacement } from '../../store/placement.js';
 import { FAKE_INSTALL_ID, FAKE_REMOTE, fakeSshDockerRunnerDeps, fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir } from './fakeSshRunnerDeps.js';
@@ -455,5 +457,45 @@ describe('sshRunnerFor (D826)', () => {
     const runner = sshRunnerFor(sshDeps(fakeSshProcess()), PLACEMENT, TICKET);
     const placed = runner.placeInteractive({ ticketId: 7, hostWorktreePath: '/wt', command: 'claude', args: [], env: {} });
     expect((placed.shellArgs ?? []).join(' ')).not.toContain('tmux new-session');
+  });
+});
+
+describe('sshRunnerFor: services and ports (D823)', () => {
+  it('a refused control dir refuses every service op with zero ssh calls and no tunnel', async () => {
+    const ssh = fakeSshProcess();
+    const t = fakeTunnels();
+    const reason = 'ssh: control dir /c is not private';
+    const runner = sshRunnerFor(fakeSshRunnerDeps(ssh, { tunnels: t.registry, ensureControlDir: async () => ({ ok: false as const, reason }) }), PLACEMENT, TICKET);
+    await expect(runner.probeRemotePorts!([5432])).rejects.toThrow(reason);
+    expect(await runner.publishPort!({ hostPort: 18080, sandboxPort: 8080 })).toEqual({ ok: false, reason, portTaken: false });
+    expect(await runner.allowHostPorts!([5432])).toEqual({ ok: false, reason });
+    expect(await runner.listPorts!()).toBeNull();
+    expect(await runner.canHostServices!()).toBe(false);
+    await expect(runner.writeServiceEnv!('web', { A: '1' })).rejects.toThrow(reason);
+    expect(await runner.setupWindow!(['registry.npmjs.org'])).toEqual({ ok: false, reason });
+    untouched(ssh);
+    expect(t.spawned).toHaveLength(0);
+  });
+
+  it('a direct runner opens its -L tunnel in the injected registry and logs the unenforced window through info', async () => {
+    const ssh = fakeSshProcess();
+    const t = fakeTunnels();
+    const info = vi.fn();
+    const runner = sshRunnerFor(fakeSshRunnerDeps(ssh, { tunnels: t.registry, info }), PLACEMENT, TICKET);
+    expect(await runner.publishPort!({ hostPort: 18080, sandboxPort: 8080 })).toEqual({ ok: true });
+    expect(t.registry.list().map((h) => h.key)).toEqual([`${PLACEMENT.sandboxName!.split('/')[1]!}:L:18080`]);
+    expect(await runner.setupWindow!([])).toMatchObject({ ok: true, enforced: false });
+    expect(info).toHaveBeenCalledWith(sshSetupWindowInfo('devbox'));
+  });
+
+  it('every docker rebuild for the remote user shares the one registry', async () => {
+    const ssh = fakeSshProcess({ 'id -u': { stdout: '1000\n1001\n' } });
+    const t = fakeTunnels();
+    const runner = sshRunnerFor(fakeSshDockerRunnerDeps(ssh, { tunnels: t.registry }), fakeSshPlacement(7, 'opencode'), TICKET);
+    expect(await runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 })).toMatchObject({ ok: true });
+    expect(await runner.canHostServices!()).toBeTypeOf('boolean');
+    expect(t.registry.list().map((h) => h.key)).toEqual([`${fakeSshPlacement(7, 'opencode').sandboxName!.split('/')[1]!}:L:4100`]);
+    await runner.stopServices!();
+    expect(t.registry.list()).toEqual([]);
   });
 });

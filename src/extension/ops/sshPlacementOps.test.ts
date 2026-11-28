@@ -64,6 +64,10 @@ describe('blockedSshRunner (D826)', () => {
     await expect(runner.writeServiceEnv!('svc', { A: '1' })).rejects.toThrow(REASON);
     expect(await runner.removeServiceEnv!('svc')).toBeUndefined();
   });
+
+  it('rejects probeRemotePorts with the reason (fail closed, D823), never an empty busy list', async () => {
+    await expect(blockedSshRunner(REASON).probeRemotePorts!([5432])).rejects.toThrow(REASON);
+  });
 });
 
 describe('liveRemoteSession (D555 recovery)', () => {

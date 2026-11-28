@@ -11,6 +11,8 @@ import { WINDOW_SSH_GATE_REGISTRY, type SshGateRegistry } from '../../agent/ssh/
 import { SANDBOX_NAME_RE, sshProjectPrefix } from '../../agent/ssh/sshNames.js';
 import { NODE_SSH_PROCESS, sshArgv, type SshProcess } from '../../agent/ssh/sshProcess.js';
 import { createSshSessionRunner } from '../../agent/ssh/sshRunner.js';
+import { defaultSshTunnels } from '../../agent/ssh/sshServices.js';
+import type { TunnelRegistry } from '../../agent/ssh/sshTunnels.js';
 import { SSH_CORES, SSH_DOCKER_CORES, type SshCore, type SshDockerCore } from '../../agent/sandboxCores.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { SessionRunner } from '../../agent/sessionRunner.js';
@@ -51,6 +53,14 @@ export interface SshRunnerDeps {
   readonly ensureControlDir?: (dir: string) => Promise<SshControlResult>;
   /** The host gate boundary `runGate` wraps (tests). */
   readonly gateProcess?: GateProcessRunner;
+  /**
+   * The window's ssh tunnel registry (D823): `-L` published ports and shared
+   * `-R` host services. One per window; the window disposes it on reload.
+   * Default `windowTunnelRegistry` over `ssh`.
+   */
+  readonly tunnels?: TunnelRegistry;
+  /** INFO lines (the unenforced direct setup window). */
+  readonly info?: (message: string) => void;
   readonly warn?: (message: string) => void;
   readonly debug?: (message: string) => void;
 }
@@ -106,11 +116,16 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
   const projectPrefix = sshProjectPrefix(ticket.projectRoot, installId);
   // Captured here: a closure below cannot rely on the narrowing of a property.
   const hostWorktreePath = ticket.hostWorktreePath;
+  const ssh = deps.ssh ?? NODE_SSH_PROCESS;
+  // Resolved once: every docker rebuild (`withRemoteDockerUser`) shares one registry.
+  const tunnels = deps.tunnels ?? defaultSshTunnels(ssh, deps);
+  const log = {
+    ...(deps.info ? { info: deps.info } : {}), ...(deps.warn ? { warn: deps.warn } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
+  };
   if (def.mode === 'docker') {
     // The remote image ships opencode v1 and v2 only (D822): no claude, no codex, no agy.
     if (!isSshDockerCore(core)) return blockedSshRunner(sshDockerCoreRefusal(core));
     // The name is the ssh sandbox name (already validated): every docker object comes off it.
-    const ssh = deps.ssh ?? NODE_SSH_PROCESS;
     const build = (user: LinuxUser | undefined): SessionRunner => createSshDockerSessionRunner({
       ssh, sshBin: deps.sshBin,
       host: deps.host ?? NODE_SBX_PROCESS, remote: def, remoteName: name,
@@ -120,20 +135,23 @@ export function sshRunnerFor(deps: SshRunnerDeps | undefined, placement: TicketP
       // for the ops that need them): the launch resolved runs as the remote user.
       user,
       memory: resolveDockerMemoryLimits(ticket.memTotalBytes, ticket.sandboxMemory),
-      ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
+      tunnels,
+      ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.warn ? { warn: deps.warn } : {}),
+      ...(deps.debug ? { debug: deps.debug } : {}),
     });
     const runner = withRemoteDockerUser(build(undefined), build, () => remoteDockerUser(ssh, def, controlDir));
     return withControlDir(runner, () => (deps.ensureControlDir ?? ensureSshControlDir)(controlDir));
   }
   if (!isSshCore(core)) return blockedSshRunner(`${core === '' ? 'no core' : core}: ssh backend unsupported`);
   const runner = createSshSessionRunner({
-    ssh: deps.ssh ?? NODE_SSH_PROCESS, host: deps.host ?? NODE_SBX_PROCESS, remote: def, remoteName: name,
+    ssh, host: deps.host ?? NODE_SBX_PROCESS, remote: def, remoteName: name,
     sandboxName: target.sandboxName, projectPrefix, controlDir,
     core, ticketId: ticket.ticketId, hostWorktreePath: ticket.hostWorktreePath,
     // `tmux` is read only by `placeInteractive`; a host step never launches (`stop` kills a tmux session either way).
     tmux: false,
     registry: deps.registry ?? WINDOW_SSH_GATE_REGISTRY,
-    ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
+    tunnels, ...log,
+    ...(deps.gateProcess ? { gateProcess: deps.gateProcess } : {}),
   });
   return withControlDir(runner, () => (deps.ensureControlDir ?? ensureSshControlDir)(controlDir));
 }
@@ -174,6 +192,8 @@ const REMOTE_OPS = [
   // file and the host-service allow all reach the remote daemon.
   'setupWindow', 'canHostServices', 'stopServices', 'publishPort', 'unpublishPort', 'listPorts', 'allowHostPorts',
   'writeServiceEnv', 'removeServiceEnv',
+  // D823: one `ss -ltn` call before a spin allocates ports.
+  'probeRemotePorts',
 ] as const satisfies readonly (keyof SessionRunner)[];
 
 /**
