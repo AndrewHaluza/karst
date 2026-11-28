@@ -1,7 +1,9 @@
 /* ───────── Agents page (Roles + Agent profiles tabs) ─────────
    Tokens only; layout classes are scoped to #section-agents. */
+/* The tab row wraps: five tabs do not fit the 320px page floor on one line (T1405). */
 #section-agents .agents-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--k-space-1);
   border-bottom: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   margin-bottom: var(--k-space-4);
@@ -767,7 +769,8 @@
   overflow-wrap: break-word;
 }
 #section-agents .channels-layers code { overflow-wrap: break-word; }
-#section-agents .channels-core { max-width: 100%; }
+/* Five core options do not fit a 320px page on one line: the group wraps (T1405 layout gate). */
+#section-agents .channels-core { max-width: 100%; flex-wrap: wrap; }
 #section-agents .channels-map { width: 100%; border-collapse: collapse; table-layout: fixed; }
 #section-agents .channels-map th,
 #section-agents .channels-map td {
