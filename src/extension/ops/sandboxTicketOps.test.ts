@@ -1280,7 +1280,7 @@ describe('ssh reattach re-opens the tunnels, only in the controlling window (D82
     expect(controls).not.toHaveBeenCalled();
   });
 
-  it('bindings.stopTicket stops the ssh services and closes this ticket tunnels; another ticket keeps its own', async () => {
+  it('bindings.stopTicket stops the ssh services and closes this ticket -L tunnels; the -R key stays for the sandbox; another ticket keeps its own', async () => {
     const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
     const store = await seeded();
     const t = fakeTunnels();
@@ -1291,7 +1291,8 @@ describe('ssh reattach re-opens the tunnels, only in the controlling window (D82
     await t.registry.openL(`${NAME.replace('-7-', '-8-')}:L:4200`, { remote: OPT_IN, controlDir: '/tmp/karst-ssh-test/', hostPort: 4200, remotePort: 4200 });
     const b = createTicketSandboxBindings({ ...sshDeps(ssh, t), store, manifest: () => manifest, onError: vi.fn(), bridgeRoot: () => undefined });
     await b.stopTicket(store, 7);
-    expect(t.registry.list().map((h) => h.key)).toEqual([`${NAME.replace('-7-', '-8-')}:L:4200`]);
+    // A re-spin stops the services and starts them again with no new allowHostPorts: only dispose releases -R.
+    expect(t.registry.list().map((h) => h.key).sort()).toEqual([`${NAME.replace('-7-', '-8-')}:L:4200`, 'devbox:R:5432'].sort());
     expect(store.db.prepare('SELECT status FROM servers').get()).toEqual({ status: 'stopped' });
     expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('# karst-ssh-svc-stop'))).toBe(true);
   });
