@@ -849,6 +849,9 @@
   "src/model/inside/shipDeliver.ts": [
     "arch:AP-02"
   ],
+  "src/model/inside/shipRounds.ts": [
+    "arch:AP-15"
+  ],
   "src/model/mergeCheckView.ts#mergeOpStatus": [
     "arch:GH-03"
   ],
