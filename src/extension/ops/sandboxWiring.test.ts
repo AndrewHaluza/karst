@@ -15,7 +15,8 @@ import { getPlacement, recordPlacement, GRAPH_RUN_PLACEMENT } from '../../store/
 import { createGraphRun } from '../../store/graph/graphRuns.js';
 import type { SessionRunner } from '../../agent/sessionRunner.js';
 import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
-import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir, FAKE_INSTALL_ID } from './fakeSshRunnerDeps.js';
+import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir, FAKE_INSTALL_ID, FAKE_REMOTE } from './fakeSshRunnerDeps.js';
+import { SSH_STRAYS_FILE } from '../../agent/ssh/sshStrays.js';
 import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
 import { sshControlPath } from '../../agent/ssh/sshProcess.js';
 import { REMOVE_FOREIGN } from './sandboxForeignOps.js';
@@ -1361,6 +1362,77 @@ describe('makeSandboxWiring ssh lifecycle: palette, idle and recovery (D824)', (
     const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, sshRunner: fakeSshRunnerDeps(ssh), pickTicket });
     await expect(w.commandTarget(undefined, 'dispose')).resolves.toBe(a);
     expect(pickTicket.mock.calls[0]![0]).toEqual([{ label: 'S-1', description: expect.stringContaining('ssh devbox claude (running)'), ticketId: a }]);
+  });
+
+  /** A trusted devbox whose ssh-strays.json forgets the workspace of ticket `a` (D830). */
+  const forgottenDeps = (ssh: ReturnType<typeof fakeSshProcess>, a: number) => {
+    const deps = fakeSshRunnerDeps(ssh);
+    writeFileSync(join(deps.globalStorageDir, SSH_STRAYS_FILE), JSON.stringify([
+      { remote: 'devbox', path: `${FAKE_REMOTE.remoteDir}/${nameOf(a)}`, ticketId: a, forgottenAt: '2026-01-02T03:04:05.000Z' },
+    ]));
+    return deps;
+  };
+
+  it('palette command target never offers a forgotten remote workspace (D830)', async () => {
+    const { projectId, a } = liveSsh();
+    const ssh = fakeSshProcess({ '/srv/karst': dirs(nameOf(a)) });
+    const pickTicket = vi.fn(async () => a);
+    const { w, notify } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, sshRunner: forgottenDeps(ssh, a), pickTicket });
+    await expect(w.commandTarget(undefined, 'remove')).resolves.toBeUndefined();
+    expect(pickTicket).not.toHaveBeenCalled();
+    expect(notify.info).toHaveBeenCalledWith('No ticket in this project has a sandbox to remove.');
+  });
+
+  it('palette Remove of a forgotten remote workspace refuses and runs no ssh (D830 Delete owns it)', async () => {
+    const { projectId, a } = liveSsh();
+    const ssh = fakeSshProcess({});
+    const bridges = { dispose: vi.fn(async () => {}) };
+    const { w, notify } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      sshRunner: forgottenDeps(ssh, a), bridges: () => bridges as never,
+    });
+    await w.dispose(a);
+    expect(notify.error).toHaveBeenCalledWith(`The remote workspace of T${a} · S-1 "ssh ticket" is forgotten. Delete it from the ticket.`);
+    expect(ssh.calls).toEqual([]);
+    expect(bridges.dispose).not.toHaveBeenCalled();
+  });
+
+  /** Dispose through the palette and return the forgotten-workspace refusals it showed. */
+  const forgottenRefusals = async (a: number, projectId: number, sshRunner: SandboxWiringInput['sshRunner']) => {
+    const bridges = { dispose: vi.fn(async () => {}) };
+    const { w, notify } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      ...(sshRunner === undefined ? {} : { sshRunner }), bridges: () => bridges as never,
+    });
+    await w.dispose(a);
+    return notify.error.mock.calls.map((c: unknown[]) => String(c[0])).filter((m) => m.includes('is forgotten'));
+  };
+
+  it('palette Remove goes on when the stray records name another remote or another workspace', async () => {
+    const { projectId, a } = liveSsh();
+    const deps = fakeSshRunnerDeps(fakeSshProcess({}));
+    writeFileSync(join(deps.globalStorageDir, SSH_STRAYS_FILE), JSON.stringify([
+      { remote: 'other', path: `${FAKE_REMOTE.remoteDir}/${nameOf(a)}`, ticketId: a, forgottenAt: '2026-01-02T03:04:05.000Z' },
+      { remote: 'devbox', path: `${FAKE_REMOTE.remoteDir}/${nameOf(a)}-old`, ticketId: a, forgottenAt: '2026-01-02T03:04:05.000Z' },
+    ]));
+    await expect(forgottenRefusals(a, projectId, deps)).resolves.toEqual([]);
+  });
+
+  it('palette Remove of an ssh placement reads no stray record with no ssh runner or no declared remotes', async () => {
+    const { projectId, a } = liveSsh();
+    await expect(forgottenRefusals(a, projectId, undefined)).resolves.toEqual([]);
+    const undeclared = fakeSshRunnerDeps(fakeSshProcess({}), { remotes: () => undefined });
+    writeFileSync(join(undeclared.globalStorageDir, SSH_STRAYS_FILE), JSON.stringify([
+      { remote: 'devbox', path: `${FAKE_REMOTE.remoteDir}/${nameOf(a)}`, ticketId: a, forgottenAt: '2026-01-02T03:04:05.000Z' },
+    ]));
+    await expect(forgottenRefusals(a, projectId, undeclared)).resolves.toEqual([]);
+  });
+
+  it('palette Remove of a ticket with no ssh placement reads no stray record', async () => {
+    const { projectId } = liveSsh();
+    const b = createTicket(store, { key: 'S-2', title: 'host ticket', projectId }).id;
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r2', 'feat/r2')").run(b);
+    await expect(forgottenRefusals(b, projectId, fakeSshRunnerDeps(fakeSshProcess({})))).resolves.toEqual([]);
   });
 
   it('an idle ssh workspace is stopped by its own ssh runner; the stop waits while a gate runs (T1008)', async () => {

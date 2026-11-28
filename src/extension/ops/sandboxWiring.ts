@@ -3,6 +3,7 @@ import type { SbxGrantReleaser } from './sbxLaunchOauth.js';
 import { findRemoteStrays, findStrays, removeStrays, describeRemoteStrays } from './sandboxStrays.js';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
 import { NODE_SSH_PROCESS } from '../../agent/ssh/sshProcess.js';
+import { readSshStrays } from '../../agent/ssh/sshStrays.js';
 import { cleanupForeignRemoteOp, type ForeignPickItem } from './sandboxForeignOps.js';
 import { createSandboxSessionEnder } from './sandboxSessionEnd.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
@@ -194,6 +195,16 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     if (ok) markRemoved(t.ticketId);
     return ok;
   };
+  /** Does an open `ssh-strays.json` record forget this ticket's recorded ssh workspace (D830)? Reads no remote. */
+  const forgottenWorkspace = (ticketId: number): boolean => {
+    const ssh = w.sshRunner;
+    const target = sshPlacementTarget(getPlacement(w.store, ticketId));
+    if (ssh === undefined || target === undefined) return false;
+    const def = ssh.remotes()?.[target.remote];
+    if (def === undefined) return false;
+    return readSshStrays(ssh.globalStorageDir, w.info)
+      .some((s) => s.remote === target.remote && s.path === `${def.remoteDir}/${target.sandboxName}`);
+  };
   const clearSession = (id: number): void => setSessionId(w.store, id, null, null);
   const liveTickets = () => {
     const projectId = w.projectId();
@@ -256,6 +267,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const seen = new Set<number>();
     const picks = inv.sandboxes.flatMap((box) => {
       const t = live.get(box.ticketId);
+      // A forgotten remote workspace is never a target: only its Delete on the ticket removes it (D830).
+      if (box.stray === true) return [];
       if (box.invalidCore === true || t === undefined || seen.has(box.ticketId)) return [];
       seen.add(box.ticketId);
       return [{ label: t.key ?? String(t.id), description: `${box.runner}${box.remote === undefined ? '' : ` ${box.remote}`} ${box.core} (${box.state}) \u00b7 ${t.title}`, ticketId: t.id }];
@@ -490,6 +503,10 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     dispose: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
+      if (forgottenWorkspace(ticketId)) {
+        await w.notify.error(`The remote workspace of ${t.ticketLabel} is forgotten. Delete it from the ticket.`);
+        return;
+      }
       await disposeSandboxOp({ notify: w.notify, bridges: w.bridges(), projectRoot, ...placementTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Launch records where the ticket runs, with its core, in one write; only the controlling window writes (AC-37). */
