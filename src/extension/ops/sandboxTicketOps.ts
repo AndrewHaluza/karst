@@ -42,6 +42,7 @@ import { ticketHostGate } from './sandboxHostGate.js';
 import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
 import { blockedSshRunner } from './sshPlacementOps.js';
 import { sshDockerKillContextFor, sshRunnerFor, type SshRunnerDeps } from './sshRunnerFor.js';
+import { hasRunningSandboxService } from './sshTunnelReattach.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -465,7 +466,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         const sandboxed = ticketSandboxRunner(deps, ticketId) !== undefined;
         return (
           (sandboxed &&
-            (input.store.db.prepare("SELECT 1 FROM servers WHERE ticket_id = ? AND status = 'running' AND sandbox IS NOT NULL").get(ticketId) !== undefined ||
+            (hasRunningSandboxService(input.store, ticketId) ||
               hasRunningHostPlacedServices(input.store, ticketId, isHostPlaced))) ||
           (manifest?.uat?.keepStackForUser === true && hasRunningHostServices(input.store, ticketId))
         );

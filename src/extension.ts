@@ -361,6 +361,7 @@ import { readExistingInstallId, readOrCreateInstallId } from './agent/ssh/sshNam
 import type { SshRunnerDeps } from './extension/ops/sshRunnerFor.js';
 import { NODE_SSH_PROCESS } from './agent/ssh/sshProcess.js';
 import { createTunnelDeps, windowTunnelRegistry } from './agent/ssh/sshTunnels.js';
+import { hasRunningSandboxService, sshTunnelReattachTickets } from './extension/ops/sshTunnelReattach.js';
 import { confirmRemoteTrust, sshRemoteFor } from './extension/ops/sshTrustOps.js';
 import { liveRemoteSession, sshSessionQuotaLine } from './extension/ops/sshPlacementOps.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, wantsSbxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
@@ -656,7 +657,7 @@ const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
 let store: Store | undefined; let memoryGuard: MemoryBinding | undefined;
 let endpoint: HookEndpoint | undefined;
-let bridges: BridgeRegistry | undefined; let bridgeRoot: string | undefined; let sandboxB: ReturnType<typeof createTicketSandboxBindings> | undefined; let sandboxLife!: ReturnType<typeof makeSandboxWiring>; // set in activate, before any dashboard opens; // arch:AC-34 (built once the hook endpoint is bound), AC-32
+let sshTunnelsBinding: { closeAll(): Promise<void> } | undefined; let bridges: BridgeRegistry | undefined; let bridgeRoot: string | undefined; let sandboxB: ReturnType<typeof createTicketSandboxBindings> | undefined; let sandboxLife!: ReturnType<typeof makeSandboxWiring>; // set in activate, before any dashboard opens; // arch:AC-34 (built once the hook endpoint is bound), AC-32
 let graphEndpoint: GraphWakeupEndpoint | undefined;
 let graphCoordinatorStore: Store | undefined;
 let graphTransport: SupervisedCliTransport | undefined;
@@ -1290,11 +1291,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // D823: `autopilot` is declared later in `activate`; until then only the owned sessions count (no TDZ read).
   let autopilotControls: (ticketId: number) => boolean = () => false;
   // The window tunnel registry (D823), seeded here so the launch resolve and every host step share it; its `ssh -N` children must not outlive a reload.
-  const sshTunnels = windowTunnelRegistry(createTunnelDeps(NODE_SSH_PROCESS, { warn: (m) => logger.warn(m), debug: (m) => logger.debug(m) }));
+  const sshTunnels = windowTunnelRegistry(createTunnelDeps(NODE_SSH_PROCESS, { warn: (m) => logger.warn(m), debug: (m) => logger.debug(m) })); sshTunnelsBinding = sshTunnels; // D823: deactivate awaits its closeAll
   context.subscriptions.push({ dispose: () => { sshTunnels.closeAll().catch((e: unknown) => logger.debug(`[ssh] tunnel close on dispose failed: ${e instanceof Error ? e.message : String(e)}`)); } });
   const sshRunnerDeps: SshRunnerDeps = { remotes: () => currentManifest()?.remotes, installId: () => sshInstallId, globalStorageDir: storageDir, tunnels: sshTunnels, info: (m) => logger.info(m), warn: (m) => logger.warn(m), debug: (m) => logger.debug(m) };
   const graphDeps = createGraphDepsPreflight({ manifest: currentManifest, domainsOf: (id) => graphDomainsFor(id), gitCommonDirOf: gitCommonDirFromFs });
-  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), sshRunner: sshRunnerDeps, controls: (id) => ownedSessionTickets.has(id) || autopilotControls(id) }); // AC-32, D823: only the controlling window re-opens ssh tunnels
+  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), sshRunner: sshRunnerDeps, controls: (id) => autopilotControls(id) || sandboxLife.controls(id) }); // AC-32, D823: only the controlling window re-opens ssh tunnels (the session owner, or this project when no window runs the ticket: a kept stack)
   // The host gate re-run (@arch:AC-45): one dependency set for its three call sites, run through `runGateList`.
   const gateRerunDeps = bindGateRerunDeps({
     liveSinkFor: (id, stage) => gateLive.sinkFor(id, stage, () => dashboard.pushState(id)),
@@ -7668,6 +7669,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     [...ownedSessionTickets],
     adoptedVisibleSessions,
   );
+  // D823: the ssh tunnels died with the old window. Re-open them for an adopted ssh session or a kept ssh stack; a re-launched ticket re-opens its own.
+  for (const ticketId of sshTunnelReattachTickets({ tickets: candidates.map((c) => c.id), adopted: new Set(adoptedVisibleSessions.resume), recovering: new Set(backgroundRecoveryPlan.resume), placementOf: (id) => getPlacement(localStore, id), hasRunningService: (id) => hasRunningSandboxService(localStore, id) })) sandboxB?.reattach(ticketId);
   let ownershipChanged = false;
   for (const ticketId of backgroundRecoveryPlan.discard) {
     ownershipChanged = ownedSessionTickets.delete(ticketId) || ownershipChanged;
@@ -7791,6 +7794,8 @@ export async function deactivate(): Promise<void> {
   pendingApproachInstalls.clear();
   await bridges?.detachAll().catch((error: unknown) => cleanupErrors.push(error)); // stop pollers, keep dirs
   bridges = undefined;
+  await sshTunnelsBinding?.closeAll().catch((error: unknown) => cleanupErrors.push(error)); // D823: tunnels and -R owner markers; a subscription dispose cannot wait
+  sshTunnelsBinding = undefined;
   try {
     await endpoint?.close();
   } catch (error) {

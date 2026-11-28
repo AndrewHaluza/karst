@@ -105,9 +105,11 @@ export const STOP_SCRIPT_SD =
 const EXEC_TIMEOUT_MS = 30_000;
 
 /**
- * The start argv of one runner. A runner without `serviceStateDir` keeps the
- * old script and argv BYTE-IDENTICAL; a direct remote inserts the state dir as
- * the first element after the `$0` name (so `sd=$1`).
+ * The start argv of one runner. A runner without `serviceStateDir` (sbx, docker)
+ * keeps the old argv and the `/tmp` pid and log paths; its script changed only in
+ * the kill step, which now signals the whole service group (`KILL_SERVICE_GROUP`,
+ * the same fix for every runner). A direct remote inserts the state dir as the
+ * first element after the `$0` name (so `sd=$1`).
  */
 function startArgv(runner: SandboxServiceRunner, token: string, serviceCwd: string, rest: readonly string[]): string[] {
   const stateDir = runner.serviceStateDir;

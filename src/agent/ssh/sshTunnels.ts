@@ -705,23 +705,18 @@ export function createTunnelRegistry(deps: TunnelDeps): TunnelRegistry {
       }
       return ports.sort((a, b) => a - b);
     },
+    /** Closes every tunnel at once: a window reload must not wait on each `-R` marker in series. */
     async closeAll() {
-      for (const key of new Set([...l.keys(), ...openingL.keys()])) await closeL(key);
-      const rKeys = [...r.keys()];
-      for (const key of rKeys) {
-        const record = r.get(key);
-        if (record === undefined) continue;
-        r.delete(key);
-        if (record.opening !== undefined) {
-          try {
-            await (await record.opening).close();
-          } catch {
-            // The open failed: no tunnel is live.
-          }
-        } else if (record.handle !== undefined) {
-          await record.handle.close();
-        }
-      }
+      const lClosed = [...new Set([...l.keys(), ...openingL.keys()])].map((key) => closeL(key));
+      const records = [...r.values()];
+      r.clear();
+      const rClosed = records.map(async (record) => {
+        if (record.opening === undefined) return record.handle?.close();
+        // A failed open has no live tunnel to close.
+        return (await record.opening.catch(() => undefined))?.close();
+      });
+      const failed = (await Promise.allSettled([...lClosed, ...rClosed])).find((o): o is PromiseRejectedResult => o.status === 'rejected');
+      if (failed !== undefined) throw failed.reason;
     },
   };
 }

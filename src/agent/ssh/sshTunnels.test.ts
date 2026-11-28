@@ -632,4 +632,26 @@ describe('TunnelRegistry', () => {
     expect(h.spawned.every((child) => child.kills === 1)).toBe(true);
     expect(registry.list()).toHaveLength(0);
   });
+
+  it('closeAll starts every close at once and still reports a failed close', async () => {
+    const h = harness();
+    const registry = createTunnelRegistry(h.deps);
+    const one = registry.acquireR(tunnelRKey('devbox', 5432), 7, request({ hostPort: 5432, remotePort: 5432 }));
+    const two = registry.acquireR(tunnelRKey('devbox', 6379), 7, request({ hostPort: 6379, remotePort: 6379 }));
+    await advance(TUNNEL_R_READY_MS);
+    const handles = await Promise.all([one, two]);
+    const started: number[] = [];
+    let finish: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    vi.spyOn(handles[0]!, 'close').mockImplementation(async () => { started.push(5432); await gate; throw new Error('close failed'); });
+    vi.spyOn(handles[1]!, 'close').mockImplementation(async () => { started.push(6379); });
+
+    const closing = registry.closeAll();
+    const outcome = closing.then(() => 'resolved', (error: unknown) => (error as Error).message);
+    await advance(0);
+    expect(started).toEqual([5432, 6379]);
+    finish();
+    expect(await outcome).toBe('close failed');
+    expect(registry.list()).toHaveLength(0);
+  });
 });

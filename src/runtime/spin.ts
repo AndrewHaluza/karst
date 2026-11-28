@@ -328,8 +328,11 @@ export async function spinTicket(
     // A remote service binds the port its env names, so a host-only reallocation
     // cannot fix a remote clash (D823). Probe every allocated port of the
     // sandboxed services BEFORE any worktree or service exists: a busy port
-    // refuses the whole spin, changes nothing and picks no other port. The
-    // refusal throws inside this try, so the existing failure path reports it.
+    // refuses the whole spin and picks no other port. The probe runs AFTER the
+    // stop above, on purpose: the ticket's own old services hold the ports a
+    // re-spin draws again, so a probe before the stop would refuse every
+    // re-spin. A refusal therefore leaves the old stack stopped and starts no
+    // new one. It throws inside this try, so the existing failure path reports it.
     const probeRemotePorts = opts.sandbox?.runner.probeRemotePorts;
     if (probeRemotePorts) {
       const ports = sandboxServicePorts(manifest, resolved);
