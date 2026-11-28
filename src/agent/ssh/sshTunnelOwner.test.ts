@@ -7,6 +7,7 @@ import type { RemoteDef } from '../../manifest/types.js';
 import {
   NODE_OWNER_FS,
   OWNER_CLAIM_ATTEMPTS,
+  OWNER_STALE_MS,
   TUNNEL_SHARE_POLL_MS,
   createTunnelOwnerStore,
   openSharedR,
@@ -51,6 +52,28 @@ function memoryFs(files = new Map<string, string>()): OwnerFs & { readonly files
     },
     remove: (path) => (files.delete(path) ? Promise.resolve() : Promise.reject(errno('ENOENT'))),
   };
+}
+
+/** A `memoryFs` with mtimes on a fake clock: `touch` and `mtimeMs` work. */
+function clockFs(files: Map<string, string>, clock: { t: number }) {
+  const fs = memoryFs(files);
+  const mtimes = new Map<string, number>([...files.keys()].map((k) => [k, clock.t]));
+  return {
+    ...fs,
+    mtimes,
+    createExclusive: async (path: string, text: string) => {
+      await fs.createExclusive(path, text);
+      mtimes.set(path, clock.t);
+    },
+    touch: (path: string, timeMs: number) => {
+      mtimes.set(path, timeMs);
+      return Promise.resolve();
+    },
+    mtimeMs: (path: string) => {
+      const t = files.has(path) ? mtimes.get(path) : undefined;
+      return t === undefined ? Promise.reject(errno('ENOENT')) : Promise.resolve(t);
+    },
+  } satisfies OwnerFs & { readonly mtimes: Map<string, number> };
 }
 
 describe('tunnelOwnerId', () => {
@@ -164,6 +187,65 @@ describe('createTunnelOwnerStore', () => {
     await expect(store(memoryFs()).release(DIR, ID)).resolves.toBeUndefined();
   });
 
+  describe('heartbeat (a reused pid)', () => {
+    const at = (fs: OwnerFs, clock: { t: number }, pid = 100): TunnelOwnerStore =>
+      createTunnelOwnerStore({ pid, fs, isAlive: (p) => p === 200, now: () => clock.t });
+
+    it('takes over a live pid marker with no heartbeat at two claims with one mtime', async () => {
+      const clock = { t: 1_000 };
+      const fs = clockFs(new Map([[PATH, '200']]), clock);
+      const s = at(fs, clock);
+      clock.t += OWNER_STALE_MS;
+      await expect(s.claim(DIR, ID)).resolves.toBe('shared');
+      clock.t += 1;
+      await expect(s.claim(DIR, ID)).resolves.toBe('shared');
+      clock.t += TUNNEL_SHARE_POLL_MS;
+      await expect(s.claim(DIR, ID)).resolves.toBe('owned');
+      expect(fs.files.get(PATH)).toBe('100');
+    });
+
+    it('keeps sharing when the owner touches the marker between the two claims (sleep and wake)', async () => {
+      const clock = { t: 1_000 };
+      const fs = clockFs(new Map([[PATH, '200']]), clock);
+      const s = at(fs, clock);
+      clock.t += OWNER_STALE_MS + 1;
+      await expect(s.claim(DIR, ID)).resolves.toBe('shared');
+      await at(fs, clock, 200).refresh(DIR, ID);
+      clock.t += TUNNEL_SHARE_POLL_MS;
+      await expect(s.claim(DIR, ID)).resolves.toBe('shared');
+      // A fresh mark forgets the first look: one more old look is not enough.
+      clock.t += OWNER_STALE_MS + 1;
+      await expect(s.claim(DIR, ID)).resolves.toBe('shared');
+      expect(fs.files.get(PATH)).toBe('200');
+    });
+
+    it('creates again when the marker goes between the read and the mtime', async () => {
+      const clock = { t: 1_000 };
+      const fs = clockFs(new Map([[PATH, '200']]), clock);
+      const mtimeMs = (path: string) => {
+        fs.files.delete(path);
+        return Promise.reject(errno('ENOENT'));
+      };
+      await expect(at({ ...fs, mtimeMs }, clock).claim(DIR, ID)).resolves.toBe('owned');
+      await expect(at({ ...fs, mtimeMs: () => Promise.reject(errno('EIO')) }, clock).claim(DIR, ID)).resolves.toBe('owned');
+      fs.files.set(PATH, '200');
+      await expect(at({ ...fs, mtimeMs: () => Promise.reject(errno('EIO')) }, clock).claim(DIR, ID)).rejects.toThrow('EIO');
+    });
+
+    it('refresh touches only its own marker, and is a no-op without touch', async () => {
+      const clock = { t: 1_000 };
+      const own = clockFs(new Map([[PATH, '100']]), clock);
+      clock.t = 5_000;
+      await at(own, clock).refresh(DIR, ID);
+      expect(own.mtimes.get(PATH)).toBe(5_000);
+      const other = clockFs(new Map([[PATH, '200']]), clock);
+      clock.t = 9_000;
+      await at(other, clock).refresh(DIR, ID);
+      expect(other.mtimes.get(PATH)).toBe(5_000);
+      await expect(store(memoryFs(new Map([[PATH, '100']]))).refresh(DIR, ID)).resolves.toBeUndefined();
+    });
+  });
+
   it('defaults to this process pid', async () => {
     const fs = memoryFs();
     await createTunnelOwnerStore({ fs }).claim(DIR, ID);
@@ -195,6 +277,14 @@ describe('NODE_OWNER_FS', () => {
     await expect(store.claim(dir, ID)).resolves.toBe('owned');
     await store.release(dir, ID);
     await expect(NODE_OWNER_FS.read(join(dir, `r-${ID}.owner`))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('touch sets the mtime that mtimeMs reads; mtimeMs of no file is ENOENT', async () => {
+    const path = join(dir, 'r-y.owner');
+    await NODE_OWNER_FS.createExclusive(path, '42');
+    await NODE_OWNER_FS.touch!(path, 1_700_000_000_000);
+    await expect(NODE_OWNER_FS.mtimeMs!(path)).resolves.toBe(1_700_000_000_000);
+    await expect(NODE_OWNER_FS.mtimeMs!(join(dir, 'none'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 
@@ -321,6 +411,43 @@ describe('openSharedR', () => {
     expect(r.fs.files.get(PATH)).toBe('100');
   });
 
+  it('the owner touches its marker every poll interval until it closes', async () => {
+    const r = rig();
+    const touches: number[] = [];
+    const fs: OwnerFs = { ...r.fs, touch: (_p, t) => { touches.push(t); return Promise.resolve(); } };
+    const store = createTunnelOwnerStore({ pid: 100, fs, isAlive: () => false, now: () => Date.now() });
+    const handle = await openSharedR({ ...r.deps, store }, 'devbox:R:5432', 5432, 5432);
+    await vi.advanceTimersByTimeAsync(TUNNEL_SHARE_POLL_MS - 1);
+    expect(touches).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(touches).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(TUNNEL_SHARE_POLL_MS);
+    expect(touches).toHaveLength(2);
+    await handle.close();
+    await vi.advanceTimersByTimeAsync(TUNNEL_SHARE_POLL_MS * 3);
+    expect(touches).toHaveLength(2);
+  });
+
+  it('a sharer touches nothing, and an owner whose forward gave up stops its heartbeat', async () => {
+    const r = rig();
+    const refresh = vi.fn(() => Promise.resolve());
+    const inner = createTunnelOwnerStore({ pid: 100, fs: r.fs, isAlive: (p) => r.alive.has(p) });
+    const store: TunnelOwnerStore = { claim: (d, i) => inner.claim(d, i), release: (d, i) => inner.release(d, i), refresh };
+    r.fs.files.set(PATH, '200');
+    r.alive.add(200);
+    const sharer = await openSharedR({ ...r.deps, store }, 'devbox:R:5432', 5432, 5432);
+    await vi.advanceTimersByTimeAsync(TUNNEL_SHARE_POLL_MS * 2);
+    expect(refresh).not.toHaveBeenCalled();
+    await sharer.close();
+
+    r.fs.files.delete(PATH);
+    const owner = await openSharedR({ ...r.deps, store }, 'devbox:R:5432', 5432, 5432);
+    expect(owner.state).toBe('up');
+    r.opens.at(-1)!.onDown();
+    await vi.advanceTimersByTimeAsync(TUNNEL_SHARE_POLL_MS * 2);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it('releases the marker when its own forward gives up', async () => {
     const r = rig();
     await openSharedR(r.deps, 'devbox:R:5432', 5432, 5432);
@@ -383,6 +510,7 @@ describe('openSharedR', () => {
         return inner.claim(dir, id);
       },
       release: (dir, id) => inner.release(dir, id),
+      refresh: (dir, id) => inner.refresh(dir, id),
     };
     const handle = await openSharedR({ ...r.deps, store: slow }, 'devbox:R:5432', 5432, 5432);
     r.fs.files.delete(PATH);
@@ -413,11 +541,17 @@ describe('openSharedR', () => {
 
   it('opens without a marker when the store fails, and logs it', async () => {
     const r = rig({
-      store: { claim: () => Promise.reject(new Error('EACCES')), release: () => Promise.reject(new Error('EROFS')) },
+      store: {
+        claim: () => Promise.reject(new Error('EACCES')),
+        release: () => Promise.reject(new Error('EROFS')),
+        refresh: () => Promise.reject(new Error('EIO')),
+      },
     });
     const handle = await openSharedR(r.deps, 'devbox:R:5432', 5432, 5432);
     expect(r.opens).toHaveLength(1);
     expect(r.debug).toHaveBeenCalledWith('[ssh] tunnel devbox:R:5432: owner marker failed, opening without it: EACCES');
+    await vi.advanceTimersByTimeAsync(TUNNEL_SHARE_POLL_MS);
+    expect(r.debug).toHaveBeenCalledWith('[ssh] tunnel devbox:R:5432: owner marker heartbeat failed: EIO');
     await handle.close();
     expect(r.debug).toHaveBeenCalledWith('[ssh] tunnel devbox:R:5432: owner marker release failed: EROFS');
   });

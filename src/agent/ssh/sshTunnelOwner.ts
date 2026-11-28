@@ -16,10 +16,16 @@
  * or dies (a dead pid is a stale marker), the sharer claims the marker and opens
  * its own forward. The baseline is not reachable for up to one poll interval.
  *
+ * The OS can give a dead owner's pid to another process. So the owner also
+ * touches its marker every poll interval (the heartbeat). A marker of a live pid
+ * is stale when its mtime is older than `OWNER_STALE_MS` at two claims, with the
+ * same mtime both times. The second look keeps a sleep and wake from taking a
+ * live owner's marker: the owner touches it again within one interval.
+ *
  * Host-agnostic: the file seam, the pid check and the timers are injected.
  */
 import { createHash } from 'node:crypto';
-import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { readFile, stat, unlink, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RemoteDef } from '../../manifest/types.js';
 import { pidAlive } from '../../runtime/pidAlive.js';
@@ -29,6 +35,8 @@ import type { TunnelHandle, TunnelState } from './sshTunnels.js';
 export const TUNNEL_SHARE_POLL_MS = 5000;
 /** Claim tries before the marker counts as unsettled (each try is one create or one stale removal). */
 export const OWNER_CLAIM_ATTEMPTS = 3;
+/** A marker that the owner did not touch for this long may belong to a reused pid. */
+export const OWNER_STALE_MS = 3 * TUNNEL_SHARE_POLL_MS;
 const OWNER_PID_RE = /^[1-9][0-9]{0,9}$/;
 const DEFAULT_SSH_PORT = 22;
 
@@ -39,6 +47,8 @@ export interface TunnelOwnerStore {
   claim(dir: string, id: string): Promise<OwnerClaim>;
   /** Remove the marker, only when this process holds it. */
   release(dir: string, id: string): Promise<void>;
+  /** The owner heartbeat: touch the marker, only when this process holds it. */
+  refresh(dir: string, id: string): Promise<void>;
 }
 
 /** The three file calls the store makes; each rejects with the node error code. */
@@ -47,18 +57,25 @@ export interface OwnerFs {
   createExclusive(path: string, text: string): Promise<void>;
   read(path: string): Promise<string>;
   remove(path: string): Promise<void>;
+  /** Set the mtime to `timeMs`. Without it (and `mtimeMs`), there is no heartbeat check. */
+  touch?(path: string, timeMs: number): Promise<void>;
+  /** The mtime in ms; reject with `ENOENT` for no file. */
+  mtimeMs?(path: string): Promise<number>;
 }
 
 export const NODE_OWNER_FS: OwnerFs = {
   createExclusive: (path, text) => writeFile(path, text, { flag: 'wx', mode: 0o600 }),
   read: (path) => readFile(path, 'utf8'),
   remove: (path) => unlink(path),
+  touch: (path, timeMs) => utimes(path, timeMs / 1000, timeMs / 1000),
+  mtimeMs: async (path) => (await stat(path)).mtimeMs,
 };
 
 export interface TunnelOwnerStoreOptions {
   readonly pid?: number;
   readonly isAlive?: (pid: number) => boolean;
   readonly fs?: OwnerFs;
+  readonly now?: () => number;
 }
 
 /** One id for the same login, ssh port, remote port and host port. */
@@ -101,7 +118,33 @@ export function createTunnelOwnerStore(opts: TunnelOwnerStoreOptions = {}): Tunn
   const pid = opts.pid ?? process.pid;
   const isAlive = opts.isAlive ?? pidAlive;
   const fs = opts.fs ?? NODE_OWNER_FS;
+  const now = opts.now ?? Date.now;
   const pathOf = (dir: string, id: string): string => join(dir, `r-${id}.owner`);
+  // The old mtime that one claim saw per marker; the next claim confirms it.
+  const staleSeen = new Map<string, number>();
+
+  /** True when the marker of a live pid has no heartbeat at two claims. */
+  const staleTwice = async (path: string): Promise<boolean> => {
+    if (fs.mtimeMs === undefined) return false;
+    let mtime: number;
+    try {
+      mtime = await fs.mtimeMs(path);
+    } catch (error) {
+      // The owner released it: the remove is a no-op, and the next try creates it.
+      if (codeOf(error) === 'ENOENT') return true;
+      throw error;
+    }
+    if (now() - mtime <= OWNER_STALE_MS) {
+      staleSeen.delete(path);
+      return false;
+    }
+    if (staleSeen.get(path) === mtime) {
+      staleSeen.delete(path);
+      return true;
+    }
+    staleSeen.set(path, mtime);
+    return false;
+  };
 
   return {
     async claim(dir, id) {
@@ -117,7 +160,7 @@ export function createTunnelOwnerStore(opts: TunnelOwnerStoreOptions = {}): Tunn
         // The owner released it between the create and the read: create again.
         if (owner === 'missing') continue;
         if (owner === pid) return 'owned';
-        if (owner !== 'invalid' && isAlive(owner)) return 'shared';
+        if (owner !== 'invalid' && isAlive(owner) && !(await staleTwice(path))) return 'shared';
         await removeMarker(fs, path);
       }
       throw new Error(`ssh: the -R owner marker ${id} did not settle`);
@@ -125,6 +168,10 @@ export function createTunnelOwnerStore(opts: TunnelOwnerStoreOptions = {}): Tunn
     async release(dir, id) {
       const path = pathOf(dir, id);
       if ((await readOwner(fs, path)) === pid) await removeMarker(fs, path);
+    },
+    async refresh(dir, id) {
+      const path = pathOf(dir, id);
+      if (fs.touch !== undefined && (await readOwner(fs, path)) === pid) await fs.touch(path, now());
     },
   };
 }
@@ -149,6 +196,7 @@ class OwnedRForward implements TunnelHandle {
   private closed = false;
   private failed: string | undefined;
   private cancelPoll: (() => void) | undefined;
+  private cancelBeat: (() => void) | undefined;
   private closing: Promise<void> | undefined;
 
   constructor(
@@ -209,6 +257,25 @@ class OwnedRForward implements TunnelHandle {
       await this.releaseMarker();
       throw error;
     }
+    this.beat();
+  }
+
+  /** The owner heartbeat: a sharer takes a marker over when its mtime gets old. */
+  private beat(): void {
+    if (!this.owned || this.closed) return;
+    this.cancelBeat = this.deps.schedule(() => {
+      this.cancelBeat = undefined;
+      void this.refreshMarker().then(() => this.beat());
+    }, TUNNEL_SHARE_POLL_MS);
+  }
+
+  private async refreshMarker(): Promise<void> {
+    if (!this.owned || this.closed) return;
+    try {
+      await this.deps.store.refresh(this.deps.dir, this.deps.id);
+    } catch (error) {
+      this.deps.debug?.(`[ssh] tunnel ${this.key}: owner marker heartbeat failed: ${messageOf(error)}`);
+    }
   }
 
   private poll(): void {
@@ -245,6 +312,8 @@ class OwnedRForward implements TunnelHandle {
   }
 
   private async releaseMarker(): Promise<void> {
+    this.cancelBeat?.();
+    this.cancelBeat = undefined;
     if (!this.owned) return;
     this.owned = false;
     try {

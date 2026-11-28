@@ -374,7 +374,7 @@ describe('ssh docker: host -L tunnel over the remote relay (D823)', () => {
     scriptsOf(ssh).some((script) => script.includes(`${CONTAINER}-port-${String(port)}`));
   const flag = (argv: readonly string[], f: string): string => argv[argv.indexOf(f) + 1]!;
 
-  it('opens <container>:L:<hostPort> to the remote 127.0.0.1 relay port after the relay', async () => {
+  it('opens <container>:L:<hostPort> to the remote 127.0.0.1 relay port, then the relay', async () => {
     const t: FakeTunnels = fakeTunnels();
     const ssh = fakeSshProcess();
     const runner = makeRunner({ ssh, tunnels: t.registry });
@@ -384,23 +384,22 @@ describe('ssh docker: host -L tunnel over the remote relay (D823)', () => {
     expect(flag(t.spawned[0]!.argv, '-L')).toBe('127.0.0.1:4100:127.0.0.1:4100');
   });
 
-  it('a failed tunnel removes the relay and returns the failure', async () => {
+  it('a taken host port (another window -L) fails before any relay call: that relay stays', async () => {
     const t = fakeTunnels({ connect: false, onSpawn: (c) => queueMicrotask(() => { c.stderr.emit('data', 'bind [127.0.0.1]:4100: Address already in use\n'); c.emit('exit', 255, null); }) });
     const ssh = fakeSshProcess();
     const runner = makeRunner({ ssh, tunnels: t.registry });
     await expect(runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 })).resolves.toMatchObject({ ok: false, portTaken: true });
-    const scripts = scriptsOf(ssh);
-    expect(scripts.at(-1)).toContain(`${CONTAINER}-port-4100`);
-    expect(scripts.at(-1)).toMatch(/rm/);
+    expect(relayUp(ssh, 4100)).toBe(false);
     expect(t.registry.forSandbox(CONTAINER)).toEqual([]);
   });
 
-  it('a failed relay opens no tunnel', async () => {
+  it('a failed relay closes the tunnel this call opened', async () => {
     const t = fakeTunnels();
     const ssh = fakeSshProcess({ 'karst.ports=': { code: 125, stderr: 'boom' } });
     const out = await makeRunner({ ssh, tunnels: t.registry }).publishPort!({ hostPort: 4100, sandboxPort: 3000 });
     expect(out.ok).toBe(false);
-    expect(t.spawned).toHaveLength(0);
+    expect(t.spawned).toHaveLength(1);
+    expect(t.registry.forSandbox(CONTAINER)).toEqual([]);
   });
 
   it('unpublish closes the tunnel, then the relay; listPorts keeps only relays with a tunnel, with its state', async () => {

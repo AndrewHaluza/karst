@@ -241,17 +241,23 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
       return { ok: true, cmd: sshBin, args: sshDockerArgv(opts.remote, opts.controlDir, res.args, { flags: ['-t'] }) };
     },
     // The relay listens on the REMOTE loopback; a host `-L` tunnel carries it to the host loopback.
+    // The tunnel opens FIRST (D823): a host port that another window's `-L` holds fails here,
+    // before `publishRelay` (rm, then run) can replace the relay that the other tunnel serves.
+    // A failed relay closes only the tunnel that this call opened.
     publishPort: async (mapping): Promise<PublishResult> => {
-      const res = await base.publishPort!(mapping);
-      if (!res.ok) return res;
+      const key = tunnelKey(mapping.hostPort);
       try {
-        await tunnels.openL(tunnelKey(mapping.hostPort), {
+        await tunnels.openL(key, {
           remote: opts.remote, controlDir: opts.controlDir, hostPort: mapping.hostPort, remotePort: mapping.hostPort,
         });
       } catch (err) {
-        await base.unpublishPort!(mapping);
         const reason = err instanceof Error ? err.message : String(err);
         return { ok: false, reason, portTaken: err instanceof TunnelOpenError && err.portTaken };
+      }
+      const res = await base.publishPort!(mapping);
+      if (!res.ok) {
+        await tunnels.closeL(key);
+        return res;
       }
       return { ok: true, remotePort: mapping.hostPort };
     },
