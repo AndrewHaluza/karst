@@ -446,6 +446,26 @@ describe('transcript forwarding (edit 5)', () => {
     expect(await readFile(outside, 'utf8')).toBe('ORIGINAL\n');
   });
 
+  it('stop kills the events tail AND every open transcript stream', async () => {
+    const ssh = new FakeSsh(
+      (stream, index) => {
+        if ((ssh.spawns[index - 1]!.at(-1) ?? '').includes('claude-projects')) stream.push(`KARST_TAIL_OFFSET=0\n`);
+      },
+      listing([CLAUDE_REL]),
+    );
+    await recordRemoteTrust(trustDir, NAME, REMOTE);
+    const started = await start(ssh);
+    expect(started.ok).toBe(true);
+    const isTranscript = (i: number): boolean => (ssh.spawns[i]!.at(-1) ?? '').includes('claude-projects');
+    const isEvents = (i: number): boolean => (ssh.spawns[i]!.at(-1) ?? '').includes('events.ndjson');
+    await waitFor(() => ssh.spawns.some((_a, i) => isTranscript(i)) && ssh.spawns.some((_a, i) => isEvents(i)), 'both streams');
+    await stopSshBridgeForwarder(TICKET);
+    const kills = ssh.streams.map((stream, i) => ({ events: isEvents(i), transcript: isTranscript(i), killed: stream.killed }));
+    expect(kills.filter((k) => k.events || k.transcript).every((k) => k.killed === 1)).toBe(true);
+    expect(kills.some((k) => k.events)).toBe(true);
+    expect(kills.some((k) => k.transcript)).toBe(true);
+  });
+
   it('forwards a codex rollout into <hostBridge>/codex-sessions/', async () => {
     const codexRel = `2026/11/28/rollout-2026-11-28T09-00-00-${SESSION}.jsonl`;
     const line = JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete' } });

@@ -279,8 +279,9 @@ class ActiveForwarder {
   private readonly offsets: ForwarderState = { offsets: {} };
   private readonly stateFile: string;
   private readonly dbg: (message: string) => void;
-  private currentChild: ChildProcess | undefined;
-  private finishStream: (() => void) | undefined;
+  /** Every open stream child: the events tail and each transcript stream run at once. */
+  private readonly children = new Set<ChildProcess>();
+  private readonly finishers = new Set<() => void>();
   private persistChain: Promise<void> = Promise.resolve();
   private readonly wakers = new Set<() => void>();
 
@@ -460,8 +461,8 @@ class ActiveForwarder {
         if (settled) return;
         settled = true;
         this.opts.signal?.removeEventListener('abort', onAbort);
-        this.currentChild = undefined;
-        this.finishStream = undefined;
+        if (child !== undefined) this.children.delete(child);
+        this.finishers.delete(done);
         // The carry is not persisted: the next connection re-reads it.
         void persist(base + received - carry.length).then(() => {
           const handle = hostHandle;
@@ -482,8 +483,8 @@ class ActiveForwarder {
         resolve();
         return;
       }
-      this.currentChild = child;
-      this.finishStream = done;
+      this.children.add(child);
+      this.finishers.add(done);
       this.opts.signal?.addEventListener('abort', onAbort, { once: true });
 
       let work: Promise<void> = Promise.resolve();
@@ -621,12 +622,11 @@ class ActiveForwarder {
 
   private async stop(): Promise<void> {
     this.stopped = true;
-    const child = this.currentChild;
-    if (child !== undefined) {
+    for (const child of [...this.children]) {
       try { child.kill(); } catch { /* already gone */ }
     }
     // A fake (or a child that ignores the signal) must not leave the wait pending.
-    this.finishStream?.();
+    for (const finish of [...this.finishers]) finish();
     for (const wake of [...this.wakers]) wake();
     await this.persistChain;
   }
