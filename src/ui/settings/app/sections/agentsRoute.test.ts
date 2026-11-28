@@ -43,3 +43,22 @@ describe('agentsRoute sandbox', () => {
     expect(formatAgentsHash({ tab: 'sandbox' })).toBe('#agents/sandbox');
   });
 });
+
+describe('agentsRoute channels', () => {
+  it('parses and formats #agents/channels with and without a core', () => {
+    expect(parseAgentsHash('#agents/channels')).toEqual({ tab: 'channels' });
+    expect(formatAgentsHash({ tab: 'channels' })).toBe('#agents/channels');
+    expect(parseAgentsHash('#agents/channels/codex')).toEqual({ tab: 'channels', selected: 'codex' });
+    expect(parseAgentsHash(formatAgentsHash({ tab: 'channels', selected: 'codex' }))).toEqual({
+      tab: 'channels',
+      selected: 'codex',
+    });
+  });
+
+  it('keeps an unknown core so the tab can fall back to the first core', () => {
+    expect(parseAgentsHash('#agents/channels/some-retired-core')).toEqual({
+      tab: 'channels',
+      selected: 'some-retired-core',
+    });
+  });
+});

@@ -63,6 +63,12 @@ export interface GateScriptInput {
   readonly cwd: string;
   /** The remote env file (`<ws>/env/env.sh`). */
   readonly envFile: string;
+  /**
+   * A second env file, sourced AFTER `envFile` (D823): a service start's
+   * `<ws>/svc/karst-svc-<key>.env`. Absent: the script is byte-identical to
+   * the plain gate script.
+   */
+  readonly extraEnvFile?: string;
   readonly command: string;
   /** Already mapped to the remote paths. */
   readonly args: readonly string[];
@@ -81,12 +87,13 @@ export function gateScript(input: GateScriptInput): string {
   const paths = gatePaths(input.workspace, input.runId);
   const runId = sshQuote(input.runId);
   const inner = [input.command, ...input.args].map(sshQuote).join(' ');
+  const extra = input.extraEnvFile === undefined ? '' : ` && . ${sshQuote(input.extraEnvFile)}`;
   return [
     '# karst-ssh-gate',
     `mkdir -p -m 700 ${sshQuote(paths.gatesDir)}`,
     `trap ${sshQuote(`rm -f ${sshQuote(paths.pgidFile)} ${sshQuote(paths.ownerFile)}`)} EXIT`,
     `echo $$ > ${sshQuote(paths.ownerFile)}`,
-    `(cd ${sshQuote(input.cwd)} && . ${sshQuote(input.envFile)} && export KARST_SANDBOX=1 && ` +
+    `(cd ${sshQuote(input.cwd)} && . ${sshQuote(input.envFile)}${extra} && export KARST_SANDBOX=1 && ` +
       `setsid -w sh -c 'echo $$ > "$2"; exec sh -c "$1"' _ ${sshQuote(inner)} ${sshQuote(paths.pgidFile)})`,
     'rc=$?',
     `(umask 077; printf '%s:%s\\n' ${runId} "$rc" > ${sshQuote(paths.exitFile)})`,

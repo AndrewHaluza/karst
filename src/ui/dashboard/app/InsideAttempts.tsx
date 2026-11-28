@@ -18,13 +18,18 @@ export function AttemptTabs({
   stageKey,
   attempts,
   selected,
+  caption,
 }: {
   readonly stageKey: string;
   readonly attempts: readonly GateAttemptView[] | undefined;
   readonly selected: string | undefined;
+  /** Host-authored muted caption for the selected attempt, shown at the end of the row (UI-R31). */
+  readonly caption?: string;
 }) {
   const send = useDashboardSend();
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
+  // Scoped like the tabs' own ids: two stages' rows can render beside each other.
+  const captionId = `attempt-caption-${stageKey}`;
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -40,7 +45,15 @@ export function AttemptTabs({
   if (!attempts || attempts.length < 2) return null;
   const keys = attempts.map((a) => a.key).join(',');
   return (
-    <div className="attempt-tabs" role="tablist" aria-label="Rounds">
+    <div
+      className="attempt-tabs"
+      role="tablist"
+      aria-label="Rounds"
+      // A screen reader hears which round is selected AND why it opened: the
+      // caption describes the whole row, so it is the tablist's description,
+      // never a tab's accessible name.
+      aria-describedby={caption ? captionId : undefined}
+    >
       <span className="attempt-tabs-label" aria-hidden="true">
         Rounds
       </span>
@@ -87,6 +100,14 @@ export function AttemptTabs({
           </Fragment>
         );
       })}
+      {/* The selected round's plain facts, muted, at the END of the row: a tab
+          row fact, not an attention banner. The row already wraps, so the
+          tight tier puts it on its own line under the tabs. */}
+      {caption ? (
+        <span className="attempt-caption" id={captionId}>
+          {caption}
+        </span>
+      ) : null}
     </div>
   );
 }

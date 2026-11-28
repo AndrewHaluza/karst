@@ -1,4 +1,5 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
+import { fakeTunnels } from '../../agent/ssh/fakeTunnels.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REMOTE_TRUST_FILE, remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
@@ -33,7 +34,9 @@ export function fakeTrustDir(entries: Record<string, string> = { devbox: remoteT
 export function fakeSshRunnerDeps(ssh: FakeSshProcess, over: Partial<SshRunnerDeps> = {}): SshRunnerDeps {
   return {
     remotes: () => ({ devbox: FAKE_REMOTE }), installId: () => FAKE_INSTALL_ID, globalStorageDir: fakeTrustDir(), ssh,
-    controlDir: '/tmp/karst-ssh-test/', ensureControlDir: async () => ({ ok: true }), ...over,
+    controlDir: '/tmp/karst-ssh-test/', ensureControlDir: async () => ({ ok: true }),
+    // A fresh registry per deps: a test never shares (or leaks into) the window singleton.
+    tunnels: fakeTunnels().registry, ...over,
   };
 }
 

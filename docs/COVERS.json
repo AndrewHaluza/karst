@@ -246,6 +246,9 @@
   "src/agent/settingsSweep.ts": [
     "arch:GLOBAL"
   ],
+  "src/agent/ssh/sshServices.ts": [
+    "arch:AC-69"
+  ],
   "src/agents/skillBlockingDirective.test.ts": [
     "arch:APP-00",
     "arch:APP-07"

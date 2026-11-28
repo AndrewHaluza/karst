@@ -429,6 +429,11 @@ export interface EvidenceRow {
   autofixStop?: { requested: boolean };
   /** The Deliver failure row that carries its own Dismiss (an x icon button). `gate` is the gate name `dismissDeliverFailures` takes. */
   deliverDismiss?: { gate: string };
+  /**
+   * A pre-push gate row of the SHIP Push row (the Deliver push, T1403). The webview uses it to tell this running row from
+   * a per-repository push row of the same status, never by parsing the label.
+   */
+  deliverGate?: true;
   /** A failed row's error text: shown behind a native 'Show' disclosure, never inline. Host-shipped, verbatim. */
   output?: string;
   /**
@@ -922,11 +927,18 @@ export interface InsideStageView {
    */
   selectedAttempt?: AttemptKey;
   /**
-   * Host-authored caption shown above the ledger for any selection that
-   * has one (the latest round included): `opened by … · <duration> · no fix
-   * attempts left`, each part present only when it applies.
-   * The webview renders it verbatim (UI-R31) and never derives it from
-   * `selectedAttempt` itself. Absent → no banner.
+   * Host-authored muted caption for the round TAB ROW, from the selected
+   * attempt (the latest round included): `opened by …` and, for a settled
+   * attempt, its duration. The webview renders it verbatim (UI-R31) and never
+   * derives it from `selectedAttempt` itself. Absent → no caption.
+   */
+  attemptCaption?: string;
+  /**
+   * Host-authored ATTENTION-band text for any selection that has one — the
+   * fact the reader must act on: `no fix attempts left` on an exhausted round,
+   * or the superseded-round note. A plain caption never lands here, so the
+   * band is reserved for what needs action. The webview renders it verbatim
+   * (UI-R31). Absent → no band.
    */
   attemptNote?: string;
 }

@@ -134,7 +134,7 @@ describe('Agents page — tabs and location', () => {
   it('renders a tablist with Roles and Agent profiles (n), arrow keys switch, the hash follows', () => {
     mount();
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Roles', 'Agent profiles (10)', 'Accounts', 'Sandbox']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Roles', 'Agent profiles (10)', 'Accounts', 'Sandbox', 'Channels']);
     expect(tabs[0]!.getAttribute('aria-selected')).toBe('true');
     fireEvent.keyDown(tabs[0]!, { key: 'ArrowRight' });
     expect(screen.getAllByRole('tab')[1]!.getAttribute('aria-selected')).toBe('true');
@@ -187,9 +187,9 @@ describe('Agents page — tabs and location', () => {
     mount();
     const tabs = (): HTMLElement[] => screen.getAllByRole('tab');
     fireEvent.keyDown(tabs()[0]!, { key: 'End' });
-    expect(tabs()[3]!.getAttribute('aria-selected')).toBe('true');
-    expect(window.location.hash).toBe('#agents/sandbox');
-    fireEvent.keyDown(tabs()[3]!, { key: 'Home' });
+    expect(tabs()[4]!.getAttribute('aria-selected')).toBe('true');
+    expect(window.location.hash).toBe('#agents/channels');
+    fireEvent.keyDown(tabs()[4]!, { key: 'Home' });
     expect(tabs()[0]!.getAttribute('aria-selected')).toBe('true');
     expect(window.location.hash).toBe('#agents/roles');
   });
@@ -201,13 +201,16 @@ describe('Agents page — page description and instant-apply tab (SET-10, Q4-SAV
     expect(document.querySelector('.page-desc')!.textContent).toBe('Which agent runs each role.');
   });
 
-  it('hides Save and Discard on Accounts only, and says why', () => {
+  it('hides Save and Discard on Accounts and Channels, and says why', () => {
     mountWithShell();
     expect(document.querySelector('#saveBtn')).not.toBeNull();
     fireEvent.click(screen.getAllByRole('tab')[2]!);
     expect(document.querySelector('#saveBtn')).toBeNull();
     expect(document.querySelector('#discardBtn')).toBeNull();
     expect(document.querySelector('.instant-apply-note')!.textContent).toBe('Changes here apply at once.');
+    fireEvent.click(screen.getAllByRole('tab')[4]!);
+    expect(document.querySelector('#saveBtn')).toBeNull();
+    expect(document.querySelector('#discardBtn')).toBeNull();
     fireEvent.click(screen.getAllByRole('tab')[0]!);
     expect(document.querySelector('#saveBtn')).not.toBeNull();
     expect(document.querySelector('#discardBtn')).not.toBeNull();

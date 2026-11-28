@@ -610,7 +610,7 @@ export function graphInsideProcess(
       leadRows,
       ...(ledgerRows.length > 0 ? { nodes: ledgerRows } : {}),
       ...(input.topology && input.topology.nodes.length > 0
-        ? { dag: graphDagView(input.topology, ledgerRows, input.graphRun.status === 'closed') }
+        ? { dag: graphDagView(input.topology, ledgerRows) }
         : {}),
     },
   };

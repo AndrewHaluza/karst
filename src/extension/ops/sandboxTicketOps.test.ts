@@ -21,6 +21,7 @@ import { remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
 import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import { SSH_DEPS_MISSING } from './sshRunnerFor.js';
+import { fakeTunnels } from '../../agent/ssh/fakeTunnels.js';
 
 vi.mock('../../workflow/gates/run.js', async (orig) => ({
   ...(await orig<typeof import('../../workflow/gates/run.js')>()),
@@ -1304,5 +1305,113 @@ describe('resolveTicketSandbox with two listed sandboxes of one ticket', () => {
   it('does not throw without a debug callback', async () => {
     const r = await resolveTicketSandbox(deps({ inventory: async () => two }), 7);
     expect(r.listed).toMatchObject({ name: 'sb-claude' });
+  });
+});
+
+describe('ssh reattach re-opens the tunnels, only in the controlling window (D823)', () => {
+  const OPT_IN: RemoteDef = { ...FAKE_REMOTE_DIRECT(), allowHostServices: true };
+  const manifest = { repositories: { db: { repoPath: '/r/db', service: { start: 'x', ports: [{ name: 'pg', default: 5432 }] } } } } as unknown as Manifest;
+  const PLACED = fakeSshPlacement();
+  const NAME = PLACED.sandboxName!.split('/')[1]!;
+  const PROBE = 'karst-ssh-probe';
+
+  function FAKE_REMOTE_DIRECT(): RemoteDef {
+    return { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+  }
+
+  function sshDeps(ssh: FakeSshProcess, tunnels: ReturnType<typeof fakeTunnels>, over: Partial<TicketSandboxDeps> = {}): TicketSandboxDeps {
+    return deps({
+      placementOf: () => PLACED, worktreeOf: () => '/wt', proc: fakeSbxProcess(),
+      sshRunner: fakeSshRunnerDeps(ssh, {
+        remotes: () => ({ devbox: OPT_IN }),
+        globalStorageDir: fakeTrustDir({ devbox: remoteTrustKey('devbox', OPT_IN) }),
+        tunnels: tunnels.registry,
+      }),
+      ...over,
+    });
+  }
+
+  async function seeded() {
+    const store = openStore(':memory:');
+    store.db.prepare("INSERT INTO baseline_refs (ticket_id, repo) VALUES (7, 'db')").run();
+    const before = fakeTunnels();
+    const ctx = (await ticketSandboxContext(sshDeps(fakeSshProcess({ [PROBE]: { code: 0 } }), before), 7))!;
+    await startSandboxService({
+      store, runner: { ...ctx.runner, runGate: () => Promise.resolve({ kind: 'completed', exitCode: 0, output: '' }) },
+      sandboxName: PLACED.sandboxName!, ticketId: 7, service: 'api', command: 'node', args: [], env: {}, worktree: '/wt', serviceCwd: '/wt',
+      port: 4100, healthUrlFor: () => 'u', logPath: '/l', reallocate: () => Promise.resolve(1), waitHealthy: () => Promise.resolve(),
+    });
+    return store;
+  }
+
+  it('after a reload the controlling window re-opens the -R baseline and the -L service tunnels', async () => {
+    const store = await seeded();
+    // A reload: a new window registry with no live tunnel.
+    const after = fakeTunnels();
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    await expect(reattachTicketSandbox(sshDeps(ssh, after, { controls: () => true }), store, manifest, 7, () => Promise.resolve(true)))
+      .resolves.toEqual({ republished: ['api'], dropped: [] });
+    expect(after.registry.list().map((h) => h.key).sort()).toEqual(['devbox:R:5432', `${NAME}:L:4100`]);
+  });
+
+  it('a window that does not control the ticket does nothing: zero ssh calls, no tunnel', async () => {
+    const store = await seeded();
+    const after = fakeTunnels();
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const debug = vi.fn();
+    await expect(reattachTicketSandbox(sshDeps(ssh, after, { controls: () => false, debug }), store, manifest, 7, () => Promise.resolve(true)))
+      .resolves.toBeNull();
+    expect([ssh.calls, ssh.stdinCalls, ssh.pipes, ssh.streams]).toEqual([[], [], [], []]);
+    expect(after.spawned).toHaveLength(0);
+    expect(debug).toHaveBeenCalledWith('[runtime] ticket 7: ssh reattach skipped: this window does not control the ticket');
+  });
+
+  it('a window without a controls seam reattaches an ssh ticket', async () => {
+    const store = await seeded();
+    const after = fakeTunnels();
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    await expect(reattachTicketSandbox(sshDeps(ssh, after), store, manifest, 7, () => Promise.resolve(true)))
+      .resolves.toEqual({ republished: ['api'], dropped: [] });
+  });
+
+  it('a window that does not control the ticket skips it without a debug seam', async () => {
+    const store = await seeded();
+    const after = fakeTunnels();
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    await expect(reattachTicketSandbox(sshDeps(ssh, after, { controls: () => false }), store, manifest, 7, () => Promise.resolve(true)))
+      .resolves.toBeNull();
+    expect(after.spawned).toHaveLength(0);
+  });
+
+  it('a ticket with no recorded placement does not read controls', async () => {
+    const store = openStore(':memory:');
+    const controls = vi.fn(() => false);
+    await expect(reattachTicketSandbox(deps({ proc: fakeSbxProcess(), placementOf: () => null, controls }), store, manifest, 7, () => Promise.resolve(true)))
+      .resolves.toBeNull();
+    expect(controls).not.toHaveBeenCalled();
+  });
+
+  it('controls is read only for an ssh placement: an sbx ticket reattaches whatever it says', async () => {
+    const store = openStore(':memory:');
+    const controls = vi.fn(() => false);
+    await expect(reattachTicketSandbox(deps({ proc: fakeSbxProcess(), controls }), store, manifest, 7, () => Promise.resolve(true))).resolves.toBeNull();
+    expect(controls).not.toHaveBeenCalled();
+  });
+
+  it('bindings.stopTicket stops the ssh services and closes this ticket -L tunnels; the -R key stays for the sandbox; another ticket keeps its own', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = await seeded();
+    const t = fakeTunnels();
+    const ssh = fakeSshProcess({ [PROBE]: { code: 0 } });
+    const ctx = (await ticketSandboxContext(sshDeps(ssh, t), 7))!;
+    await ctx.runner.publishPort!({ hostPort: 4100, sandboxPort: 4100 });
+    await ctx.runner.allowHostPorts!([5432]);
+    await t.registry.openL(`${NAME.replace('-7-', '-8-')}:L:4200`, { remote: OPT_IN, controlDir: '/tmp/karst-ssh-test/', hostPort: 4200, remotePort: 4200 });
+    const b = createTicketSandboxBindings({ ...sshDeps(ssh, t), store, manifest: () => manifest, onError: vi.fn(), bridgeRoot: () => undefined });
+    await b.stopTicket(store, 7);
+    // A re-spin stops the services and starts them again with no new allowHostPorts: only dispose releases -R.
+    expect(t.registry.list().map((h) => h.key).sort()).toEqual([`${NAME.replace('-7-', '-8-')}:L:4200`, 'devbox:R:5432'].sort());
+    expect(store.db.prepare('SELECT status FROM servers').get()).toEqual({ status: 'stopped' });
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('# karst-ssh-svc-stop'))).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * The Agents page: ONE place for agent identity. Four tabs —
+ * The Agents page: ONE place for agent identity. Five tabs —
  *
  *  - **Roles**: the preset selector, the roles table (every cell shows where its
  *    value comes from), the Default row and preset comparison;
@@ -7,7 +7,9 @@
  *    built-in prompt behind each role;
  *  - **Accounts**: the machine-local subscription accounts of each agent core
  *    (applied at once, never part of the manifest Save);
- *  - **Sandbox**: the sandbox backend per agent core.
+ *  - **Sandbox**: the sandbox backend per agent core;
+ *  - **Channels**: the read-only map of how each session kind and core talks to
+ *    karst (`@arch:CHANNEL-MAP`).
  *
  * An edit always lands in the layer that wins — the pin when the role is pinned,
  * otherwise the selected preset — so no edit can be dead (`rolesModel.ts`).
@@ -24,10 +26,11 @@ import { RolesTab } from './RolesTab.js';
 import { BackendPanel } from './BackendPanel.js';
 import { ProfilesTab } from './ProfilesTab.js';
 import { AccountsTab } from './AccountsTab.js';
+import { ChannelsTab } from './ChannelsTab.js';
 import { buildProfileEntries } from './profileModel.js';
 import { formatAgentsHash, parseAgentsHash, type AgentsRoute, type AgentsTab } from './agentsRoute.js';
 
-const TABS: readonly AgentsTab[] = ['roles', 'profiles', 'accounts', 'sandbox'];
+const TABS: readonly AgentsTab[] = ['roles', 'profiles', 'accounts', 'sandbox', 'channels'];
 
 /**
  * What the unsaved bar is waiting on. A route move (another tab or profile) is
@@ -78,7 +81,7 @@ export function AgentsSection() {
   // opened it on Escape / Keep editing (UI-R23, R27).
   const saveRef = useRef<HTMLButtonElement>(null);
   const returnRef = useRef<HTMLElement | null>(null);
-  const refs = useRef<Record<AgentsTab, HTMLButtonElement | null>>({ roles: null, profiles: null, accounts: null, sandbox: null });
+  const refs = useRef<Record<AgentsTab, HTMLButtonElement | null>>({ roles: null, profiles: null, accounts: null, sandbox: null, channels: null });
   // Bumped when a resolved move must land focus on a profile item. The list
   // owns its item refs, so the request travels as a prop, not a DOM query.
   const [focusTick, setFocusTick] = useState(0);
@@ -103,9 +106,10 @@ export function AgentsSection() {
   );
 
   // Q4-SAVE: only the Accounts tab saves each control at once, so the shell
-  // hides Save and Discard there. Leaving the tab (or page) restores them.
+  // hides Save and Discard there. Channels is read-only and saves nothing
+  // through the toolbar either, so it hides them the same way (T1405).
   useEffect(() => {
-    setInstantApply(route.tab === 'accounts');
+    setInstantApply(route.tab === 'accounts' || route.tab === 'channels');
     return () => setInstantApply(false);
   }, [route.tab, setInstantApply]);
 
@@ -204,6 +208,7 @@ export function AgentsSection() {
     profiles: `Agent profiles (${profileCount})`,
     accounts: 'Accounts',
     sandbox: 'Sandbox',
+    channels: 'Channels',
   };
 
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, tab: AgentsTab): void => {
@@ -287,6 +292,8 @@ export function AgentsSection() {
           <AccountsTab route={route} navigate={navigate} />
         ) : route.tab === 'sandbox' ? (
           <BackendPanel />
+        ) : route.tab === 'channels' ? (
+          <ChannelsTab route={route} navigate={navigate} />
         ) : (
           <ProfilesTab route={route} navigate={navigate} buffers={buffers} setBuffer={setBuffer} focusTick={focusTick} />
         )}

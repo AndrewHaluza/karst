@@ -67,6 +67,7 @@ import { parseSetupCheckArgs, runSetupCheckCommand } from './setupCheck.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
 import { runMcpCommand } from './mcp/command.js';
 import { runBaseCommand } from './baseCommand.js';
+import { PLANNING_VERBS } from './planningVerbs.js';
 import { installSqliteWarningFilter } from './suppressWarning.js';
 
 /**
@@ -78,22 +79,9 @@ function writeManifestDiagnostics(diagnostics: readonly string[]): void {
   for (const d of diagnostics) process.stderr.write(`karst: ${d}\n`);
 }
 
-/**
- * The verbs a planning session may run: reads, the `manifest` and `draft`
- * parse paths, and `plan-artifacts` (list; its import writes only inside the
- * session's own artifacts dir).
- */
-const PLANNING_VERBS: ReadonlySet<string> = new Set([
-  'context',
-  'stats',
-  'blocked',
-  'queue',
-  'guide',
-  'schema',
-  'manifest',
-  'draft',
-  'plan-artifacts',
-]);
+// The same ordered list the Channels tab renders (@arch:CHANNEL-MAP); the Set
+// keeps the guard's lookup O(1) without a second hand-kept copy.
+const PLANNING_VERB_SET: ReadonlySet<string> = new Set(PLANNING_VERBS);
 
 /**
  * A planning session may run only the read verbs, `notes --repos` (the read its
@@ -108,7 +96,7 @@ export function assertPlanningVerbAllowed(env: Readonly<Record<string, string | 
   const notesRead = verb === 'notes' && rest.includes('--repos') && !rest.includes('post');
   // `mcp serve` only hosts the tools; each tool call re-enters this guard.
   const mcpServe = verb === 'mcp' && rest[1] === 'serve';
-  if (PLANNING_VERBS.has(verb) || notesRead || mcpServe) return;
+  if (PLANNING_VERB_SET.has(verb) || notesRead || mcpServe) return;
   throw new Error(
     `'${verb}' is not available in a planning session (read verbs only: context, stats, blocked, queue, guide, schema, notes --repos; the verbs that write inside the session scratch: draft propose and plan-artifacts import)`,
   );

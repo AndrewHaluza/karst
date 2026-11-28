@@ -70,7 +70,9 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1401 (@ui:UI-R57): panel-pr-checks-pending-wide — an open PR waiting on pending checks alone
   // (no status chip, no wait/blocked chip, no readiness box) beside a draft that keeps its chip.
   // 1 theme (dark), wide only (+1 screenshot); skipLayout, because the panel routes already measure the page.
-  dashboard: { screenshots: 365, layout: 864 },
+  // T1403 (@ui:UI-R57): inside-ship-deliver-base-check — the Push row's pre-push base check, one phase heading and
+  //   one row per gate of the current run. 1 theme (dark) (+1 screenshot) and 1 new page x 8 widths (+8 layout runs).
+  dashboard: { screenshots: 366, layout: 872 },
   // T1298 one-commit (the singular count texts), @ui:UI-R57: 1 theme (+1 screenshot); skipLayout, because the populated route already runs the page.
   // T1316 clean / many-files / refresh-failed / diffs-narrow / diffs-tight (DF-23), @ui:UI-R57: 5 variants x 1 theme (+5 screenshots);
   //   clean, many-files and refresh-failed add 3 pages x 8 widths (+24), the narrow/tight variants share the populated run, and DF-21
@@ -113,7 +115,11 @@ export const SWEEP_BUDGET: Readonly<Record<ViewId, SweepCount>> = {
   // T1374 (D834, @ui:UI-R57): the graph card's agents, limits and planner prompt moved into its Edit drawer, so the three
   //   approaches-graph shots now open that drawer, and the roster gets its own wide and narrow shots; the git-sourced
   //   drawer adds one more. All four families are skipLayout, so the layout count is unchanged (+3 screenshots).
-  settings: { screenshots: 123, layout: 156 },
+  // T1405 (D841, @ui:UI-R57, @ui:VISUAL-VARIANTS): the read-only Channels map. The two route variants
+  //   (`#agents/channels` and `#agents/channels/antigravity`) capture at ALL_THEMES (+6 screenshots) and open 2 new
+  //   Agents pages at every SETTINGS_LAYOUT_WIDTHS width plus their resize test (+16 layout runs); the narrow (630) and
+  //   tight (320) shots are skipLayout, because those route runs already cover the widths (+2 screenshots).
+  settings: { screenshots: 131, layout: 172 },
   // T1099 stage-chip tier variants, @ui:UI-R57: 2 widths x 2 themes (+4 screenshots).
   // T1103 waits-on variants (a row with 3 references and its +N list), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).
   // T1104 queue-chips variants (the Queue pane open, verb + chip on one line and on two), @ui:UI-R57: 2 widths x 2 themes (+4 screenshots) and their layout runs (+5).

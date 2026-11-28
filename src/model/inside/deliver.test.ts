@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deliverFailureLine, deliverHint, deliverProgressLine, deliverTakeOverLine, groupFailuresByHead, mergeStateWording, wordResolvedConflict, shortSha, type DeliverFacts } from './deliver.js';
-import { deliverProcess } from './shipDeliver.js';
+import { deliverFailureLine, deliverHint, deliverProgressLine, deliverTakeOverLine, groupFailuresByHead, mergeStateWording, wordResolvedConflict, shortSha, withDeliverWait, type DeliverFacts } from './deliver.js';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -91,29 +90,36 @@ describe('deliver wording', () => {
   });
 });
 
-describe('deliverProcess wording for a base check (D541)', () => {
-  const A = 'a'.repeat(40);
-  const facts: DeliverFacts = { running: null, failures: [], takenOver: null, roundActive: false, headSha: A };
-  const row = (canDeliver: boolean, running: DeliverFacts['running']) =>
-    deliverProcess({ notOnPr: 2, inSandbox: 0, canDeliver, auto: { ...facts, running } })!;
+describe('withDeliverWait and the gate facts (T1403)', () => {
+  const facts = (): DeliverFacts => ({
+    running: { n: 2, m: 3, gate: 'docs' },
+    failures: [],
+    takenOver: null,
+    roundActive: true,
+    headSha: 'a'.repeat(40),
+    gates: [
+      { name: 'unit', repo: 'r', status: 'pass', startedAt: 'T1', endedAt: 'T2', exitCode: 0 },
+      { name: 'docs', repo: 'r', status: 'run', startedAt: null, endedAt: null, exitCode: null },
+      { name: 'visual', repo: 'r', status: 'pending', startedAt: null, endedAt: null, exitCode: null },
+    ],
+  });
 
-  it('words a base check as checking before push in the detail and the evidence row', () => {
-    const r = row(true, { n: 2, m: 5, gate: 'visual', baseCheck: true });
-    expect(r.detail).toContain('checking before push: gate 2 of 5');
-    expect(r.detail).not.toMatch(/(?:^| · )gate 2 of 5/);
-    expect(r.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Check before push: gate 2 of 5', detail: 'visual', status: 'run' }]) });
+  it('marks the running gate fact as waiting with the live state', () => {
+    const f = withDeliverWait(facts(), { docs: { kind: 'wait' } })!;
+    expect(f.running?.waiting).toBe(true);
+    expect(f.gates?.map((g) => g.status)).toEqual(['pass', 'wait', 'pending']);
   });
-  it('keeps the plain gate wording when the run is not a base check', () => {
-    const absent = row(true, { n: 2, m: 5, gate: 'visual' });
-    expect(absent.detail).toContain('gate 2 of 5');
-    expect(absent.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Gate 2 of 5', detail: 'visual', status: 'run' }]) });
-    const off = row(true, { n: 2, m: 5, gate: 'visual', baseCheck: false });
-    expect(off.detail).toContain('gate 2 of 5');
-    expect(off.detail).not.toContain('checking before push');
-    expect(off.evidence).toEqual({ kind: 'rows', rows: expect.arrayContaining([{ label: 'Gate 2 of 5', detail: 'visual', status: 'run' }]) });
+
+  it('leaves the gate facts alone when no live gate waits', () => {
+    const f = facts();
+    expect(withDeliverWait(f, { docs: { kind: 'run' } })).toBe(f);
+    expect(withDeliverWait(f, undefined)).toBe(f);
   });
-  it('does not change when the deliver button shows', () => {
-    expect(row(false, { n: 2, m: 5, gate: 'visual', baseCheck: true }).deliver).toBeUndefined();
-    expect(row(true, { n: 2, m: 5, gate: 'visual', baseCheck: true }).deliver).toBeDefined();
+
+  it('adds no gate facts to facts that carry none', () => {
+    const { gates: _g, ...without } = facts();
+    const waited = withDeliverWait(without, { docs: { kind: 'wait' } })!;
+    expect(waited.running?.waiting).toBe(true);
+    expect('gates' in waited).toBe(false);
   });
 });

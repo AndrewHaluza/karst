@@ -22,14 +22,21 @@ import { useInsideScope } from './InsideMemory.js';
 import { hasEvidenceBody, statusWord, withKeys } from './insideText.js';
 import { sameIgnoringLive } from './insideLive.js';
 
-const DELIVER_ID = 'deliver';
 const RESUME_TITLE = 'Resume — unpause execution';
+
+/**
+ * The Push row carries the Deliver push when it holds its Push button or a run record (the host sets `console` only
+ * with an auto-deliver record). A first-push-only Push row carries neither, so it renders exactly as before (T1403).
+ */
+function carriesDeliver(p: InsideProcessView): boolean {
+  return p.id === 'push' && (p.deliver !== undefined || p.console === true);
+}
 
 /** The console (terminal detailed mode) entry point: icon-only, the label moving to aria-label + title (the SAME string, UI-R21/R24). */
 export function ConsoleButton({ owner, p }: { readonly owner: string; readonly p: InsideProcessView }) {
   const overlays = useOverlays();
-  // The gates row and the Deliver row open the stage's whole console, not one process's.
-  const gates = p.id === 'gates' || p.id === DELIVER_ID;
+  // The gates row opens the stage's whole console, not one process's; so does the Push row when it carries Deliver.
+  const gates = p.id === 'gates' || carriesDeliver(p);
   const label = `View this ${gates ? "stage's" : "process's"} console output in the dashboard`;
   // Reads `owner`, never a selection: a console click must not re-point the strip. A gate-lane AI process narrows the surface to its own console.
   const onClick = useCallback(
@@ -146,7 +153,7 @@ const ProcessRow = memo(
     // run happened and a tail exists): that is the process's own availability and does not depend on the stage's.
     const owner = p.id === 'gates' ? consoleStage : p.console ? stageKey || consoleStage : null;
     const detail = (
-      <span className={`op-detail ${p.status}${owner ? ' detail-console' : ''}`} role={p.id === DELIVER_ID ? 'status' : p.detail ? 'group' : undefined} aria-label={p.detail || undefined}>
+      <span className={`op-detail ${p.status}${owner ? ' detail-console' : ''}`} role={carriesDeliver(p) ? 'status' : p.detail ? 'group' : undefined} aria-label={p.detail || undefined}>
         {p.detail ? <span className="op-detail-text" role="group" aria-label={p.detail}>{p.detail}</span> : null}
         {owner ? <ConsoleButton owner={owner} p={p} /> : null}
         {p.paused ? <UnpauseButton /> : null}

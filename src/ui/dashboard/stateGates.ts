@@ -5,7 +5,7 @@ import { insideStageForRuntimeStage } from '../../model/inside/registry.js';
 import { listGateAttempts, type AttemptKey, type GateAttemptView } from '../../model/inside/rounds.js';
 import { currentAttemptFor, type CurrentAttempt } from '../../model/inside/currentAttempt.js';
 import type { RecoveryRound } from '../../store/recoveryRounds.js';
-import type { AttemptSwitch, RoundSwitcherArg } from './stateInside.js';
+import type { AttemptSwitch, AttemptSwitchView, RoundSwitcherArg } from './stateInside.js';
 
 
 // The round switcher's effective selection for one gate stage (T4): the
@@ -24,14 +24,18 @@ export const attemptSwitcherFor = (
   reentryPending: boolean,
 ): {
   selectedKey: AttemptKey | null;
-  view?: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string };
+  view?: AttemptSwitchView;
 } => {
   if (attempts.length < 2) return { selectedKey: null };
   const requestedMatch = requested !== undefined ? attempts.find((a) => a.key === requested) : undefined;
   const effective = requestedMatch ?? attempts.find((a) => a.latest);
   if (effective === undefined) return { selectedKey: null };
-  // Host-authored (UI-R31): the selected round's own caption, verbatim.
-  const attemptNote = effective.caption;
+  // Host-authored (UI-R31): the selected round's own facts, verbatim. The
+  // caption is a plain statement (why the round opened, how long it took) and
+  // belongs in the tab row; only the WARNING — the fact the reader must act
+  // on — is allowed to occupy the attention band.
+  const attemptCaption = effective.caption;
+  const attemptNote = effective.warning;
   // An EXPLICIT click on the re-entry window's `latest`-flagged tab must
   // still reach that attempt's own recorded rows — it is a settled attempt,
   // not the live one, and collapsing it to `null` here is exactly what made
@@ -53,6 +57,7 @@ export const attemptSwitcherFor = (
     view: {
       attempts,
       selectedAttempt: effective.key,
+      ...(attemptCaption ? { attemptCaption } : {}),
       ...(attemptNote ? { attemptNote } : {}),
     },
   };
@@ -64,16 +69,17 @@ export const attemptSwitcherFor = (
 
 /**
  * Merges a `supersededNote` fallback into an `attemptSwitcherFor` view for
- * `stageView`'s `roundSwitcher` argument. An explicit HISTORICAL
- * `attemptNote` (a reader looking at a settled round) always wins — it is
- * the more specific fact, and a superseded-round banner must never paper
- * over it. Absent a switcher view entirely, the superseded note stands
- * alone as the note-only shape `stageView` also accepts.
+ * `stageView`'s `roundSwitcher` argument. An attempt's own WARNING (no fix
+ * attempts left) always wins — it is the more specific fact, and a
+ * superseded-round banner must never paper over it. The selected attempt's
+ * CAPTION passes through untouched: it is a plain statement, so it never
+ * competes for the band. Absent a switcher view entirely, the superseded note
+ * stands alone as the note-only shape `stageView` also accepts.
  */
 const withNote = (
-  view: { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string } | undefined,
+  view: AttemptSwitchView | undefined,
   note: string | undefined,
-): { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string } | { attemptNote: string } | undefined =>
+): AttemptSwitchView | { attemptNote: string } | undefined =>
   view
     ? view.attemptNote
       ? view

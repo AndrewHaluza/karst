@@ -160,6 +160,20 @@ describe('shipStepEvent (the live header names the step)', () => {
     expect(event.live.detail).toBe('pushing the branch');
     expect(validateInsideProgressEvent(event)).toEqual(event);
   });
+
+  it('names a push by the manifest repository name when the caller knows it', () => {
+    const event = shipStepEvent(7, { repo: '/Users/nd/Work/projects/karst/api', step: 'push', status: 'run', repoName: 'api' });
+    expect(event?.kind).toBe('active');
+    if (event?.kind !== 'active') return;
+    expect(event.live.label).toBe('Push · api');
+  });
+
+  it('keeps the recorded repo when no manifest name is known', () => {
+    const event = shipStepEvent(7, { repo: '/deleted/repo', step: 'push', status: 'run' });
+    expect(event?.kind).toBe('active');
+    if (event?.kind !== 'active') return;
+    expect(event.live.label).toBe('Push · /deleted/repo');
+  });
 });
 
 describe('gate-lane AI process progress events (Task 13)', () => {

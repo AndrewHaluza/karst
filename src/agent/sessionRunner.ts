@@ -97,6 +97,15 @@ export interface PortMapping {
   readonly sandboxPort: number;
 }
 
+/**
+ * One `listPorts` row. A host tunnel (ssh) adds its `state`, and its `reason`
+ * while one is known; a runner without tunnels omits both (the row is live).
+ */
+export interface PortListing extends PortMapping {
+  readonly state?: 'up' | 'reconnecting' | 'down';
+  readonly reason?: string;
+}
+
 export type PublishResult =
   | {
       readonly ok: true;
@@ -126,6 +135,11 @@ export type SetupWindow =
   | {
       readonly ok: true;
       readonly close: () => Promise<void>;
+      /**
+       * False when the window is a no-op that controls nothing: a `mode: direct`
+       * ssh remote has no egress control (D823). Absent: the runner enforces it.
+       */
+      readonly enforced?: boolean;
       /** docker: the distinct hosts the window proxy refused so far (its `DENY` log); best-effort. Read BEFORE `close`, which recreates the proxy. */
       readonly deniedHosts?: () => Promise<string[]>;
     }
@@ -210,15 +224,30 @@ export interface SessionRunner {
   publishPort?(mapping: PortMapping): Promise<PublishResult>;
   unpublishPort?(mapping: PortMapping): Promise<void>;
   /**
-   * `mode: docker` on a remote: write the service's env to a 0600 file on that
-   * host and return its path, so `docker exec --env-file` reads values there
-   * instead of them riding an SSH argv. The same runner removes it on stop.
+   * A remote (`mode: docker` and `mode: direct`): write the service's env to a
+   * 0600 file on that host and return its path, so the service never reads
+   * values from an SSH argv. The same runner removes it on stop.
    */
   writeServiceEnv?(key: string, env: Readonly<Record<string, string>>): Promise<string>;
-  /** Remove the file `writeServiceEnv` wrote (`<ws>/env/svc-<key>.env`); a no-op when it is gone. */
+  /** Remove the file `writeServiceEnv` wrote (docker: `<ws>/env/svc-<key>.env`; direct: `<ws>/svc/…`); a no-op when it is gone. */
   removeServiceEnv?(key: string): Promise<void>;
+  /**
+   * `mode: direct` only: the remote dir that holds this ticket's service pid and
+   * log files (`<ws>/svc`, 0700). Absent: the service scripts keep `/tmp` byte
+   * for byte (`START_SCRIPT`/`STOP_SCRIPT`).
+   */
+  readonly serviceStateDir?: string;
+  /**
+   * `mode: direct` only: which of `ports` are ALREADY LISTENING on the remote
+   * (one `ss -ltn`, `nc -z` fallback). A busy port is a VALUE, not a rejection.
+   * It rejects ONLY when the probe itself could not run (an ssh transport
+   * failure); the caller refuses the spin with that reason. A remote service
+   * binds the port its env names, so a host-only reallocation cannot fix a
+   * remote clash: the spin refuses instead of re-picking (D823).
+   */
+  probeRemotePorts?(ports: readonly number[]): Promise<number[]>;
   /** Sandbox runners only: the live mappings; null when the sandbox cannot answer (not running). */
-  listPorts?(): Promise<readonly PortMapping[] | null>;
+  listPorts?(): Promise<readonly PortListing[] | null>;
   /** Sandbox runners only: let the sandbox reach exactly these host ports (baseline services). */
   allowHostPorts?(ports: readonly number[]): Promise<StepOutcome>;
   /**

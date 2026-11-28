@@ -105,7 +105,7 @@ function Block({ stage, memory }: { readonly stage: string; readonly memory: Ins
         {/* ONE slot for the round row and its caption, so the ledger keeps its sibling position (layout ledger keys are nth-child paths). */}
         {(view.attempts?.length ?? 0) >= 2 || view.attemptNote ? (
           <div className="attempt-slot">
-            <AttemptTabs stageKey={view.stageKey} attempts={view.attempts} selected={view.selectedAttempt} />
+            <AttemptTabs stageKey={view.stageKey} attempts={view.attempts} selected={view.selectedAttempt} caption={view.attemptCaption} />
             {view.attemptNote ? <div className="attempt-note">{view.attemptNote}</div> : null}
           </div>
         ) : null}

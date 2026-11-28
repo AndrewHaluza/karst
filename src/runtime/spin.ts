@@ -7,7 +7,7 @@ import {
   SubtaskParentNotStartedError,
 } from '../workflow/baseRef.js';
 import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
-import { resolve } from '../resolver/resolve.js';
+import { resolve, type ResolveResult } from '../resolver/resolve.js';
 import { createWorktree, removeWorktree, type WorktreeRecord } from './worktree.js';
 import { getEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { ensureBaseline, addBaselineRef } from './baseline.js';
@@ -142,6 +142,21 @@ export function mergeRanges(
  */
 export function hotRepoPaths(manifest: Manifest, hot: readonly string[]): string[] {
   return distinctRepoPaths(manifest, hot);
+}
+
+/**
+ * Every allocated port of the hot services that start INSIDE the sandbox. A
+ * service declared `sandbox: host` binds a HOST port, so it is not the remote's
+ * to lose; every other unit binds its resolved port on the remote.
+ */
+export function sandboxServicePorts(manifest: Manifest, resolved: ResolveResult): number[] {
+  const ports = new Set<number>();
+  for (const name of resolved.startOrder) {
+    const unit = unitByKey(manifest, name);
+    if (!unit || unit.def.sandbox === 'host') continue;
+    for (const port of Object.values(resolved.services[name]?.ports ?? {})) ports.add(port);
+  }
+  return [...ports].sort((a, b) => a - b);
 }
 
 /**
@@ -309,6 +324,29 @@ export async function spinTicket(
     // Resolve INSIDE the try: a no-free-port refusal happens after the release
     // above, so it too must reap the ticket's now-dead rows (below).
     const resolved = resolve(manifest, hot, allocator, ticketId);
+
+    // A remote service binds the port its env names, so a host-only reallocation
+    // cannot fix a remote clash (D823). Probe every allocated port of the
+    // sandboxed services BEFORE any worktree or service exists: a busy port
+    // refuses the whole spin and picks no other port. The probe runs AFTER the
+    // stop above, on purpose: the ticket's own old services hold the ports a
+    // re-spin draws again, so a probe before the stop would refuse every
+    // re-spin. A refusal therefore leaves the old stack stopped and starts no
+    // new one. It throws inside this try, so the existing failure path reports it.
+    const probeRemotePorts = opts.sandbox?.runner.probeRemotePorts;
+    if (probeRemotePorts) {
+      const ports = sandboxServicePorts(manifest, resolved);
+      if (ports.length > 0) {
+        let busy: readonly number[];
+        try {
+          busy = await probeRemotePorts(ports);
+        } catch (err) {
+          throw new SpinError(err instanceof Error ? err.message : String(err));
+        }
+        const first = [...busy].sort((a, b) => a - b)[0];
+        if (first !== undefined) throw new SpinError(`ssh: remote port ${String(first)} in use`);
+      }
+    }
 
     // 1. one worktree per hot REPOPATH — INCLUDING repositories that declare no
     //    service. A non-runnable repo is still edited by the agent, so it needs
