@@ -237,6 +237,8 @@ describe('direct allowHostPorts', () => {
     expect(t.spawned[0]!.kills).toBe(0);
     expect(t.registry.heldR('devbox', 8)).toEqual([5432]);
     await b.stopServices!();
+    expect(t.spawned[0]!.kills).toBe(0);
+    await b.dispose!({ hostWorktreePath: WT, branch: 'b' });
     expect(t.spawned[0]!.kills).toBe(1);
     expect(t.registry.list('devbox:R:')).toEqual([]);
   });
@@ -251,7 +253,7 @@ describe('direct allowHostPorts', () => {
 });
 
 describe('direct stopServices and dispose', () => {
-  it('kills every pid group in <ws>/svc, then closes this sandbox -L tunnels and this ticket -R keys', async () => {
+  it('kills every pid group in <ws>/svc, then closes this sandbox -L tunnels and keeps this ticket -R keys', async () => {
     const t = tunnels();
     const ssh = fakeSshProcess(present);
     const r = runner(ssh, t, { remote: OPT_IN });
@@ -265,8 +267,17 @@ describe('direct stopServices and dispose', () => {
     expect(stop).toContain('kill -TERM -"$p"');
     expect(stop).not.toContain('kill -TERM --');
     expect(t.registry.forSandbox(NAME)).toEqual([]);
-    expect(t.registry.heldR('devbox', 7)).toEqual([]);
+    // A re-spin stops the services and starts them again without a new allowHostPorts.
+    expect(t.registry.heldR('devbox', 7)).toEqual([5432]);
     expect(t.registry.forSandbox(`${PREFIX}-8-claude`)).toHaveLength(1);
+  });
+
+  it('dispose releases this ticket -R keys', async () => {
+    const t = tunnels();
+    const r = runner(fakeSshProcess(present), t, { remote: OPT_IN });
+    await r.allowHostPorts!([5432]);
+    await r.dispose!({ hostWorktreePath: WT, branch: 'b' });
+    expect(t.registry.heldR('devbox', 7)).toEqual([]);
   });
 
   it('dispose stops the services and closes the tunnels before the workspace removal', async () => {

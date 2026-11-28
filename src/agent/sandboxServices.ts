@@ -1,4 +1,5 @@
 import type { Store } from '../store/db.js';
+import { KILL_SERVICE_GROUP } from './serviceKill.js';
 import type { ServerRecord } from '../runtime/supervisor.js';
 import { markServerStopped, stopTicketServers } from '../runtime/supervisor.js';
 import { PUBLISH_HOST } from './sandboxPorts.js';
@@ -57,27 +58,17 @@ export function serviceToken(unitKey: string): string {
   return unitKey.toLowerCase().replace(/[^a-z0-9-]/g, '-');
 }
 
-/**
- * Signal the service group whose pgid is in `$p`. The pgid must be all digits
- * and greater than 1: `kill -TERM -0` signals the caller's own group and
- * `kill -TERM -1` signals every process of the user. No `--`: dash (Debian and
- * Ubuntu `/bin/sh`) rejects `kill -- -<pgid>`, so only the leader would end.
- */
-const KILL_GROUP =
-  `case "$p" in ''|*[!0-9]*) p='' ;; esac; ` +
-  'if [ -n "$p" ] && [ "$p" -gt 1 ]; then kill -TERM "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null; fi; ';
-
 /** Fixed scripts; every variable part is an argv element. */
 /** Stops a previous instance first: a restart must not race its own old process for the port. */
 export const START_SCRIPT =
   'k=$1; d=$2; shift 2; f="/tmp/karst-svc-$k.pid"; ' +
-  'if [ -f "$f" ]; then p=$(cat "$f"); ' + KILL_GROUP + 'fi; ' +
+  'if [ -f "$f" ]; then p=$(cat "$f"); ' + KILL_SERVICE_GROUP + 'fi; ' +
   'cd "$d" || exit 1; ' +
   'if command -v setsid >/dev/null 2>&1; then setsid nohup "$@" >"/tmp/karst-svc-$k.log" 2>&1 & ' +
   'else nohup "$@" >"/tmp/karst-svc-$k.log" 2>&1 & fi; echo $! >"$f"';
 export const STOP_SCRIPT =
   'f="/tmp/karst-svc-$1.pid"; if [ -f "$f" ]; then p=$(cat "$f"); ' +
-  KILL_GROUP + 'rm -f "$f"; fi; exit 0';
+  KILL_SERVICE_GROUP + 'rm -f "$f"; fi; exit 0';
 
 /**
  * The state-dir guard shared by the `_SD` scripts: `$sd` must not be a symlink
@@ -100,7 +91,7 @@ const SD_GUARD =
 export const START_SCRIPT_SD =
   'sd=$1; k=$2; d=$3; shift 3; ' + SD_GUARD +
   'f="$sd/karst-svc-$k.pid"; ' +
-  'if [ -f "$f" ]; then p=$(cat "$f"); ' + KILL_GROUP + 'fi; ' +
+  'if [ -f "$f" ]; then p=$(cat "$f"); ' + KILL_SERVICE_GROUP + 'fi; ' +
   'cd "$d" || exit 1; ' +
   'if command -v setsid >/dev/null 2>&1; then setsid nohup "$@" >"$sd/karst-svc-$k.log" 2>&1 & ' +
   'else nohup "$@" >"$sd/karst-svc-$k.log" 2>&1 & fi; echo $! >"$f"';
@@ -109,7 +100,7 @@ export const START_SCRIPT_SD =
 export const STOP_SCRIPT_SD =
   'sd=$1; k=$2; ' + SD_GUARD +
   'f="$sd/karst-svc-$k.pid"; if [ -f "$f" ]; then p=$(cat "$f"); ' +
-  KILL_GROUP + 'rm -f "$f"; fi; exit 0';
+  KILL_SERVICE_GROUP + 'rm -f "$f"; fi; exit 0';
 
 const EXEC_TIMEOUT_MS = 30_000;
 

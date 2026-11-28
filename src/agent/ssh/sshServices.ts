@@ -9,6 +9,7 @@ import type {
 } from '../sessionRunner.js';
 import { sshArgv, type SshProcess, type SshResult } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
+import { KILL_SERVICE_GROUP } from '../serviceKill.js';
 import { createTunnelDeps, TunnelOpenError, tunnelLKey, tunnelListing, tunnelRKey, windowTunnelRegistry, type TunnelRegistry } from './sshTunnels.js';
 
 /**
@@ -157,9 +158,9 @@ export function writeServiceEnvScript(stateDir: string, file: string): string {
 }
 
 /**
- * Kill every service recorded in `<ws>/svc`: the process group first (`-<pid>`
- * with no `--`, which the dash `kill` rejects), then the pid. A pid file that
- * does not hold digits > 1 is removed and never signalled (`kill -1`).
+ * Kill every service recorded in `<ws>/svc` with `KILL_SERVICE_GROUP`: TERM to
+ * the group, a bounded wait for its exit, then KILL. A pid file that does not
+ * hold digits > 1 is removed and never signalled (`kill -1`).
  */
 export function stopServicesScript(stateDir: string): string {
   return [
@@ -171,8 +172,7 @@ export function stopServicesScript(stateDir: string): string {
     'for f in "$sd"/karst-svc-*.pid; do',
     '  [ -f "$f" ] || continue',
     '  p=$(cat -- "$f")',
-    `  case "$p" in ''|*[!0-9]*) p='' ;; esac`,
-    '  if [ -n "$p" ] && [ "$p" -gt 1 ]; then kill -TERM -"$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null; fi',
+    `  ${KILL_SERVICE_GROUP}`,
     '  rm -f -- "$f"',
     'done',
     'exit 0',
@@ -213,10 +213,12 @@ export function createSshServices(ctx: SshServicesContext): SshServiceMembers {
     if (out.code !== 0) ctx.debug?.(`[ssh ${ctx.remoteName}] stop services: ${failure(ctx.remoteName, 'service stop', out)}`);
   };
 
-  const closeTunnels = async (): Promise<void> => {
-    await ctx.tunnels.closeSandbox(ctx.sandboxName);
-    await ctx.tunnels.releaseTicket(ctx.remoteName, ctx.ticketId);
-  };
+  /**
+   * The `-L` tunnels belong to the services. The `-R` keys belong to the
+   * sandbox: a re-spin stops the services and then starts them again with no
+   * new `allowHostPorts`, so only `releaseAll` (dispose) releases them.
+   */
+  const closeServiceTunnels = (): Promise<void> => ctx.tunnels.closeSandbox(ctx.sandboxName);
 
   const allowHostPorts = async (ports: readonly number[]): Promise<StepOutcome> => {
     const wanted = [...new Set(ports.map(assertPort))].sort((a, b) => a - b);
@@ -269,7 +271,7 @@ export function createSshServices(ctx: SshServicesContext): SshServiceMembers {
     },
     stopServices: async () => {
       await killServices();
-      await closeTunnels();
+      await closeServiceTunnels();
     },
     allowHostPorts,
     probeRemotePorts: async (ports) => {
@@ -289,7 +291,8 @@ export function createSshServices(ctx: SshServicesContext): SshServiceMembers {
     },
     releaseAll: async () => {
       await killServices();
-      await closeTunnels();
+      await closeServiceTunnels();
+      await ctx.tunnels.releaseTicket(ctx.remoteName, ctx.ticketId);
     },
   };
 }

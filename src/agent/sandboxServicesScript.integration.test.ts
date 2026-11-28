@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { START_SCRIPT_SD, STOP_SCRIPT_SD } from './sandboxServices.js';
+import { stopServicesScript } from './ssh/sshServices.js';
 
 /**
  * The `_SD` service scripts against a real `/bin/sh` (D823). They spawn `sh`,
@@ -50,15 +51,16 @@ async function shellWith(sh: string, script: string, ...args: string[]): Promise
 }
 
 let root: string;
-let group: ChildProcess | undefined;
+let groups: ChildProcess[] = [];
 
 /**
  * A new process group: the leader `sh` waits on a background `sleep`. Its pid
  * is the pgid; `member` is the `sleep`, which a leader-only kill leaves alive.
  */
-async function startGroup(): Promise<{ leader: number; member: number }> {
-  const child = spawn('/bin/sh', ['-c', 'sleep 30 & echo $!; wait'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
-  group = child;
+async function startGroup(ignoreTerm = false): Promise<{ leader: number; member: number }> {
+  const body = ignoreTerm ? "trap '' TERM; sleep 30 & echo $!; wait" : 'sleep 30 & echo $!; wait';
+  const child = spawn('/bin/sh', ['-c', body], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  groups.push(child);
   const member = await new Promise<number>((resolve, reject) => {
     child.stdout!.once('data', (chunk: Buffer) => resolve(Number.parseInt(chunk.toString('utf8'), 10)));
     child.once('error', reject);
@@ -75,28 +77,21 @@ function alive(pid: number): boolean {
   }
 }
 
-async function gone(pid: number): Promise<boolean> {
-  const deadline = Date.now() + 3_000;
-  while (alive(pid)) {
-    if (Date.now() > deadline) return false;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  return true;
-}
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'karst-sd-'));
 });
 
 afterEach(async () => {
-  if (group?.pid !== undefined) {
+  for (const child of groups) {
+    if (child.pid === undefined) continue;
     try {
-      process.kill(-group.pid, 'SIGKILL');
+      process.kill(-child.pid, 'SIGKILL');
     } catch {
       /* the group already ended */
     }
   }
-  group = undefined;
+  groups = [];
   await rm(root, { recursive: true, force: true });
 });
 
@@ -139,7 +134,7 @@ describe.each(SHELLS)('the _SD scripts signal the whole service group under %s',
     const { leader, member } = await startGroup();
     await writeFile(join(sd, 'karst-svc-api.pid'), `${String(leader)}\n`);
     expect(await shellWith(sh, STOP_SCRIPT_SD, 'karst-svc-stop', sd, 'api')).toMatchObject({ code: 0 });
-    expect(await gone(member)).toBe(true);
+    expect(alive(member)).toBe(false);
     expect(existsSync(join(sd, 'karst-svc-api.pid'))).toBe(false);
   }, 15_000);
 
@@ -149,8 +144,30 @@ describe.each(SHELLS)('the _SD scripts signal the whole service group under %s',
     const { leader, member } = await startGroup();
     await writeFile(join(sd, 'karst-svc-api.pid'), `${String(leader)}\n`);
     expect(await shellWith(sh, START_SCRIPT_SD, 'karst-svc', sd, 'api', root, '/bin/sh', '-c', 'exit 0')).toMatchObject({ code: 0 });
-    expect(await gone(member)).toBe(true);
+    expect(alive(member)).toBe(false);
   }, 15_000);
+
+  it('STOP_SCRIPT_SD sends KILL to a group that ignores TERM, before it returns', async () => {
+    const sd = join(root, 'svc');
+    await mkdir(sd, { mode: 0o700 });
+    const { leader, member } = await startGroup(true);
+    await writeFile(join(sd, 'karst-svc-api.pid'), `${String(leader)}\n`);
+    expect(await shellWith(sh, STOP_SCRIPT_SD, 'karst-svc-stop', sd, 'api')).toMatchObject({ code: 0 });
+    expect(alive(member)).toBe(false);
+  }, 20_000);
+
+  it('the direct-ssh stopServicesScript ends every group before it returns', async () => {
+    const sd = join(root, 'svc');
+    await mkdir(sd, { mode: 0o700 });
+    const a = await startGroup();
+    const b = await startGroup(true);
+    await writeFile(join(sd, 'karst-svc-api.pid'), `${String(a.leader)}\n`);
+    await writeFile(join(sd, 'karst-svc-web.pid'), `${String(b.leader)}\n`);
+    expect(await shellWith(sh, stopServicesScript(sd))).toMatchObject({ code: 0 });
+    expect(alive(a.member)).toBe(false);
+    expect(alive(b.member)).toBe(false);
+    expect(existsSync(join(sd, 'karst-svc-api.pid'))).toBe(false);
+  }, 20_000);
 
   // `1` is left out: a regression would signal every process of the user.
   it('a pid file that holds no valid process group signals nothing and still succeeds', async () => {
