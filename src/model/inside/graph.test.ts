@@ -150,6 +150,26 @@ describe('graphInsideProcess', () => {
     expect(process.evidence.nodes!.map((n) => n.entry)).toEqual(['planner', 'node']);
   });
 
+  it('builds the DAG strip from planner and node chips only, with no trailing uat chip on a closed run', () => {
+    const closed = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          runNumber: 7,
+          status: 'closed',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        topology: { nodes: [{ id: 'implement' }], edges: [] },
+      }),
+    )!;
+    if (closed.evidence?.kind !== 'rows') throw new Error('expected rows evidence');
+    const chips = (closed.evidence.dag?.columns ?? []).flat();
+    expect(chips.map((chip) => chip.id)).toEqual(['planner 1', 'implement']);
+    expect(chips.some((chip) => chip.id === 'uat')).toBe(false);
+  });
+
   it('renders the per-ticket run ordinal, never the global run id', () => {
     const view = graphInsideProcess(
       input({ graphRun: { ...input({}).graphRun!, id: 99, runNumber: 2 } }),

@@ -83,13 +83,13 @@ describe('inside case registry (ui:VISUAL-VARIANTS)', () => {
   it('builds the DAG strip from graphDagView with columns, mixed glyphs and the drop count (T1361)', () => {
     const dag = rowsOf(graphOf('graph-dag')).dag;
     expect(dag).toBeDefined();
-    expect(dag!.columns.length).toBe(13); // 12 kept columns (planner + depth 0..10) + the trailing uat chip
+    expect(dag!.columns.length).toBe(12); // 12 kept columns (planner + depth 0..10)
     expect(dag!.columns.some((col) => col.length > 1)).toBe(true);
     const glyphs = new Set(dag!.columns.flat().map((chip) => chip.displayStatus));
     for (const glyph of ['pass', 'run', 'wait', 'pending'] as const) expect(glyphs).toContain(glyph);
     expect(dag!.more).toMatch(/^\+\d+ more$/);
     expect(dag!.more).toBe('+2 more');
-    expect(dag!.columns.at(-1)?.map((chip) => chip.id)).toEqual(['uat']);
+    expect(dag!.columns.flat().some((chip) => chip.id === 'uat')).toBe(false);
   });
 
   it('parks the failed graph with the banner, the needs-you rail and recovery controls (T1361)', () => {
