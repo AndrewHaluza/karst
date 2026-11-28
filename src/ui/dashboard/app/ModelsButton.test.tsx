@@ -131,6 +131,32 @@ describe('ModelsCard — the host facts', () => {
     fireEvent.click(models()!);
     expect(card()).toBeNull();
   });
+
+  it('opens on a mouse click that also focuses the button, and the next click closes it', () => {
+    mountHeader(graph());
+    const press = (): void => {
+      fireEvent.mouseDown(models()!);
+      act(() => models()!.focus());
+      fireEvent.mouseUp(models()!);
+      fireEvent.click(models()!);
+    };
+    press();
+    expect(card()).not.toBeNull();
+    press();
+    expect(card()).toBeNull();
+  });
+
+  it('still opens on keyboard focus after an earlier mouse press', () => {
+    mountHeader(graph());
+    fireEvent.mouseDown(models()!);
+    act(() => models()!.focus());
+    fireEvent.click(models()!);
+    fireEvent.click(models()!);
+    act(() => models()!.blur());
+    expect(card()).toBeNull();
+    act(() => models()!.focus());
+    expect(card()).not.toBeNull();
+  });
 });
 
 describe('ModelsButton — one header surface at a time', () => {

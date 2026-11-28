@@ -60,6 +60,8 @@ export interface HoverCardHandlers {
 
 export interface HoverCardTriggerHandlers extends HoverCardHandlers {
   readonly onFocus: () => void;
+  /** A mouse press focuses the trigger too: that focus must not open the card, or the click that follows closes it. */
+  readonly onMouseDown: () => void;
   readonly onBlur: (e: FocusEvent<HTMLElement>) => void;
 }
 
@@ -84,6 +86,8 @@ export function useHoverCard({ id, triggerRef, cardRef, width, enabled = true }:
   const closeTimer = useRef<Timer | null>(null);
   /** Set right before a programmatic focus return, so Escape does not immediately re-open the card. */
   const suppressFocus = useRef(false);
+  /** Set by a mouse press on the trigger: the focus it causes is left to the click (toggle), not opened at once. */
+  const pressFocus = useRef(false);
 
   const clearOpenTimer = useCallback(() => {
     if (openTimer.current !== null) {
@@ -144,9 +148,21 @@ export function useHoverCard({ id, triggerRef, cardRef, width, enabled = true }:
       suppressFocus.current = false;
       return;
     }
+    if (pressFocus.current) {
+      pressFocus.current = false;
+      return;
+    }
     if (!enabled) return;
     show();
   }, [enabled, show]);
+
+  // The flag lives only for the focus the press itself causes; a browser that does not focus on click clears it next tick.
+  const onMouseDown = useCallback(() => {
+    pressFocus.current = true;
+    setTimeout(() => {
+      pressFocus.current = false;
+    }, 0);
+  }, []);
 
   const onBlur = useCallback(
     (e: FocusEvent<HTMLElement>) => {
@@ -204,7 +220,7 @@ export function useHoverCard({ id, triggerRef, cardRef, width, enabled = true }:
     open,
     close,
     show,
-    triggerProps: { onPointerEnter: scheduleOpen, onPointerLeave: scheduleClose, onMouseEnter: scheduleOpen, onMouseLeave: scheduleClose, onFocus, onBlur },
+    triggerProps: { onPointerEnter: scheduleOpen, onPointerLeave: scheduleClose, onMouseEnter: scheduleOpen, onMouseLeave: scheduleClose, onFocus, onBlur, onMouseDown },
     cardProps: { onPointerEnter: cancelClose, onPointerLeave: scheduleClose, onMouseEnter: cancelClose, onMouseLeave: scheduleClose, onBlur },
   };
 }
