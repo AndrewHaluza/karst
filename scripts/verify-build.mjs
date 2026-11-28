@@ -115,7 +115,11 @@ const REQUIRED_ARTIFACTS = [
 // Raised 440 → 442 KB for T1372 (Autopilot is one Auto-fix switch, one rules table and one checks
 // chip row): the rebuilt AutopilotSection adds ~2.4 KB of genuine app code on develop's tree, which
 // already carries T1371/T1373/T1374; bundle is 450802 bytes (~1.8 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 442 * 1024;
+// Raised 442 → 446 KB for T1405 (the read-only Agents › Channels tab): ChannelsTab with its layer,
+// column and core labels adds ~4 KB of genuine app code. The map itself (channelMap.ts, adapters,
+// planning verbs) runs in the host and reaches the webview as data, so no host code is bundled;
+// bundle is 454801 bytes (~1.9 KB headroom).
+const APP_BUNDLE_BUDGET_BYTES = 446 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
