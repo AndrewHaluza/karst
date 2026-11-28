@@ -112,6 +112,7 @@ Split out of `arch:AP-02`.
 - With two or more armed rounds the finished rounds move to the stage's one round tab row (`R1 · conflict`, `R2 · CI`, `R3 · CI · live`), the budget and why a round opened sit in its muted caption tail, and the Auto-fix body keeps only the live round's provable steps. One word, `round`, names both kinds.
 - A finished round that only ran is a `note`, never a pass. A later round of the same kind makes it a `fail`, and a spent park warns `no fix attempts left`.
 - A historical tab shows that round's Auto-fix rows, its pushes (by time window) and the CI result its own records hold, and keeps Commit and Pull request. Its processes read in time order: Commit, Pull request, Auto-fix (the arm row), Push, Merge (the CI result).
+- The round order and the time windows compare instants (`instantMs`), never strings: a note time is SQLite UTC text and a push start is ISO. Two notes in the same second get their own tab keys (`ship:<time>`, then `ship:<time>#2`).
 - The store read that feeds the tabs is in `arch:AP-09`.
 
 END_DOC_BLOCK: [@arch:AP-15]

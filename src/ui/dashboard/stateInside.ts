@@ -29,7 +29,7 @@ import {
   type ServiceStatusView,
 } from '../../model/inside/gates.js';
 import type { AttemptKey, GateAttemptView } from '../../model/inside/rounds.js';
-import { shipRoundLedger, shipRoundWindows, type ShipPushEvidence, type ShipRoundEvidenceFacts, type ShipRoundLedger } from '../../model/inside/shipRounds.js';
+import { followedByKind, shipRoundAttempt, shipRoundLedger, shipRoundWindows, type ShipPushEvidence, type ShipRoundEvidenceFacts, type ShipRoundLedger } from '../../model/inside/shipRounds.js';
 import type { AutofixAttempt, AutofixRound } from '../../model/inside/autofix.js';
 import type { ShipSpentPark } from '../../model/inside/shipRounds.js';
 import type { DeliverRun } from '../../store/deliverRuns.js';
@@ -219,8 +219,8 @@ function historicalShipLedger(
   const facts = input.shipRounds;
   if (key === null || round === undefined || facts === undefined) return null;
   const window = shipRoundWindows({ attempts: facts.attempts, now }).find((w) => w.key === key);
-  // The key IS `ship:<note time>`; a key no note holds is a stale selection.
-  const attempt = facts.attempts.find((a) => (`ship:${a.at}` as AttemptKey) === key);
+  // The key names one note (`ship:<note time>`); a key no note holds is a stale selection.
+  const attempt = shipRoundAttempt(facts.attempts, key);
   if (window === undefined || attempt === undefined) return null;
   const live = round.status === 'run';
   // The newest finished CI round states the check state a record holds: open
@@ -233,7 +233,7 @@ function historicalShipLedger(
     attempt,
     ...(live && input.autofix ? { steps: input.autofix.steps } : {}),
     pushes: shipPushes(input.shipEvidence, facts.deliverRuns, input.repoNameFor),
-    followedByCi: facts.attempts.some((a) => a.at > attempt.at && a.kind === 'ci'),
+    followedByCi: followedByKind(facts.attempts, attempt, 'ci'),
     currentCi,
   };
   return shipRoundLedger(window, evidence);

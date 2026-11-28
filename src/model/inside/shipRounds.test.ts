@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AutofixAttempt, AutofixRound } from './autofix.js';
-import { listShipRounds, shipRoundEvidence, shipRoundLedger, shipRoundWindows, type ShipRoundEvidenceFacts } from './shipRounds.js';
+import { followedByKind, listShipRounds, shipRoundAttempt, shipRoundEvidence, shipRoundLedger, shipRoundWindows, type ShipRoundEvidenceFacts } from './shipRounds.js';
 
 const NOW = '2026-11-09T12:00:00.000Z';
 /** A time on 2026-11-09 at `hh:mm`. */
@@ -155,5 +155,46 @@ describe('shipRoundEvidence', () => {
         followedByCi: true,
       })),
     );
+  });
+});
+
+describe('ship round times in two formats (SQLite note, ISO push)', () => {
+  /** A SQLite `YYYY-MM-DD HH:MM:SS` UTC time on 2026-11-09, as `karst_events.at` stores it. */
+  const sq = (hhmm: string): string => `2026-11-09 ${hhmm}:00`;
+  const attempts = [ci(1, 3, sq('09:00')), ci(2, 3, sq('09:30'))];
+
+  it('puts an ISO push in the window of the SQLite note before it', () => {
+    const rounds = listShipRounds({ attempts, liveRound: null, now: NOW });
+    const windows = shipRoundWindows({ attempts, now: NOW });
+    const pushes = [
+      { at: t('09:05'), label: 'web', status: 'pass' as const },
+      { at: t('09:40'), label: 'api', status: 'pass' as const },
+    ];
+    const first = shipRoundLedger(windows[0]!, { round: rounds[0]!, attempt: attempts[0]!, pushes });
+    const second = shipRoundLedger(windows[1]!, { round: rounds[1]!, attempt: attempts[1]!, pushes });
+    expect(first.push.map((r) => r.label)).toEqual(['web']);
+    expect(second.push.map((r) => r.label)).toEqual(['api']);
+  });
+
+  it('orders notes by instant, not by string, when the formats mix', () => {
+    const rounds = listShipRounds({ attempts: [ci(2, 3, t('09:30')), conflict(1, 2, sq('09:00'))], liveRound: null, now: NOW });
+    expect(rounds.map((r) => r.tag)).toEqual(['conflict', 'CI']);
+  });
+
+  it('reads a later note of a kind by instant', () => {
+    expect(followedByKind([attempts[0]!, ci(2, 3, t('09:30'))], attempts[0]!, 'ci')).toBe(true);
+    expect(followedByKind([ci(1, 3, t('09:30')), ci(2, 3, sq('09:00'))], ci(1, 3, t('09:30')), 'ci')).toBe(false);
+  });
+});
+
+describe('ship round keys', () => {
+  it('gives two notes written in the same second their own keys, and each key finds its note', () => {
+    const same = [conflict(1, 2, t('09:01')), ci(1, 3, t('09:01'))];
+    const rounds = listShipRounds({ attempts: same, liveRound: null, now: NOW });
+    const keys = rounds.map((r) => r.key);
+    expect(new Set(keys).size).toBe(2);
+    expect(shipRoundWindows({ attempts: same, now: NOW }).map((w) => w.key)).toEqual(keys);
+    expect(keys.map((k) => shipRoundAttempt(same, k))).toEqual([same[0], same[1]]);
+    expect(shipRoundAttempt(same, 'ship:stale')).toBeUndefined();
   });
 });

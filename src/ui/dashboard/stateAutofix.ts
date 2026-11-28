@@ -20,6 +20,7 @@ import {
   type AutofixTarget,
 } from '../../model/inside/autofix.js';
 import type { ShipSpentPark } from '../../model/inside/shipRounds.js';
+import { instantMs } from '../../model/inside/types.js';
 import { listDeliverRuns, type DeliverRun } from '../../store/deliverRuns.js';
 import type { AutofixInput } from '../../model/prMergeReadiness.js';
 import { parseChecks } from '../../model/prChecks.js';
@@ -126,7 +127,7 @@ function readAttempts(store: Store, ticketId: number): AutofixAttempt[] {
   return rows.flatMap((r) => {
     const m = /^Autopilot: (conflicts|ci) round (\d+)\/(\d+)$/.exec(r.title);
     // A note with no readable time cannot be placed in a round window, so it is not a tab.
-    return m && Number.isFinite(Date.parse(r.at)) ? [{ kind: m[1] as AutofixKind, n: Number(m[2]), max: Number(m[3]), at: r.at }] : [];
+    return m && Number.isFinite(instantMs(r.at)) ? [{ kind: m[1] as AutofixKind, n: Number(m[2]), max: Number(m[3]), at: r.at }] : [];
   });
 }
 
@@ -278,7 +279,7 @@ export function readAutofix(
   const waiting = waitingCi(store, ticketId, nameOf);
   const attempts = readAttempts(store, ticketId);
   // The Ship round windows join the pushes they hold; a run with an unreadable start cannot be placed in one.
-  const deliverRuns = listDeliverRuns(store, ticketId).filter((run) => Number.isFinite(Date.parse(run.startedAt)));
+  const deliverRuns = listDeliverRuns(store, ticketId).filter((run) => Number.isFinite(instantMs(run.startedAt)));
   const facts: AutofixFacts = {
     override: ticket.mode,
     projectDefault,

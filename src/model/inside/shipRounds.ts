@@ -20,7 +20,7 @@
  */
 import { ATTEMPT_TABS_LIMIT, type AttemptKey, type GateAttemptView } from './rounds.js';
 import type { AutofixAttempt, AutofixKind, AutofixRound, AutofixStepRow } from './autofix.js';
-import { formatTime, type EvidenceRow, type InsideStatus } from './types.js';
+import { formatTime, instantMs, type EvidenceRow, type InsideStatus } from './types.js';
 
 /** The visible status word beside a tab's glyph — status is never colour-only. */
 const STATUS_LABELS: Readonly<Record<InsideStatus, string>> = {
@@ -39,9 +39,45 @@ const tagWord = (kind: AutofixKind): string => (kind === 'ci' ? 'CI' : 'conflict
 /** Why a round opened, in a reader's words. The notes carry no target, so the reason stays at the kind. */
 const openedBy = (kind: AutofixKind): string => (kind === 'ci' ? 'opened by a failing check' : 'opened by a merge conflict');
 
+/**
+ * Compare two persisted instants by epoch ms. A note time is SQLite
+ * `YYYY-MM-DD HH:MM:SS` (UTC) and a push start is ISO, so a string compare
+ * puts them in the wrong order (`instantMs` reads both).
+ */
+function byInstant(a: string, b: string): number {
+  return instantMs(a) - instantMs(b);
+}
+
 /** Oldest first by the note time. Array position is never trusted. */
 function ordered(attempts: readonly AutofixAttempt[]): AutofixAttempt[] {
-  return [...attempts].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  return [...attempts].sort((a, b) => byInstant(a.at, b.at));
+}
+
+/**
+ * The tab key of each ordered note: `ship:<note time>`. Two notes written in
+ * the same second get a `#<n>` suffix from the second one on, so each tab
+ * keeps its own key.
+ */
+function roundKeys(all: readonly AutofixAttempt[]): AttemptKey[] {
+  const seen = new Map<string, number>();
+  return all.map((a) => {
+    const count = (seen.get(a.at) ?? 0) + 1;
+    seen.set(a.at, count);
+    return (count === 1 ? `ship:${a.at}` : `ship:${a.at}#${count}`) as AttemptKey;
+  });
+}
+
+/** The note a tab key names, or undefined for a stale selection. */
+export function shipRoundAttempt(attempts: readonly AutofixAttempt[], key: AttemptKey): AutofixAttempt | undefined {
+  const all = ordered(attempts);
+  const index = roundKeys(all).indexOf(key);
+  return index < 0 ? undefined : all[index];
+}
+
+/** True when a note of `kind` was written after `attempt` (by instant, not by string). */
+export function followedByKind(attempts: readonly AutofixAttempt[], attempt: AutofixAttempt, kind: AutofixKind): boolean {
+  const from = instantMs(attempt.at);
+  return attempts.some((a) => a.kind === kind && instantMs(a.at) > from);
 }
 
 /** Index of the first note a spent park names (its newest `used` notes of that kind), or Infinity. */
@@ -104,13 +140,14 @@ export function listShipRounds(input: ListShipRoundsInput): GateAttemptView[] {
   const spentStart = spentFrom(all, input.spent);
   const spentLast = input.spent ? all.map((a) => a.kind).lastIndexOf(input.spent.kind) : -1;
   const last = all.length - 1;
+  const keys = roundKeys(all);
   const views = all.map((a, i): GateAttemptView => {
     const live = i === liveIndex;
     const status = roundStatus(all, i, liveIndex, input.spent, spentStart);
     const tag = tagWord(a.kind);
     const warning = input.spent && i === spentLast ? 'no fix attempts left' : '';
     return {
-      key: `ship:${a.at}` as AttemptKey,
+      key: keys[i]!,
       label: `R${i + 1}`,
       tag,
       tail: `of ${all.length}${live ? ' · live' : ''}`,
@@ -144,8 +181,9 @@ export interface ShipRoundWindowsInput {
  */
 export function shipRoundWindows(input: ShipRoundWindowsInput): ShipRoundWindow[] {
   const all = ordered(input.attempts);
+  const keys = roundKeys(all);
   return all.map((a, i) => ({
-    key: `ship:${a.at}` as AttemptKey,
+    key: keys[i]!,
     from: a.at,
     to: all[i + 1]?.at ?? input.now,
   }));
@@ -230,8 +268,11 @@ function autofixRows(facts: ShipRoundEvidenceFacts): EvidenceRow[] {
 /** The push rows whose recorded start falls in the round's window, oldest first. */
 function pushRows(window: ShipRoundWindow, facts: ShipRoundEvidenceFacts): EvidenceRow[] {
   return (facts.pushes ?? [])
-    .filter((p) => p.at >= window.from && p.at < window.to)
-    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+    .filter((p) => {
+      const at = instantMs(p.at);
+      return at >= instantMs(window.from) && at < instantMs(window.to);
+    })
+    .sort((a, b) => byInstant(a.at, b.at))
     .map((push) => ({
       label: push.label,
       ...(push.detail ? { detail: push.detail } : {}),
