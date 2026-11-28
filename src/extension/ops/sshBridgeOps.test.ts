@@ -147,6 +147,8 @@ describe('makeSshBridgeLifecycle with an injected forwarder', () => {
     await expect(makeSshBridgeLifecycle(base({ remotes: () => undefined, warn, startForwarder })).start(7)).resolves.toBe('refused');
     expect(warn.mock.calls).toEqual([['ssh remote devbox not in karst.yml']]);
     expect(startForwarder).not.toHaveBeenCalled();
+    // With no warn seam the refusal is the same.
+    await expect(makeSshBridgeLifecycle(base({ remotes: () => ({}), startForwarder })).start(7)).resolves.toBe('refused');
   });
 
   it('hands the forwarder every option, with its optional deps', async () => {

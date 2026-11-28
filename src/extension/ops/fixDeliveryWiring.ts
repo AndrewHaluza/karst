@@ -233,8 +233,8 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
       const written = writeFixBrief(deps, id, deliveryId);
       // A written brief and a host file whose REMOTE mirror failed (D556) both
       // name the file: a human must still be asked after the unsendable window.
-      // Only a missing bridge dir or row has nothing at all to name.
-      const settle = (): string | null => (deps.bridgePaths?.(id) !== undefined && getFixDelivery(deps.store, deliveryId) !== null ? file : null);
+      // Only a missing bridge dir has nothing at all to name (the sweep asks only for a listed row).
+      const settle = (): string | null => (deps.bridgePaths?.(id) !== undefined ? file : null);
       return isThenable(written) ? written.then(settle) : settle();
     },
     hostUnsendable: (id, deliveryId) => {

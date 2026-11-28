@@ -83,4 +83,12 @@ describe('fixDeliveryOps (async mirror path, D556)', () => {
     await expect(sendTypedPointer(host, getFixDelivery(h.store, id)!, 'first')).resolves.toBe('held');
     expect(getFixDelivery(h.store, id)!.enqueuedAt).toBeNull();
   });
+
+  it('a held re-send keeps the enqueued claim of the first send', () => {
+    const id = upsertFixDelivery(h.store, { ticketId: h.ticketId, recoveryRoundId: null, launchId: 'L1', body: 'b', at: 'a' });
+    expect(sendTypedPointer(h.host, getFixDelivery(h.store, id)!, 'first')).toBe('queued');
+    const host = withHost({ sendPointer: () => 'held' as TypedSendResult });
+    expect(sendTypedPointer(host, getFixDelivery(h.store, id)!, 'resend')).toBe('held');
+    expect(getFixDelivery(h.store, id)!.enqueuedAt).not.toBeNull();
+  });
 });

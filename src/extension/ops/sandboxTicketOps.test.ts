@@ -988,12 +988,15 @@ describe('an ssh placement on a mode: docker remote uses the ssh docker runner (
       const startSshBridge = vi.fn(() => Promise.reject(new Error('ssh down')));
       await expect(reattachTicketSandbox(dockerTicket(fakeSshProcess(), { startSshBridge, debug }), openStore(':memory:'), manifest, 7, ok)).resolves.not.toBeNull();
       expect(debug).toHaveBeenCalledWith('[runtime] ticket 7: ssh bridge forwarder did not start: ssh down');
+      // With no debug seam the rejection is still swallowed.
+      await expect(reattachTicketSandbox(dockerTicket(fakeSshProcess(), { startSshBridge }), openStore(':memory:'), manifest, 7, ok)).resolves.not.toBeNull();
     });
 
     it('never starts a forwarder for a non-ssh or unplaced ticket', async () => {
       const startSshBridge = vi.fn(async () => 'started' as const);
       const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${SBX}\n` } });
       await reattachTicketSandbox(deps({ proc, startSshBridge }), openStore(':memory:'), manifest, 7, ok);
+      await reattachTicketSandbox(deps({ proc, startSshBridge, placementOf: () => null }), openStore(':memory:'), manifest, 7, ok);
       await reattachTicketSandbox(deps({ proc, startSshBridge, placementOf: () => ({ backend: 'sbx', core: 'claude', sandboxName: SBX, reason: null }) }), openStore(':memory:'), manifest, 7, ok);
       expect(startSshBridge).not.toHaveBeenCalled();
     });

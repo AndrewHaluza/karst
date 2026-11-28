@@ -171,14 +171,24 @@ describe('fixDeliveryWiring remote mirror (D556)', () => {
   });
 
   it('a stuck sandbox with no bridge dir names no inbox file and the sweep stays quiet', () => {
+    st.agy = true;
     const w = make();
-    w.recordSeed(ticketId, null as never, 'LS');
+    expect(w.deliver(ticketId, null)).toBe(true);
     const id = currentFixDelivery(store, ticketId)!.id;
     store.db.prepare('UPDATE fix_deliveries SET created_at = ? WHERE id = ?').run(OLD, id);
-    st.live = false;
     debug.mockClear();
     w.sweep.sweep();
     expect(getFixDelivery(store, id)!.pointerFailedAt).toBeNull();
-    expect(lines().filter((l) => l.includes('sweep failed'))).toEqual([]);
+    expect(lines().filter((l) => l.includes('sweep failed') || l.includes('unsendable'))).toEqual([]);
+  });
+
+  it('a stuck sandbox with a bridge dir names its inbox file once the window passes', () => {
+    st.agy = true;
+    const w = sandboxed();
+    expect(w.deliver(ticketId, null)).toBe(true);
+    const id = currentFixDelivery(store, ticketId)!.id;
+    store.db.prepare('UPDATE fix_deliveries SET created_at = ? WHERE id = ?').run(OLD, id);
+    w.sweep.sweep();
+    expect(getFixDelivery(store, id)!.pointerFailedAt).not.toBeNull();
   });
 });
