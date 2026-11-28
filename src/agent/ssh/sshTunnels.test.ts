@@ -510,6 +510,46 @@ describe('TunnelRegistry', () => {
     expect(fresh.state).toBe('up');
   });
 
+  it('opens one fresh tunnel for two concurrent openL calls on a down key', async () => {
+    const crash = { on: false };
+    const h = harness({
+      onSpawn: (child) => {
+        if (crash.on) queueMicrotask(() => child.exit(255, 'ssh: gone'));
+      },
+    });
+    const registry = createTunnelRegistry(h.deps);
+    const handle = await registry.openL(KEY_L, request());
+    crash.on = true;
+    h.connectOk = false;
+    h.spawned[0]!.exit(255, 'ssh: reset');
+    await advance(0);
+    await advance(TUNNEL_BACKOFF_MAX_MS * 10);
+    expect(handle.state).toBe('down');
+    const before = h.spawned.length;
+
+    crash.on = false;
+    h.connectOk = true;
+    // The old handle's close is slow, so a second open can finish before it.
+    const close = vi.spyOn(handle, 'close').mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 1000)));
+    const first = registry.openL(KEY_L, request());
+    const second = registry.openL(KEY_L, request());
+    await advance(1000);
+    const [one, two] = await Promise.all([first, second]);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(one).toBe(two);
+    expect(one).not.toBe(handle);
+    expect(h.spawned).toHaveLength(before + 1);
+    expect(registry.forSandbox(SANDBOX)).toEqual([one]);
+  });
+
+  it('returns the live -L handle while a second caller waits on nothing', async () => {
+    const h = harness();
+    const registry = createTunnelRegistry(h.deps);
+    const [one, two] = await Promise.all([registry.openL(KEY_L, request()), registry.openL(KEY_L, request())]);
+    expect(one).toBe(two);
+    expect(h.spawned).toHaveLength(1);
+  });
+
   it('shares one -R tunnel between two tickets and closes it at the last release', async () => {
     const h = harness();
     const registry = createTunnelRegistry(h.deps);

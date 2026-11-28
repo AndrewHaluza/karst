@@ -25,6 +25,7 @@ import { connect as netConnect } from 'node:net';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { PortListing } from '../sessionRunner.js';
 import { sshDest, sshOptions, type SshProcess } from './sshProcess.js';
+import { createTunnelOwnerStore, openSharedR, tunnelOwnerId, type TunnelOwnerStore } from './sshTunnelOwner.js';
 
 export type TunnelKind = 'L' | 'R';
 export type TunnelState = 'up' | 'reconnecting' | 'down';
@@ -158,6 +159,8 @@ export interface TunnelDeps {
   /** One line when a tunnel gives up (the ports UI reads the handle, not this). */
   warn?(message: string): void;
   debug?(message: string): void;
+  /** Cross-window `-R` owner markers (`sshTunnelOwner.ts`); without it each `-R` open spawns. */
+  readonly rOwner?: TunnelOwnerStore;
 }
 
 export interface TunnelHandle {
@@ -275,9 +278,11 @@ class Tunnel implements TunnelHandle {
   private failures = 0;
   private closed = false;
   private closing: Promise<void> | undefined;
+  private readonly onDown: (() => void) | undefined;
 
-  constructor(deps: TunnelDeps, spec: TunnelSpec, argv: readonly string[]) {
+  constructor(deps: TunnelDeps, spec: TunnelSpec, argv: readonly string[], onDown?: () => void) {
     this.deps = deps;
+    this.onDown = onDown;
     this.key = spec.key;
     this.kind = spec.kind;
     this.hostPort = spec.hostPort;
@@ -469,20 +474,21 @@ class Tunnel implements TunnelHandle {
         ? tail
         : `ssh: tunnel ${this.key} did not recover after ${String(TUNNEL_MAX_ATTEMPTS)} attempts`;
     this.deps.warn?.(`[ssh] tunnel ${this.key} is down: ${this.why}`);
+    this.onDown?.();
   }
 }
 
 /**
  * Open one tunnel and resolve once it is live. The first open rejects
  * (`TunnelOpenError`) when the process exits first or `-L` never listens; the
- * exit watcher owns every later exit.
+ * exit watcher owns every later exit. `onDown` runs once when the watcher gives up.
  */
-export async function openTunnel(deps: TunnelDeps, spec: TunnelSpec): Promise<TunnelHandle> {
+export async function openTunnel(deps: TunnelDeps, spec: TunnelSpec, onDown?: () => void): Promise<TunnelHandle> {
   const argv = tunnelArgv(spec.kind, spec.remote, spec.controlDir, spec.hostPort, spec.remotePort);
   deps.debug?.(
     `[ssh] tunnel ${spec.key}: opening -${spec.kind} ${String(spec.hostPort)} -> ${String(spec.remotePort)}`,
   );
-  return new Tunnel(deps, spec, argv).start();
+  return new Tunnel(deps, spec, argv, onDown).start();
 }
 
 export interface TunnelRegistry {
@@ -547,19 +553,22 @@ export function createTunnelRegistry(deps: TunnelDeps): TunnelRegistry {
   const r = new Map<string, RRecord>();
   const openingL = new Map<string, Promise<TunnelHandle>>();
 
+  /**
+   * The in-flight check and the in-flight set have no `await` between them, so
+   * two concurrent callers on one key (a down key too) share one open.
+   */
   async function openL(key: string, request: TunnelRequest): Promise<TunnelHandle> {
     const sandboxName = parseLKey(key, request.hostPort);
-    const existing = l.get(key);
-    if (existing !== undefined) {
-      if (existing.handle.state !== 'down') return existing.handle;
-      // A down tunnel is replaced: its watcher is already stopped.
-      l.delete(key);
-      await existing.handle.close();
-    }
     const pending = openingL.get(key);
     if (pending !== undefined) return pending;
+    const existing = l.get(key);
+    if (existing !== undefined && existing.handle.state !== 'down') return existing.handle;
+    // A down tunnel is replaced: its watcher is already stopped.
+    if (existing !== undefined) l.delete(key);
+    const closed = existing === undefined ? Promise.resolve() : existing.handle.close();
 
-    const opening = openTunnel(deps, { key, kind: 'L', ...request })
+    const opening = closed
+      .then(() => openTunnel(deps, { key, kind: 'L', ...request }))
       .then((handle) => {
         openingL.delete(key);
         l.set(key, { sandboxName, hostPort: request.hostPort, handle });
@@ -587,11 +596,26 @@ export function createTunnelRegistry(deps: TunnelDeps): TunnelRegistry {
     if (record !== undefined) await record.handle.close();
   }
 
+  /** Own the `-R` forward, or share the one that a live window of this host owns. */
+  function openR(key: string, request: TunnelRequest): Promise<TunnelHandle> {
+    const spec: TunnelSpec = { key, kind: 'R', ...request };
+    const store = deps.rOwner;
+    if (store === undefined) return openTunnel(deps, spec);
+    const schedule = (callback: () => void, ms: number): (() => void) => {
+      const handle = scheduleTimeout(deps, callback, ms);
+      return () => cancelTimeout(deps, handle);
+    };
+    const id = tunnelOwnerId(request.remote, request.remotePort, request.hostPort);
+    const log = { warn: (m: string) => deps.warn?.(m), debug: (m: string) => deps.debug?.(m) };
+    const open = (onDown: () => void): Promise<TunnelHandle> => openTunnel(deps, spec, onDown);
+    return openSharedR({ store, dir: request.controlDir, id, schedule, open, ...log }, key, request.hostPort, request.remotePort);
+  }
+
   async function ensureR(key: string, request: TunnelRequest, record: RRecord): Promise<TunnelHandle> {
     if (record.handle !== undefined && record.handle.state !== 'down') return record.handle;
     if (record.opening !== undefined) return record.opening;
 
-    const opening = openTunnel(deps, { key, kind: 'R', ...request })
+    const opening = openR(key, request)
       .then((handle) => {
         record.handle = handle;
         record.opening = undefined;
@@ -739,6 +763,8 @@ export interface TunnelDepsOptions {
   readonly connect?: (port: number) => Promise<boolean>;
   /** Override the pre-spawn host port check (tests). */
   readonly portInUse?: (port: number) => Promise<boolean>;
+  /** Override the `-R` owner markers (tests); default: files in the control dir. */
+  readonly rOwner?: TunnelOwnerStore;
 }
 
 /** Production deps: the ssh seam's stream spawn, the loopback probe, the host timers. */
@@ -750,6 +776,7 @@ export function createTunnelDeps(
     spawn: (argv) => ssh.spawnStream(argv),
     connect: opts.connect ?? probeLocalPort,
     portInUse: opts.portInUse ?? probeLocalPort,
+    rOwner: opts.rOwner ?? createTunnelOwnerStore(),
     ...(opts.warn === undefined ? {} : { warn: opts.warn }),
     ...(opts.debug === undefined ? {} : { debug: opts.debug }),
   };
