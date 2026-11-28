@@ -29,3 +29,27 @@ export function checkSandboxOrphans(orphans: readonly OrphanSandbox[]): DoctorCh
     },
   }));
 }
+
+export interface ForgottenRemoteWorkspace {
+  readonly name: string;
+  readonly ticketId: number;
+  readonly remote: string;
+}
+
+/**
+ * Forgotten remote workspaces (`ssh-strays.json`, D824 edit 2). Report-only, and never an orphan:
+ * the orphan cleanup skips a stray, so only its Delete on the ticket removes it (D830).
+ */
+export function checkForgottenRemoteWorkspaces(strays: readonly ForgottenRemoteWorkspace[]): DoctorCheck[] {
+  return strays.map((s) => ({
+    id: `state.sandbox-stray.${s.remote}.${s.name}`,
+    area: 'state',
+    status: 'warn',
+    detail: `forgotten remote workspace ${s.name} on ${s.remote} (ticket ${s.ticketId})`,
+    fix: {
+      tier: 'report',
+      summary: 'forgotten remote workspace',
+      nextStep: 'delete it from the ticket (the orphan cleanup never removes it)',
+    },
+  }));
+}

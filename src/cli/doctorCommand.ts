@@ -48,7 +48,7 @@ import {
   type RemoteWorkspaceProbe,
 } from '../agent/backendProbe.js';
 import { doneMergedTicketIds } from '../store/doneMerged.js';
-import { checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
+import { checkForgottenRemoteWorkspaces, checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
 import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../agent/sandboxInventory.js';
 import { readExistingInstallId } from '../agent/ssh/sshNames.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
@@ -206,13 +206,18 @@ const listSandboxesNode: ListSandboxes = async (projectRoot, ctx) => {
   });
 };
 
-/** Orphans: this project's sandboxes whose ticket is not live (arch:AC-32). Only with a sandbox backend. */
+/** Orphans: this project's sandboxes whose ticket is not live (arch:AC-32), and the forgotten ssh strays apart. Only with a sandbox backend. */
 async function sandboxOrphanChecks(store: Store, manifestPath: string | undefined, manifest: Manifest | undefined, list: () => Promise<SandboxInventory>): Promise<DoctorCheck[]> {
   if (manifestPath === undefined || manifest?.agentBackends === undefined) return [];
   const merged = doneMergedTicketIds(store);
   const live = new Set((store.db.prepare('SELECT id FROM tickets WHERE archived_at IS NULL').all() as { id: number }[]).map((r) => r.id).filter((id) => !merged.has(id)));
   const inv = await list();
-  return checkSandboxOrphans(inv.sandboxes.filter((s) => !live.has(s.ticketId)));
+  // A forgotten stray is never an orphan: the cleanup command skips it, so it gets its own line (D830).
+  const strays = inv.sandboxes.flatMap((s) => (s.stray === true && s.remote !== undefined ? [{ name: s.name, ticketId: s.ticketId, remote: s.remote }] : []));
+  return [
+    ...checkSandboxOrphans(inv.sandboxes.filter((s) => s.stray !== true && !live.has(s.ticketId))),
+    ...checkForgottenRemoteWorkspaces(strays),
+  ];
 }
 
 /** Backend readiness + docker disk use; injected by tests. */

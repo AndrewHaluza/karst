@@ -536,6 +536,9 @@
   "src/doctor/sandboxChecks.ts#checkStaleRemoteWorkspaces": [
     "arch:CLI-26"
   ],
+  "src/doctor/sandboxOrphanCheck.ts#checkForgottenRemoteWorkspaces": [
+    "arch:CLI-26"
+  ],
   "src/doctor/storageCheck.ts#checkStorage": [
     "arch:CLI-16"
   ],

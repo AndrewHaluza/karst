@@ -356,9 +356,10 @@ covers: src/cli/doctorCommand.ts#runDoctorCommand, src/cli/doctorCommand.ts#pars
 END_DOC_BLOCK: [@arch:CLI-16]
 
 ## [@arch:CLI-26] `karst doctor` — SSH remote checks and the page action fix
-covers: src/doctor/sandboxChecks.ts#checkStaleRemoteWorkspaces, src/ui/doctor/doctorFlow.ts#createDoctorFlow
+covers: src/doctor/sandboxChecks.ts#checkStaleRemoteWorkspaces, src/ui/doctor/doctorFlow.ts#createDoctorFlow, src/doctor/sandboxOrphanCheck.ts#checkForgottenRemoteWorkspaces
 
 - **SSH remotes (D824, `arch:AC-67`).** Every declared `remotes.<name>` gets its own checks. `tools.sandbox-ssh-<remote>` runs the D554 preflight (`sshPreflight`, the core the remote serves, else `claude`); trust first (`readRemoteTrust` + `isRemoteTrusted`): an unconfirmed remote is WARN `ssh <remote>: not confirmed (confirm it in the editor)` and the doctor makes ZERO ssh calls for it, while a failed preflight is a WARN whose reason is the fix hint. The state area adds `state.sandbox-disk.<remote>` (`du -sk` over THIS install's `sshProjectPrefix` workspaces only, plus `df` free space; report-only over 10 GB), `state.sandbox-stale.<remote>.<name>` for a stopped workspace older than `STALE_REMOTE_WORKSPACE_DAYS` (14, the age of `<ws>/env/env.sh`) with a `Remove` action fix for the listed workspace's ticket (never an automatic removal), and `state.sandbox-foreign.<remote>.<name>` for another install's `karst-*` dirs (age and size; never a stray of this one). A missing install id is reported per remote and lists no ssh remote; one listing per run is shared by the orphan, disk and stale checks.
+- **Forgotten strays.** A forgotten workspace (`ssh-strays.json`, `stray: true`) is never a `state.sandbox-orphan.*` line: the orphan cleanup skips it. It gets `state.sandbox-stray.<remote>.<name>` (WARN, report tier), which points to its Delete on the ticket (D830).
 - **Page action.** `tier:'action'` (edit 12) carries a page `label`, a `DoctorUserAction` and a `nextStep` for the CLI text. `--fix` never runs it. On the doctor page it is a button that posts only the check id; `doctorFlow.ts` reads the action from its last report, asks in a host modal (UI-R33), and runs the injected `removeSandbox` (the dashboard's guarded removal: sync first, "Remove anyway" on unsynced commits), then checks again.
 
 END_DOC_BLOCK: [@arch:CLI-26]

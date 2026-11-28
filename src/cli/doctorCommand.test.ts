@@ -272,6 +272,15 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
     expect(orphans).toEqual([expect.objectContaining({ id: 'state.sandbox-orphan.karst-ab12cd34-2-claude', status: 'warn' })]);
   });
 
+  it('lists a forgotten ssh stray as a stray, never as an orphan the cleanup command skips (D830)', async () => {
+    const stray = { runner: 'ssh' as const, remote: 'devbox', name: 'karst-ab12cd34-2-claude', ticketId: 2, core: 'claude', state: 'stopped' as const, stray: true as const };
+    const checks = await doctorWith('agentBackend: sbx\n', vi.fn(async () => ({ sandboxes: [stray], errors: [] })));
+    expect(checks.some((c) => c.id.startsWith('state.sandbox-orphan.'))).toBe(false);
+    expect(checks.filter((c) => c.id.startsWith('state.sandbox-stray.'))).toEqual([
+      expect.objectContaining({ id: 'state.sandbox-stray.devbox.karst-ab12cd34-2-claude', status: 'warn' }),
+    ]);
+  });
+
   it('state: git health reports each distinct common dir once', async () => {
     const probe = vi.fn((name: string, repoPath: string) => ({ name, repoPath, commonDir: '/x/.git', packCount: 99, autoPackLimit: 50 }));
     const checks = await doctorWith('  api:\n    repoPath: ../app\n', vi.fn(async () => ({ sandboxes: [], errors: [] })), undefined, 'state', probe);
