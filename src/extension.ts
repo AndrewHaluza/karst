@@ -1319,6 +1319,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     projectId: () => currentProject()?.id, redrive: (id) => maybeDrive(id, 'sandbox-stash-update'),
     onShellChange: (id) => dashboard.pushState(id), openTerminal: (spec) => { const term = vscode.window.createTerminal({ name: spec.name, cwd: spec.cwd, shellPath: spec.cmd, shellArgs: [...spec.args] }); term.show(); }, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
     pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
+    pickForeign: async (items, placeHolder) => (await vscode.window.showQuickPick(items.map((i) => ({ label: i.label, description: i.description, detail: i.detail, id: i.id })), { placeHolder, canPickMany: true }))?.map((p) => p.id),
     // After a reload the ticket→core cache is empty: refill it from the listing (AC-34).
     onInventory: (inv) => { for (const box of inv.sandboxes) if (box.invalidCore !== true) sandboxB?.remember(box.ticketId, box.core); }, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
   const archiveDeps: ArchiveOpsDeps = {
@@ -7358,6 +7359,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('karst.sandbox.stashUpdate', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'stash and update'); if (id !== undefined) await sandboxLife.stashUpdate(id); }), vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
+    vscode.commands.registerCommand('karst.sandbox.cleanupForeignRemote', () => sandboxLife.cleanupForeignRemote()),
     // Human-only close/reopen (@arch:STAGEMACH): logic in ops/closeOps.ts + ops/closeCommands.ts.
     { dispose: onDrainChange(() => dashboard.pushAllStates()) }, // the dashboards show the waiting reload
     registerReloadWhenIdle(localStore, drain, (m) => logger.info(m), (id) => void maybeDrive(id, 'drain-cancelled')),

@@ -1,7 +1,9 @@
 import type { SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
 import type { SbxGrantReleaser } from './sbxLaunchOauth.js';
-import { findStrays, removeStrays } from './sandboxStrays.js';
+import { findRemoteStrays, findStrays, removeStrays, describeRemoteStrays } from './sandboxStrays.js';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
+import { NODE_SSH_PROCESS } from '../../agent/ssh/sshProcess.js';
+import { cleanupForeignRemoteOp, type ForeignPickItem } from './sandboxForeignOps.js';
 import { createSandboxSessionEnder } from './sandboxSessionEnd.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { Store } from '../../store/db.js';
@@ -65,6 +67,8 @@ export interface SandboxWiringInput {
   readonly sessionOpen: (ticketId: number) => boolean;
   /** Quick pick over this project's sandboxed tickets (Command Palette); `undefined` = dismissed. */
   readonly pickTicket?: (picks: readonly { label: string; description: string; ticketId: number }[], placeHolder: string) => Promise<number | undefined>;
+  /** Multi-select quick pick for the foreign remote workspaces; `undefined` = dismissed, nothing preselected. */
+  readonly pickForeign?: (items: readonly ForeignPickItem[], placeHolder: string) => Promise<readonly string[] | undefined>;
   /** Every listing the boot reconcile reads (after a reload the in-memory ticket→core cache is empty). */
   readonly onInventory?: (inventory: SandboxInventory) => void;
   /** Test seams; default to the real async spawns and clock. */
@@ -574,11 +578,23 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
           const failed = await removeStrays(sd, strays);
           const kept = strays.filter((s) => !s.removable).map((s) => `${s.kind} ${s.name}`);
           const removed = strays.filter((s) => s.removable).length - failed.length;
-          return [
+          const lines = [
             ...(removed > 0 ? [`karst: removed ${removed} stray sandbox resource(s) of closed tickets`] : []),
             ...failed.map((f) => `karst: could not remove stray ${f}`),
             ...(kept.length > 0 ? [`karst: stray sandbox resource(s) of open tickets left alone: ${kept.join(', ')}`] : []),
           ];
+          // The remote half (D824): half-made dirs, unused assets, dead ControlMaster sockets. Trust first, per remote.
+          const remotes = d.sshRunner?.remotes();
+          const installId = d.sshRunner?.installId();
+          if (d.sshRunner !== undefined && remotes !== undefined && installId !== undefined) {
+            const report = await findRemoteStrays({
+              projectRoot: d.projectRoot, remotes, installId, trustDir: d.sshRunner.globalStorageDir,
+              ssh: d.sshRunner.ssh ?? NODE_SSH_PROCESS, inventory: inv,
+              ...(d.sshRunner.controlDir === undefined ? {} : { controlDir: d.sshRunner.controlDir }),
+            });
+            lines.push(...describeRemoteStrays(report));
+          }
+          return lines;
         },
       });
     },
@@ -598,6 +614,23 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const d = deps();
       if (!d || w.projectId() === undefined) { w.notify.info('This project has no sandbox backend. Set one in the Settings page.'); return; }
       await cleanupOrphansOp(d, new Set(liveTickets().map((t) => t.id)));
+    },
+    /** `karst.sandbox.cleanupForeignRemote`: another install's workspaces on a remote (D824, edit 13). */
+    cleanupForeignRemote: async (): Promise<void> => {
+      if (w.projectId() === undefined) return;
+      const projectRoot = w.projectRoot();
+      if (projectRoot === undefined) { w.notify.info('This project has no sandbox backend. Set one in the Settings page.'); return; }
+      if (w.pickForeign === undefined) return;
+      await cleanupForeignRemoteOp({
+        projectRoot,
+        remotes: w.sshRunner?.remotes ?? (() => undefined),
+        installId: w.sshRunner?.installId ?? (() => undefined),
+        globalStorageDir: w.sshRunner?.globalStorageDir ?? '',
+        ...(w.sshRunner?.ssh === undefined ? {} : { ssh: w.sshRunner.ssh }),
+        ...(w.sshRunner?.controlDir === undefined ? {} : { controlDir: w.sshRunner.controlDir }),
+        pick: w.pickForeign, choose: w.choose, notify: w.notify,
+        ...(w.debug === undefined ? {} : { debug: w.debug }),
+      });
     },
     /** Periodic idle sweep; the returned disposable stops it. A failed sweep is logged, never thrown. */
     startIdleSweep: (): { dispose(): void } => {

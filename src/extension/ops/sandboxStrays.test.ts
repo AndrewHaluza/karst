@@ -1,10 +1,15 @@
-import { mkdirSync, mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
-import { findStrays, removeStrays } from './sandboxStrays.js';
+import { fakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
+import { REMOTE_TRUST_FILE, remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
+import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
+import { describeRemoteStrays, findRemoteStrays, findStrays, removeStrays } from './sandboxStrays.js';
+import { OPENCODE_IMAGE_REVISION } from '../../agent/docker/dockerImage.js';
+import type { RemoteDef } from '../../manifest/types.js';
 
 let root: string | undefined;
 afterEach(() => root && rmSync(root, { recursive: true, force: true }));
@@ -75,5 +80,95 @@ describe('findStrays / removeStrays', () => {
     mkdirSync(join(root!, '.karst', 'sbx-clones', n(project, 3)), { recursive: true });
     const strays = await findStrays({ projectRoot: project, docker, liveTicketIds: new Set() }, { sandboxes: [], errors: ['sbx ls failed: x', 'docker ps failed: y'] });
     expect(strays).toEqual([]);
+  });
+});
+
+describe('findRemoteStrays (D824, edit 4)', () => {
+  const INSTALL_ID = '0123456789abcdef0123456789abcdef';
+  const PREFIX = sshProjectPrefix('/p', INSTALL_ID);
+  const DIRECT: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+  const DOCKER: RemoteDef = { ...DIRECT, mode: 'docker' };
+
+  function trust(target: RemoteDef = DIRECT): string {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-strays-trust-'));
+    writeFileSync(join(dir, REMOTE_TRUST_FILE), JSON.stringify({ devbox: remoteTrustKey('devbox', target) }));
+    return dir;
+  }
+
+  function controlDir(): string {
+    return mkdtempSync(join(tmpdir(), 'karst-strays-control-'));
+  }
+
+  const script = (dirs: readonly string[], assets: readonly string[] = []): string =>
+    ['__KARST_STRAY_DIRS__', ...dirs, '__KARST_STRAY_ASSETS__', ...assets].join('\n');
+
+  it('reports this prefix\'s half-made dirs and unused assets; another install\'s dirs are not strays', async () => {
+    const ssh = fakeSshProcess({
+      'karst-ssh-strays': { stdout: script([`${PREFIX}-7-opencode2`, `${PREFIX}-8-codex`, 'karst-deadbeef-1-claude'], ['r3', OPENCODE_IMAGE_REVISION]) },
+    });
+    const inv = { sandboxes: [{ runner: 'ssh' as const, remote: 'devbox', name: `${PREFIX}-7-opencode2`, ticketId: 7, core: 'opencode2', state: 'running' as const }], errors: [] };
+    const r = await findRemoteStrays({
+      projectRoot: '/p', remotes: { devbox: DOCKER }, installId: INSTALL_ID, trustDir: trust(DOCKER), ssh, controlDir: controlDir(), inventory: inv,
+    });
+    expect(r.errors).toEqual([]);
+    expect(r.strays).toEqual([
+      { kind: 'half-made', remote: 'devbox', name: `${PREFIX}-8-codex`, path: `/srv/karst/${PREFIX}-8-codex` },
+      { kind: 'assets', remote: 'devbox', name: 'r3', path: '/srv/karst/.karst-assets/r3' },
+    ]);
+    // Reported, never removed: no rm in any remote script.
+    expect(ssh.calls.every((c) => !(c.args.at(-1) ?? '').includes('rm -rf'))).toBe(true);
+  });
+
+  it('lists a forgotten stray from the inventory without another ssh call', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-strays': { stdout: script([]) } });
+    const inv = { sandboxes: [{ runner: 'ssh' as const, remote: 'devbox', name: `${PREFIX}-9-claude`, ticketId: 9, core: 'claude', state: 'stopped' as const, stray: true as const }], errors: [] };
+    const r = await findRemoteStrays({
+      projectRoot: '/p', remotes: { devbox: DIRECT }, installId: INSTALL_ID, trustDir: trust(), ssh, controlDir: controlDir(), inventory: inv,
+    });
+    expect(r.strays).toEqual([{ kind: 'forgotten', remote: 'devbox', name: `${PREFIX}-9-claude`, path: `/srv/karst/${PREFIX}-9-claude`, ticketId: 9 }]);
+    expect(ssh.calls.filter((c) => (c.args.at(-1) ?? '').includes('karst-ssh-strays'))).toHaveLength(1);
+  });
+
+  it('an unconfirmed remote runs no ssh call and is reported as not confirmed', async () => {
+    const ssh = fakeSshProcess();
+    const r = await findRemoteStrays({
+      projectRoot: '/p', remotes: { devbox: DIRECT }, installId: INSTALL_ID, trustDir: mkdtempSync(join(tmpdir(), 'karst-strays-empty-')), ssh, controlDir: controlDir(), inventory: { sandboxes: [], errors: [] },
+    });
+    expect(ssh.calls).toEqual([]);
+    expect(r.strays).toEqual([]);
+    expect(r.errors).toEqual(['ssh devbox: ssh remote devbox not confirmed']);
+  });
+
+  it('skips a remote whose inventory listing failed (its dirs are unknown, not stray)', async () => {
+    const ssh = fakeSshProcess();
+    const r = await findRemoteStrays({
+      projectRoot: '/p', remotes: { devbox: DIRECT }, installId: INSTALL_ID, trustDir: trust(), ssh, controlDir: controlDir(),
+      inventory: { sandboxes: [], errors: ['ssh devbox: transport failed: connection refused'] },
+    });
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('karst-ssh-strays'))).toBe(false);
+    expect(r.strays).toEqual([]);
+  });
+
+  it('removes a ControlMaster socket only when ssh -O check fails; a live one is kept', async () => {
+    const dir = controlDir();
+    const dead = join(dir, 'a'.repeat(40));
+    const live = join(dir, 'b'.repeat(40));
+    writeFileSync(dead, '');
+    writeFileSync(live, '');
+    const ssh = fakeSshProcess({
+      'karst-ssh-strays': { stdout: script([]) },
+      [`-O check -o ControlPath=${dead}`]: { code: 1, stderr: 'not a multiplexing master' },
+      [`-O check -o ControlPath=${live}`]: { code: 0 },
+    });
+    const r = await findRemoteStrays({
+      projectRoot: '/p', remotes: { devbox: DIRECT }, installId: INSTALL_ID, trustDir: trust(), ssh, controlDir: dir, inventory: { sandboxes: [], errors: [] },
+    });
+    expect(existsSync(dead)).toBe(false);
+    expect(existsSync(live)).toBe(true);
+    expect(r.sockets).toEqual([
+      { socket: dead, removed: true },
+      { socket: live, removed: false },
+    ]);
+    expect(describeRemoteStrays(r)).toContain(`karst: removed stale ssh control socket ${dead}`);
   });
 });

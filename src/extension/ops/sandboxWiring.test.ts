@@ -1400,6 +1400,37 @@ describe('makeSandboxWiring ssh lifecycle: palette, idle and recovery (D824)', (
     expect(getTicket(store, a).sessionId).toBe('s1');
   });
 
+  it('the stray sweep reports a remote half-made workspace without removing it', async () => {
+    const { projectId, a } = liveSsh();
+    const prefix = sshProjectPrefix(ROOT, FAKE_INSTALL_ID);
+    const ssh = fakeSshProcess({
+      '/srv/karst': dirs(nameOf(a), true),
+      'karst-ssh-strays': { stdout: `__KARST_STRAY_DIRS__\n${prefix}-8-codex\n${nameOf(a)}\n__KARST_STRAY_ASSETS__\n` },
+    });
+    const info = vi.fn();
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      sshRunner: fakeSshRunnerDeps(ssh, { controlDir: mkdtempSync(join(tmpdir(), 'karst-wiring-control-')) }), info,
+    });
+    await w.reconcile();
+    expect(info).toHaveBeenCalledWith(`karst: ssh devbox: half-made remote workspace /srv/karst/${prefix}-8-codex`);
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('rm -rf'))).toBe(false);
+  });
+
+  it('cleanupForeignRemote offers a foreign dir through the wiring multi-select', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const foreign = 'karst-aaaaaaaa-1-claude';
+    const ssh = fakeSshProcess({ 'karst-ssh-foreign-list': { stdout: `${foreign}\t1799900000\t1024\t2026-11-01T10:00:00+00:00\t0\tno\n` } });
+    const pickForeign = vi.fn(async (_items: readonly { label: string }[]) => undefined);
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId,
+      sshRunner: fakeSshRunnerDeps(ssh, { controlDir: mkdtempSync(join(tmpdir(), 'karst-wiring-control-')) }), pickForeign,
+    });
+    await w.cleanupForeignRemote();
+    expect((pickForeign.mock.calls[0]![0] as readonly { label: string }[]).map((i) => i.label)).toEqual([`devbox: /srv/karst/${foreign}`]);
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('foreign-remove'))).toBe(false);
+  });
+
   it('hard delete (beforeArchive) is cancelled when the ssh workspace cannot be removed', async () => {
     const { projectId, a } = liveSsh();
     const headKey = 'git -C /wt/r rev-parse --verify --quiet refs/karst/sandbox/feat/r^{commit}';

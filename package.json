@@ -266,6 +266,10 @@
         "title": "Karst: Clean Up Orphan Sandboxes"
       },
       {
+        "command": "karst.sandbox.cleanupForeignRemote",
+        "title": "Karst: Clean Up Foreign Remote Workspaces"
+      },
+      {
         "command": "karst.reloadWhenIdle",
         "title": "Karst: Reload window when idle"
       },
