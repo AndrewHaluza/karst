@@ -356,9 +356,8 @@ export function ticketSshRemote(placement: TicketPlacement | null, backends: Age
   if (placement !== null && placement.backend !== 'ssh') return undefined;
   const recorded = sshPlacementTarget(placement)?.remote;
   if (recorded !== undefined) return recorded;
-  // An ssh placement without a workspace name yet: its core still names the remote.
-  const selecting = placement?.core ?? core;
-  return selecting === null ? undefined : parseSshBackend(backendForCore(backends, selecting));
+  // An ssh placement without a workspace name yet: its core still names the remote. No core selects nothing ('' is host).
+  return parseSshBackend(backendForCore(backends, placement?.core ?? core ?? ''));
 }
 
 export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bridgeOf'> {
@@ -382,12 +381,13 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   const cores = new Map<number, string>();
   let memTotal: number | undefined;
   let memProbe: Promise<void> | undefined;
+  const placementOf = input.placementOf ?? ((ticketId: number) => getPlacement(input.store, ticketId));
   const deps: TicketSandboxDeps = {
     ...input,
     ...(input.notify ? { warn: onceByMessage((m) => input.notify!.warn(m)) } : {}),
     // The listing's answer wins over the (possibly null) session provider for every sync reader too.
     coreOf: (ticketId) => cores.get(ticketId) ?? input.coreOf(ticketId),
-    placementOf: input.placementOf ?? ((ticketId) => getPlacement(input.store, ticketId)),
+    placementOf,
     inventory: input.inventory ?? (async (ticketId) => {
       const inv = await listProjectSandboxes({
         projectRoot: input.projectRoot(ticketId), sbx: input.proc ?? NODE_SBX_PROCESS, docker: input.dockerProc ?? NODE_DOCKER_PROCESS,
@@ -396,7 +396,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       // A configured runner that could not list may be the one holding this ticket's sandbox: not "none" (arch:AC-39).
       // An ssh listing is per remote: only the ticket's OWN remote counts (T801), never a remote another core selects.
       const wanted = selectedSandboxBackends(input.backends()).filter((kind) => kind !== 'ssh');
-      const ownRemote = ticketSshRemote(deps.placementOf?.(ticketId) ?? null, input.backends(), deps.coreOf(ticketId));
+      const ownRemote = ticketSshRemote(placementOf(ticketId), input.backends(), deps.coreOf(ticketId));
       // Stryker disable next-line ConditionalExpression: equivalent, no listing error starts with "ssh undefined:"
       const ownRemoteFailed = (e: string): boolean => ownRemote !== undefined && e.startsWith(`ssh ${ownRemote}:`);
       const failed = inv.errors.filter((e) => wanted.some((kind) => e.startsWith(`${kind} `)) || ownRemoteFailed(e));
