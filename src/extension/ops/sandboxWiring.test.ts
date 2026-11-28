@@ -17,6 +17,8 @@ import type { SessionRunner } from '../../agent/sessionRunner.js';
 import { fakeSshProcess, type FakeSshProcess } from '../../agent/ssh/fakeSshProcess.js';
 import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir, FAKE_INSTALL_ID } from './fakeSshRunnerDeps.js';
 import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
+import { sshControlPath } from '../../agent/ssh/sshProcess.js';
+import { REMOVE_FOREIGN } from './sandboxForeignOps.js';
 
 let store: Store;
 let id: number;
@@ -1442,5 +1444,102 @@ describe('makeSandboxWiring ssh lifecycle: palette, idle and recovery (D824)', (
     });
     await expect(w.beforeArchive(a)).resolves.toBe(false);
     expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('karst-ssh-dispose'))).toBe(false);
+  });
+});
+
+describe('makeSandboxWiring ssh deps: stray sweep, foreign cleanup and the listing core', () => {
+  const ROOT = '/p';
+  const FOREIGN = 'karst-aaaaaaaa-1-claude';
+  const FOREIGN_ROW = `${FOREIGN}\t1799900000\t1024\t2026-11-01T10:00:00+00:00\t0\tno\n`;
+  const marked = (ssh: FakeSshProcess, marker: string) => ssh.calls.filter((c) => (c.args.at(-1) ?? '').includes(marker));
+  const controlDir = (): string => mkdtempSync(join(tmpdir(), 'karst-wiring-control-'));
+  const project = (): number => upsertProject(store, { slug: 'p' }).id;
+
+  it('the listing that resolves an unplaced ticket core also lists the ssh remotes', async () => {
+    const ssh = fakeSshProcess();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, sshRunner: fakeSshRunnerDeps(ssh, { controlDir: controlDir() }) });
+    await w.ensureInSync(id);
+    expect(marked(ssh, '/srv/karst')).toHaveLength(1);
+  });
+
+  it.each([
+    ['declares no remotes', { remotes: () => undefined }],
+    ['has no install id', { installId: () => undefined }],
+  ])('the stray sweep makes no remote stray call when the ssh runner %s', async (_label, over) => {
+    const projectId = project();
+    const ssh = fakeSshProcess();
+    const logError = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, logError, sshRunner: fakeSshRunnerDeps(ssh, { controlDir: controlDir(), ...over }) });
+    await expect(w.reconcile()).resolves.toBeUndefined();
+    expect(marked(ssh, 'karst-ssh-strays')).toEqual([]);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('the stray sweep uses the control dir of the ssh runner', async () => {
+    const projectId = project();
+    const dir = controlDir();
+    const ssh = fakeSshProcess({ 'karst-ssh-strays': { stdout: '__KARST_STRAY_DIRS__\n__KARST_STRAY_ASSETS__\n' } });
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, sshRunner: fakeSshRunnerDeps(ssh, { controlDir: dir }) });
+    await w.reconcile();
+    const strays = marked(ssh, 'karst-ssh-strays');
+    expect(strays).toHaveLength(1);
+    expect(strays[0]!.args).toContain(`ControlPath=${sshControlPath(dir)}`);
+  });
+
+  it('cleanupForeignRemote with no project does nothing', async () => {
+    const ssh = fakeSshProcess({ 'karst-ssh-foreign-list': { stdout: FOREIGN_ROW } });
+    const pickForeign = vi.fn(async () => undefined);
+    const { w, notify } = wiring({ backendOn: () => true, projectRoot: () => ROOT, sshRunner: fakeSshRunnerDeps(ssh, { controlDir: controlDir() }), pickForeign });
+    await w.cleanupForeignRemote();
+    expect(ssh.calls).toEqual([]);
+    expect(pickForeign).not.toHaveBeenCalled();
+    expect(notify.info).not.toHaveBeenCalled();
+  });
+
+  it('cleanupForeignRemote with no project root says there is no backend', async () => {
+    const projectId = project();
+    const ssh = fakeSshProcess({ 'karst-ssh-foreign-list': { stdout: FOREIGN_ROW } });
+    const pickForeign = vi.fn(async () => undefined);
+    const { w, notify } = wiring({ projectRoot: () => undefined, projectId: () => projectId, sshRunner: fakeSshRunnerDeps(ssh, { controlDir: controlDir() }), pickForeign });
+    await w.cleanupForeignRemote();
+    expect(notify.info).toHaveBeenCalledWith('This project has no sandbox backend. Set one in the Settings page.');
+    expect(ssh.calls).toEqual([]);
+    expect(pickForeign).not.toHaveBeenCalled();
+  });
+
+  it('cleanupForeignRemote with no picker makes no ssh call', async () => {
+    const projectId = project();
+    const ssh = fakeSshProcess({ 'karst-ssh-foreign-list': { stdout: FOREIGN_ROW } });
+    const { w, notify } = wiring({ projectRoot: () => ROOT, projectId: () => projectId, sshRunner: fakeSshRunnerDeps(ssh, { controlDir: controlDir() }) });
+    await w.cleanupForeignRemote();
+    expect(ssh.calls).toEqual([]);
+    expect(notify.info).not.toHaveBeenCalled();
+  });
+
+  it('cleanupForeignRemote with no ssh runner says the project declares no remotes', async () => {
+    const projectId = project();
+    const pickForeign = vi.fn(async () => undefined);
+    const { w, notify } = wiring({ projectRoot: () => ROOT, projectId: () => projectId, pickForeign });
+    await expect(w.cleanupForeignRemote()).resolves.toBeUndefined();
+    expect(notify.info).toHaveBeenCalledWith('This project declares no ssh remotes.');
+    expect(pickForeign).not.toHaveBeenCalled();
+  });
+
+  it('cleanupForeignRemote lists with the control dir of the ssh runner and logs each removal', async () => {
+    const projectId = project();
+    const dir = controlDir();
+    const ssh = fakeSshProcess({
+      'karst-ssh-foreign-list': { stdout: FOREIGN_ROW }, 'tmux kill-session': { code: 0 }, 'karst-ssh-foreign-remove': { code: 0 },
+    });
+    const debug = vi.fn();
+    const { w } = wiring({
+      projectRoot: () => ROOT, projectId: () => projectId, sshRunner: fakeSshRunnerDeps(ssh, { controlDir: dir }), debug,
+      pickForeign: vi.fn(async () => [`devbox\u0000${FOREIGN}`]), choose: vi.fn(async () => REMOVE_FOREIGN),
+    });
+    await w.cleanupForeignRemote();
+    const list = marked(ssh, 'karst-ssh-foreign-list');
+    expect(list).toHaveLength(1);
+    expect(list[0]!.args).toContain(`ControlPath=${sshControlPath(dir)}`);
+    expect(debug).toHaveBeenCalledWith(`[ssh devbox] removed foreign workspace /srv/karst/${FOREIGN}`);
   });
 });

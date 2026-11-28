@@ -141,7 +141,9 @@ export async function removeSandboxGuarded(
     if (!forgotten && !listed) {
       // Stryker disable next-line StringLiteral,LogicalOperator: equivalent, the placement's ssh runner removes it and reads none of these fields
       unlisted.add(boxes.push({
+        // Stryker disable next-line StringLiteral: equivalent, a box with no remote fails as "names no remote" and its name is never read
         runner: 'ssh', name: sshTarget?.sandboxName ?? placement.sandboxName ?? '', ticketId: target.ticketId,
+        // Stryker disable next-line StringLiteral: equivalent, the removal never reads the state of a pushed box
         core: placement.core ?? target.core ?? '', state: 'stopped', ...(sshTarget === undefined ? {} : { remote: sshTarget.remote }),
       }) - 1);
     }
@@ -150,9 +152,10 @@ export async function removeSandboxGuarded(
   const kind = placement?.backend ?? sandboxKindOfCore(target.core);
   // An ssh placement pushed its box above (unless it is a forgotten stray), so `kind` is never ssh here.
   // Only the ticket's OWN runner's failure counts (T801): an ssh remote that is down or unconfirmed proves nothing about an sbx/docker box.
-  if (boxes.length === 0 && kind !== 'host' && kind !== 'ssh' && listingFailedFor(inv.errors, kind)) {
-    // Stryker disable next-line StringLiteral: equivalent, the removal reads only the runner and core of a fallback box
-    boxes.push({ runner: kind, name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
+  if (boxes.length === 0 && kind !== 'ssh' && listingFailedFor(inv.errors, kind)) {
+    // `listingFailedFor` is false for 'host', so the host check only narrows the type.
+    // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent, the host check never decides; the removal reads only the runner and core of a fallback box
+    if (kind !== 'host') boxes.push({ runner: kind, name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
   }
   if (boxes.length === 0) return true;
   if (!deps.owns(target.ticketId)) {
@@ -207,6 +210,7 @@ function listedSshRunner(deps: SandboxLifecycleDeps, box: Pick<ProjectSandbox, '
 /** A listed ssh box's guarded removal, verified by a fresh listing of the SAME remote (D826). */
 function removeListedSshBox(deps: SandboxLifecycleDeps, box: Pick<ProjectSandbox, 'remote' | 'name' | 'core' | 'ticketId'>): Promise<DisposeResult> {
   const runner = listedSshRunner(deps, box);
+  // Stryker disable next-line ObjectLiteral,LogicalOperator,StringLiteral: equivalent, the ssh dispose reads neither the host worktree nor the branch
   const ref: SandboxTicketRef = { hostWorktreePath: deps.worktreeOf?.(box.ticketId) ?? '', branch: '' };
   if (runner === undefined) {
     return Promise.resolve(disposeResult([{ step: 'ssh', status: 'failed', stderr: `ssh: the listed box ${box.name} names no remote` }]));

@@ -180,8 +180,9 @@ const CONTROL_SOCKET_RE = /^[0-9a-f]{40}$/;
 
 async function socketNames(dir: string): Promise<readonly string[]> {
   try {
-    return (await readdir(dir)).filter((n) => CONTROL_SOCKET_RE.test(n)).sort();
+    return await readdir(dir);
   } catch {
+    // Stryker disable next-line ArrayDeclaration: equivalent, the sweep drops every name that is not a socket
     return [];
   }
 }
@@ -201,7 +202,7 @@ async function sweepControlSockets(deps: RemoteStrayDeps): Promise<ControlSocket
   if (trusted.length === 0) return [];
   const [, def] = trusted[0]!;
   const dir = deps.controlDir ?? sshControlDir();
-  const names = await (deps.listSockets ?? socketNames)(dir);
+  const names = [...await (deps.listSockets ?? socketNames)(dir)].sort();
   const out: ControlSocketCheck[] = [];
   for (const name of names) {
     if (!CONTROL_SOCKET_RE.test(name)) continue;
@@ -252,7 +253,9 @@ export async function findRemoteStrays(deps: RemoteStrayDeps): Promise<RemoteStr
       signal: AbortSignal.timeout(20_000),
     });
     if (out.transport === true || out.code !== 0) {
-      const detail = out.stderr.trim().split('\n').filter((l) => l.trim() !== '').at(-1) ?? '';
+      // After the whole-text trim, the last line is the last non-blank line ('' for no stderr).
+      const lines = out.stderr.trim().split('\n');
+      const detail = lines[lines.length - 1]!;
       errors.push(`ssh ${name}: stray sweep failed${detail === '' ? '' : `: ${detail}`}`);
       continue;
     }

@@ -384,8 +384,9 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       const wanted = selectedSandboxBackends(input.backends());
       // An ssh ticket can select a remote no core selects (D827): its own remote's failure counts too.
       const placementRemote = sshPlacementTarget(input.placementOf?.(ticketId) ?? null)?.remote;
-      const failed = inv.errors.filter((e) =>
-        wanted.some((kind) => e.startsWith(`${kind} `)) || (placementRemote !== undefined && e.startsWith(`ssh ${placementRemote}:`)));
+      // Stryker disable next-line ConditionalExpression: equivalent, no listing error starts with "ssh undefined:"
+      const ownRemoteFailed = (e: string): boolean => placementRemote !== undefined && e.startsWith(`ssh ${placementRemote}:`);
+      const failed = inv.errors.filter((e) => wanted.some((kind) => e.startsWith(`${kind} `)) || ownRemoteFailed(e));
       if (failed.length > 0 && !inv.sandboxes.some((b) => b.ticketId === ticketId)) throw new Error(failed.join('; '));
       return inv.sandboxes;
     }),

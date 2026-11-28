@@ -584,17 +584,20 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
             ...(kept.length > 0 ? [`karst: stray sandbox resource(s) of open tickets left alone: ${kept.join(', ')}`] : []),
           ];
           // The remote half (D824): half-made dirs, unused assets, dead ControlMaster sockets. Trust first, per remote.
-          const remotes = d.sshRunner?.remotes();
-          const installId = d.sshRunner?.installId();
-          if (d.sshRunner !== undefined && remotes !== undefined && installId !== undefined) {
-            const report = await findRemoteStrays({
-              projectRoot: d.projectRoot, remotes, installId, trustDir: d.sshRunner.globalStorageDir,
-              ssh: d.sshRunner.ssh ?? NODE_SSH_PROCESS, inventory: inv,
-              ...(d.sshRunner.controlDir === undefined ? {} : { controlDir: d.sshRunner.controlDir }),
-            });
-            lines.push(...describeRemoteStrays(report));
-          }
-          return lines;
+          const ssh = d.sshRunner;
+          if (ssh === undefined) return lines;
+          const remotes = ssh.remotes();
+          if (remotes === undefined) return lines;
+          const installId = ssh.installId();
+          // Stryker disable next-line ConditionalExpression: equivalent, with no install id every ssh listing fails ("install id missing"), so the sweep skips each remote
+          if (installId === undefined) return lines;
+          const report = await findRemoteStrays({
+            projectRoot: d.projectRoot, remotes, installId, trustDir: ssh.globalStorageDir,
+            ssh: ssh.ssh ?? NODE_SSH_PROCESS, inventory: inv,
+            // Stryker disable next-line ConditionalExpression: equivalent, `{ controlDir: undefined }` gets the same `??` default as `{}`
+            ...(ssh.controlDir === undefined ? {} : { controlDir: ssh.controlDir }),
+          });
+          return [...lines, ...describeRemoteStrays(report)];
         },
       });
     },
@@ -625,10 +628,12 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
         projectRoot,
         remotes: w.sshRunner?.remotes ?? (() => undefined),
         installId: w.sshRunner?.installId ?? (() => undefined),
+        // Stryker disable next-line StringLiteral: equivalent, with no ssh runner the op stops at "no ssh remotes" before it reads this dir
         globalStorageDir: w.sshRunner?.globalStorageDir ?? '',
         ...(w.sshRunner?.ssh === undefined ? {} : { ssh: w.sshRunner.ssh }),
         ...(w.sshRunner?.controlDir === undefined ? {} : { controlDir: w.sshRunner.controlDir }),
         pick: w.pickForeign, choose: w.choose, notify: w.notify,
+        // Stryker disable next-line ConditionalExpression: equivalent, `{ debug: undefined }` and no `debug` both skip the debug call
         ...(w.debug === undefined ? {} : { debug: w.debug }),
       });
     },

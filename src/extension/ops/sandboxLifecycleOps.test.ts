@@ -1,20 +1,34 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeSshProcess, type FakeSshAnswer } from '../../agent/ssh/fakeSshProcess.js';
 import { REMOTE_TRUST_FILE, remoteTrustKey } from '../../agent/ssh/remoteTrust.js';
 import { sshProjectPrefix } from '../../agent/ssh/sshNames.js';
 import { SSH_STRAYS_FILE } from '../../agent/ssh/sshStrays.js';
 import type { RemoteDef } from '../../manifest/types.js';
 import type { TicketPlacement } from '../../store/placement.js';
-import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir, FAKE_INSTALL_ID } from './fakeSshRunnerDeps.js';
+import { fakeSshPlacement, fakeSshRunnerDeps, fakeTrustDir, FAKE_INSTALL_ID, FAKE_REMOTE } from './fakeSshRunnerDeps.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
+/**
+ * A scripted inventory (one per listing call, the last one repeats). `undefined` keeps the real
+ * listing, so only the tests that set it skip the process fakes.
+ */
+const scriptedInventory = vi.hoisted(() => ({ next: undefined as undefined | (() => SandboxInventory) }));
+vi.mock('../../agent/sandboxInventory.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent/sandboxInventory.js')>();
+  return {
+    ...actual,
+    listProjectSandboxes: (...a: Parameters<typeof actual.listProjectSandboxes>) =>
+      scriptedInventory.next === undefined ? actual.listProjectSandboxes(...a) : Promise.resolve(scriptedInventory.next()),
+  };
+});
+
 import {
   sandboxKindOfCore, cleanupOrphansOp, depsForListedBox, listingFailedFor, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
-  CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type SandboxLifecycleDeps,
+  CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type ReconcileTicket, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
 const ROOT = '/p/karst.yml';
@@ -570,6 +584,12 @@ describe('reconcileSandboxes with an ssh placement (D826)', () => {
     expect(r.missing).toEqual([]);
     expect(clear).not.toHaveBeenCalled();
   });
+  it('an ssh ticket with no session has nothing to drop: it is not missing', () => {
+    const clear = vi.fn();
+    const r = reconcileSandboxes({ sandboxes: [], errors: [] }, [{ ...sshTicket, sessionId: null, placementRemote: 'devbox' }], () => true, clear);
+    expect(r.missing).toEqual([]);
+    expect(clear).not.toHaveBeenCalled();
+  });
   it('an ssh placement with no parsable remote is unknown, never absent', () => {
     const clear = vi.fn();
     const r = reconcileSandboxes({ sandboxes: [], errors: [] }, [{ ...sshTicket, placementRemote: null }], () => true, clear);
@@ -1015,5 +1035,338 @@ describe('ssh lifecycle: done, idle, archive, orphans and provider switch (D824,
     expect(ssh.calls).toEqual([]);
     expect(d.choose).not.toHaveBeenCalled();
     expect(d.notify.info).toHaveBeenCalledWith('This project has no orphan sandboxes.');
+  });
+});
+
+describe('scripted inventories: ssh boxes, strays and listing errors reach every branch', () => {
+  afterEach(() => { scriptedInventory.next = undefined; });
+  /** Each listing call takes the next inventory; the last one repeats. */
+  const script = (...invs: SandboxInventory[]): void => {
+    let i = 0;
+    scriptedInventory.next = () => invs[Math.min(i++, invs.length - 1)]!;
+  };
+  const inv = (sandboxes: readonly ProjectSandbox[], errors: readonly string[] = []): SandboxInventory => ({ sandboxes, errors });
+  const PREFIX = sshProjectPrefix('/p', FAKE_INSTALL_ID);
+  const N7 = `${PREFIX}-7-claude`;
+  const sshBox = (over: Partial<ProjectSandbox> = {}): ProjectSandbox =>
+    ({ runner: 'ssh', name: N7, ticketId: 7, core: 'claude', state: 'stopped', remote: 'devbox', ...over });
+  const t7 = { ticketId: 7, ticketLabel: 'T-7', core: 'claude', worktree: { path: '/wt', branch: 'feat/x' } };
+  const KEEP = 'The sandbox and its evidence folder stay. Remove the sandbox again to retry.';
+  /** An ssh fake: the probe answers `before` until a dispose ran, then `after`. */
+  function sshFake(before = 0, after = 44, disposeCode = 0) {
+    const answers: Record<string, FakeSshAnswer> = { 'karst-ssh-probe': { code: before }, 'karst-ssh-dispose': { code: disposeCode } };
+    const ssh = fakeSshProcess(answers);
+    const run = ssh.run;
+    const wrapped = Object.assign(ssh, {
+      run: async (...a: Parameters<typeof run>) => {
+        const out = await run(...a);
+        if ((a[0].at(-1) ?? '').includes('karst-ssh-dispose')) answers['karst-ssh-probe'] = { code: after };
+        return out;
+      },
+    });
+    const count = (marker: string): number => ssh.calls.filter((c) => (c.args.at(-1) ?? '').includes(marker)).length;
+    return { ssh: wrapped, probes: () => count('karst-ssh-probe'), disposes: () => count('karst-ssh-dispose') };
+  }
+  const sshDeps = (ssh: ReturnType<typeof fakeSshProcess>, over: Partial<SandboxLifecycleDeps> = {}) => deps({
+    projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh), ...over,
+  });
+
+  describe('removeVerified', () => {
+    it('an error of an ssh remote does not fail the verification of an sbx removal', async () => {
+      script(inv([box(7)], ['ssh devbox: down']), inv([], ['ssh devbox: down']));
+      const { d, notify, acted } = deps();
+      await expect(removeSandboxGuarded(d, target, { skipSync: true })).resolves.toBe(true);
+      expect(acted()).toEqual([
+        `sbx stop ${name(7)}`,
+        `sbx rm --force ${name(7)}`,
+        `git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.allow=never -c protocol.file.allow=always -C /wt remote remove sandbox-${name(7)}`,
+      ]);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it('a failed re-list of the same remote names the remote in the kept-sandbox error', async () => {
+      script(inv([sshBox()]), inv([], ['ssh devbox: Connection closed']));
+      const { ssh, disposes } = sshFake(44);
+      const { d, notify } = sshDeps(ssh);
+      await expect(removeSandboxGuarded(d, t7)).resolves.toBe(false);
+      expect(disposes()).toBe(1);
+      expect(notify.error).toHaveBeenCalledWith(`The sandbox of T-7 was not removed (inventory: removal not verified: the listing of ssh remote devbox failed). ${KEEP}`);
+      expect(d.bridges.dispose).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the recorded ssh placement box', () => {
+    it.each([
+      ['a non-stray box with the same remote and name (another ticket)', sshBox({ ticketId: 8 })],
+      ['a stray sbx box with the same remote and name', sshBox({ runner: 'sbx', stray: true })],
+      ['a stray ssh box on another remote', sshBox({ remote: 'other', stray: true })],
+      ['a stray ssh box with another name', sshBox({ name: `${PREFIX}-7-codex`, stray: true })],
+    ])('is still removed next to %s: only an exact stray is forgotten', async (_label, decoy) => {
+      script(inv([decoy]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify } = sshDeps(ssh);
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(disposes()).toBe(1);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it('is still removed next to a listed sbx box of the ticket that names the same remote and name', async () => {
+      script(inv([sshBox({ runner: 'sbx', name: name(7) }), sshBox({ runner: 'sbx' })]), inv([]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify } = sshDeps(ssh);
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(disposes()).toBe(1);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it.each([
+      ['on another remote', sshBox({ remote: 'other' })],
+      ['with another name', sshBox({ name: `${PREFIX}-7-codex` })],
+    ])('is probed on its own next to a listed ssh box of the ticket %s', async (_label, other) => {
+      script(inv([other]), inv([]));
+      const { ssh, probes } = sshFake();
+      const sshRunner = fakeSshRunnerDeps(ssh, {
+        remotes: () => ({ devbox: FAKE_REMOTE, other: FAKE_REMOTE }),
+        globalStorageDir: fakeTrustDir({ devbox: remoteTrustKey('devbox', FAKE_REMOTE), other: remoteTrustKey('other', FAKE_REMOTE) }),
+      });
+      const { d } = sshDeps(ssh, { sshRunner });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      // The listed box and the placement box: one probe each.
+      expect(probes()).toBe(2);
+    });
+
+    it('a placement with no <remote>/<name> is refused, never a crash, next to a stray and a listed ssh box', async () => {
+      script(inv([sshBox({ ticketId: 99, stray: true }), sshBox()]), inv([]));
+      const { ssh } = sshFake();
+      const placement: TicketPlacement = { backend: 'ssh', core: 'claude', sandboxName: 'noslash', reason: null };
+      const { d, notify } = sshDeps(ssh, { placementOf: () => placement });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(false);
+      expect(notify.error).toHaveBeenCalledWith(`The sandbox of T-7 was not removed (ssh: ssh placement of ticket 7 names no <remote>/<name>). ${KEEP}`);
+    });
+
+    it('a placement with no sandbox name is refused, never a crash', async () => {
+      script(inv([]));
+      const { ssh } = sshFake();
+      const placement: TicketPlacement = { backend: 'ssh', core: 'claude', sandboxName: null, reason: null };
+      const { d, notify } = sshDeps(ssh, { placementOf: () => placement });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(false);
+      expect(notify.error).toHaveBeenCalledWith(`The sandbox of T-7 was not removed (ssh: ssh placement of ticket 7 names no <remote>/<name>). ${KEEP}`);
+    });
+
+    it('keeps its remote, so its own runner removes it even with no worktree record', async () => {
+      script(inv([]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify } = deps({ projectRoot: '/p', placementOf: () => fakeSshPlacement(7), sshRunner: fakeSshRunnerDeps(ssh) });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(disposes()).toBe(1);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it('takes the ticket core when the placement records none', async () => {
+      script(inv([]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify } = sshDeps(ssh, { placementOf: () => ({ ...fakeSshPlacement(7), core: null }) });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(disposes()).toBe(1);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it('with no core at all is refused with "no core"', async () => {
+      script(inv([]));
+      const { ssh } = sshFake();
+      const { d, notify } = sshDeps(ssh, { placementOf: () => ({ ...fakeSshPlacement(7), core: null }) });
+      await expect(removeSandboxGuarded(d, { ...t7, core: null }, { skipSync: true })).resolves.toBe(false);
+      expect(notify.error).toHaveBeenCalledWith(`The sandbox of T-7 was not removed (ssh: no core: ssh backend unsupported). ${KEEP}`);
+    });
+
+    it('an unlisted placement box whose probe is absent is not disposed', async () => {
+      script(inv([]));
+      const { ssh, disposes } = sshFake(44);
+      const { d, notify } = sshDeps(ssh);
+      await expect(removeSandboxGuarded(d, t7)).resolves.toBe(true);
+      expect(disposes()).toBe(0);
+    });
+  });
+
+  describe('the fallback box of a failed listing', () => {
+    it('a forgotten ssh workspace with an ssh listing error gets no fallback box', async () => {
+      script(inv([sshBox({ stray: true })], ['ssh other: down']));
+      const { ssh } = sshFake();
+      const { d, notify, acted } = sshDeps(ssh);
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(ssh.calls).toEqual([]);
+      expect(acted()).toEqual([]);
+      expect(notify.info).not.toHaveBeenCalled();
+      expect(d.bridges.dispose).not.toHaveBeenCalled();
+    });
+
+    it('a listed docker box with a failed sbx listing gets no sbx fallback box', async () => {
+      script(inv([box(7, 'opencode')], ['sbx ls failed: down']), inv([], ['sbx ls failed: down']));
+      const { d, acted } = deps();
+      await expect(removeSandboxGuarded(d, target, { skipSync: true })).resolves.toBe(true);
+      expect(acted().filter((l) => l.startsWith('sbx '))).toEqual([]);
+      expect(acted().filter((l) => l.startsWith('docker rm ')).length).toBeGreaterThan(0);
+    });
+
+    it('no box and a clean listing is a no-op', async () => {
+      script(inv([]));
+      const { d, acted, notify } = deps();
+      await expect(removeSandboxGuarded(d, target, { skipSync: true })).resolves.toBe(true);
+      expect(acted()).toEqual([]);
+      expect(notify.info).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a listed ssh box', () => {
+    it('with no placement is removed by the runner of its own remote, never by sbx', async () => {
+      script(inv([sshBox()]), inv([]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify, acted } = sshDeps(ssh, { placementOf: () => null });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(disposes()).toBe(1);
+      expect(acted()).toEqual([]);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it('still listed after the dispose is a failed removal', async () => {
+      script(inv([sshBox()]), inv([sshBox()]));
+      const { ssh } = sshFake();
+      const { d, notify } = sshDeps(ssh);
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(false);
+      expect(notify.error).toHaveBeenCalledWith(`The sandbox of T-7 was not removed (inventory: still listed after removal). ${KEEP}`);
+    });
+
+    it.each([
+      ['an sbx box with the same remote and name', sshBox({ runner: 'sbx' })],
+      ['an ssh box on another remote', sshBox({ remote: 'other' })],
+      ['an ssh box with another name', sshBox({ name: `${PREFIX}-7-codex` })],
+    ])('is verified gone when the re-list shows only %s', async (_label, other) => {
+      script(inv([sshBox()]), inv([other]));
+      const { ssh } = sshFake();
+      const { d, notify } = sshDeps(ssh);
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it('with no remote is probed by the placement runner, not verified by the listing', async () => {
+      const noRemote: ProjectSandbox = { runner: 'ssh', name: N7, ticketId: 7, core: 'claude', state: 'stopped' };
+      script(inv([noRemote]), inv([noRemote]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify } = sshDeps(ssh);
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(disposes()).toBe(1);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it('with an invalid core is removed on its remote, never by docker or sbx', async () => {
+      script(inv([sshBox({ invalidCore: true })]), inv([]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify, acted } = sshDeps(ssh, { placementOf: () => null });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      expect(disposes()).toBe(1);
+      expect(acted()).toEqual([]);
+      expect(notify.info).toHaveBeenCalledWith('Removed the sandbox of T-7.');
+    });
+
+    it('with an invalid core that stays listed is reported with the step', async () => {
+      script(inv([sshBox({ invalidCore: true })]), inv([sshBox({ invalidCore: true })]));
+      const { ssh } = sshFake();
+      const { d, notify } = sshDeps(ssh, { placementOf: () => null });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(false);
+      expect(notify.error).toHaveBeenCalledWith('The sandbox of T-7 was not removed: inventory: still listed after removal');
+    });
+  });
+
+  describe('an sbx box that names a remote', () => {
+    it('is removed by sbx and verified by the sbx listing', async () => {
+      script(inv([sshBox({ runner: 'sbx', name: name(7) })]), inv([]));
+      const { ssh, disposes } = sshFake();
+      const { d, acted } = sshDeps(ssh, { placementOf: () => null });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(true);
+      const p7 = sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' });
+      expect(acted()).toEqual([
+        `sbx stop ${p7}`,
+        `sbx rm --force ${p7}`,
+        `git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.allow=never -c protocol.file.allow=always -C /wt remote remove sandbox-${p7}`,
+      ]);
+      expect(disposes()).toBe(0);
+    });
+
+    it('still listed by sbx after the rm is a failed removal', async () => {
+      const sbxBox = sshBox({ runner: 'sbx', name: name(7) });
+      script(inv([sbxBox]), inv([sbxBox]));
+      const { ssh } = sshFake();
+      const { d, notify } = sshDeps(ssh, { placementOf: () => null });
+      await expect(removeSandboxGuarded(d, t7, { skipSync: true })).resolves.toBe(false);
+      expect(notify.error).toHaveBeenCalledWith(`The sandbox of T-7 was not removed (inventory: still listed after removal). ${KEEP}`);
+    });
+  });
+
+  describe('cleanupOrphansOp with an ssh orphan', () => {
+    const N9 = `${PREFIX}-9-claude`;
+    const orphan = sshBox({ ticketId: 9, name: N9 });
+    const orphanDeps = (ssh: ReturnType<typeof fakeSshProcess>) =>
+      deps({ projectRoot: '/p', sshRunner: fakeSshRunnerDeps(ssh), choose: vi.fn(async () => REMOVE_ORPHANS) });
+
+    it('with no remote is refused by name, with no ssh call', async () => {
+      const noRemote: ProjectSandbox = { runner: 'ssh', name: 'orph', ticketId: 9, core: 'claude', state: 'stopped' };
+      script(inv([noRemote]));
+      const { ssh } = sshFake();
+      const { d, notify } = orphanDeps(ssh);
+      await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
+      expect(notify.warn).toHaveBeenCalledWith('The orphan sandbox orph was not removed: ssh: ssh: the listed box orph names no remote');
+      expect(ssh.calls).toEqual([]);
+    });
+
+    it('still listed after the dispose is reported and not counted', async () => {
+      script(inv([orphan]), inv([orphan]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify } = orphanDeps(ssh);
+      await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
+      expect(disposes()).toBe(1);
+      expect(notify.warn).toHaveBeenCalledWith(`The orphan sandbox ${N9} was not removed: inventory: still listed after removal`);
+    });
+
+    it.each([
+      ['an sbx box with the same remote and name', { ...orphan, runner: 'sbx' as const }],
+      ['an ssh box on another remote', { ...orphan, remote: 'other' }],
+      ['an ssh box with another name', { ...orphan, name: `${PREFIX}-9-codex` }],
+    ])('is verified gone when the re-list shows only %s', async (_label, other) => {
+      script(inv([orphan]), inv([other]));
+      const { ssh, disposes } = sshFake();
+      const { d, notify } = orphanDeps(ssh);
+      await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(1);
+      expect(disposes()).toBe(1);
+      expect(notify.info).toHaveBeenCalledWith('Removed 1 orphan sandbox.');
+    });
+  });
+
+  describe('removeDoneMergedSandboxes', () => {
+    const targetOf = (id: number, core: string) => ({ ticketId: id, ticketLabel: `T-${id}`, core, worktree: undefined });
+    it.each([
+      ['an invalid-core box', { ...box(7), invalidCore: true as const }],
+      ['a stray box', sshBox({ stray: true })],
+    ])('skips %s of a done+merged ticket', async (_label, skipped) => {
+      script(inv([skipped]));
+      const { d, acted } = deps();
+      await expect(removeDoneMergedSandboxes(d, new Set([7]), targetOf)).resolves.toBe(0);
+      expect(acted()).toEqual([]);
+    });
+  });
+
+  describe('reconcileSandboxes', () => {
+    const t: ReconcileTicket = { id: 7, sessionId: 's', sessionProvider: 'claude', placementBackend: 'ssh', placementRemote: 'devbox' };
+    it('a stray of a live ticket is neither its sandbox nor an orphan; a stray of a dead ticket is no orphan', () => {
+      const clear = vi.fn();
+      const strays = [sshBox({ stray: true, state: 'running' }), sshBox({ ticketId: 99, stray: true })];
+      expect(reconcileSandboxes(inv(strays), [t], () => true, clear)).toEqual({ running: [], stopped: [], missing: [7], orphans: [] });
+      expect(clear).toHaveBeenCalledWith(7);
+    });
+
+    it('an ssh placement with no known remote keeps its session even with a clean listing', () => {
+      const clear = vi.fn();
+      expect(reconcileSandboxes(inv([]), [{ ...t, placementRemote: null }], () => true, clear)).toEqual({ running: [], stopped: [], missing: [], orphans: [] });
+      expect(clear).not.toHaveBeenCalled();
+    });
   });
 });

@@ -110,7 +110,7 @@ export async function cleanupForeignRemoteOp(deps: SandboxForeignDeps): Promise<
     return 0;
   }
   const picked = await deps.pick(found.map(itemOf), 'Select foreign remote workspaces to remove');
-  if (picked === undefined || picked.length === 0) return 0;
+  // A dismissed or empty pick gives an empty set, so `selected` is empty and the op returns 0.
   const wanted = new Set(picked);
   const selected = found.filter((s) => wanted.has(`${s.remote}\u0000${s.dir.name}`));
   if (selected.length === 0) return 0;
