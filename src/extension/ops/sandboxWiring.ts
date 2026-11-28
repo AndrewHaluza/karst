@@ -1,7 +1,10 @@
 import type { SbxOauthGrants } from '../../agent/sbx/sbxOauthGuest.js';
 import type { SbxGrantReleaser } from './sbxLaunchOauth.js';
-import { findStrays, removeStrays } from './sandboxStrays.js';
+import { findRemoteStrays, findStrays, removeStrays, describeRemoteStrays } from './sandboxStrays.js';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
+import { NODE_SSH_PROCESS } from '../../agent/ssh/sshProcess.js';
+import { readSshStrays } from '../../agent/ssh/sshStrays.js';
+import { cleanupForeignRemoteOp, type ForeignPickItem } from './sandboxForeignOps.js';
 import { createSandboxSessionEnder } from './sandboxSessionEnd.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { Store } from '../../store/db.js';
@@ -30,6 +33,7 @@ import { createShellAvailabilityCache, openSandboxShellOp, sandboxShellAvailabil
 import { carrySandboxOp } from './sandboxCarryOp.js';
 import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js';
 import { runSandboxReconcile } from './bootSweeps.js';
+import { sshPlacementTarget } from './sshPlacementOps.js';
 import { repairHostSessions } from './hostSessionRepair.js';
 import {
   sandboxKindOfCore, cleanupOrphansOp, depsForListedBox, listingFailedFor, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type BackendKind, type Choose, type SandboxLifecycleDeps,
@@ -64,6 +68,8 @@ export interface SandboxWiringInput {
   readonly sessionOpen: (ticketId: number) => boolean;
   /** Quick pick over this project's sandboxed tickets (Command Palette); `undefined` = dismissed. */
   readonly pickTicket?: (picks: readonly { label: string; description: string; ticketId: number }[], placeHolder: string) => Promise<number | undefined>;
+  /** Multi-select quick pick for the foreign remote workspaces; `undefined` = dismissed, nothing preselected. */
+  readonly pickForeign?: (items: readonly ForeignPickItem[], placeHolder: string) => Promise<readonly string[] | undefined>;
   /** Every listing the boot reconcile reads (after a reload the in-memory ticket→core cache is empty). */
   readonly onInventory?: (inventory: SandboxInventory) => void;
   /** Test seams; default to the real async spawns and clock. */
@@ -189,6 +195,16 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     if (ok) markRemoved(t.ticketId);
     return ok;
   };
+  /** Does an open `ssh-strays.json` record forget this ticket's recorded ssh workspace (D830)? Reads no remote. */
+  const forgottenWorkspace = (ticketId: number): boolean => {
+    const ssh = w.sshRunner;
+    const target = sshPlacementTarget(getPlacement(w.store, ticketId));
+    if (ssh === undefined || target === undefined) return false;
+    const def = ssh.remotes()?.[target.remote];
+    if (def === undefined) return false;
+    return readSshStrays(ssh.globalStorageDir, w.info)
+      .some((s) => s.remote === target.remote && s.path === `${def.remoteDir}/${target.sandboxName}`);
+  };
   const clearSession = (id: number): void => setSessionId(w.store, id, null, null);
   const liveTickets = () => {
     const projectId = w.projectId();
@@ -197,14 +213,23 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     return projectId === undefined ? [] : listTickets(w.store, { projectId }).filter((t) => t.archivedAt === null && !merged.has(t.id));
   };
   /** Live tickets for the reconcile: each carries its recorded placement, the only source of host-vs-sandbox (arch:AC-32). */
-  const reconcileTickets = () => liveTickets().map((t) => ({ id: t.id, sessionId: t.sessionId, sessionProvider: t.sessionProvider, placementBackend: getPlacement(w.store, t.id)?.backend ?? null }));
+  const reconcileTickets = () => liveTickets().map((t) => {
+    const placement = getPlacement(w.store, t.id);
+    const ssh = sshPlacementTarget(placement);
+    return {
+      id: t.id, sessionId: t.sessionId, sessionProvider: t.sessionProvider, placementBackend: placement?.backend ?? null,
+      // A per-remote ssh listing: only the ticket's own remote can prove its workspace gone (D824). A remote that
+      // karst.yml no longer declares (or no ssh runner) was never listed: unknown (null), so the session stays.
+      placementRemote: ssh !== undefined && w.sshRunner?.remotes()?.[ssh.remote] !== undefined ? ssh.remote : null,
+    };
+  });
   /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
   const resolved = async (ticketId: number, projectRoot: string): Promise<SandboxSyncTarget> => {
     const t = target(ticketId);
     // Recorded: no listing guess. The runner's tri-state probe later confirms the sandbox exists (arch:AC-39).
     if (getPlacement(w.store, ticketId)) return t;
     try {
-      const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+      const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), ...(w.sshRunner ? { sshRunner: w.sshRunner } : {}) });
       const found = pickTicketSandbox(inv.sandboxes, ticketId, t.core, (m) => w.info(`karst: ${m}`));
       return found ? { ...t, core: found.core } : t;
     } catch (err) {
@@ -237,14 +262,16 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       w.notify.info('This project has no sandbox backend. Set one in the Settings page.');
       return undefined;
     }
-    const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+    const inv = await inventoryOf({ projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), ...(w.sshRunner ? { sshRunner: w.sshRunner } : {}) });
     const live = new Map(liveTickets().map((t) => [t.id, t]));
     const seen = new Set<number>();
     const picks = inv.sandboxes.flatMap((box) => {
       const t = live.get(box.ticketId);
+      // A forgotten remote workspace is never a target: only its Delete on the ticket removes it (D830).
+      if (box.stray === true) return [];
       if (box.invalidCore === true || t === undefined || seen.has(box.ticketId)) return [];
       seen.add(box.ticketId);
-      return [{ label: t.key ?? String(t.id), description: `${box.runner} ${box.core} (${box.state}) \u00b7 ${t.title}`, ticketId: t.id }];
+      return [{ label: t.key ?? String(t.id), description: `${box.runner}${box.remote === undefined ? '' : ` ${box.remote}`} ${box.core} (${box.state}) \u00b7 ${t.title}`, ticketId: t.id }];
     });
     if (picks.length === 0) {
       w.notify.info(`No ticket in this project has a sandbox to ${verb}.`);
@@ -476,6 +503,10 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     dispose: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
+      if (forgottenWorkspace(ticketId)) {
+        await w.notify.error(`The remote workspace of ${t.ticketLabel} is forgotten. Delete it from the ticket.`);
+        return;
+      }
       await disposeSandboxOp({ notify: w.notify, bridges: w.bridges(), projectRoot, ...placementTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Launch records where the ticket runs, with its core, in one write; only the controlling window writes (AC-37). */
@@ -566,11 +597,26 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
           const failed = await removeStrays(sd, strays);
           const kept = strays.filter((s) => !s.removable).map((s) => `${s.kind} ${s.name}`);
           const removed = strays.filter((s) => s.removable).length - failed.length;
-          return [
+          const lines = [
             ...(removed > 0 ? [`karst: removed ${removed} stray sandbox resource(s) of closed tickets`] : []),
             ...failed.map((f) => `karst: could not remove stray ${f}`),
             ...(kept.length > 0 ? [`karst: stray sandbox resource(s) of open tickets left alone: ${kept.join(', ')}`] : []),
           ];
+          // The remote half (D824): half-made dirs, unused assets, dead ControlMaster sockets. Trust first, per remote.
+          const ssh = d.sshRunner;
+          if (ssh === undefined) return lines;
+          const remotes = ssh.remotes();
+          if (remotes === undefined) return lines;
+          const installId = ssh.installId();
+          // Stryker disable next-line ConditionalExpression: equivalent, with no install id every ssh listing fails ("install id missing"), so the sweep skips each remote
+          if (installId === undefined) return lines;
+          const report = await findRemoteStrays({
+            projectRoot: d.projectRoot, remotes, installId, trustDir: ssh.globalStorageDir,
+            ssh: ssh.ssh ?? NODE_SSH_PROCESS, inventory: inv,
+            // Stryker disable next-line ConditionalExpression: equivalent, `{ controlDir: undefined }` gets the same `??` default as `{}`
+            ...(ssh.controlDir === undefined ? {} : { controlDir: ssh.controlDir }),
+          });
+          return [...lines, ...describeRemoteStrays(report)];
         },
       });
     },
@@ -579,7 +625,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const d = deps();
       if (!d || w.projectId() === undefined) return 0;
       const tickets = liveTickets().map((t) => ({ id: t.id, updatedAtMs: t.updatedAt === null ? Number.NaN : parseDbTimeMs(t.updatedAt), sessionOpen: w.sessionOpen(t.id) }));
-      const idle = idleSandboxes(await inventoryOf(d), tickets, d.owns, (w.now ?? Date.now)(), STUCK_IDLE_MINUTES * 60_000);
+      const idle = idleSandboxes(await inventoryOf(d), tickets, d.owns, (w.now ?? Date.now)(), STUCK_IDLE_MINUTES * 60_000, w.gateRunning);
       let stopped = 0;
       // A listed box is stopped by its own runner, never by the placement's (D826).
       for (const box of idle) if (await stopSandboxOp(depsForListedBox(d, box), { ...target(box.ticketId), core: box.core })) stopped += 1;
@@ -590,6 +636,25 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const d = deps();
       if (!d || w.projectId() === undefined) { w.notify.info('This project has no sandbox backend. Set one in the Settings page.'); return; }
       await cleanupOrphansOp(d, new Set(liveTickets().map((t) => t.id)));
+    },
+    /** `karst.sandbox.cleanupForeignRemote`: another install's workspaces on a remote (D824, edit 13). */
+    cleanupForeignRemote: async (): Promise<void> => {
+      if (w.projectId() === undefined) return;
+      const projectRoot = w.projectRoot();
+      if (projectRoot === undefined) { w.notify.info('This project has no sandbox backend. Set one in the Settings page.'); return; }
+      if (w.pickForeign === undefined) return;
+      await cleanupForeignRemoteOp({
+        projectRoot,
+        remotes: w.sshRunner?.remotes ?? (() => undefined),
+        installId: w.sshRunner?.installId ?? (() => undefined),
+        // Stryker disable next-line StringLiteral: equivalent, with no ssh runner the op stops at "no ssh remotes" before it reads this dir
+        globalStorageDir: w.sshRunner?.globalStorageDir ?? '',
+        ...(w.sshRunner?.ssh === undefined ? {} : { ssh: w.sshRunner.ssh }),
+        ...(w.sshRunner?.controlDir === undefined ? {} : { controlDir: w.sshRunner.controlDir }),
+        pick: w.pickForeign, choose: w.choose, notify: w.notify,
+        // Stryker disable next-line ConditionalExpression: equivalent, `{ debug: undefined }` and no `debug` both skip the debug call
+        ...(w.debug === undefined ? {} : { debug: w.debug }),
+      });
     },
     /** Periodic idle sweep; the returned disposable stops it. A failed sweep is logged, never thrown. */
     startIdleSweep: (): { dispose(): void } => {

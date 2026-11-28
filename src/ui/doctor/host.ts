@@ -11,6 +11,8 @@ export interface DoctorWiringDeps {
   brandIcon?: BrandIconPaths;
   /** The session's current CLI input; read per run, so a manifest switch lands. */
   cli: () => DoctorCliInput;
+  /** The dashboard's guarded sandbox removal (sync first, confirm): the page's Remove action runs it (edit 12). */
+  removeSandbox?: (ticketId: number) => Promise<void>;
 }
 
 /** The doctor's viewType; the serializer and the activation event name it. */
@@ -62,6 +64,7 @@ export function registerDoctorCommand(deps: DoctorWiringDeps): DoctorWiring {
         copy: async (text) => {
           await vscode.env.clipboard.writeText(text);
         },
+        ...(deps.removeSandbox ? { removeSandbox: deps.removeSandbox } : {}),
         // A run that finishes after the tab closed must not touch the webview.
         isDisposed: lifecycle.isDisposed,
       });

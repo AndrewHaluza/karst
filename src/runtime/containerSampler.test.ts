@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import { parseDockerStats, parseMemUsage, sampleContainers } from './containerSampler.js';
-import { parseSandboxContainerName, projectPrefix } from '../agent/sandboxInventory.js';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { parseDockerStats, parseMemUsage, sampleContainers, sampleProjectRemoteWorkspaces, sampleRemoteWorkspaces } from './containerSampler.js';
+import { parseSandboxContainerName, projectPrefix, type ProjectSandbox, type SshInventorySource } from '../agent/sandboxInventory.js';
+import { fakeSshProcess, type FakeSshAnswer, type FakeSshProcess } from '../agent/ssh/fakeSshProcess.js';
+import { REMOTE_TRUST_FILE, remoteTrustKey } from '../agent/ssh/remoteTrust.js';
+import { sshProjectPrefix } from '../agent/ssh/sshNames.js';
+import type { RemoteDef } from '../manifest/types.js';
+import { remoteWorkspaceKey } from './remoteWorkspaces.js';
 import type { ProcessResult, SbxProcess } from '../agent/sbx/sbxProcess.js';
 
 const ROOT = '/proj';
@@ -45,6 +53,46 @@ describe('parseDockerStats', () => {
   });
 });
 
+describe('sampleRemoteWorkspaces (edit 7)', () => {
+  const sshBox = (over: Partial<ProjectSandbox> = {}): ProjectSandbox => ({
+    runner: 'ssh',
+    name: 'karst-ab12cd34-7-claude',
+    ticketId: 7,
+    core: 'claude',
+    state: 'stopped',
+    remote: 'devbox',
+    ...over,
+  });
+
+  const probed = (ageDays: number, sizeKb = 1.5 * 1024 * 1024) => new Map([[remoteWorkspaceKey('devbox', 'karst-ab12cd34-7-claude'), { sizeKb, ageDays }]]);
+
+  it('shows the remote, the state, the age since the last launch and the disk, with no host cost', () => {
+    const [row] = sampleRemoteWorkspaces([sshBox()], probed(3));
+    expect(row).toMatchObject({ kind: 'remote', ticketId: 7, cost: null, label: 'ssh devbox · stopped 3 days · 1.5 GB' });
+    expect(row!.pid).toBe(0);
+    expect(sampleRemoteWorkspaces([sshBox()], probed(1))[0]!.label).toBe('ssh devbox · stopped 1 day · 1.5 GB');
+    expect(sampleRemoteWorkspaces([sshBox()], probed(0, 512))[0]!.label).toBe('ssh devbox · stopped 0 days · 512 KB');
+  });
+
+  it('shows no age for a running workspace', () => {
+    expect(sampleRemoteWorkspaces([sshBox({ state: 'running' })], probed(3))[0]!.label).toBe('ssh devbox · running · 1.5 GB');
+  });
+
+  it('says disk unknown when the remote was not probed, never 0 B', () => {
+    expect(sampleRemoteWorkspaces([sshBox({ state: 'running' })])[0]!.label).toBe('ssh devbox · running · disk unknown');
+  });
+
+  it('ignores local sandboxes and an ssh row with no remote', () => {
+    const local: ProjectSandbox = { runner: 'docker', name: 'karst-ab12cd34-8-opencode', ticketId: 8, core: 'opencode', state: 'running' };
+    expect(sampleRemoteWorkspaces([local, { ...sshBox(), remote: undefined }])).toEqual([]);
+  });
+
+  it('a remote row keeps the inventory totals at nothing (cost null)', () => {
+    const rows = sampleRemoteWorkspaces([sshBox()]);
+    expect(rows.every((r) => r.cost === null)).toBe(true);
+  });
+});
+
 describe('sampleContainers', () => {
   const base = { projectRoot: ROOT, cpuCoreCount: 4 };
 
@@ -78,5 +126,73 @@ describe('sampleContainers', () => {
   it('times out a hung docker without waiting for it', async () => {
     const docker = fakeDocker(() => new Promise<ProcessResult>(() => {}));
     expect(await sampleContainers({ ...base, docker, serverContainers: [], timeoutMs: 10 })).toEqual({ ok: false, reason: 'timeout' });
+  });
+});
+
+describe('sampleProjectRemoteWorkspaces (edit 7)', () => {
+  const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
+  const INSTALL = '0123456789abcdef0123456789abcdef';
+  const NAME = `${sshProjectPrefix('/p', INSTALL)}-7-claude`;
+  const dirs: string[] = [];
+  afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+  const trustDir = (entries: Record<string, string>): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-remote-rows-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, REMOTE_TRUST_FILE), JSON.stringify(entries));
+    return dir;
+  };
+  const source = (ssh: FakeSshProcess, trusted: boolean): SshInventorySource => ({
+    remotes: () => ({ devbox: REMOTE }), installId: () => INSTALL, ssh, controlDir: '/tmp/karst-ssh-test/',
+    globalStorageDir: trustDir(trusted ? { devbox: remoteTrustKey('devbox', REMOTE) } : {}),
+  });
+  const listing = (name: string): FakeSshAnswer => ({ stdout: `__KARST_DIRS__\n${name}\n__KARST_TMUX__\n\n` });
+
+  it('lists a confirmed remote over ssh and gives one cost-free row per workspace with its age and measured disk', async () => {
+    const launched = Math.floor(Date.now() / 1000) - 3 * 86_400 - 60;
+    const ssh = fakeSshProcess({
+      '/srv/karst': listing(NAME),
+      'karst-ssh-remote-workspaces': { stdout: `${NAME}\t${launched}\t2048\n` },
+    });
+    const sample = await sampleProjectRemoteWorkspaces(source(ssh, true), '/p');
+    expect(sample.failed).toEqual(new Set());
+    expect(sample.rows.get('devbox')).toEqual([
+      expect.objectContaining({ kind: 'remote', ticketId: 7, cost: null, label: 'ssh devbox · stopped 3 days · 2.0 MB', comm: NAME }),
+    ]);
+    expect(ssh.calls.filter((c) => (c.args.at(-1) ?? '').includes('karst-ssh-remote-workspaces'))).toHaveLength(1);
+  });
+
+  it('a failed size probe keeps the row as disk unknown and warns', async () => {
+    const ssh = fakeSshProcess({
+      '/srv/karst': listing(NAME),
+      'karst-ssh-remote-workspaces': { code: 255, stderr: 'Connection closed\n', transport: true },
+    });
+    const warn = vi.fn();
+    const sample = await sampleProjectRemoteWorkspaces({ ...source(ssh, true), warn }, '/p');
+    expect(sample.failed).toEqual(new Set());
+    expect(sample.rows.get('devbox')).toEqual([expect.objectContaining({ label: 'ssh devbox · stopped · disk unknown' })]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ssh devbox: transport failed'));
+  });
+
+  it('an empty remote gets no size probe', async () => {
+    const ssh = fakeSshProcess({ '/srv/karst': { stdout: '__KARST_DIRS__\n__KARST_TMUX__\n\n' } });
+    const sample = await sampleProjectRemoteWorkspaces(source(ssh, true), '/p');
+    expect(sample.rows.get('devbox')).toEqual([]);
+    expect(ssh.calls.some((c) => (c.args.at(-1) ?? '').includes('karst-ssh-remote-workspaces'))).toBe(false);
+  });
+
+  it('an unconfirmed remote gets no ssh call and is reported as failed', async () => {
+    const ssh = fakeSshProcess({ '/srv/karst': listing(NAME) });
+    const sample = await sampleProjectRemoteWorkspaces(source(ssh, false), '/p');
+    expect(ssh.calls).toEqual([]);
+    expect(sample.failed).toEqual(new Set(['devbox']));
+    expect(sample.rows.size).toBe(0);
+  });
+
+  it('samples nothing without a project root or a declared remote', async () => {
+    const ssh = fakeSshProcess({});
+    expect((await sampleProjectRemoteWorkspaces(source(ssh, true), undefined)).rows.size).toBe(0);
+    expect((await sampleProjectRemoteWorkspaces({ ...source(ssh, true), remotes: () => undefined }, '/p')).rows.size).toBe(0);
+    expect((await sampleProjectRemoteWorkspaces(undefined, '/p')).failed.size).toBe(0);
+    expect(ssh.calls).toEqual([]);
   });
 });

@@ -26,4 +26,16 @@ describe('pickTicketSandbox', () => {
     expect(warn).toHaveBeenCalledTimes(3);
     expect(warn.mock.calls[0]![0]).toContain('has 2 sandboxes');
   });
+  it('never picks a forgotten stray (D824)', () => {
+    expect(pickTicketSandbox([box(7, 'claude', { stray: true })], 7, 'claude')).toBeUndefined();
+    expect(pickTicketSandbox([box(7, 'claude', { stray: true }), box(7, 'codex')], 7, 'claude')?.core).toBe('codex');
+  });
+  it('an ssh item matches only the recorded <remote>/<name> placement (D824)', () => {
+    const ssh: ProjectSandbox = { runner: 'ssh', name: 'karst-ab12cd34-7-claude', ticketId: 7, core: 'claude', state: 'running', remote: 'devbox' };
+    // No placement known: an ssh item is never picked from the listing.
+    expect(pickTicketSandbox([ssh], 7, 'claude')).toBeUndefined();
+    expect(pickTicketSandbox([ssh], 7, 'claude', undefined, { remote: 'devbox', name: ssh.name })?.name).toBe(ssh.name);
+    expect(pickTicketSandbox([ssh], 7, 'claude', undefined, { remote: 'other', name: ssh.name })).toBeUndefined();
+    expect(pickTicketSandbox([ssh], 7, 'claude', undefined, { remote: 'devbox', name: 'karst-ab12cd34-8-claude' })).toBeUndefined();
+  });
 });

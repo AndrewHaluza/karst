@@ -8,6 +8,8 @@ import { fakeSshProcess, type FakeSshAnswer } from './fakeSshProcess.js';
 import { createSshGateRegistry, sshGateKey } from './sshGateRegistry.js';
 import { createSshSessionRunner, interactiveScript, type SshRunnerOptions } from './sshRunner.js';
 import { disposeTarget } from './sshDisposeGuard.js';
+import { gateScript } from './sshGateScript.js';
+import { fakeTunnels } from './fakeTunnels.js';
 
 const REMOTE: RemoteDef = { host: 'vm.example.com', user: 'karst', mode: 'direct', remoteDir: '/srv/karst' };
 const PREFIX = 'karst-0123abcd';
@@ -29,7 +31,7 @@ function runner(ssh: Ssh, over: Partial<SshRunnerOptions> = {}) {
   return createSshSessionRunner({
     ssh, sshBin: 'ssh', host: fakeSbxProcess(), remote: REMOTE, remoteName: 'devbox', sandboxName: NAME,
     projectPrefix: PREFIX, controlDir: '/tmp/karst-ssh-0/', core: 'claude', ticketId: 7, hostWorktreePath: WT,
-    tmux: true, registry: createSshGateRegistry(), newRunId: () => RUN_ID, killGraceSeconds: 0, ...over,
+    tmux: true, registry: createSshGateRegistry(), newRunId: () => RUN_ID, killGraceSeconds: 0, tunnels: fakeTunnels().registry, ...over,
   });
 }
 
@@ -398,5 +400,40 @@ describe('SPEC coverage: args, env keys, services, two instances', () => {
     expect(kill).toContain('kill -TERM -777');
     release({ kind: 'aborted', output: '' });
     await pending;
+  });
+});
+
+describe('runGate service env file (D823)', () => {
+  const SVC_ENV = `${WS}/svc/karst-svc-web.env`;
+
+  it('sources a caller envFile under <ws> AFTER env.sh, inside the same chain', async () => {
+    const g = gate(completed(0));
+    const r = runner(fakeSshProcess(exitAnswer({ stdout: `${RUN_ID}:0` })), { gateProcess: g });
+    await r.runGate!('sh', ['-c', 'true'], WT, { envFile: SVC_ENV });
+    const script = scriptOf(g.seen[0]!.args);
+    expect(script).toContain(`. '${WS}/env/env.sh' && . '${SVC_ENV}' && export KARST_SANDBOX=1`);
+    expect(g.seen[0]!.args.join(' ')).not.toMatch(/SECRET/);
+  });
+
+  it('without an envFile the gate script is byte-identical to the plain gate script', async () => {
+    const g = gate(completed(0));
+    const r = runner(fakeSshProcess(exitAnswer({ stdout: `${RUN_ID}:0` })), { gateProcess: g });
+    await r.runGate!('npx', ['vitest'], WT);
+    expect(scriptOf(g.seen[0]!.args)).toBe(gateScript({
+      workspace: WS, runId: RUN_ID, cwd: REPO, envFile: `${WS}/env/env.sh`, command: 'npx', args: ['vitest'],
+    }));
+  });
+
+  it.each([
+    ['/tmp/karst-svc-web.env'],
+    [`${WS}/../other/svc/x.env`],
+    [`${WS}x/svc/x.env`],
+    [`${WS}/svc/./x.env`],
+    [WS],
+  ])('refuses the envFile %s outside <ws>/ with no gate run', async (envFile) => {
+    const g = gate(completed(0));
+    const out = await runner(fakeSshProcess(), { gateProcess: g }).runGate!('sh', ['-c', 'true'], WT, { envFile });
+    expect(out).toMatchObject({ kind: 'spawnFailed' });
+    expect(g.seen).toHaveLength(0);
   });
 });

@@ -72,6 +72,8 @@ export function blockedSshRunner(reason: string): SessionRunner {
     allowHostPorts: async () => refused(),
     writeServiceEnv: async () => thrown(),
     removeServiceEnv: async () => undefined,
+    // Fail closed (D823): a spin must not allocate ports it could not check.
+    probeRemotePorts: async () => thrown(),
   };
 }
 

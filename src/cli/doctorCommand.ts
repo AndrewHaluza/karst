@@ -5,7 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Store } from '../store/db.js';
-import type { Manifest } from '../manifest/types.js';
+import type { Manifest, RemoteDef } from '../manifest/types.js';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import { nodeEnvProbe } from '../manifest/nodeEnvProbe.js';
 import { dependencyRegistry, binaryExists, commandSucceeds, readCommandOutput } from '../runtime/deps.js';
@@ -24,13 +24,41 @@ import { checkStorage, type StorageUsage } from '../doctor/storageCheck.js';
 import { checkStuckTickets, STUCK_IDLE_MINUTES } from '../doctor/stuckCheck.js';
 import { checkWiring } from '../doctor/wiringChecks.js';
 import { parseDoctorArea, renderDoctorText, runDoctor } from '../doctor/run.js';
-import { checkSandboxBackends, checkSandboxSetupDeclared } from '../doctor/sandboxChecks.js';
-import { probeBackends, probeDockerDisk, probeDockerMemory, probeDockerImageDisk, type BackendProbes } from '../agent/backendProbe.js';
+import {
+  checkForeignRemoteWorkspaces,
+  checkRemoteDiskFacts,
+  checkSandboxBackends,
+  checkSandboxSetupDeclared,
+  checkSshRemotes,
+  checkStaleRemoteWorkspaces,
+  type ForeignRemoteWorkspaceFact,
+  type RemoteDiskFact,
+  type RemoteWorkspaceFact,
+} from '../doctor/sandboxChecks.js';
+import {
+  probeBackends,
+  probeDockerDisk,
+  probeDockerMemory,
+  probeDockerImageDisk,
+  probeRemoteDisk,
+  probeRemoteWorkspaces,
+  type BackendProbes,
+  type RemoteDiskFacts,
+  type RemoteProbeError,
+  type RemoteWorkspaceProbe,
+} from '../agent/backendProbe.js';
 import { doneMergedTicketIds } from '../store/doneMerged.js';
-import { checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
-import { listProjectSandboxes, type SandboxInventory } from '../agent/sandboxInventory.js';
+import { checkForgottenRemoteWorkspaces, checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
+import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../agent/sandboxInventory.js';
+import { readExistingInstallId } from '../agent/ssh/sshNames.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
 import { NODE_DOCKER_PROCESS } from '../agent/docker/dockerProcess.js';
+import { SSH_CORES, type SshCore } from '../agent/sandboxCores.js';
+import { listForeignRemoteDirs, type ForeignListing } from '../agent/ssh/sshForeign.js';
+import { sshPreflight, type SshPreflightResult } from '../agent/ssh/sshPreflight.js';
+import { sshControlDir } from '../agent/ssh/sshControlDir.js';
+import { isRemoteTrusted, readRemoteTrust } from '../agent/ssh/remoteTrust.js';
+import { NODE_SSH_PROCESS, type SshProcess } from '../agent/ssh/sshProcess.js';
 import { parseDbTimeMs, type FixEffects } from '../doctor/applyFixes.js';
 import * as probes from '../doctor/probes.js';
 import type { DoctorArea, DoctorCheck } from '../doctor/types.js';
@@ -156,18 +184,40 @@ function fixEffects(store: Store): FixEffects {
 }
 
 /** This project's sandboxes (async, never `spawnSync`); injected by tests. */
-export type ListSandboxes = (projectRoot: string) => Promise<SandboxInventory>;
+export interface ListSandboxesContext {
+  /** The globalStorage dir: `ssh/install-id` (read only) and `ssh-trust.json` live there. */
+  readonly globalStorageDir: string;
+  /** The manifest's `remotes`: every declared remote is listed too (D824). */
+  readonly remotes: Readonly<Record<string, RemoteDef>> | undefined;
+}
+export type ListSandboxes = (projectRoot: string, ctx?: ListSandboxesContext) => Promise<SandboxInventory>;
 
-const listSandboxesNode: ListSandboxes = (projectRoot) =>
-  listProjectSandboxes({ projectRoot, sbx: NODE_SBX_PROCESS, docker: NODE_DOCKER_PROCESS });
+const listSandboxesNode: ListSandboxes = async (projectRoot, ctx) => {
+  const remotes = ctx?.remotes;
+  // Read only: a host step never creates the install id (D826); a missing one lists no ssh remote.
+  const installId = ctx === undefined || remotes === undefined || Object.keys(remotes).length === 0
+    ? undefined
+    : await readExistingInstallId(ctx.globalStorageDir).catch(() => undefined);
+  return listProjectSandboxes({
+    projectRoot, sbx: NODE_SBX_PROCESS, docker: NODE_DOCKER_PROCESS,
+    ...(remotes === undefined ? {} : { remotes }),
+    ...(installId === undefined ? {} : { installId }),
+    ...(ctx === undefined ? {} : { trustDir: ctx.globalStorageDir }),
+  });
+};
 
-/** Orphans: this project's sandboxes whose ticket is not live (arch:AC-32). Only with a sandbox backend. */
-async function sandboxOrphanChecks(store: Store, manifestPath: string | undefined, manifest: Manifest | undefined, list: ListSandboxes): Promise<DoctorCheck[]> {
+/** Orphans: this project's sandboxes whose ticket is not live (arch:AC-32), and the forgotten ssh strays apart. Only with a sandbox backend. */
+async function sandboxOrphanChecks(store: Store, manifestPath: string | undefined, manifest: Manifest | undefined, list: () => Promise<SandboxInventory>): Promise<DoctorCheck[]> {
   if (manifestPath === undefined || manifest?.agentBackends === undefined) return [];
   const merged = doneMergedTicketIds(store);
   const live = new Set((store.db.prepare('SELECT id FROM tickets WHERE archived_at IS NULL').all() as { id: number }[]).map((r) => r.id).filter((id) => !merged.has(id)));
-  const inv = await list(manifestPath);
-  return checkSandboxOrphans(inv.sandboxes.filter((s) => !live.has(s.ticketId)));
+  const inv = await list();
+  // A forgotten stray is never an orphan: the cleanup command skips it, so it gets its own line (D830).
+  const strays = inv.sandboxes.flatMap((s) => (s.stray === true && s.remote !== undefined ? [{ name: s.name, ticketId: s.ticketId, remote: s.remote }] : []));
+  return [
+    ...checkSandboxOrphans(inv.sandboxes.filter((s) => s.stray !== true && !live.has(s.ticketId))),
+    ...checkForgottenRemoteWorkspaces(strays),
+  ];
 }
 
 /** Backend readiness + docker disk use; injected by tests. */
@@ -179,6 +229,96 @@ export interface SandboxProbe {
 }
 
 const SANDBOX_PROBE_NODE: SandboxProbe = { backends: probeBackends, dockerDisk: probeDockerDisk, dockerMemory: probeDockerMemory, dockerImageDisk: probeDockerImageDisk };
+
+/** The identity and trust record the remote probes read; captured once per doctor run. */
+export interface RemoteProbeContext {
+  /** The manifest path: the same string the launcher hashes for the ssh names (D555). */
+  readonly projectRoot: string;
+  /** Read only: a host step never creates the install id (D826). */
+  readonly installId: string | undefined;
+  readonly trustDir: string;
+  readonly controlDir: string;
+}
+
+/** The remote facts `karst doctor` collects; injected so a test can fake any answer. */
+export interface RemoteProbe {
+  readonly preflight: (name: string, def: RemoteDef, core: SshCore) => Promise<SshPreflightResult>;
+  readonly disk: (name: string, def: RemoteDef) => Promise<RemoteDiskFacts | RemoteProbeError>;
+  readonly workspaces: (name: string, def: RemoteDef) => Promise<readonly RemoteWorkspaceProbe[] | RemoteProbeError>;
+  readonly foreign: (name: string, def: RemoteDef) => Promise<ForeignListing>;
+}
+
+/** The node bindings: every remote probe checks D553 trust first (the probes themselves re-check). */
+export function remoteProbeFor(ssh: SshProcess, ctx: RemoteProbeContext): RemoteProbe {
+  const installId = ctx.installId ?? '';
+  return {
+    preflight: (name, def, core) => sshPreflight(name, def, ssh, { controlDir: ctx.controlDir, core }),
+    disk: (name, def) => probeRemoteDisk(ssh, name, def, { projectRoot: ctx.projectRoot, installId, trustDir: ctx.trustDir, controlDir: ctx.controlDir }),
+    workspaces: (name, def) => probeRemoteWorkspaces(ssh, name, def, { projectRoot: ctx.projectRoot, installId, trustDir: ctx.trustDir, controlDir: ctx.controlDir }),
+    foreign: (name, def) => listForeignRemoteDirs(ssh, name, def, { controlDir: ctx.controlDir, trustDir: ctx.trustDir, projectRoot: ctx.projectRoot, installId }),
+  };
+}
+
+/** The core whose `<core> --version` the `mode: direct` preflight probes: the one this remote serves, else claude. */
+function remoteCore(manifest: Manifest | undefined, remote: string): SshCore {
+  for (const [core, backend] of Object.entries(manifest?.agentBackends ?? {})) {
+    if (backend === `ssh:${remote}` && (SSH_CORES as readonly string[]).includes(core)) return core as SshCore;
+  }
+  return 'claude';
+}
+
+/** Stopped ssh workspaces of one remote with the age and size a trusted probe reported. */
+function staleFacts(remote: string, sandboxes: readonly ProjectSandbox[], ages: readonly RemoteWorkspaceProbe[]): RemoteWorkspaceFact[] {
+  const byName = new Map(ages.map((a) => [a.name, a]));
+  return sandboxes
+    .filter((s): s is ProjectSandbox & { remote: string } => s.runner === 'ssh' && s.remote === remote)
+    .flatMap((s) => {
+      const age = byName.get(s.name);
+      return age === undefined ? [] : [{ remote: s.remote, name: s.name, ticketId: s.ticketId, state: s.state, ageDays: age.ageDays, sizeKb: age.sizeKb }];
+    });
+}
+
+/**
+ * The ssh half of the doctor (edits 6, 12 and 13): `tools.sandbox-ssh-<remote>`
+ * with the D554 preflight, remote disk + stale workspaces + foreign dirs in the
+ * state area. Trust first: an unconfirmed remote is a WARN in tools and every
+ * probe is skipped, so it makes zero ssh calls.
+ */
+async function sshRemoteChecks(area: DoctorArea, manifest: Manifest | undefined, io: CollectorInput, list: () => Promise<SandboxInventory>): Promise<DoctorCheck[]> {
+  const remotes = Object.entries(manifest?.remotes ?? {});
+  if (remotes.length === 0) return [];
+  const trust = readRemoteTrust(io.globalStorageDir);
+  if (area === 'tools') {
+    const out: DoctorCheck[] = [];
+    for (const [name, def] of remotes) {
+      if (!isRemoteTrusted(trust, name, def)) {
+        out.push(...checkSshRemotes([{ name, trusted: false }]));
+        continue;
+      }
+      const preflight = await io.remote.preflight(name, def, remoteCore(manifest, name));
+      out.push(...checkSshRemotes([{ name, trusted: true, preflight }]));
+    }
+    return out;
+  }
+  if (area !== 'state') return [];
+
+  const inventory = await list();
+  const out: DoctorCheck[] = [];
+  for (const [name, def] of remotes) {
+    // An unconfirmed remote is reported by the tools area; the state area makes no ssh call for it.
+    if (!isRemoteTrusted(trust, name, def)) continue;
+    if (io.remoteContext.installId === undefined || io.remoteContext.projectRoot === '') {
+      out.push(...checkRemoteDiskFacts([{ remote: name, error: `ssh ${name}: install id missing` }]));
+      continue;
+    }
+    const [disk, ages, foreign] = await Promise.all([io.remote.disk(name, def), io.remote.workspaces(name, def), io.remote.foreign(name, def)]);
+    out.push(...checkRemoteDiskFacts([('error' in disk ? { remote: name, error: disk.error } : { remote: name, ...disk }) as RemoteDiskFact]));
+    if (!('error' in ages)) out.push(...checkStaleRemoteWorkspaces(staleFacts(name, inventory.sandboxes, ages)));
+    const foreignFacts: ForeignRemoteWorkspaceFact[] = foreign.dirs.map((d) => ({ remote: name, name: d.name, ageDays: d.ageDays, sizeKb: d.sizeKb }));
+    out.push(...checkForeignRemoteWorkspaces({ dirs: foreignFacts, errors: foreign.error === undefined ? [] : [foreign.error] }));
+  }
+  return out;
+}
 
 const LOCKFILES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock'];
 
@@ -195,10 +335,10 @@ function sandboxSetupChecks(manifest: Manifest | undefined): DoctorCheck[] {
 }
 
 /** Selected backend status and sandbox disk use (arch:AC-32); only with a sandbox backend, and only the checks of `area`. */
-async function sandboxBackendChecks(area: DoctorArea, manifestPath: string | undefined, manifest: Manifest | undefined, io: CollectorInput): Promise<DoctorCheck[]> {
+async function sandboxBackendChecks(area: DoctorArea, manifestPath: string | undefined, manifest: Manifest | undefined, io: CollectorInput, list: () => Promise<SandboxInventory>): Promise<DoctorCheck[]> {
   const selected = selectedSandboxBackends(manifest?.agentBackends);
   if (manifestPath === undefined || selected.length === 0) return [];
-  const [probes, inv] = await Promise.all([io.probe.backends(wantedBackends(manifest?.agentBackends)), io.listSandboxes(manifestPath)]);
+  const [probes, inv] = await Promise.all([io.probe.backends(wantedBackends(manifest?.agentBackends)), list()]);
   const docker = inv.sandboxes.filter((s) => s.runner === 'docker').length > 0 ? await io.probe.dockerDisk() : undefined;
   const dockerMemBytes = selected.includes('docker') ? await io.probe.dockerMemory?.() : undefined;
   const images = selected.includes('docker') ? await io.probe.dockerImageDisk?.() : undefined;
@@ -216,6 +356,10 @@ interface CollectorInput {
   readonly gitHealth: GitHealthProbe;
   readonly listSandboxes: ListSandboxes;
   readonly probe: SandboxProbe;
+  readonly remote: RemoteProbe;
+  readonly remoteContext: RemoteProbeContext;
+  /** The dir of `ssh-trust.json` (globalStorage); the ssh checks read it once per area. */
+  readonly globalStorageDir: string;
   readonly storageUsage?: StorageUsageProbe | undefined;
 }
 
@@ -237,8 +381,16 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
   return async (areas: readonly DoctorArea[]): Promise<DoctorCheck[]> => {
     const out: DoctorCheck[] = [];
     const nowMs = Date.now();
+    // ONE listing per run: the orphan, disk and stale checks share it (each remote listing is ssh round trips).
+    let cached: Promise<SandboxInventory> | undefined;
+    const list = (): Promise<SandboxInventory> => {
+      if (io.manifestPath === undefined) return Promise.resolve({ sandboxes: [], errors: [] });
+      cached ??= io.listSandboxes(io.manifestPath);
+      return cached;
+    };
     if (areas.includes('tools')) {
-      out.push(...(await sandboxBackendChecks('tools', io.manifestPath, manifest, io)));
+      out.push(...(await sandboxBackendChecks('tools', io.manifestPath, manifest, io, list)));
+      out.push(...(await sshRemoteChecks('tools', manifest, io, list)));
       out.push(...checkTools({
         registry: dependencyRegistry('claude'), // the CLI has no host settings; claude is the default core
         probe: binaryExists, ready: commandSucceeds, readOutput: readCommandOutput, version: probes.toolVersion,
@@ -288,8 +440,9 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
           : probes.storageUsage(dirname(dbPath));
       out.push(checkStorage(usage));
       out.push(...checkStuckTickets(stuckProbes(store, nowMs)));
-      out.push(...(await sandboxOrphanChecks(store, io.manifestPath, manifest, io.listSandboxes)));
-      out.push(...(await sandboxBackendChecks('state', io.manifestPath, manifest, io)));
+      out.push(...(await sandboxOrphanChecks(store, io.manifestPath, manifest, list)));
+      out.push(...(await sandboxBackendChecks('state', io.manifestPath, manifest, io, list)));
+      out.push(...(await sshRemoteChecks('state', manifest, io, list)));
       out.push(...gitHealthChecks(manifest, io.gitHealth, nowMs));
     }
     if (areas.includes('wiring')) {
@@ -310,6 +463,7 @@ export async function runDoctorCommand(
   probe: SandboxProbe = SANDBOX_PROBE_NODE,
   gitHealth: GitHealthProbe = probes.gitHealthProbe,
   storageUsage?: StorageUsageProbe,
+  ssh: SshProcess = NODE_SSH_PROCESS,
 ): Promise<never> {
   const args = parseDoctorArgs(rest);
   let manifest: Manifest | undefined;
@@ -318,10 +472,27 @@ export async function runDoctorCommand(
     try { manifest = loadManifestWithDiagnostics(manifestPath).manifest; }
     catch (e) { manifestError = (e as Error).message; }
   }
+  const globalStorageDir = dirname(dbPath);
+  // The ssh listing needs the same globalStorage (install id + trust) and the manifest's remotes; a test lister ignores the context.
+  const listWithSsh: ListSandboxes = (projectRoot) =>
+    listSandboxes(projectRoot, { globalStorageDir, remotes: manifest?.remotes });
+  // Read only: a host step never creates the install id (D826). A missing one lists no ssh remote.
+  const installId = manifest?.remotes === undefined || Object.keys(manifest.remotes).length === 0
+    ? undefined
+    : await readExistingInstallId(globalStorageDir).catch(() => undefined);
+  const remoteContext: RemoteProbeContext = {
+    projectRoot: manifestPath ?? '',
+    installId,
+    trustDir: globalStorageDir,
+    controlDir: sshControlDir(),
+  };
   const report = await runDoctor({
     areas: args.areas, fix: args.fix,
     ...(args.only.length > 0 ? { only: args.only } : {}),
-    collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes, probe, gitHealth, storageUsage }),
+    collect: collector(store, dbPath, manifest, manifestError, env, {
+      manifestPath, listSandboxes: listWithSsh, probe, gitHealth, storageUsage,
+      remote: remoteProbeFor(ssh, remoteContext), remoteContext, globalStorageDir,
+    }),
     effects: fixEffects(store),
   });
   throw new DoctorExit(args.json ? JSON.stringify(report) : renderDoctorText(report), report.exitCode);

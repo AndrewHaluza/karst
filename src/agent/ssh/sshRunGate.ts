@@ -106,6 +106,22 @@ function mapCwd(ctx: SshGateContext, cwd: string): MappedCwd {
   return { ok: true, cwd: mapped };
 }
 
+type MappedEnvFile = { readonly ok: true; readonly file: string | undefined } | { readonly ok: false; readonly reason: string };
+
+/**
+ * The caller's service env file (D823): only a file under `<ws>/`, with no
+ * `.`/`..` segment, so a gate never sources a file of another workspace.
+ */
+export function mapEnvFile(ctx: Pick<SshGateContext, 'workspace' | 'remoteName'>, envFile: string | undefined): MappedEnvFile {
+  if (envFile === undefined) return { ok: true, file: undefined };
+  const rest = envFile.startsWith(`${ctx.workspace}/`) ? envFile.slice(ctx.workspace.length + 1) : undefined;
+  const segments = rest?.split('/') ?? [];
+  if (rest === undefined || segments.some((s) => s === '' || s === '.' || s === '..')) {
+    return { ok: false, reason: `ssh ${ctx.remoteName}: env file ${envFile} is outside the workspace ${ctx.workspace}` };
+  }
+  return { ok: true, file: envFile };
+}
+
 /** The ssh client's own failure code; a gate can also really exit 255. */
 const SSH_TRANSPORT_EXIT = 255;
 
@@ -146,12 +162,15 @@ export function sshRunGate(ctx: SshGateContext): GateProcessRunner {
   return async (command, args, cwd, gateOpts?: RunProcessOptions): Promise<ProcessOutcome> => {
     const mapped = mapCwd(ctx, cwd);
     if (!mapped.ok) return { kind: 'spawnFailed', message: mapped.reason, output: '' };
+    const extra = mapEnvFile(ctx, gateOpts?.envFile);
+    if (!extra.ok) return { kind: 'spawnFailed', message: extra.reason, output: '' };
     const runId = assertRunId(ctx.newRunId());
     const script = gateScript({
       workspace: ctx.workspace,
       runId,
       cwd: mapped.cwd,
       envFile: `${ctx.workspace}/env/env.sh`,
+      ...(extra.file !== undefined ? { extraEnvFile: extra.file } : {}),
       command,
       args: rewriteEmbeddedHostPaths(args, ctx.hostWorktreePath, `${ctx.workspace}/repo`),
     });

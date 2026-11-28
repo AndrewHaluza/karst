@@ -9,6 +9,7 @@ import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { transition } from '../machine.js';
 import { stageBlock } from '../../store/stageBlocks.js';
 import { recordBaselineDecisions } from '../../store/baselineDecisions.js';
+import { listProcessRuns } from '../../store/processRuns.js';
 import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
 import { runUat, type UatDeps } from './uat.js';
 import type { BaselineEntry } from '../gates/baselineReview.js';
@@ -338,6 +339,47 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
         store.db.prepare('SELECT COUNT(*) AS n FROM baseline_decisions WHERE ticket_id = ?').get(id),
       ).toEqual({ n: 0 });
       expect(debug).toHaveBeenCalledWith(expect.stringContaining('failed (model exploded)'));
+    });
+
+    it('skips with the catalog reason when the Tester model is tagged text-only, through the real gate', async () => {
+      const tester = testerAgent();
+      const textOnly = {
+        claude: [
+          { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude' as const], tags: ['text-only' as const] },
+        ],
+        codex: [],
+        antigravity: [],
+        opencode: [],
+        opencode2: [],
+      };
+      const debug = vi.fn();
+      const res = await runUat(
+        store,
+        { ticketId: id, cwd: '/wt/web', artifactDir, manifest: withPrecheck(), debug },
+        deps({
+          detectBaselines: async () => [ENTRY],
+          tester: {
+            assignment: { ...tester.assignment, model: 'claude-sonnet-5' },
+            adapter: tester.adapter,
+          },
+          catalog: () => textOnly,
+        }),
+      );
+      expect(res).toEqual({
+        kind: 'blocked',
+        blocker: 'baseline-review',
+        reason: '1 visual baseline(s) changed — review in the UAT report',
+      });
+      const lines = debug.mock.calls.map(([line]) => String(line));
+      expect(
+        lines.some((line) =>
+          line.includes('skipped — model claude-sonnet-5 cannot read images (catalog tags)'),
+        ),
+      ).toBe(true);
+      expect(
+        store.db.prepare('SELECT COUNT(*) AS n FROM baseline_decisions WHERE ticket_id = ?').get(id),
+      ).toEqual({ n: 0 });
+      expect(listProcessRuns(store, id)).toEqual([]);
     });
 
     it('never runs with the knob off', async () => {

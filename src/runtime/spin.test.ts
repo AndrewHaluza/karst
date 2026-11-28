@@ -4,6 +4,8 @@ import { manifest, repo, runnableRepo, svc, httpSlot, dependsOn } from '../manif
 import { openStore } from '../store/db.js';
 import { createWorktree } from './worktree.js';
 import { startResolvedService } from './startService.js';
+import { SpinError } from './preflight.js';
+import type { SandboxServiceRunner } from '../agent/sandboxServices.js';
 
 describe('expandEnvTokens', () => {
   const env = { PORT: '4001', HOST: '127.0.0.1' };
@@ -211,6 +213,102 @@ describe('spinTicket — multi-service repositories', () => {
       const calls = vi.mocked(startResolvedService).mock.calls.map((c) => c[0]);
       expect(calls.map((c) => c.name)).toEqual(['mono/api', 'mono/web']);
       expect(calls.map((c) => c.cwd)).toEqual([WT, WT]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('spinTicket — remote service ports (D823)', () => {
+  const sandboxOf = (probe?: SandboxServiceRunner['probeRemotePorts']) => ({
+    runner: { kind: 'ssh' as const, ...(probe ? { probeRemotePorts: probe } : {}) },
+    sandboxName: 'karst-abcd1234-7-claude',
+  });
+
+  function setup() {
+    const store = openStore(':memory:');
+    store.db.prepare('INSERT INTO tickets (id, key, title) VALUES (1, ?, ?)').run('K-1', 'remote');
+    const m = manifest({ api: runnableRepo({}, { repoPath: '/repos/api' }) }, { portRange: [4000, 4999] });
+    return { store, m };
+  }
+
+  beforeEach(() => {
+    vi.mocked(createWorktree).mockReset();
+    vi.mocked(startResolvedService).mockReset();
+    vi.mocked(createWorktree).mockReturnValue({ adopted: false, path: '/wt' } as unknown as ReturnType<typeof createWorktree>);
+    vi.mocked(startResolvedService).mockImplementation(async (args) => ({
+      id: 1, ticketId: args.ticketId, service: args.name, host: '127.0.0.1',
+      port: args.resolved.services[args.name]!.ports.http!, pid: 100, status: 'running',
+      logPath: '/logs/x.log', container: null,
+    }) as unknown as Awaited<ReturnType<typeof startResolvedService>>);
+  });
+
+  it('a busy remote port refuses the whole spin, before any worktree or service', async () => {
+    const { store, m } = setup();
+    try {
+      let probed: readonly number[] = [];
+      const probe = (ports: readonly number[]): Promise<number[]> => {
+        probed = ports;
+        return Promise.resolve([...ports]);
+      };
+      const err = await spinTicket(store, m, 1, ['api'], {
+        probeBusyPorts: async () => new Set(), sandbox: sandboxOf(probe),
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SpinError);
+      expect((err as Error).message).toBe(`ssh: remote port ${probed[0]} in use`);
+      expect(probed).toHaveLength(1);
+      expect(createWorktree).not.toHaveBeenCalled();
+      expect(startResolvedService).not.toHaveBeenCalled();
+      expect(store.db.prepare('SELECT COUNT(*) AS n FROM servers').get()).toEqual({ n: 0 });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('free remote ports let the spin start its services', async () => {
+    const { store, m } = setup();
+    try {
+      const probe = vi.fn((_ports: readonly number[]) => Promise.resolve<number[]>([]));
+      await spinTicket(store, m, 1, ['api'], { probeBusyPorts: async () => new Set(), sandbox: sandboxOf(probe) });
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(probe.mock.calls[0]![0]).toHaveLength(1);
+      expect(startResolvedService).toHaveBeenCalledTimes(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('a probe that cannot run refuses with its reason and starts nothing', async () => {
+    const { store, m } = setup();
+    try {
+      const probe = () => Promise.reject(new Error('ssh box: transport failed during the port probe'));
+      await expect(spinTicket(store, m, 1, ['api'], {
+        probeBusyPorts: async () => new Set(), sandbox: sandboxOf(probe),
+      })).rejects.toThrow('ssh box: transport failed during the port probe');
+      expect(startResolvedService).not.toHaveBeenCalled();
+      expect(store.db.prepare('SELECT COUNT(*) AS n FROM servers').get()).toEqual({ n: 0 });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('a sandbox runner without the probe is unchanged', async () => {
+    const { store, m } = setup();
+    try {
+      await spinTicket(store, m, 1, ['api'], { probeBusyPorts: async () => new Set(), sandbox: sandboxOf() });
+      expect(startResolvedService).toHaveBeenCalledTimes(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('does not probe a port of a service that declares sandbox: host', async () => {
+    const { store } = setup();
+    try {
+      const m = manifest({ api: runnableRepo({ sandbox: 'host' }, { repoPath: '/repos/api' }) }, { portRange: [4000, 4999] });
+      const probe = vi.fn(() => Promise.resolve([]));
+      await spinTicket(store, m, 1, ['api'], { probeBusyPorts: async () => new Set(), sandbox: sandboxOf(probe) });
+      expect(probe).not.toHaveBeenCalled();
     } finally {
       store.close();
     }

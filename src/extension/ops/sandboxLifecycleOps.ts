@@ -1,4 +1,4 @@
-import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
+import { inventorySshDeps, listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
 import { plural, reasonText } from '../../model/notifyText.js';
 import { SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../../agent/sbx/sbxProcess.js';
@@ -8,6 +8,8 @@ import { disposeFailures, disposeResult, disposeStep, type DisposeResult } from 
 import type { SessionRunner, SandboxTicketRef } from '../../agent/sessionRunner.js';
 import type { SbxGrantReleaser } from './sbxLaunchOauth.js';
 import { ensureSandboxSynced, probeOf, sandboxRunnerFor, type SandboxSyncDeps, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { sshPlacementTarget } from './sshPlacementOps.js';
+import { sshRunnerFor } from './sshRunnerFor.js';
 
 /** A modal choice; `undefined` = dismissed (treated as the safe default). */
 export type Choose = (message: string, choices: readonly string[]) => Promise<string | undefined>;
@@ -52,10 +54,11 @@ export function listingFailedFor(errors: readonly string[], kind: BackendKind, r
   return errors.some((e) => e.startsWith(prefix));
 }
 
-/** This project's sandboxes through the same process seams the runners use. */
-export function inventoryOf(deps: Pick<SandboxSyncDeps, 'projectRoot' | 'proc' | 'dockerProc'>): Promise<SandboxInventory> {
+/** This project's sandboxes through the same process seams the runners use, ssh remotes included (D824). */
+export function inventoryOf(deps: Pick<SandboxSyncDeps, 'projectRoot' | 'proc' | 'dockerProc' | 'sshRunner'>): Promise<SandboxInventory> {
   return listProjectSandboxes({
     projectRoot: deps.projectRoot, sbx: deps.proc ?? NODE_SBX_PROCESS, docker: deps.dockerProc ?? NODE_DOCKER_PROCESS,
+    ...inventorySshDeps(deps.sshRunner),
   });
 }
 
@@ -68,10 +71,15 @@ export async function removeVerified(
   deps: SandboxLifecycleDeps,
   dispose: () => Promise<DisposeResult>,
   stillListed: (s: ProjectSandbox) => boolean,
+  /** The remote whose listing verifies the removal: when that listing fails, an absent box proves nothing. */
+  sshRemote?: string,
 ): Promise<DisposeResult> {
   const result = await dispose();
   if (!result.ok) return result;
   const inv = await inventoryOf(deps);
+  if (sshRemote !== undefined && listingFailedFor(inv.errors, 'ssh', sshRemote)) {
+    return disposeResult([...result.steps, { step: 'inventory', status: 'failed', stderr: `removal not verified: the listing of ssh remote ${sshRemote} failed` }]);
+  }
   if (!inv.sandboxes.some(stillListed)) return result;
   return disposeResult([...result.steps, { step: 'inventory', status: 'failed', stderr: 'still listed after removal' }]);
 }
@@ -114,27 +122,48 @@ export async function removeSandboxGuarded(
   opts: { readonly skipSync?: boolean } = {},
 ): Promise<boolean> {
   const inv = await inventoryOf(deps);
-  const boxes = inv.sandboxes.filter((s) => s.ticketId === target.ticketId);
+  // A forgotten remote workspace is never removed here: only its Delete action does that (D830).
+  const boxes = inv.sandboxes.filter((s) => s.ticketId === target.ticketId && s.stray !== true);
   const placement = deps.placementOf(target.ticketId);
+  /** Indexes of the boxes no listing showed (the recorded ssh placement's box). */
+  const unlisted = new Set<number>();
   // No listing shows an ssh sandbox: the recorded placement names it, and its runner's probe decides (D826).
+  // A FORGOTTEN workspace (open stray record) is never removed by the normal guarded path (D830 Delete owns it).
   if (placement?.backend === 'ssh') {
-    // Stryker disable next-line StringLiteral,LogicalOperator: equivalent, the placement's ssh runner removes it and reads none of these fields
-    boxes.push({ runner: 'ssh', name: placement.sandboxName ?? '', ticketId: target.ticketId, core: placement.core ?? target.core ?? '', state: 'stopped' });
+    const sshTarget = sshPlacementTarget(placement);
+    const forgotten = sshTarget !== undefined && inv.sandboxes.some(
+      (s) => s.stray === true && s.runner === 'ssh' && s.remote === sshTarget.remote && s.name === sshTarget.sandboxName,
+    );
+    // A listed box is already in `boxes`: a second (unlisted) copy would probe and remove it twice.
+    const listed = sshTarget !== undefined && boxes.some(
+      (s) => s.runner === 'ssh' && s.remote === sshTarget.remote && s.name === sshTarget.sandboxName,
+    );
+    if (!forgotten && !listed) {
+      // Stryker disable next-line StringLiteral,LogicalOperator: equivalent, the placement's ssh runner removes it and reads none of these fields
+      unlisted.add(boxes.push({
+        // Stryker disable next-line StringLiteral: equivalent, a box with no remote fails as "names no remote" and its name is never read
+        runner: 'ssh', name: sshTarget?.sandboxName ?? placement.sandboxName ?? '', ticketId: target.ticketId,
+        // Stryker disable next-line StringLiteral: equivalent, the removal never reads the state of a pushed box
+        core: placement.core ?? target.core ?? '', state: 'stopped', ...(sshTarget === undefined ? {} : { remote: sshTarget.remote }),
+      }) - 1);
+    }
   }
   // A failed listing proves nothing gone: fall back to the recorded placement, else the ticket's current core. Callers skip a recorded-host ticket first (arch:AC-32).
   const kind = placement?.backend ?? sandboxKindOfCore(target.core);
-  // An ssh placement always pushed its box above, so `kind` is never ssh here.
-  if (boxes.length === 0 && kind !== 'host' && inv.errors.length > 0) {
-    // Stryker disable next-line StringLiteral: equivalent, the removal reads only the runner and core of a fallback box
-    boxes.push({ runner: kind, name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
+  // An ssh placement pushed its box above (unless it is a forgotten stray), so `kind` is never ssh here.
+  // Only the ticket's OWN runner's failure counts (T801): an ssh remote that is down or unconfirmed proves nothing about an sbx/docker box.
+  if (boxes.length === 0 && kind !== 'ssh' && listingFailedFor(inv.errors, kind)) {
+    // `listingFailedFor` is false for 'host', so the host check only narrows the type.
+    // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent, the host check never decides; the removal reads only the runner and core of a fallback box
+    if (kind !== 'host') boxes.push({ runner: kind, name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
   }
   if (boxes.length === 0) return true;
   if (!deps.owns(target.ticketId)) {
     deps.notify.warn(`The sandbox of ${target.ticketLabel} stays. Another window owns the ticket.`);
     return false;
   }
-  for (const box of boxes) {
-    if (!(await removeOneGuarded(deps, { ...target, core: box.core }, box, opts))) return false;
+  for (const [i, box] of boxes.entries()) {
+    if (!(await removeOneGuarded(deps, { ...target, core: box.core }, box, opts, !unlisted.has(i)))) return false;
   }
   try {
     await deps.bridges?.dispose(target.ticketId);
@@ -160,11 +189,42 @@ export function depsForListedBox(deps: SandboxLifecycleDeps, box: Pick<ProjectSa
   return box.runner === 'ssh' ? deps : listedBoxDeps(deps);
 }
 
+/**
+ * The ssh runner of a LISTED remote box (`runner: 'ssh'`), built from its
+ * `remote` and name through the D826 factory: the trust check and every other
+ * refusal apply here too. A box with no `remote` (a malformed placement) goes
+ * through the placement, so it still refuses with a reason.
+ *
+ * A listed box is removed by name, so a ticket whose worktree record is already
+ * gone must still be removable: the project root stands in for the never-read
+ * gate cwd (this runner only disposes, probes or syncs the ref it is handed).
+ */
+function listedSshRunner(deps: SandboxLifecycleDeps, box: Pick<ProjectSandbox, 'remote' | 'name' | 'core' | 'ticketId'>): SessionRunner | undefined {
+  const remote = box.remote;
+  if (remote === undefined) return undefined;
+  return sshRunnerFor(deps.sshRunner, { backend: 'ssh', core: box.core, sandboxName: `${remote}/${box.name}`, reason: null }, {
+    ticketId: box.ticketId, projectRoot: deps.projectRoot, hostWorktreePath: deps.worktreeOf?.(box.ticketId) ?? deps.projectRoot,
+  });
+}
+
+/** A listed ssh box's guarded removal, verified by a fresh listing of the SAME remote (D826). */
+function removeListedSshBox(deps: SandboxLifecycleDeps, box: Pick<ProjectSandbox, 'remote' | 'name' | 'core' | 'ticketId'>): Promise<DisposeResult> {
+  const runner = listedSshRunner(deps, box);
+  // Stryker disable next-line ObjectLiteral,LogicalOperator,StringLiteral: equivalent, the ssh dispose reads neither the host worktree nor the branch
+  const ref: SandboxTicketRef = { hostWorktreePath: deps.worktreeOf?.(box.ticketId) ?? '', branch: '' };
+  if (runner === undefined) {
+    return Promise.resolve(disposeResult([{ step: 'ssh', status: 'failed', stderr: `ssh: the listed box ${box.name} names no remote` }]));
+  }
+  return removeVerified(deps, () => runner.dispose!(ref), (s) => s.runner === 'ssh' && s.remote === box.remote && s.name === box.name, box.remote);
+}
+
 async function removeOneGuarded(
   deps: SandboxLifecycleDeps,
   target: SandboxSyncTarget,
   box: ProjectSandbox,
   opts: { readonly skipSync?: boolean },
+  /** A listing showed this box (false: only the recorded placement names it). */
+  listed: boolean,
 ): Promise<boolean> {
   const branch = target.worktree?.branch;
   const ref = { hostWorktreePath: target.worktree?.path ?? '', branch: branch ?? '' };
@@ -173,21 +233,32 @@ async function removeOneGuarded(
       await removeInvalidCoreSandbox(deps, box);
       return true;
     }
-    // A listed sbx or docker box is removed by its own runner, even when the placement says ssh (a box left from before).
-    const runner = sandboxRunnerFor(depsForListedBox(deps, box), target.core, target.ticketId);
+    // A listed ssh box is removed by the runner of its OWN remote (D826); a malformed placement falls back to its refusal.
+    const runner = box.runner === 'ssh' && box.remote !== undefined
+      ? listedSshRunner(deps, box)
+      : sandboxRunnerFor(depsForListedBox(deps, box), target.core, target.ticketId);
     if (!runner) return true;
+    // `listedSsh`: the listing saw the workspace dir, so it is removed even when the probe finds no clone in it.
+    const listedSsh = box.runner === 'ssh' && box.remote !== undefined && listed;
+    let noClone = false;
     if (box.runner === 'ssh') {
       const probe = await probeOf(runner);
-      if (probe.state === 'absent') return true;
+      // An unlisted (placement-only) box with no clone has nothing to remove.
+      if (probe.state === 'absent' && !listedSsh) return true;
+      // A listed dir with no clone (a half-made workspace) has no commits to sync.
+      noClone = probe.state === 'absent';
     }
-    const synced = opts.skipSync ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
+    const synced = opts.skipSync || noClone ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
     if (!synced.ok && !(await confirmUnsynced(deps, target, synced.reason))) {
       deps.notify.warn(`The sandbox of ${target.ticketLabel} stays. You did not confirm the removal.`);
       return false;
     }
-    const removal = box.runner === 'ssh'
-      ? await removeSshVerified(runner, ref)
-      : await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
+    const removal = listedSsh
+      // The probe reads `repo/.git`, so it cannot verify the removal of a dir without one: a fresh listing of the same remote does.
+      ? await removeVerified(deps, () => runner.dispose!(ref), (s) => s.runner === 'ssh' && s.remote === box.remote && s.name === box.name, box.remote)
+      : box.runner === 'ssh'
+        ? await removeSshVerified(runner, ref)
+        : await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
     if (!removal.ok) {
       // Keep the bridge dir and clone record: the Remove affordance retries against them.
       await deps.notify.error(`The sandbox of ${target.ticketLabel} was not removed (${disposeFailures(removal)}). The sandbox and its evidence folder stay. Remove the sandbox again to retry.`);
@@ -244,7 +315,7 @@ export async function removeDoneMergedSandboxes(
   const inv = await inventoryOf(deps);
   let removed = 0;
   for (const box of inv.sandboxes) {
-    if (box.invalidCore === true || !doneMerged.has(box.ticketId) || !deps.owns(box.ticketId)) continue;
+    if (box.invalidCore === true || box.stray === true || !doneMerged.has(box.ticketId) || !deps.owns(box.ticketId)) continue;
     const target = targetOf(box.ticketId, box.core);
     if (target.worktree === undefined) debug(`karst: ${target.ticketLabel} has no clone record; removing sandbox ${box.name} by name, skipping the git remote step`);
     if (await removeSandboxGuarded(deps, target, { skipSync: true })) removed += 1;
@@ -275,6 +346,8 @@ export interface ReconcileTicket {
   readonly sessionProvider: string | null;
   /** The recorded placement backend; `null`/absent = none recorded, so the core's sandbox kind is the fallback. */
   readonly placementBackend?: BackendKind | null;
+  /** The `remotes.<name>` of a recorded ssh placement; absent/`null` = unknown, so a missing box proves nothing (D824). */
+  readonly placementRemote?: string | null;
 }
 
 export interface ReconcileResult {
@@ -299,23 +372,32 @@ export function reconcileSandboxes(
   clearSession: (ticketId: number) => void,
 ): ReconcileResult {
   const liveIds = new Set(live.map((t) => t.id));
-  const listed = (kind: BackendKind): boolean => !listingFailedFor(inv.errors, kind);
+  const listed = (kind: BackendKind, remote?: string): boolean => !listingFailedFor(inv.errors, kind, remote);
   const running: number[] = [], stopped: number[] = [], missing: number[] = [];
   for (const t of live) {
     if (!owns(t.id)) continue;
-    const box = inv.sandboxes.find((s) => s.ticketId === t.id && s.core === t.sessionProvider);
+    const box = inv.sandboxes.find((s) => s.ticketId === t.id && s.stray !== true && s.core === t.sessionProvider);
     if (box) (box.state === 'running' ? running : stopped).push(t.id);
     else {
       // Recorded placement decides (arch:AC-32); a core only tells which sandbox kind it would use.
       const kind = t.placementBackend ?? sandboxKindOfCore(t.sessionProvider);
-      // No ssh inventory exists yet (T1387, D826): a recorded ssh placement proves nothing missing.
-      if (kind !== 'host' && kind !== 'ssh' && t.sessionId !== null && listed(kind)) {
+      // An ssh listing is per remote: only the ticket's OWN remote can prove its workspace missing. A failed
+      // or unconfirmed remote is unknown and keeps the session (D824: never treat unreachable as absent).
+      const remote = t.placementRemote;
+      if (kind === 'ssh') {
+        if (remote != null && t.sessionId !== null && listed('ssh', remote)) {
+          clearSession(t.id);
+          missing.push(t.id);
+        }
+        continue;
+      }
+      if (kind !== 'host' && t.sessionId !== null && listed(kind)) {
         clearSession(t.id);
         missing.push(t.id);
       }
     }
   }
-  return { running, stopped, missing, orphans: inv.sandboxes.filter((s) => s.invalidCore === true || !liveIds.has(s.ticketId)) };
+  return { running, stopped, missing, orphans: inv.sandboxes.filter((s) => s.stray !== true && (s.invalidCore === true || !liveIds.has(s.ticketId))) };
 }
 
 export interface IdleTicket {
@@ -328,6 +410,8 @@ export interface IdleTicket {
 /**
  * Running sandboxes to stop for idleness: owned by this window, live ticket,
  * no open session, ticket untouched longer than the threshold. Stop, never remove.
+ * A gate in flight for the ticket defers the stop: it would kill the gate's
+ * process group (T1008), which reads as a gate failure no commit can fix.
  */
 export function idleSandboxes(
   inv: SandboxInventory,
@@ -335,13 +419,20 @@ export function idleSandboxes(
   owns: (ticketId: number) => boolean,
   nowMs: number,
   thresholdMs: number,
+  gateRunning?: (ticketId: number) => boolean,
 ): ProjectSandbox[] {
   const idle = new Set(tickets.filter((t) => !t.sessionOpen && nowMs - t.updatedAtMs > thresholdMs).map((t) => t.id));
-  return inv.sandboxes.filter((s) => s.state === 'running' && idle.has(s.ticketId) && owns(s.ticketId));
+  return inv.sandboxes.filter((s) => s.stray !== true && s.state === 'running' && idle.has(s.ticketId) && owns(s.ticketId) && gateRunning?.(s.ticketId) !== true);
 }
 
 /** A sandbox named for a core no runner hosts has no runner to dispose it: remove the named object directly. */
 async function removeInvalidCoreSandbox(deps: SandboxLifecycleDeps, o: ProjectSandbox): Promise<void> {
+  // An ssh box is removed on its remote by its own guarded dispose, never by `docker rm` or `sbx rm` (D824).
+  if (o.runner === 'ssh') {
+    const removal = await removeListedSshBox(deps, o);
+    if (!removal.ok) throw new Error(disposeFailures(removal));
+    return;
+  }
   if (o.runner === 'sbx') await deps.releaseGrant?.(o.name);
   const removal = await removeVerified(deps, async () => {
     if (o.runner === 'sbx') return disposeResult([disposeStep('sbx rm', await (deps.proc ?? NODE_SBX_PROCESS).run('sbx', ['rm', '--force', o.name]))]);
@@ -354,23 +445,32 @@ async function removeInvalidCoreSandbox(deps: SandboxLifecycleDeps, o: ProjectSa
   if (!removal.ok) throw new Error(disposeFailures(removal));
 }
 
+/** An orphan in a confirm or a warning: an ssh box also names its remote, because one name can exist on two remotes. */
+function orphanLabel(o: ProjectSandbox): string {
+  return o.remote === undefined ? o.name : `${o.name} on ${o.remote}`;
+}
+
 /** `karst.sandbox.cleanupOrphans`: remove this project's orphan sandboxes, only on confirmation. */
 export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds: ReadonlySet<number>): Promise<number> {
   const inv = await inventoryOf(deps);
-  const orphans = inv.sandboxes.filter((s) => s.invalidCore === true || !liveTicketIds.has(s.ticketId));
+  const orphans = inv.sandboxes.filter((s) => s.stray !== true && (s.invalidCore === true || !liveTicketIds.has(s.ticketId)));
   if (orphans.length === 0) {
     deps.notify.info('This project has no orphan sandboxes.');
     return 0;
   }
   const choice = await deps.choose(
-    `Remove ${plural(orphans.length, 'orphan sandbox', 'orphan sandboxes')} of this project? ${orphans.map((o) => o.name).join(', ')}`,
+    `Remove ${plural(orphans.length, 'orphan sandbox', 'orphan sandboxes')} of this project? ${orphans.map(orphanLabel).join(', ')}`,
     [REMOVE_ORPHANS, CANCEL],
   );
   if (choice !== REMOVE_ORPHANS) return 0;
   let removed = 0;
   for (const o of orphans) {
     try {
-      if (o.invalidCore) await removeInvalidCoreSandbox(deps, o);
+      if (o.runner === 'ssh') {
+        // A listed ssh orphan goes to the ssh runner of its own remote, never to `docker rm` or `sbx rm` (D824).
+        const removal = await removeListedSshBox(deps, o);
+        if (!removal.ok) throw new Error(disposeFailures(removal));
+      } else if (o.invalidCore) await removeInvalidCoreSandbox(deps, o);
       else {
         // A listed orphan is removed by its own runner, never by the placement's (D826).
         // Stryker disable next-line StringLiteral: equivalent, a removal reads no branch
@@ -381,7 +481,7 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
       await deps.bridges?.dispose(o.ticketId);
       removed += 1;
     } catch (err) {
-      deps.notify.warn(`The orphan sandbox ${o.name} was not removed: ${reasonText(err)}`);
+      deps.notify.warn(`The orphan sandbox ${orphanLabel(o)} was not removed: ${reasonText(err)}`);
     }
   }
   deps.notify.info(`Removed ${plural(removed, 'orphan sandbox', 'orphan sandboxes')}.`);

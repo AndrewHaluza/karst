@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { Manifest } from '../../manifest/types.js';
-import { backendForCore, selectedSandboxBackends, type AgentBackends } from '../../agent/backendChoices.js';
+import { backendForCore, parseSshBackend, selectedSandboxBackends, type AgentBackends } from '../../agent/backendChoices.js';
 import type { Store } from '../../store/db.js';
 import { bridgePaths, type BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { isDockerCore } from '../../agent/docker/dockerImage.js';
@@ -18,7 +18,7 @@ import { resolveSbxMemory } from '../../agent/sbx/sbxMemory.js';
 import { availableParallelism, totalmem } from 'node:os';
 import { withGateSlot, type GateSlotDeps } from './gateSlotOps.js';
 import { dockerKillContext } from '../../agent/backendProbe.js';
-import { listProjectSandboxes, type ProjectSandbox } from '../../agent/sandboxInventory.js';
+import { listProjectSandboxes, inventorySshDeps, type ProjectSandbox } from '../../agent/sandboxInventory.js';
 import type { SandboxChannel } from '../../workflow/messageDelivery.js';
 import { assertNoSandboxResumeOnHost } from '../../agent/sandboxResumeGuard.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
@@ -40,8 +40,9 @@ import { ticketToastLabel } from '../ticketToastLabel.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
 import { hasRunningHostPlacedServices, hasRunningHostServices, resetHostServices } from './hostUserUat.js';
-import { blockedSshRunner } from './sshPlacementOps.js';
+import { blockedSshRunner, sshPlacementTarget } from './sshPlacementOps.js';
 import { sshDockerKillContextFor, sshRunnerFor, type SshRunnerDeps } from './sshRunnerFor.js';
+import { hasRunningSandboxService } from './sshTunnelReattach.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -89,6 +90,12 @@ export interface TicketSandboxDeps {
   readonly dockerProc?: DockerProcess;
   readonly platform?: NodeJS.Platform;
   readonly debug?: (message: string) => void;
+  /**
+   * True when this window controls the ticket (its own session or autopilot
+   * run). An ssh reattach re-opens host tunnels, so only the controlling
+   * window does it (D823). Absent = every ticket is allowed (tests, one window).
+   */
+  readonly controls?: (ticketId: number) => boolean;
   /** Non-blocking user warning (bound from `notify.warn`, deduped): a lockfile repo with no `sandbox.setup` (arch:AC-40). */
   readonly warn?: (message: string) => void;
 }
@@ -158,7 +165,9 @@ export async function resolveTicketSandbox(deps: TicketSandboxDeps, ticketId: nu
       deps.debug?.(`[sandbox] ticket ${ticketId}: listing failed (${listingError}); using the session provider`);
       return [] as readonly ProjectSandbox[];
     });
-    listed = pickTicketSandbox(all, ticketId, hint, (m) => deps.debug?.(`[sandbox] ${m}`));
+    const sshTarget = sshPlacementTarget(placement);
+    listed = pickTicketSandbox(all, ticketId, hint, (m) => deps.debug?.(`[sandbox] ${m}`),
+      sshTarget === undefined ? undefined : { remote: sshTarget.remote, name: sshTarget.sandboxName });
     deps.remember?.(ticketId, listed?.core ?? null);
   }
   const core = listed?.core ?? hint;
@@ -292,6 +301,11 @@ export async function reattachTicketSandbox(
   ticketId: number,
   isHealthy: (row: { repo: string; port: number }) => Promise<boolean>,
 ): Promise<ReverifyResult | null> {
+  // Tunnels belong to one window: another window's ticket keeps the tunnels its own window holds.
+  if (deps.placementOf?.(ticketId)?.backend === 'ssh' && deps.controls?.(ticketId) === false) {
+    deps.debug?.(`[runtime] ticket ${ticketId}: ssh reattach skipped: this window does not control the ticket`);
+    return null;
+  }
   const ctx = await ticketSandboxContext(deps, ticketId);
   if (!ctx) return null;
   const allow = await allowBaselineHostPorts(ctx.runner, baselineHostPorts(manifest, ticketBaselineKeys(store, ticketId)));
@@ -346,6 +360,19 @@ export function withSandboxSpin<S, M, O extends object, R>(
   };
 }
 
+/**
+ * The remote of a ticket's own ssh workspace: the recorded placement decides (D827: a ticket can select a remote
+ * no core selects); with no placement or no recorded name, the remote that the core selects. Undefined for a non-ssh ticket.
+ */
+export function ticketSshRemote(placement: TicketPlacement | null, backends: AgentBackends | undefined, core: string | null): string | undefined {
+  if (placement !== null && placement.backend !== 'ssh') return undefined;
+  const recorded = sshPlacementTarget(placement)?.remote;
+  if (recorded !== undefined) return recorded;
+  // An ssh placement without a workspace name yet: its core still names the remote. No core selects nothing ('' is host).
+  // Stryker disable next-line StringLiteral: equivalent, any name that no core has selects host
+  return parseSshBackend(backendForCore(backends, placement?.core ?? core ?? ''));
+}
+
 export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bridgeOf'> {
   /** The bridge registry's root once the hook endpoint is bound. */
   readonly bridgeRoot: () => string | undefined;
@@ -367,19 +394,25 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   const cores = new Map<number, string>();
   let memTotal: number | undefined;
   let memProbe: Promise<void> | undefined;
+  const placementOf = input.placementOf ?? ((ticketId: number) => getPlacement(input.store, ticketId));
   const deps: TicketSandboxDeps = {
     ...input,
     ...(input.notify ? { warn: onceByMessage((m) => input.notify!.warn(m)) } : {}),
     // The listing's answer wins over the (possibly null) session provider for every sync reader too.
     coreOf: (ticketId) => cores.get(ticketId) ?? input.coreOf(ticketId),
-    placementOf: input.placementOf ?? ((ticketId) => getPlacement(input.store, ticketId)),
+    placementOf,
     inventory: input.inventory ?? (async (ticketId) => {
       const inv = await listProjectSandboxes({
         projectRoot: input.projectRoot(ticketId), sbx: input.proc ?? NODE_SBX_PROCESS, docker: input.dockerProc ?? NODE_DOCKER_PROCESS,
+        ...inventorySshDeps(input.sshRunner),
       });
       // A configured runner that could not list may be the one holding this ticket's sandbox: not "none" (arch:AC-39).
-      const wanted = selectedSandboxBackends(input.backends());
-      const failed = inv.errors.filter((e) => wanted.some((kind) => e.startsWith(`${kind} `)));
+      // An ssh listing is per remote: only the ticket's OWN remote counts (T801), never a remote another core selects.
+      const wanted = selectedSandboxBackends(input.backends()).filter((kind) => kind !== 'ssh');
+      const ownRemote = ticketSshRemote(placementOf(ticketId), input.backends(), deps.coreOf(ticketId));
+      // Stryker disable next-line ConditionalExpression: equivalent, no listing error starts with "ssh undefined:"
+      const ownRemoteFailed = (e: string): boolean => ownRemote !== undefined && e.startsWith(`ssh ${ownRemote}:`);
+      const failed = inv.errors.filter((e) => wanted.some((kind) => e.startsWith(`${kind} `)) || ownRemoteFailed(e));
       if (failed.length > 0 && !inv.sandboxes.some((b) => b.ticketId === ticketId)) throw new Error(failed.join('; '));
       return inv.sandboxes;
     }),
@@ -454,7 +487,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         const sandboxed = ticketSandboxRunner(deps, ticketId) !== undefined;
         return (
           (sandboxed &&
-            (input.store.db.prepare("SELECT 1 FROM servers WHERE ticket_id = ? AND status = 'running' AND sandbox IS NOT NULL").get(ticketId) !== undefined ||
+            (hasRunningSandboxService(input.store, ticketId) ||
               hasRunningHostPlacedServices(input.store, ticketId, isHostPlaced))) ||
           (manifest?.uat?.keepStackForUser === true && hasRunningHostServices(input.store, ticketId))
         );

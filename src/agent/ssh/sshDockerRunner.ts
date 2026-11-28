@@ -40,6 +40,8 @@ import { disposeTarget } from './sshDisposeGuard.js';
 import { remoteEnv } from './sshEnv.js';
 import { SSH_BIN, sshArgv, type SshProcess } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
+import { defaultSshTunnels } from './sshServices.js';
+import { TunnelOpenError, tunnelLKey, tunnelListing, type TunnelRegistry } from './sshTunnels.js';
 
 /**
  * The `mode: docker` ssh runner (D822, edits 3, 8, 9, 9a, 10, 12, 13).
@@ -121,6 +123,9 @@ export interface SshDockerRunnerOptions {
   /** The host gate boundary `sshDockerGateProcess` wraps (default `runProcess`). */
   readonly gateProcess?: GateProcessRunner;
   readonly newRunId?: () => string;
+  /** The window's tunnel registry (D823); default `windowTunnelRegistry` over `opts.ssh`. */
+  readonly tunnels?: TunnelRegistry;
+  readonly warn?: (message: string) => void;
   readonly debug?: (message: string) => void;
 }
 
@@ -138,6 +143,9 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
   const workspace = `${remoteDir}/${opts.names.container}`;
   const mountRoot = sshDockerMountRoot(remoteDir, opts.names.container, opts.ticketId);
   const envFile = `${workspace}/env/docker.env`;
+  const tunnels = opts.tunnels ?? defaultSshTunnels(opts.ssh, opts);
+  const tunnelKey = (hostPort: number): string => tunnelLKey(opts.names.container, hostPort);
+  const closeTunnels = (): Promise<void> => tunnels.closeSandbox(opts.names.container);
   /** Where the AGENT sees the bridge dir (the mount target, identical to local docker). */
   const evidenceDir = `${SANDBOX_BRIDGE_MOUNT_ROOT}/${opts.ticketId}`;
   const dockerProc = sshDockerProcess(opts.remote, opts.ssh, { controlDir: opts.controlDir, sshBin });
@@ -232,17 +240,49 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
       if (!res.ok) return res;
       return { ok: true, cmd: sshBin, args: sshDockerArgv(opts.remote, opts.controlDir, res.args, { flags: ['-t'] }) };
     },
-    // The relay listens on the REMOTE loopback; the ssh tunnel carries it to the host.
+    // The relay listens on the REMOTE loopback; a host `-L` tunnel carries it to the host loopback.
+    // The tunnel opens FIRST (D823): a host port that another window's `-L` holds fails here,
+    // before `publishRelay` (rm, then run) can replace the relay that the other tunnel serves.
+    // A failed relay closes only the tunnel that this call opened.
     publishPort: async (mapping): Promise<PublishResult> => {
+      const key = tunnelKey(mapping.hostPort);
+      try {
+        await tunnels.openL(key, {
+          remote: opts.remote, controlDir: opts.controlDir, hostPort: mapping.hostPort, remotePort: mapping.hostPort,
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return { ok: false, reason, portTaken: err instanceof TunnelOpenError && err.portTaken };
+      }
       const res = await base.publishPort!(mapping);
-      return res.ok ? { ok: true, remotePort: mapping.hostPort } : res;
+      if (!res.ok) {
+        await tunnels.closeL(key);
+        return res;
+      }
+      return { ok: true, remotePort: mapping.hostPort };
     },
-    unpublishPort: (mapping) => base.unpublishPort!(mapping),
-    listPorts: () => base.listPorts!(),
+    unpublishPort: async (mapping): Promise<void> => {
+      await tunnels.closeL(tunnelKey(mapping.hostPort));
+      await base.unpublishPort!(mapping);
+    },
+    // A relay with no tunnel is not reachable from the host: leave it out, so a reverify republishes it.
+    // A relay with a tunnel carries the tunnel state and reason (a `down` one is republished too).
+    listPorts: async () => {
+      const relays = await base.listPorts!();
+      if (relays === null) return null;
+      const byPort = new Map(tunnels.forSandbox(opts.names.container).map((h) => [h.hostPort, h]));
+      return relays.flatMap((m) => {
+        const handle = byPort.get(m.hostPort);
+        return handle === undefined ? [] : [{ ...tunnelListing(handle), sandboxPort: m.sandboxPort }];
+      });
+    },
     hasSandbox: async (): Promise<boolean> => base.hasSandbox!(),
     probeSandbox: (): Promise<SandboxProbe> => base.probeSandbox!(),
     canHostServices: async (): Promise<boolean> => base.canHostServices!(),
-    stopServices: async (): Promise<void> => base.stopServices!(),
+    stopServices: async (): Promise<void> => {
+      await base.stopServices!();
+      await closeTunnels();
+    },
     stop: async (): Promise<void> => base.stop!(),
     runGate: base.runGate!,
     // A launch the guard discarded after this runner resolved must not leave the remote proxy up.
@@ -285,6 +325,7 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
         const reason = target.ok ? `ssh dispose: refused ${target.path} (not the workspace ${workspace})` : target.reason;
         return disposeResult([{ step: 'dispose guard', status: 'failed', stderr: reason }]);
       }
+      await closeTunnels();
       const dockerRes = await base.dispose!(ticket);
       const removed = await opts.ssh.run(
         sshArgv(opts.remote, opts.controlDir, `# karst-ssh-docker-dispose\nrm -rf -- ${sshQuote(target.path)}`),
