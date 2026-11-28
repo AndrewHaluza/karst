@@ -668,7 +668,7 @@ const headerVariants = (): Variant[] => {
     ...graphHigh(s),
     capabilityIdentity: {
       ...graphHigh(s).capabilityIdentity,
-      implementation: { provider: 'claude', model: 'claude-sonnet-5' },
+      implementation: { provider: 'claude', model: 'claude-sonnet-5', effort: null },
     },
     agentSwitch: {
       ...s.agentSwitch,
