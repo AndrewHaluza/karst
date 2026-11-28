@@ -403,12 +403,14 @@ describe('ssh docker: host -L tunnel over the remote relay (D823)', () => {
     expect(t.spawned).toHaveLength(0);
   });
 
-  it('unpublish closes the tunnel, then the relay; listPorts keeps only live tunnels', async () => {
+  it('unpublish closes the tunnel, then the relay; listPorts keeps only relays with a tunnel, with its state', async () => {
     const t = fakeTunnels();
     const ssh = fakeSshProcess({ '{{.Label': { stdout: '4100:3000\n4200:3001\n' } });
     const runner = makeRunner({ ssh, tunnels: t.registry });
     await runner.publishPort!({ hostPort: 4100, sandboxPort: 3000 });
-    expect(await runner.listPorts!()).toEqual([{ hostPort: 4100, sandboxPort: 3000 }]);
+    expect(await runner.listPorts!()).toEqual([{ hostPort: 4100, sandboxPort: 3000, state: 'up' }]);
+    await t.registry.forSandbox(CONTAINER)[0]!.close();
+    expect(await runner.listPorts!()).toEqual([{ hostPort: 4100, sandboxPort: 3000, state: 'down' }]);
     await runner.unpublishPort!({ hostPort: 4100, sandboxPort: 3000 });
     expect(t.spawned[0]!.kills).toBe(1);
     expect(await runner.listPorts!()).toEqual([]);

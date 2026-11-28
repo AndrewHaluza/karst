@@ -97,6 +97,15 @@ export interface PortMapping {
   readonly sandboxPort: number;
 }
 
+/**
+ * One `listPorts` row. A host tunnel (ssh) adds its `state`, and its `reason`
+ * while one is known; a runner without tunnels omits both (the row is live).
+ */
+export interface PortListing extends PortMapping {
+  readonly state?: 'up' | 'reconnecting' | 'down';
+  readonly reason?: string;
+}
+
 export type PublishResult =
   | {
       readonly ok: true;
@@ -238,7 +247,7 @@ export interface SessionRunner {
    */
   probeRemotePorts?(ports: readonly number[]): Promise<number[]>;
   /** Sandbox runners only: the live mappings; null when the sandbox cannot answer (not running). */
-  listPorts?(): Promise<readonly PortMapping[] | null>;
+  listPorts?(): Promise<readonly PortListing[] | null>;
   /** Sandbox runners only: let the sandbox reach exactly these host ports (baseline services). */
   allowHostPorts?(ports: readonly number[]): Promise<StepOutcome>;
   /**

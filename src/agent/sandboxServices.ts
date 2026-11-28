@@ -312,7 +312,8 @@ export async function reverifySandboxServices(
   const dropped: string[] = [];
   for (const row of rows) {
     const mapping = mappingOf(row);
-    const present = mapping !== null && live.some((m) => m.hostPort === mapping.hostPort && m.sandboxPort === mapping.sandboxPort);
+    // A `down` row is listed for the ports UI, but nothing reaches it: republish it.
+    const present = mapping !== null && live.some((m) => m.state !== 'down' && m.hostPort === mapping.hostPort && m.sandboxPort === mapping.sandboxPort);
     let reachable = mapping !== null;
     if (mapping && !present) {
       const r = await needs(runner, 'publishPort')(mapping);

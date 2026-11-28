@@ -41,7 +41,7 @@ import { remoteEnv } from './sshEnv.js';
 import { SSH_BIN, sshArgv, type SshProcess } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
 import { defaultSshTunnels } from './sshServices.js';
-import { TunnelOpenError, tunnelLKey, type TunnelRegistry } from './sshTunnels.js';
+import { TunnelOpenError, tunnelLKey, tunnelListing, type TunnelRegistry } from './sshTunnels.js';
 
 /**
  * The `mode: docker` ssh runner (D822, edits 3, 8, 9, 9a, 10, 12, 13).
@@ -259,12 +259,16 @@ export function createSshDockerSessionRunner(opts: SshDockerRunnerOptions): Sess
       await tunnels.closeL(tunnelKey(mapping.hostPort));
       await base.unpublishPort!(mapping);
     },
-    // A relay with no live tunnel is not reachable from the host: leave it out, so a reverify republishes it.
+    // A relay with no tunnel is not reachable from the host: leave it out, so a reverify republishes it.
+    // A relay with a tunnel carries the tunnel state and reason (a `down` one is republished too).
     listPorts: async () => {
       const relays = await base.listPorts!();
       if (relays === null) return null;
-      const live = new Set(tunnels.forSandbox(opts.names.container).filter((h) => h.state !== 'down').map((h) => h.hostPort));
-      return relays.filter((m) => live.has(m.hostPort));
+      const byPort = new Map(tunnels.forSandbox(opts.names.container).map((h) => [h.hostPort, h]));
+      return relays.flatMap((m) => {
+        const handle = byPort.get(m.hostPort);
+        return handle === undefined ? [] : [{ ...tunnelListing(handle), sandboxPort: m.sandboxPort }];
+      });
     },
     hasSandbox: async (): Promise<boolean> => base.hasSandbox!(),
     probeSandbox: (): Promise<SandboxProbe> => base.probeSandbox!(),

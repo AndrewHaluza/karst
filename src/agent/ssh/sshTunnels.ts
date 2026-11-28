@@ -23,6 +23,7 @@
  */
 import { connect as netConnect } from 'node:net';
 import type { RemoteDef } from '../../manifest/types.js';
+import type { PortListing } from '../sessionRunner.js';
 import { sshDest, sshOptions, type SshProcess } from './sshProcess.js';
 
 export type TunnelKind = 'L' | 'R';
@@ -698,6 +699,16 @@ export function createTunnelRegistry(deps: TunnelDeps): TunnelRegistry {
         }
       }
     },
+  };
+}
+
+/** A `listPorts` row for one `-L` handle: its ports, its state, and its reason while one is known. */
+export function tunnelListing(handle: TunnelHandle): PortListing {
+  return {
+    hostPort: handle.hostPort,
+    sandboxPort: handle.remotePort,
+    state: handle.state,
+    ...(handle.reason === undefined ? {} : { reason: handle.reason }),
   };
 }
 

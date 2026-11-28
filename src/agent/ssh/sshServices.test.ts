@@ -5,6 +5,7 @@ import { fakeSbxProcess } from '../sbx/fakeSbxProcess.js';
 import { START_SCRIPT_SD, serviceToken } from '../sandboxServices.js';
 import { fakeSshProcess, type FakeSshAnswer, type FakeSshProcess } from './fakeSshProcess.js';
 import { fakeTunnels, type FakeTunnels } from './fakeTunnels.js';
+import type { TunnelHandle, TunnelRegistry } from './sshTunnels.js';
 import { createSshGateRegistry } from './sshGateRegistry.js';
 import { createSshSessionRunner, type SshRunnerOptions } from './sshRunner.js';
 import {
@@ -68,9 +69,12 @@ describe('direct publishPort / unpublishPort / listPorts', () => {
     expect(flag(t.spawned[0]!.argv, '-L')).toBe('127.0.0.1:18080:127.0.0.1:8080');
     expect(t.spawned[0]!.argv.join(' ')).not.toContain('0.0.0.0');
     expect(t.registry.list(`${NAME}:L:`).map((h) => h.key).sort()).toEqual([`${NAME}:L:18080`, `${NAME}:L:18081`]);
-    expect(await r.listPorts!()).toEqual([{ hostPort: 18080, sandboxPort: 8080 }, { hostPort: 18081, sandboxPort: 8081 }]);
+    expect(await r.listPorts!()).toEqual([
+      { hostPort: 18080, sandboxPort: 8080, state: 'up' },
+      { hostPort: 18081, sandboxPort: 8081, state: 'up' },
+    ]);
     await r.unpublishPort!({ hostPort: 18080, sandboxPort: 8080 });
-    expect(await r.listPorts!()).toEqual([{ hostPort: 18081, sandboxPort: 8081 }]);
+    expect(await r.listPorts!()).toEqual([{ hostPort: 18081, sandboxPort: 8081, state: 'up' }]);
     expect(t.spawned[1]!.kills).toBe(0);
   });
 
@@ -91,13 +95,27 @@ describe('direct publishPort / unpublishPort / listPorts', () => {
     expect(squatted.registry.list(`${NAME}:L:`)).toEqual([]);
   });
 
-  it('listPorts is null when the probe is unknown, and leaves a down tunnel out', async () => {
+  it('listPorts is null when the probe is unknown, and lists a closed tunnel as down', async () => {
     const t = tunnels();
     expect(await runner(fakeSshProcess({ '# karst-ssh-probe': { code: 255, transport: true } }), t).listPorts!()).toBeNull();
     const r = runner(fakeSshProcess(present), t);
     await r.publishPort!({ hostPort: 18080, sandboxPort: 8080 });
     await t.registry.list(`${NAME}:L:`)[0]!.close();
-    expect(await r.listPorts!()).toEqual([]);
+    expect(await r.listPorts!()).toEqual([{ hostPort: 18080, sandboxPort: 8080, state: 'down' }]);
+  });
+
+  it('listPorts gives the state and the reason of a tunnel that gave up', async () => {
+    const t = tunnels();
+    const down: TunnelHandle = {
+      key: `${NAME}:L:18080`, kind: 'L', hostPort: 18080, remotePort: 8080, state: 'down',
+      reason: 'ssh: connect to host vm.example.com port 22: Connection timed out', close: () => Promise.resolve(),
+    };
+    const reconnecting: TunnelHandle = { ...down, key: `${NAME}:L:18081`, hostPort: 18081, remotePort: 8081, state: 'reconnecting', reason: undefined };
+    const registry: TunnelRegistry = { ...t.registry, forSandbox: (name) => (name === NAME ? [down, reconnecting] : []) };
+    expect(await runner(fakeSshProcess(present), { ...t, registry }).listPorts!()).toEqual([
+      { hostPort: 18080, sandboxPort: 8080, state: 'down', reason: 'ssh: connect to host vm.example.com port 22: Connection timed out' },
+      { hostPort: 18081, sandboxPort: 8081, state: 'reconnecting' },
+    ]);
   });
 });
 

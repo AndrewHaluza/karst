@@ -9,7 +9,7 @@ import type {
 } from '../sessionRunner.js';
 import { sshArgv, type SshProcess, type SshResult } from './sshProcess.js';
 import { sshQuote } from './sshQuote.js';
-import { createTunnelDeps, TunnelOpenError, tunnelLKey, tunnelRKey, windowTunnelRegistry, type TunnelRegistry } from './sshTunnels.js';
+import { createTunnelDeps, TunnelOpenError, tunnelLKey, tunnelListing, tunnelRKey, windowTunnelRegistry, type TunnelRegistry } from './sshTunnels.js';
 
 /**
  * The services, ports and network-window members of the `mode: direct` ssh
@@ -264,11 +264,8 @@ export function createSshServices(ctx: SshServicesContext): SshServiceMembers {
     unpublishPort: (mapping) => ctx.tunnels.closeL(tunnelLKey(ctx.sandboxName, mapping.hostPort)),
     listPorts: async () => {
       if ((await ctx.probe()).state === 'unknown') return null;
-      // A `down` tunnel is not live: leaving it out makes `reverifySandboxServices` republish it.
-      return ctx.tunnels
-        .forSandbox(ctx.sandboxName)
-        .filter((h) => h.state !== 'down')
-        .map((h) => ({ hostPort: h.hostPort, sandboxPort: h.remotePort }));
+      // A `down` tunnel stays listed with its reason; `reverifySandboxServices` republishes it.
+      return ctx.tunnels.forSandbox(ctx.sandboxName).map(tunnelListing);
     },
     stopServices: async () => {
       await killServices();

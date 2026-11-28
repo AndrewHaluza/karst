@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { openStore } from '../store/db.js';
 import type { GateProcessRunner, ProcessOutcome } from '../workflow/gates/run.js';
-import type { PortMapping, PublishResult } from './sessionRunner.js';
+import type { PortListing, PortMapping, PublishResult } from './sessionRunner.js';
 import {
   parseSandboxHandle, reverifySandboxServices, sandboxHandle, serviceToken, startSandboxService,
   START_SCRIPT, START_SCRIPT_SD, STOP_SCRIPT, STOP_SCRIPT_SD, stopSandboxService, stopTicketSandboxServices,
@@ -10,7 +10,7 @@ import {
 
 const OK: ProcessOutcome = { kind: 'completed', exitCode: 0, output: '' };
 
-function fakeRunner(opts: { publish?: PublishResult[]; start?: ProcessOutcome; live?: PortMapping[] | null } = {}) {
+function fakeRunner(opts: { publish?: PublishResult[]; start?: ProcessOutcome; live?: PortListing[] | null } = {}) {
   const published: PortMapping[] = [];
   const unpublished: PortMapping[] = [];
   const queue = [...(opts.publish ?? [])];
@@ -332,6 +332,13 @@ describe('stop, restart re-verify, cleanup', () => {
     await expect(reverifySandboxServices(store, 7, f.runner, () => Promise.resolve(true))).resolves.toEqual({ republished: ['api'], dropped: [] });
     expect(f.published).toEqual([{ hostPort: 4100, sandboxPort: 4100 }]);
     expect(rows(store)).toHaveLength(1);
+  });
+
+  it('republishes a listed mapping whose tunnel is down', async () => {
+    const { store } = await seeded();
+    const f = fakeRunner({ live: [{ hostPort: 4100, sandboxPort: 4100, state: 'down', reason: 'ssh: Connection timed out' }] });
+    await expect(reverifySandboxServices(store, 7, f.runner, () => Promise.resolve(true))).resolves.toEqual({ republished: ['api'], dropped: [] });
+    expect(f.published).toEqual([{ hostPort: 4100, sandboxPort: 4100 }]);
   });
 
   it('keeps a present mapping untouched and drops a row whose service is not healthy', async () => {
