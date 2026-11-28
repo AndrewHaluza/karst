@@ -236,6 +236,19 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     expect(info.mock.calls.map((c: unknown[]) => c[0]).join('\n')).toContain(`belongs to ticket ${gone}, which is not live`);
   });
 
+  it('reconcile with an ssh runner still drops the missing sbx session (a non-ssh placement asks no remote)', async () => {
+    const { projectId, a, b, proc, dockerProc } = live();
+    const logError = vi.fn();
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a, b]), proc, dockerProc, logError,
+      sshRunner: fakeSshRunnerDeps(fakeSshProcess({})),
+    });
+    await w.reconcile();
+    expect(getTicket(store, a).sessionId).toBe(`s${a}`);
+    expect(getTicket(store, b).sessionId).toBeNull();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
   it('orphan cleanup removes only the archived ticket sandbox after confirm', async () => {
     const { projectId, gone, proc, dockerProc } = live();
     const { w, choose } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc });
@@ -1415,9 +1428,23 @@ describe('makeSandboxWiring ssh lifecycle: palette, idle and recovery (D824)', (
 
   it('an ssh placement with no ssh runner keeps its session (no remote was listed)', async () => {
     const { projectId, a } = liveSsh();
-    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]) });
+    const logError = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]), logError });
     await w.reconcile();
     expect(getTicket(store, a).sessionId).toBe('s1');
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('an ssh placement when karst.yml declares no remotes keeps its session and logs no error', async () => {
+    const { projectId, a } = liveSsh();
+    const logError = vi.fn();
+    const { w } = wiring({
+      backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]), logError,
+      sshRunner: fakeSshRunnerDeps(fakeSshProcess({}), { remotes: () => undefined }),
+    });
+    await w.reconcile();
+    expect(getTicket(store, a).sessionId).toBe('s1');
+    expect(logError).not.toHaveBeenCalled();
   });
 
   it('the stray sweep reports a remote half-made workspace without removing it', async () => {
