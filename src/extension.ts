@@ -72,7 +72,7 @@ import { wireAccounts } from './extension/ops/accountsWiring.js';
 import { registerSbxOauth } from './extension/sbxOauthBinding.js';
 import { bindAccountsHost } from './extension/accountsHostBinding.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
-import { makeSshBridgeLifecycle } from './extension/ops/sshBridgeOps.js';
+import { wireSshBridge } from './extension/ops/sshBridgeWiring.js';
 import { hostRerunFor, makeRequestedRerunSweep, preBriefRerunFor } from './extension/ops/fixRerunOps.js';
 import { makeFixParkNotifier } from './extension/ops/fixParkNotify.js';
 import { ticketToastLabel } from './extension/ticketToastLabel.js';
@@ -361,12 +361,10 @@ import { isRemoteTrusted, readRemoteTrust } from './agent/ssh/remoteTrust.js';
 import { readExistingInstallId, readOrCreateInstallId } from './agent/ssh/sshNames.js';
 import type { SshRunnerDeps } from './extension/ops/sshRunnerFor.js';
 import { NODE_SSH_PROCESS } from './agent/ssh/sshProcess.js';
-import { ensureSshControlDir } from './agent/ssh/sshControlDir.js';
 import { createTunnelDeps, windowTunnelRegistry } from './agent/ssh/sshTunnels.js';
 import { hasRunningSandboxService, sshTunnelReattachTickets } from './extension/ops/sshTunnelReattach.js';
 import { confirmRemoteTrust, sshRemoteFor } from './extension/ops/sshTrustOps.js';
 import { liveRemoteSession, sshSessionQuotaLine } from './extension/ops/sshPlacementOps.js';
-import { makeTicketMirror, makeTicketMirrorDirs } from './extension/ops/sshMirrorFor.js';
 import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, wantsSandboxBackend, wantsSbxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
@@ -1225,7 +1223,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               at: nowIso(),
             });
             fixDelivery.recordSeed(ticketId, round.roundId, launchId);
-          })();          return;
+          })();
+          return;
         }
         recordSessionLaunchIntent(localStore, {
           ticketId,
@@ -1298,42 +1297,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sshTunnels = windowTunnelRegistry(createTunnelDeps(NODE_SSH_PROCESS, { warn: (m) => logger.warn(m), debug: (m) => logger.debug(m) })); sshTunnelsBinding = sshTunnels; // D823: deactivate awaits its closeAll
   context.subscriptions.push({ dispose: () => { sshTunnels.closeAll().catch((e: unknown) => logger.debug(`[ssh] tunnel close on dispose failed: ${e instanceof Error ? e.message : String(e)}`)); } });
   const sshRunnerDeps: SshRunnerDeps = { remotes: () => currentManifest()?.remotes, installId: () => sshInstallId, globalStorageDir: storageDir, tunnels: sshTunnels, info: (m) => logger.info(m), warn: (m) => logger.warn(m), debug: (m) => logger.debug(m) };
-  // D556 edit 6: the forwarder of an ssh ticket's evidence bridge lives in this
-  // window only; window close aborts every stream (and the offset file keeps the
-  // reconnect point for the next window).
-  const sshBridgeAbort = new AbortController();
-  const sshBridge = makeSshBridgeLifecycle({
-    bridgeRoot: () => bridgeRoot,
-    trustDir: storageDir,
-    placementOf: (id) => getPlacement(localStore, id),
-    remotes: () => currentManifest()?.remotes,
-    ssh: NODE_SSH_PROCESS,
-    signal: sshBridgeAbort.signal,
-    debug: (m) => logger.debug(m),
-    warn: (m) => logger.warn(m),
-  });
-  context.subscriptions.push({ dispose: () => { sshBridgeAbort.abort(); void sshBridge.stopAll().catch((e: unknown) => logger.debug(`[ssh] bridge forwarders on dispose failed: ${e instanceof Error ? e.message : String(e)}`)); } });
-  // D556 edit 2: one mirror seam for the fix briefs and the marker replies of an ssh ticket.
-  const mirrorTicketFile = makeTicketMirror({
-    trustDir: storageDir,
-    placementOf: (id) => getPlacement(localStore, id),
-    remotes: () => currentManifest()?.remotes,
-    ssh: NODE_SSH_PROCESS,
-    ensureControlDir: (dir) => ensureSshControlDir(dir),
-    warn: (m) => logger.warn(m),
-    debug: (m) => logger.debug(m),
-  });
-  // D556 edit 5: the attachment and gate-log copies a brief names travel with it.
-  const mirrorTicketDirs = makeTicketMirrorDirs({
-    trustDir: storageDir,
-    placementOf: (id) => getPlacement(localStore, id),
-    remotes: () => currentManifest()?.remotes,
-    bridgeRoot: () => bridgeRoot,
-    ssh: NODE_SSH_PROCESS,
-    ensureControlDir: (dir) => ensureSshControlDir(dir),
-    warn: (m) => logger.warn(m),
-    debug: (m) => logger.debug(m),
-  });
+  // D556: the ssh evidence bridge forwarder and the mirror seams (window-scoped; dispose aborts every stream).
+  const { sshBridge, mirrorTicketFile, mirrorTicketDirs, dispose: disposeSshBridge } = wireSshBridge({ bridgeRoot: () => bridgeRoot, trustDir: storageDir, placementOf: (id) => getPlacement(localStore, id), remotes: () => currentManifest()?.remotes, debug: (m) => logger.debug(m), warn: (m) => logger.warn(m) });
+  context.subscriptions.push({ dispose: disposeSshBridge });
   const graphDeps = createGraphDepsPreflight({ manifest: currentManifest, domainsOf: (id) => graphDomainsFor(id), gitCommonDirOf: gitCommonDirFromFs });
   sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, redriveAfterSetup: (id) => { for (const k of ['uat', 'review'] as const) resumeBlockedStage(localStore, id, id, k); maybeDrive(id, 'sandbox-setup-rerun'); }, openFile: (path) => void vscode.workspace.openTextDocument(path).then((doc) => vscode.window.showTextDocument(doc)), ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id), sshRunner: sshRunnerDeps, startSshBridge: sshBridge.start, controls: (id) => autopilotControls(id) || sandboxLife.controls(id) }); // AC-32, D823: only the controlling window re-opens ssh tunnels (the session owner, or this project when no window runs the ticket: a kept stack)
   // The host gate re-run (@arch:AC-45): one dependency set for its three call sites, run through `runGateList`.
