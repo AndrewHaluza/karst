@@ -71,10 +71,15 @@ export async function removeVerified(
   deps: SandboxLifecycleDeps,
   dispose: () => Promise<DisposeResult>,
   stillListed: (s: ProjectSandbox) => boolean,
+  /** The remote whose listing verifies the removal: when that listing fails, an absent box proves nothing. */
+  sshRemote?: string,
 ): Promise<DisposeResult> {
   const result = await dispose();
   if (!result.ok) return result;
   const inv = await inventoryOf(deps);
+  if (sshRemote !== undefined && listingFailedFor(inv.errors, 'ssh', sshRemote)) {
+    return disposeResult([...result.steps, { step: 'inventory', status: 'failed', stderr: `removal not verified: the listing of ssh remote ${sshRemote} failed` }]);
+  }
   if (!inv.sandboxes.some(stillListed)) return result;
   return disposeResult([...result.steps, { step: 'inventory', status: 'failed', stderr: 'still listed after removal' }]);
 }
@@ -206,7 +211,7 @@ function removeListedSshBox(deps: SandboxLifecycleDeps, box: Pick<ProjectSandbox
   if (runner === undefined) {
     return Promise.resolve(disposeResult([{ step: 'ssh', status: 'failed', stderr: `ssh: the listed box ${box.name} names no remote` }]));
   }
-  return removeVerified(deps, () => runner.dispose!(ref), (s) => s.runner === 'ssh' && s.remote === box.remote && s.name === box.name);
+  return removeVerified(deps, () => runner.dispose!(ref), (s) => s.runner === 'ssh' && s.remote === box.remote && s.name === box.name, box.remote);
 }
 
 async function removeOneGuarded(
@@ -246,7 +251,7 @@ async function removeOneGuarded(
     }
     const removal = listedSsh
       // The probe reads `repo/.git`, so it cannot verify the removal of a dir without one: a fresh listing of the same remote does.
-      ? await removeVerified(deps, () => runner.dispose!(ref), (s) => s.runner === 'ssh' && s.remote === box.remote && s.name === box.name)
+      ? await removeVerified(deps, () => runner.dispose!(ref), (s) => s.runner === 'ssh' && s.remote === box.remote && s.name === box.name, box.remote)
       : box.runner === 'ssh'
         ? await removeSshVerified(runner, ref)
         : await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);

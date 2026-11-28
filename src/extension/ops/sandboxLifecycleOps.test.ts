@@ -935,6 +935,38 @@ describe('ssh lifecycle: done, idle, archive, orphans and provider switch (D824,
     expect(notify.info).not.toHaveBeenCalledWith('Removed the sandbox of T-7.');
   });
 
+  it('a listed ssh dir without a clone whose re-list fails after the dispose is not verified, never "Removed"', async () => {
+    const answers: Record<string, FakeSshAnswer> = {
+      'karst-ssh-probe': { code: 44 }, 'karst-ssh-dispose': { code: 0 }, [DIR]: dirListing(sshName(7)),
+    };
+    const ssh = fakeSshProcess(answers);
+    const run = ssh.run;
+    const flaky = Object.assign(ssh, {
+      run: async (...a: Parameters<typeof run>) => {
+        const out = await run(...a);
+        // The dispose works, but the remote then drops: the verifying re-list fails.
+        if ((a[0].at(-1) ?? '').includes('karst-ssh-dispose')) answers[DIR] = { code: 255, stderr: 'Connection closed\n', transport: true };
+        return out;
+      },
+    });
+    const { d, notify } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(flaky),
+    });
+    await expect(removeSandboxGuarded(d, sshTarget)).resolves.toBe(false);
+    expect(disposed(ssh)).toBe(true);
+    expect(notify.info).not.toHaveBeenCalledWith('Removed the sandbox of T-7.');
+  });
+
+  it('done+merged removal disposes a listed ssh dir without a clone and counts it', async () => {
+    const ssh = sshDisposable(sshName(7), 44, 44);
+    const { d } = deps({
+      inv: [], projectRoot: '/p', placementOf: () => fakeSshPlacement(7), worktreeOf: () => '/wt', sshRunner: fakeSshRunnerDeps(ssh),
+    });
+    const targetOf = (id: number, core: string) => ({ ticketId: id, ticketLabel: `T-${id}`, core, worktree: undefined });
+    await expect(removeDoneMergedSandboxes(d, new Set([7]), targetOf)).resolves.toBe(1);
+    expect(disposed(ssh)).toBe(true);
+  });
+
   it('an unlisted placement box whose probe is absent has nothing to remove', async () => {
     const ssh = fakeSshProcess({ 'karst-ssh-probe': { code: 44 }, [DIR]: dirListing(undefined) });
     const { d } = deps({

@@ -164,13 +164,20 @@ describe('ResourceMonitor remote workspaces (D824, edit 7)', () => {
     let next: RemoteWorkspaceSample = {
       rows: new Map([['a', [row(7, 'ssh a')]], ['b', [row(8, 'ssh b')]]]), failed: new Set(),
     };
-    const m = make(async () => next);
+    const debug = vi.fn();
+    const m = new ResourceMonitor({
+      store, projectId: () => undefined, worktreeRoots: () => [], debug, cpuCoreCount: 4,
+      readSnapshot: async () => ({ supported: true, snapshot: parseProcTable(SNAP, 1000) }),
+      remoteWorkspaces: async () => next,
+    });
     await m.refreshNow();
     await m.refreshRemoteWorkspaces();
     expect(remoteRows(m).map((r) => r.label)).toEqual(['ssh a', 'ssh b']);
+    expect(debug).not.toHaveBeenCalledWith(expect.stringContaining('remote listing failed'));
     next = { rows: new Map([['b', []]]), failed: new Set(['a']) };
     await m.refreshRemoteWorkspaces();
     expect(remoteRows(m).map((r) => r.label)).toEqual(['ssh a']);
+    expect(debug).toHaveBeenCalledWith('[resources] remote listing failed (a) — keeping the previous rows');
     m.dispose();
   });
 
